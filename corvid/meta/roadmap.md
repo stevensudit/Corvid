@@ -15,8 +15,6 @@ contract.
 
 The pending `proxy` changes, in the order to land them:
 
-- `reset()` and `nullptr` assignment, for parity with `flexi_function`.
-  Both empty the proxy and reinstall its type's empty table.
 - Vocabulary sweep in `proxy.h` / `proxy.md`. The internal table identifiers
   (`to_sbo`, `sbo_table`, `sbo_copy`) still say "sbo", and
   the prose still says "re-boxed" for an inline-to-heap move, which falsely
@@ -40,6 +38,10 @@ The pending `proxy` changes, in the order to land them:
   extracts at the address it went in at). `extract` prunes the home its
   policy never uses, as `do_adopt` does, which is also what keeps the
   analyzer off the never-written buffer on that path.
+  `reset()` and `nullptr` assignment are landed too, both over the private
+  `do_reset`, emptying the proxy onto its own type's empty table; pinned in
+  "Empty proxies honor on_empty" (inline target, both spellings, both
+  behaviors) and "Owning proxy, heap target" (destruction counted).
 
 ## In progress: shared code between proxy and flexi_function
 

@@ -1050,9 +1050,10 @@ without touching existing registrations.)
 the baseline handle: a two-pointer inline buffer at `std::max_align_t`
 alignment, with heap fallback. A target stores inline when it fits the
 buffer, is no more strictly aligned, and is nothrow-move-constructible.
-Anything else is a unique-owned heap allocation. A default-constructed or
-moved-from proxy is empty, testable via `operator bool`, and calling
-through one runs the policy's empty-call behavior (see "Empty handles").
+Anything else is a unique-owned heap allocation. A default-constructed,
+moved-from, or reset proxy (`reset()`, or assigning `nullptr`) is empty,
+testable via `operator bool`, and calling through one runs the policy's
+empty-call behavior (see "Empty handles").
 
 The policy is shared with `flexi_function` and lives in `invocable_policy.h`. Its `empty` knob selects the empty-call behavior, and `enforcement` whether that behavior is applied best-effort or exactly (both under "Empty handles"). The other three are storage knobs. The `fixed_function` lesson is that the
 default inline buffer is sometimes a little too small, so `inline_size` and `inline_align`

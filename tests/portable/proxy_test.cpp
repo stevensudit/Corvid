@@ -2012,6 +2012,17 @@ TEST_CASE("Empty proxies honor on_empty", "[proxy]") {
   CHECK_THROWS_AS(taken.call<"fire">(1), std::bad_function_call);
   CHECK(hollow.fire(1) == 3);
 
+  // A reset proxy, or one assigned `nullptr`, is likewise empty on its own
+  // behavior.
+  hollow.reset();
+  CHECK(!hollow);
+  CHECK_THROWS_AS(hollow.fire(1), std::bad_function_call);
+  auto nulled = make_proxy<gunslinger, lawman, policies::silent>();
+  CHECK(nulled.fire(1) == 1);
+  nulled = nullptr;
+  CHECK(!nulled);
+  CHECK(nulled.fire(1) == 0);
+
   // An empty source upcasts to an empty proxy of the destination's behavior.
   proxy<marshal, policies::silent> em;
   proxy<gunslinger> eg = std::move(em);
@@ -2193,6 +2204,11 @@ TEST_CASE("Owning proxy, heap target", "[proxy]") {
     // NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
     CHECK(stats.destroyed == 1);
     CHECK(q.call<"gold">() == 0);
+
+    // A reset destroys the target at once, without waiting for the proxy.
+    q.reset();
+    CHECK(!q);
+    CHECK(stats.destroyed == 2);
   }
   CHECK(stats.destroyed == stats.constructed);
 }

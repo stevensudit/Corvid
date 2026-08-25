@@ -99,7 +99,7 @@ using namespace invocables;
 
 #pragma region Method and key
 
-// `method_key`: a tag carrying a method name as a compile-time string.
+// `method_key` is the tag carrying a method name as a compile-time string.
 //
 // `proxy_impl` bindings overload their `on` hook on it; it is how code
 // canonically names a method, given that a library cannot mint a member with a
@@ -134,7 +134,7 @@ namespace details {
 // `details::` calls below find them.
 using namespace invocables::implementation;
 
-// `storage_mode_of`: where a `proxy` under policy `p` keeps a `T`: `inlined`
+// `storage_mode_of` is where a `proxy` under policy `p` keeps a `T`: `inlined`
 // when the policy can store it inline, else `dynamic`.
 //
 // Never `direct`. A `proxy` table always resolves a target address, so a
@@ -148,7 +148,7 @@ consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
              : storage_mode::dynamic;
 }
 
-// `name_is_unqualified`: whether `s` avoids the `"::"` separator, which
+// `name_is_unqualified` is whether `s` avoids the `"::"` separator, which
 // qualified keys reserve for splitting the facade name from the method name.
 [[nodiscard]] consteval bool name_is_unqualified(std::string_view s) noexcept {
   return !s.contains("::");
@@ -156,7 +156,7 @@ consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
 
 } // namespace details
 
-// `method`: Method descriptor, a name plus the erased signature.
+// `method` is the descriptor with the name plus the erased signature.
 //
 // The signature is spelled like a member function's definition. So, for
 // example, it would look like `std::string(int)`. Or, for `const this`, it
@@ -207,7 +207,7 @@ struct method: method_key<Name> {
 #pragma endregion
 #pragma region Facade
 
-// `facade`: facade base, an interface definition.
+// `facade` is the base that defines the interface.
 //
 // Derive a named struct from `facade`, listing the facade's `name` and its
 // methods. For example:
@@ -261,19 +261,20 @@ struct facade {
 
 namespace details {
 
-// `probe`: Probe for the unique public `facade` base of `F`.
+// Probe for the unique public `facade` base of `F`.
+//
 // Declared only; used in unevaluated contexts.
 template<typename... Ms>
 auto probe(const facade<Ms...>&) -> facade<Ms...>;
 
 } // namespace details
 
-// `Facade`: concept for a type derived from a single `facade` base.
+// `Facade` is a concept for a type derived from a single `facade` base.
 template<typename F>
 concept Facade = requires(const F& f) { details::probe(f); };
 
-// `extends`: facade composition entry declaring that the facade extends `B`
-// (Rust supertrait, ngcpp `add_facade`).
+// `extends` is the facade composition entry declaring that the facade extends
+// `B` (Rust supertrait, ngcpp `add_facade`).
 //
 // Listed in the facade's method list alongside the methods, conventionally
 // after the `name`. For example:
@@ -317,8 +318,8 @@ concept Facade = requires(const F& f) { details::probe(f); };
 template<Facade B>
 struct extends {};
 
-// `name`: facade name entry, giving the facade a formal name, which qualifies
-// its methods.
+// `name` is the facade name entry, giving the facade a formal name, which
+// qualifies its methods.
 //
 // Listed in the facade's entry list, conventionally first. For example:
 //
@@ -347,10 +348,11 @@ struct name {
 
 namespace details {
 
-// `no_api`: stand-in API base for facades that define no member-call sugar.
+// `no_api` is the stand-in API base for facades that define no member-call
+// sugar.
 struct no_api {};
 
-// `api_base`: sugar base for handles of facade `F`.
+// `api_base` is the sugar base for handles of facade `F`.
 //
 // Yields the facade's nested `api` when it defines one, and the empty stand-in
 // otherwise. The selection has to be lazy (a specialization rather than a
@@ -375,7 +377,7 @@ using api_base_t = api_base<F>::type;
 #pragma endregion
 #pragma region Registration and binding
 
-// `proxy_impl_base` is a convenience base for binding classes: a facade's
+// `proxy_impl_base` is the convenience base for binding classes: a facade's
 // `boilerplate`, or a registration-carried impl.
 //
 // Inheriting it is optional, and a binding class that inherits a boilerplate
@@ -386,8 +388,8 @@ struct proxy_impl_base {
   using method_key = prox::method_key<Name>;
 };
 
-// `proxy_impl` is a binding point between a facade and a concrete type (Rust's
-// `impl Trait for Type`).
+// `proxy_impl` is the binding point between a facade and a concrete type
+// (Rust's `impl Trait for Type`).
 //
 // The primary template is a bare forward declaration: it never receives a
 // body, so instantiating it directly yields an incomplete type. Every usable
@@ -459,7 +461,7 @@ struct proxy_impl_base {
 template<typename F, typename T>
 struct proxy_impl;
 
-// `proxy_spec`: minimal registration spec.
+// `proxy_spec` is the minimal registration spec.
 //
 // The value a registration hook returns. Distinct from `corvid_proxy_spec`,
 // which is the hook itself, provided by the user.
@@ -485,21 +487,20 @@ struct proxy_spec {
 
 namespace details {
 
-// Forward declaration; defined under "API validation".
+// Fwd.
 template<Facade F>
 struct api_probe;
 
-// Forward declaration; defined under "API validation".
 template<Facade F>
 [[nodiscard]] consteval bool are_base_boilerplates_visible() noexcept;
 
 } // namespace details
 
-// Forward declaration; defined under "API validation".
+// Fwd.
 template<Facade F>
 [[nodiscard]] consteval bool validate_api() noexcept;
 
-// `api_check`: whether registering a pair also validates the facade's `api`
+// `api_check` is whether registering a pair also validates the facade's `api`
 // (see `validate_api`).
 //
 // A facade whose `api` deliberately deviates from the method list (say, a
@@ -508,7 +509,7 @@ enum class api_check : std::uint8_t { off, on };
 
 namespace details {
 
-// `maybe_validate_api`: registration-time half of `validate_api`.
+// `maybe_validate_api` is the registration-time half of `validate_api`.
 //
 // Run the check when the facade has an `api` and the registration has not
 // opted out.
@@ -538,7 +539,7 @@ consteval void maybe_validate_api() noexcept {
 
 } // namespace details
 
-// `make_proxy_spec`: make the registration spec for a (facade, type) pair.
+// `make_proxy_spec` to make the registration spec for a (facade, type) pair.
 //
 // Call this from a `corvid_proxy_spec` overload, just as
 // `make_sequence_enum_spec` is returned from `corvid_enum_spec`.
@@ -572,15 +573,15 @@ template<typename F, typename T, typename Impl,
 
 namespace details {
 
-// `registered_spec_t`: return type of the pair's registration hook, found by
-// ADL exactly as `ProxyRegistered` finds it.
+// `registered_spec_t` is the return type of the pair's registration hook,
+// found by ADL exactly as `ProxyRegistered` finds it.
 template<typename F, typename T>
 using registered_spec_t = decltype(corvid_proxy_spec(static_cast<F*>(nullptr),
     static_cast<T*>(nullptr)));
 
 } // namespace details
 
-// `ProxyRegistered`: concept for a (facade, type) pair being registered.
+// `ProxyRegistered` is the concept for a (facade, type) pair being registered.
 //
 // To register a pair, declare a `corvid_proxy_spec(F*, T*)` overload returning
 // `make_proxy_spec<F, T>()`, in the namespace of either the facade or the
@@ -617,8 +618,8 @@ concept ProxyRegistered = requires {
                    typename details::registered_spec_t<F, T>::target_t>;
 };
 
-// `SpecCarriesImpl`: concept for a (facade, type) pair whose registration
-// carries an impl.
+// `SpecCarriesImpl` is the concept for a (facade, type) pair whose
+// registration carries an impl.
 //
 // True when the pair is registered through the three-type
 // `make_proxy_spec<F, T, Impl>()`, which names the binding class serving the
@@ -638,13 +639,14 @@ concept SpecCarriesImpl =
 
 namespace details {
 
-// `registered_impl_t`: impl type carried by the pair's registration.
+// `registered_impl_t` is the impl type carried by the pair's registration.
 template<typename F, typename T>
 using registered_impl_t = registered_spec_t<F, T>::impl_t;
 
 } // namespace details
 
-// `proxy_impl`: library-provided delegation to a registration-carried impl.
+// `proxy_impl` is the library-provided delegation to a registration-carried
+// impl.
 //
 // The registration names the binding class, so the impl is explicitly
 // registered like everything else, and the class itself can be local to the
@@ -654,8 +656,8 @@ template<Facade F, typename T>
 requires SpecCarriesImpl<F, T>
 struct proxy_impl<F, T>: details::registered_impl_t<F, T> {};
 
-// `proxy_impl`: library-provided delegation to a facade-hosted boilerplate
-// impl.
+// `proxy_impl` is the library-provided delegation to a facade-hosted
+// boilerplate impl.
 //
 // When a facade defines a nested `boilerplate` class template and the
 // (facade, type) pair is registered, this serves as the pair's `proxy_impl`,
@@ -670,8 +672,8 @@ requires(ProxyRegistered<F, T> && !SpecCarriesImpl<F, T> &&
          requires { typename F::template boilerplate<T>; })
 struct proxy_impl<F, T>: F::template boilerplate<T> {};
 
-// `proxy_spec_v`: central access point for the registered spec, mirroring
-// `enum_spec_v`.
+// `proxy_spec_v` is the central access point for the registered spec,
+// mirroring `enum_spec_v`.
 //
 // Each specialization deduces its own type, so richer spec types can be
 // introduced later without touching existing registrations.
@@ -685,8 +687,8 @@ constexpr inline auto proxy_spec_v =
 
 namespace details {
 
-// `method_traits`: per-method dispatch machinery for method `M`, matched on
-// its `function_t` to recover the result and parameter pack.
+// `method_traits` is the per-method dispatch machinery for method `M`, matched
+// on its `function_t` to recover the result and parameter pack.
 //
 // Contains the thunk pointer type, the compile-time check that a `proxy_impl`
 // binding exists, and the thunk itself, which is where the concrete type is
@@ -706,16 +708,16 @@ struct method_traits<M, R(Args...)> {
   using erased_ptr_t = std::conditional_t<M::is_const, const void*, void*>;
   using thunk_ptr_t = R (*)(erased_ptr_t, Args...) noexcept(M::is_noexcept);
 
-  // `norm_args_t`: parameter list normalized for exact-match probing.
+  // `norm_args_t` is the parameter list normalized for exact-match probing.
   //
   // Top-level cv and references stripped from each parameter, so
   // value-category spelling is ignored, but a merely-convertible type does not
   // match.
   using norm_args_t = std::tuple<std::remove_cvref_t<Args>...>;
 
-  // `is_exact`, `is_viable`: whether `CallArgs` match the declared parameters
-  // exactly after normalization, and whether they are merely viable through
-  // the ordinary conversions a call performs.
+  // `is_exact` and `is_viable` are whether `CallArgs` match the declared
+  // parameters exactly after normalization, and whether they are merely viable
+  // through the ordinary conversions a call performs.
   //
   // Exactness is the validation probe's strictness; viability is how
   // `resolve` tells an ambiguous call from an unmatched one when the ranking
@@ -749,18 +751,18 @@ struct method_traits<M, R(Args...)> {
         };
   }
 
-  // `empty_traits`: the empty-call rules for `R`.
+  // `empty_traits` has the empty-call rules for `R`.
   using empty_traits = empty_call_traits<R>;
 
-  // `empty_behavior`: the behavior this method's empty thunk takes under the
+  // `empty_behavior` is the behavior this method's empty thunk takes under the
   // policy floor `floor`, the mildest at or above it that the signature
   // admits.
   static consteval on_empty empty_behavior(on_empty floor) noexcept {
     return empty_traits::resolve_floor(floor, M::noexcept_specifier);
   }
 
-  // `make_empty_thunk`: the thunk an empty handle dispatches this method to
-  // under the policy floor `Floor`; see `empty_behavior`.
+  // `make_empty_thunk` is to make the thunk an empty handle dispatches this
+  // method to under the policy floor `Floor`; see `empty_behavior`.
   template<on_empty Floor>
   static consteval thunk_ptr_t make_empty_thunk() noexcept {
     return [](erased_ptr_t, Args...) noexcept(M::is_noexcept) -> R {
@@ -769,15 +771,15 @@ struct method_traits<M, R(Args...)> {
   }
 };
 
-// `empty_relocate`: the empty table's relocate slot, with nothing to move.
+// `empty_relocate` is the empty table's relocate slot, with nothing to move.
 //
 // A thunk rather than a null slot, so that an empty proxy's `target` resolves
 // to its buffer, a valid address, rather than reading the heap pointer it
 // never wrote.
 inline void empty_relocate(void*, void*) noexcept {}
 
-// `sbo_copy`, `heap_copy`: copy thunks, present in the owning table only for
-// copy-constructible targets.
+// `sbo_copy` and `heap_copy` are copy thunks, present in the owning table only
+// for copy-constructible targets.
 //
 // Both return the copy's address. `sbo_copy` copy-constructs `*from` into
 // the buffer at `to` (and the return is that same address); `heap_copy`
@@ -794,8 +796,8 @@ void* heap_copy(const void* from, void* /*to*/) {
   return new T(*static_cast<const T*>(from));
 }
 
-// `type_tag_v`: type identity tag: the address of `type_tag_v<T>` identifies
-// `T` uniquely across the program, without RTTI.
+// `type_tag_v` is the type identity tag, such that the address of
+// `type_tag_v<T>` identifies `T` uniquely across the program, without RTTI.
 //
 // The owning table carries it, so typed operations on an erased target can
 // verify the type at runtime.
@@ -807,14 +809,15 @@ void* heap_copy(const void* from, void* /*to*/) {
 template<typename T>
 inline std::byte type_tag_v{};
 
-// `facade_tag_v`: facade identity tag, the facade analog of `type_tag_v`.
+// `facade_tag_v` is the facade identity tag, which is the facade analog of
+// `type_tag_v`.
 //
 // Birth-ancestry entries carry it, so `try_downcast` can match a facade at
 // runtime. Non-const for the same linker-folding reason.
 template<Facade F>
 inline std::byte facade_tag_v{};
 
-// `vtable_builder`: facade-wide dispatch machinery, specialized on the
+// `vtable_builder` is the facade-wide dispatch machinery, specialized on the
 // `facade` base to get at the entry pack.
 //
 // Contains the flattened method list, name-to-slot lookup, the dispatch table
@@ -823,11 +826,11 @@ inline std::byte facade_tag_v{};
 template<typename FB>
 struct vtable_builder;
 
-// `vtbuild_t`: facade-wide machinery for the derived facade type `F`.
+// `vtbuild_t` is the facade-wide machinery for the derived facade type `F`.
 template<Facade F>
 using vtbuild_t = vtable_builder<decltype(probe(std::declval<const F&>()))>;
 
-// `vtable_for`: per-(facade, type, born facade) dispatch table instance.
+// `vtable_for` is the per-(facade, type, born facade) dispatch table instance.
 //
 // The handle stores a pointer to this; the table pointer lives in the handle,
 // not in the target (a fat handle, like Rust's `&dyn`). A composed facade's
@@ -845,8 +848,8 @@ template<Facade F, typename T, Facade Born = F>
 constexpr inline vtbuild_t<F>::vtable_t vtable_for =
     vtbuild_t<F>::template make_vtable<F, T, Born>();
 
-// `owning_vtable_for`: per-(facade, born facade, type, storage mode) owning
-// dispatch table instance, for `proxy`.
+// `owning_vtable_for` is the per-(facade, born facade, type, storage mode)
+// owning dispatch table instance, for `proxy`.
 //
 // `StorageMode` is where the target lives, `storage_mode::inlined` or
 // `storage_mode::dynamic`, decided by the constructing handle's policy as
@@ -868,8 +871,8 @@ template<Facade F, Facade Born, typename T, storage_mode StorageMode>
 constexpr inline vtbuild_t<F>::owning_vtable_t owning_vtable_for =
     vtbuild_t<F>::template make_owning_vtable<F, Born, T, StorageMode>();
 
-// `empty_vtable_for`, `empty_owning_vtable_for`: per-(facade, empty floor)
-// tables for a handle holding no target.
+// `empty_vtable_for` and `empty_owning_vtable_for` are the per-(facade, empty
+// floor) tables for a handle holding no target.
 //
 // Each dispatch slot holds the method's empty thunk (see `make_empty_thunk`),
 // so calling through an empty handle runs the policy's `on_empty` behavior
@@ -888,7 +891,7 @@ template<Facade F, on_empty Floor>
 constexpr inline vtbuild_t<F>::owning_vtable_t empty_owning_vtable_for =
     vtbuild_t<F>::template make_empty_owning_vtable<F, Floor>();
 
-// `ancestor_entry`: one entry of a birth ancestry.
+// `ancestor_entry` is one entry of a birth ancestry.
 //
 // Contains a facade's identity tag and that facade's table for the same birth
 // and target: an owning table in an owning ancestry (which is also per
@@ -898,8 +901,8 @@ struct ancestor_entry {
   const void* table{};
 };
 
-// `ancestry_t`: type-erased view of a birth ancestry, the facade the target
-// was born as plus every facade it transitively extends.
+// `ancestry_t` is the type-erased view of a birth ancestry, the facade the
+// target was born as plus every facade it transitively extends.
 //
 // Every table points at its born family's ancestry of its own kind: owning
 // tables at an owning ancestry, view tables at a view ancestry; the
@@ -909,7 +912,7 @@ struct ancestry_t {
   size_t count{};
 };
 
-// `find_ancestor`: the table of the ancestry member whose tag is `tag`, or
+// `find_ancestor` is the table of the ancestry member whose tag is `tag`, or
 // null when the facade is not in the ancestry.
 //
 // This is `try_downcast`'s runtime search; the tag match is what proves the
@@ -922,9 +925,9 @@ find_ancestor(const ancestry_t& ancestry, const void* tag) noexcept {
   return nullptr;
 }
 
-// `find_downcast_table`: `D`'s view table from `vt`'s birth ancestry, or null
-// when `vt` is an empty table (which has no ancestry) or the born family does
-// not include `D`.
+// `find_downcast_table` is `D`'s view table from `vt`'s birth ancestry, or
+// null when `vt` is an empty table (which has no ancestry) or the born family
+// does not include `D`.
 //
 // The shared lookup behind every view-table `try_downcast`; `F` is the
 // handle's own facade, spelling the source table type, so call sites pass
@@ -938,8 +941,8 @@ find_downcast_table(const typename vtbuild_t<F>::vtable_t* vt) noexcept
       find_ancestor(*vt->ancestry, &facade_tag_v<D>));
 }
 
-// `make_ancestor_table`: build the ancestor table for a target born as (Born,
-// T, StorageMode).
+// `make_ancestor_table` to build the ancestor table for a target born as
+// (Born, T, StorageMode).
 //
 // Contains `Born` itself first, then every facade it extends, all keyed by the
 // same birth. The tuple pointer parameter carries
@@ -957,7 +960,7 @@ constexpr inline auto ancestor_table_for =
     make_ancestor_table<Born, T, StorageMode>(
         static_cast<vtbuild_t<Born>::ancestors_t*>(nullptr));
 
-// `ancestry_for`: the birth ancestry for a target born as (Born, T,
+// `ancestry_for` is the birth ancestry for a target born as (Born, T,
 // StorageMode), the object every owning table of that born family points at.
 //
 // Each storage mode has its own ancestry, whose entries are that mode's
@@ -969,7 +972,7 @@ constexpr inline ancestry_t ancestry_for{
     ancestor_table_for<Born, T, StorageMode>.data(),
     ancestor_table_for<Born, T, StorageMode>.size()};
 
-// `make_view_ancestor_table`: build the view-table ancestor table for a
+// `make_view_ancestor_table` to build the view-table ancestor table for a
 // target born as (Born, T), mirroring `make_ancestor_table`.
 //
 // A parallel family over the view tables, rather than entries into the
@@ -988,7 +991,7 @@ constexpr inline auto view_ancestor_table_for =
     make_view_ancestor_table<Born, T>(
         static_cast<vtbuild_t<Born>::ancestors_t*>(nullptr));
 
-// `view_ancestry_for`: the birth ancestry for a view over a target born as
+// `view_ancestry_for` is the birth ancestry for a view over a target born as
 // (Born, T), the object every view table of that born family points at.
 //
 // There is no storage-mode axis here; a view has no storage.
@@ -997,7 +1000,7 @@ constexpr inline ancestry_t view_ancestry_for{
     view_ancestor_table_for<Born, T>.data(),
     view_ancestor_table_for<Born, T>.size()};
 
-// `slot`: flattened dispatch slot, containing one facade method plus the
+// `slot` is the flattened dispatch slot, containing one facade method plus the
 // facade that declared it.
 //
 // The owner is `void` while the declaring facade is the one being built,
@@ -1022,7 +1025,7 @@ struct slot {
   using result_t = M::result_t;
 };
 
-// `retagged`: retag base facade `B`'s own slots with `B` itself, leaving
+// `retagged` retags base facade `B`'s own slots with `B` itself, leaving
 // inherited slots untouched, as `extends<B>` flattens B's list into the
 // derived facade's.
 template<Facade B, typename S>
@@ -1034,7 +1037,7 @@ struct retagged<B, slot<void, M>> {
   using type = slot<B, M>;
 };
 
-// `retag_slots`: retag all slots in a tuple with `B`.
+// `retag_slots` retags all slots in a tuple with `B`.
 template<Facade B, typename Slots>
 struct retag_slots;
 template<Facade B, typename... Ss>
@@ -1044,7 +1047,7 @@ struct retag_slots<B, std::tuple<Ss...>> {
 template<Facade B, typename Slots>
 using retag_slots_t = retag_slots<B, Slots>::type;
 
-// `first_index_of_type`: first position of type `S` in `Ss`, for dedup's
+// `first_index_of_type` is the first position of type `S` in `Ss`, for dedup's
 // first-occurrence test.
 template<typename S, typename... Ss>
 consteval size_t first_index_of_type() noexcept {
@@ -1054,7 +1057,7 @@ consteval size_t first_index_of_type() noexcept {
   return sizeof...(Ss);
 }
 
-// `dedup_slots`: remove duplicate slot types, keeping first occurrences in
+// `dedup_slots` to remove duplicate slot types, keeping first occurrences in
 // order.
 //
 // A slot type recurs when the same ancestor facade is reached through more
@@ -1076,9 +1079,9 @@ struct dedup_slots<std::tuple<Ss...>> {
 template<typename Slots>
 using dedup_slots_t = dedup_slots<Slots>::type;
 
-// `slot_thunk`: thunk for one slot.
+// `slot_thunk` is the thunk for one slot.
 //
-// An inherited method binds through its declaring facade, an own method
+// An inherited method binds through its declaring facade, an own method binds
 // through `F` itself, so per-facade conformance survives flattening verbatim
 // and an upcast handle cannot disagree with the derived one.
 template<typename F, typename T, typename S>
@@ -1089,9 +1092,9 @@ consteval auto slot_thunk() noexcept {
       T>();
 }
 
-// `slot_owner_name`: name that qualifies slot `S`, in a facade whose own name
-// is `OwnName`, which is the declaring facade's name for an inherited slot,
-// `OwnName` for an own one.
+// `slot_owner_name` is the name that qualifies slot `S`, in a facade whose own
+// name is `OwnName`, which is the declaring facade's name for an inherited
+// slot, `OwnName` for an own one.
 template<fixed_string OwnName, typename S>
 consteval auto slot_owner_name() noexcept {
   if constexpr (std::is_void_v<typename S::owner_t>)
@@ -1100,8 +1103,8 @@ consteval auto slot_owner_name() noexcept {
     return vtbuild_t<typename S::owner_t>::name_v;
 }
 
-// `have_same_chain_owners`: whether the declaring facades of two slots lie in
-// one extends chain: identical, or one extends the other, with the facade
+// `have_same_chain_owners` is whether the declaring facades of two slots lie
+// in one extends chain: identical, or one extends the other, with the facade
 // being built (`void`) counting as extending every inherited owner.
 template<typename S1, typename S2>
 consteval bool have_same_chain_owners() noexcept {
@@ -1115,9 +1118,9 @@ consteval bool have_same_chain_owners() noexcept {
            vtbuild_t<o2_t>::template extends_facade<o1_t>();
 }
 
-// `is_legal_overload_pair`: whether two same-name slots form a legal overload
-// pair: distinct normalized argument lists, or the same arguments with
-// different constness (the const-pair idiom, a mutable accessor and a
+// `is_legal_overload_pair` is whether two same-name slots form a legal
+// overload pair: distinct normalized argument lists, or the same arguments
+// with different constness (the const-pair idiom, a mutable accessor and a
 // read-only query sharing a name).
 //
 // The C++ member rules apply: the result type and `noexcept` do not
@@ -1129,7 +1132,7 @@ consteval bool is_legal_overload_pair() noexcept {
   return !std::same_as<args1_t, args2_t> || S1::is_const != S2::is_const;
 }
 
-// `no_chain_collision_against`, `owner_names_unique_against`: the two
+// `no_chain_collision_against` and `owner_names_unique_against` are the two
 // collision detonators, each pitting slot `S1` against the whole list.
 // Post-dedup, a repeated slot type is only ever the self-pairing, so same-type
 // pairs are skipped.
@@ -1168,8 +1171,8 @@ consteval bool owner_names_unique_against() noexcept {
       ...);
 }
 
-// `entry_traits`: traits over one entry of a facade's declaration list, which
-// mixes `method` descriptors with `extends` composition entries.
+// `entry_traits` are the traits over one entry of a facade's declaration list,
+// which mixes `method` descriptors with `extends` composition entries.
 //
 // Each entry contributes slots to the flattened list, base facades to the
 // direct-base list, base-table pointers to the dispatch table, and a
@@ -1213,8 +1216,8 @@ struct entry_traits<name<Name>> {
   static constexpr auto is_bound = true;
 };
 
-// `entry_name`: facade name carried by one entry of a facade's list, empty for
-// every other entry kind.
+// `entry_name` is the facade name carried by one entry of a facade's list,
+// empty for every other entry kind.
 template<typename E>
 struct entry_name {
   static constexpr fixed_string name_v = "";
@@ -1226,7 +1229,7 @@ struct entry_name<name<Name>> {
   static constexpr auto is_name = true;
 };
 
-// `is_entry_listed_once`: whether entry `E` appears exactly once in the
+// `is_entry_listed_once` is whether entry `E` appears exactly once in the
 // facade's declaration list.
 //
 // A literal duplicate entry, the identical `method` or `extends` spelled
@@ -1239,7 +1242,7 @@ consteval bool is_entry_listed_once() noexcept {
   return (0 + ... + std::same_as<E, Es>) == 1;
 }
 
-// `facade_name_of_v`: name of a facade with entries `Es`.
+// `facade_name_of_v` is the name of a facade with entries `Es`.
 //
 // The single `name` entry's string, or empty. Concatenation acts as selection,
 // because at most one entry contributes a nonempty string.
@@ -1247,18 +1250,18 @@ template<typename... Es>
 constexpr inline auto facade_name_of_v =
     (fixed_string{""} + ... + entry_name<Es>::name_v);
 
-// `flat_slots_of_t`: flattened, deduped slot list and direct-base list of a
-// facade's entry pack.
+// `flat_slots_of_t` is the flattened, deduped slot list and direct-base list
+// of a facade's entry pack.
 template<typename... Es>
 using flat_slots_of_t = dedup_slots_t<decltype(std::tuple_cat(
     std::declval<typename entry_traits<Es>::slots_t>()...))>;
 
-// `bases_of_t`: flattened direct-base list of a facade's entry pack.
+// `bases_of_t` is the flattened direct-base list of a facade's entry pack.
 template<typename... Es>
 using bases_of_t = decltype(std::tuple_cat(
     std::declval<typename entry_traits<Es>::bases_t>()...));
 
-// `is_nothrow_args_v`: whether each declared parameter in the `Params` tuple
+// `is_nothrow_args_v` is whether each declared parameter in the `Params` tuple
 // is nothrow-constructible from the corresponding call argument.
 //
 // This is the argument-conversion half of a dispatch's `noexcept`. The
@@ -1274,8 +1277,8 @@ requires(sizeof...(Ps) == sizeof...(CallArgs))
 constexpr inline bool is_nothrow_args_v<std::tuple<Ps...>, CallArgs...> =
     (std::is_nothrow_constructible_v<Ps, CallArgs> && ...);
 
-// `rank_poison`: parameter type nothing converts to, making a probe overload
-// permanently non-viable.
+// `rank_poison` is the parameter type nothing converts to, making a probe
+// overload permanently non-viable.
 //
 // It stands in for the slots outside a key's candidate set, so a `rank_set`
 // can span the whole slot list positionally.
@@ -1283,7 +1286,7 @@ struct rank_poison {
   rank_poison() = delete;
 };
 
-// `rank_probe`: one synthetic overload standing in for the candidate slot at
+// `rank_probe` is one synthetic overload standing in for the candidate slot at
 // index `Ndx` during overload ranking.
 //
 // The call operator's parameters are the slot's declared parameter list and
@@ -1305,7 +1308,7 @@ struct rank_probe<Ndx, const_qual::present, std::tuple<Args...>> {
   std::integral_constant<size_t, Ndx> operator()(Args...) const;
 };
 
-// `rank_set`: the synthetic overload set `resolve` hands to the compiler.
+// `rank_set` is the synthetic overload set `resolve` hands to the compiler.
 //
 // A real call expression against it runs genuine C++ overload resolution
 // over the candidates, promotions, conversion ranks, and object-parameter
@@ -1317,7 +1320,7 @@ struct rank_set: Probes... {
   using Probes::operator()...;
 };
 
-// `empty_fit_check`: strict enforcement's per-method detonator, requiring
+// `empty_fit_check` is strict enforcement's per-method detonator, requiring
 // method `M` to take the policy floor `Floor` exactly on an empty handle.
 //
 // One instantiation per slot, so every method that cannot is reported, each
@@ -1334,9 +1337,9 @@ struct empty_fit_check {
       "admits, or lenient enforcement");
 };
 
-// `vtable_builder_impl`: the flattened core of the builder, over the full slot
-// list `Ss` (bases' methods first, in declaration order, then own, deduped),
-// the direct-base facades `Bs`, and the facade's own name `OwnName`.
+// `vtable_builder_impl` is the flattened core of the builder, over the full
+// slot list `Ss` (bases' methods first, in declaration order, then own,
+// deduped), the direct-base facades `Bs`, and the facade's own name `OwnName`.
 template<typename FlatSlots, typename Bases, fixed_string OwnName>
 struct vtable_builder_impl;
 
@@ -1370,7 +1373,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   using thunks_t = std::tuple<
       typename method_traits<typename Ss::method_t>::thunk_ptr_t...>;
 
-  // `make_thunks`: build the thunk tuple for target `T` of facade `F`,
+  // `make_thunks` to build the thunk tuple for target `T` of facade `F`,
   // containing one thunk per slot, each bound through the slot's declaring
   // facade.
   template<typename F, typename T>
@@ -1378,7 +1381,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return {slot_thunk<F, T, Ss>()...};
   }
 
-  // `make_empty_thunks`: build the thunk tuple of an empty handle under the
+  // `make_empty_thunks` to build the thunk tuple of an empty handle under the
   // policy floor `Floor`, one empty thunk per slot.
   template<on_empty Floor>
   static consteval thunks_t make_empty_thunks() noexcept {
@@ -1386,7 +1389,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
         Floor>()...};
   }
 
-  // `empty_fits_policy`: whether every slot takes `Policy.empty` exactly on
+  // `empty_fits_policy` is whether every slot takes `Policy.empty` exactly on
   // an empty handle, which strict enforcement requires and lenient waives.
   //
   // Under strict enforcement the answer is reached through one
@@ -1401,8 +1404,9 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
           empty_fit_check<typename Ss::method_t, Policy.empty>::value && ...);
   }
 
-  // `vtable_t`: dispatch table, with one thunk slot per flattened method, plus
-  // the address of each direct base's table for the same target type.
+  // `vtable_t` is the dispatch table, with one thunk slot per flattened
+  // method, plus the address of each direct base's table for the same target
+  // type.
   //
   // Dispatch always uses the flattened thunks, so an inherited call costs the
   // same single indexed load as an own one; the base pointers exist for
@@ -1418,7 +1422,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     std::tuple<const typename vtbuild_t<Bs>::vtable_t*...> bases;
   };
 
-  // `extends_facade`: whether this facade transitively extends facade `B`.
+  // `extends_facade` is whether this facade transitively extends facade `B`.
   // Strict: the search covers the bases and their bases, never this facade
   // itself, so a self-match is false.
   template<typename B>
@@ -1428,9 +1432,9 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
         ...);
   }
 
-  // `base_route`: index of the first direct base that is `B` or extends it, or
-  // `base_count_v` when there is none. This is the route `upcast_vtable`
-  // descends.
+  // `base_route` is the index of the first direct base that is `B` or extends
+  // it, or `base_count_v` when there is none. This is the route
+  // `upcast_vtable` descends.
   template<typename B>
   static consteval size_t base_route() noexcept {
     constexpr std::array<bool, sizeof...(Bs)> matches{(
@@ -1441,7 +1445,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return base_count_v;
   }
 
-  // `owner_name`: name that qualifies slot `S`.
+  // `owner_name` is the name that qualifies slot `S`.
   //
   // The declaring facade's name for an inherited slot, this facade's own name
   // otherwise.
@@ -1453,7 +1457,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
       return vtbuild_t<typename S::owner_t>::name_v;
   }
 
-  // `slot_matches`: whether slot `S` answers to `Key`.
+  // `slot_matches` is whether slot `S` answers to `Key`.
   //
   // An unqualified key matches the method name alone; a qualified key
   // ("facade::method") also requires the qualifying facade's name.
@@ -1471,7 +1475,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return owner.view() == qual;
   }
 
-  // `candidates`: per-slot flags over the whole list, marking the slots that
+  // `candidates` is per-slot flags over the whole list, marking the slots that
   // answer to `Key` (const-qualified only, when dispatching through a const
   // handle).
   template<fixed_string Key, access_mode Access>
@@ -1480,10 +1484,10 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
              ((Access == access_mode::as_mutable) || Ss::is_const))...};
   }
 
-  // `exact_flags`, `viable_flags`: per-slot flags over the whole list, marking
-  // the slots whose declared parameters match `CallArgs` exactly (after
-  // normalization) or are viable through the ordinary conversions a call
-  // performs.
+  // `exact_flags` and `viable_flags` are per-slot flags over the whole list,
+  // marking the slots whose declared parameters match `CallArgs` exactly
+  // (after normalization) or are viable through the ordinary conversions a
+  // call performs.
   template<typename... CallArgs>
   static consteval std::array<bool, count_v> exact_flags() noexcept {
     return {method_traits<typename Ss::method_t>::template is_exact<
@@ -1496,15 +1500,15 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
         CallArgs...>...};
   }
 
-  // `both`: narrow flag set `a` by flag set `b`, elementwise.
+  // `both` narrows flag set `a` by flag set `b`, elementwise.
   static consteval std::array<bool, count_v> both(std::array<bool, count_v> a,
       const std::array<bool, count_v>& b) noexcept {
     for (auto ndx = 0UZ; ndx != count_v; ++ndx) a[ndx] = a[ndx] && b[ndx];
     return a;
   }
 
-  // `tally`: count of set flags, plus the last set index (`none_v` when none
-  // are).
+  // `tally` is the count of set flags, plus the last set index (`none_v` when
+  // none are).
   static consteval std::pair<size_t, size_t> tally(
       const std::array<bool, count_v>& flags) noexcept {
     size_t cnt{};
@@ -1517,13 +1521,13 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return {cnt, at};
   }
 
-  // `nonconst_flags`: per-slot flags marking the non-const methods, the
+  // `nonconst_flags` are the per-slot flags marking the non-const methods, the
   // tiebreak preference for `resolve_exact` through a mutable strict call.
   static consteval std::array<bool, count_v> nonconst_flags() noexcept {
     return {!Ss::is_const...};
   }
 
-  // `tally_preferring_nonconst`: tally `flags`, breaking a tie in favor of a
+  // `tally_preferring_nonconst` tallies `flags`, breaking a tie in favor of a
   // unique non-const candidate.
   //
   // This is C++ overload resolution's object-parameter preference, applied
@@ -1545,7 +1549,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return whole;
   }
 
-  // `make_rank_set`: build the `rank_set` type for `Key`'s candidates.
+  // `make_rank_set` to build the `rank_set` type for `Key`'s candidates.
   //
   // The set spans the whole slot list positionally; a non-candidate slot
   // contributes a `rank_poison` overload no call can select, so the winning
@@ -1559,7 +1563,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
             rank_probe<Ndx, const_qual::none, std::tuple<rank_poison>>>...>>{};
   }
 
-  // `resolve`: resolve `Key`, called with `CallArgs`, to a slot index, or to
+  // `resolve` to resolve `Key`, called with `CallArgs`, to a slot index, or to
   // `none_v` or `ambiguous_v`.
   //
   // An unqualified key with a single candidate resolves to it
@@ -1602,7 +1606,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     PRAGMA_DIAG(pop)
   }
 
-  // `resolve_exact`: resolve `Key` to the unique candidate whose declared
+  // `resolve_exact` to resolve `Key` to the unique candidate whose declared
   // parameters match `CallArgs` exactly, with a constness tiebreak standing
   // in for the object-parameter weighing that `resolve` gets from the
   // compiler.
@@ -1618,7 +1622,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return cnt ? ambiguous_v : none_v;
   }
 
-  // `is_const`: whether any method answering to `Key` is const-qualified.
+  // `is_const` is whether any method answering to `Key` is const-qualified.
   //
   // The gate on dispatching `Key` through a const handle. False for an unknown
   // key, since rejecting one is `resolve`'s job.
@@ -1627,7 +1631,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return ((slot_matches<Ss, Key>() && Ss::is_const) || ...);
   }
 
-  // `is_noexcept`: whether the call `Key` resolves to, with `CallArgs`,
+  // `is_noexcept` is whether the call `Key` resolves to, with `CallArgs`,
   // dispatches a noexcept method through nothrow argument conversions.
   //
   // The conversion term keeps the two spellings in agreement. An `api`
@@ -1649,8 +1653,8 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
       return false;
   }
 
-  // `do_result_of`: declared result type of the exact-match candidate for
-  // `Key`, or `void` when there is none.
+  // `do_result_of` is the declared result type of the exact-match candidate
+  // for `Key`, or `void` when there is none.
   //
   // The permissive fallback keeps return-type substitution in the `api_probe`
   // from hard-erroring before its constraint can reject the key.
@@ -1665,7 +1669,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     }
   }
 
-  // `result_of_t`: declared result type of the exact-match candidate for
+  // `result_of_t` is the declared result type of the exact-match candidate for
   // `Key`, or `void` when there is none.
   template<fixed_string Key, access_mode Access, typename... CallArgs>
   using result_of_t = decltype(do_result_of<Key, Access, CallArgs...>())::type;
@@ -1681,7 +1685,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   }
 };
 
-// `vtable_builder`: facade-wide dispatch machinery, specialized on the
+// `vtable_builder` is the facade-wide dispatch machinery, specialized on the
 // `facade` base to get at the entry pack.
 template<typename... Es>
 struct vtable_builder<facade<Es...>>
@@ -1696,8 +1700,8 @@ struct vtable_builder<facade<Es...>>
       facade_name_of_v<Es...>>;
   using vtable_t = impl_t::vtable_t;
 
-  // `is_all_bound`: whether every method of the facade, inherited and own, has
-  // a usable binding for `T`.
+  // `is_all_bound` is whether every method of the facade, inherited and own,
+  // has a usable binding for `T`.
   //
   // Own methods bind through `proxy_impl<F, T>`; inherited ones recurse into
   // their declaring facade, so conforming to a composed facade requires
@@ -1710,9 +1714,9 @@ struct vtable_builder<facade<Es...>>
   static constexpr bool is_all_bound =
       (entry_traits<Es>::template is_bound<F, T> && ...);
 
-  // `make_view_bases`: view-table pointers of the direct bases, for the same
-  // born family and target, built over the direct-base pack (carried by the
-  // tuple pointer parameter, as in `make_ancestor_table`).
+  // `make_view_bases` creates view-table pointers of the direct bases, for the
+  // same born family and target, built over the direct-base pack (carried by
+  // the tuple pointer parameter, as in `make_ancestor_table`).
   //
   // A member with a spelled-out return type for the same reason as
   // `make_owning_bases`: the view ancestry's back-references reach a
@@ -1724,27 +1728,27 @@ struct vtable_builder<facade<Es...>>
     return {&vtable_for<Bs2, T, Born>...};
   }
 
-  // `make_vtable`: build the dispatch table for target `T` of facade `F`, born
-  // as facade `Born`.
+  // `make_vtable` to build the dispatch table for target `T` of facade `F`,
+  // born as facade `Born`.
   template<typename F, typename T, typename Born>
   static consteval vtable_t make_vtable() noexcept {
     return {impl_t::template make_thunks<F, T>(), &view_ancestry_for<Born, T>,
         make_view_bases<T, Born>(static_cast<bases_of_t<Es...>*>(nullptr))};
   }
 
-  // `owning_bases_t`: direct-base owning-table pointers, mirroring
+  // `owning_bases_t` are the direct-base owning-table pointers, mirroring
   // `vtable_t::bases`.
   using owning_bases_t = decltype(std::tuple_cat(
       std::declval<typename entry_traits<Es>::owning_bases_t>()...));
 
-  // `ancestors_t`: every facade this one transitively extends, deduped (a
+  // `ancestors_t` are every facade this one transitively extends, deduped (a
   // diamond's shared ancestor appears once), not including this facade itself.
   //
   // The birth ancestry `try_downcast` searches is built over it.
   using ancestors_t = dedup_slots_t<decltype(std::tuple_cat(
       std::declval<typename entry_traits<Es>::chain_t>()...))>;
 
-  // `owning_vtable_t`: owning dispatch table.
+  // `owning_vtable_t` is the owning dispatch table.
   //
   // Carries housekeeping slots alongside the facade methods, plus the address
   // of each direct base's owning table for the same birth, target type, and
@@ -1784,8 +1788,8 @@ struct vtable_builder<facade<Es...>>
     owning_bases_t bases;
   };
 
-  // `make_owning_bases`: owning-table pointers of the direct bases, for the
-  // same born family, target, and mode, built over the direct-base pack
+  // `make_owning_bases` creates owning-table pointers of the direct bases, for
+  // the same born family, target, and mode, built over the direct-base pack
   // (carried by the tuple pointer parameter, as in `make_ancestor_table`).
   //
   // Deliberately a member rather than an `entry_traits` hook, and with a
@@ -1802,8 +1806,8 @@ struct vtable_builder<facade<Es...>>
     return {&owning_vtable_for<Bs2, Born, T, StorageMode>...};
   }
 
-  // `make_owning_vtable`: build the owning table for target `T` born as facade
-  // `Born`, stored `inlined` or `dynamic` per `StorageMode`.
+  // `make_owning_vtable` is to build the owning table for target `T` born as
+  // facade `Born`, stored `inlined` or `dynamic` per `StorageMode`.
   //
   // The mode is decided at proxy construction from the handle's policy, so it
   // is part of the table's identity rather than a property of the type alone;
@@ -1854,9 +1858,10 @@ struct vtable_builder<facade<Es...>>
     return ovt;
   }
 
-  // `make_empty_view_bases`, `make_empty_owning_bases`: the base-table
-  // pointers of an empty table, leading to the direct bases' empty tables of
-  // the same floor, built over the direct-base pack like `make_view_bases`.
+  // `make_empty_view_bases` and `make_empty_owning_bases` create the
+  // base-table pointers of an empty table, leading to the direct bases' empty
+  // tables of the same floor, built over the direct-base pack like
+  // `make_view_bases`.
   template<on_empty Floor, typename... Bs2>
   static consteval std::tuple<const typename vtbuild_t<Bs2>::vtable_t*...>
   make_empty_view_bases(std::tuple<Bs2...>*) noexcept {
@@ -1869,7 +1874,7 @@ struct vtable_builder<facade<Es...>>
     return {&empty_owning_vtable_for<Bs2, Floor>...};
   }
 
-  // `make_empty_vtable`: build the dispatch table of an empty handle under
+  // `make_empty_vtable` to build the dispatch table of an empty handle under
   // the policy floor `Floor`; see `empty_vtable_for`.
   template<on_empty Floor>
   static consteval vtable_t make_empty_vtable() noexcept {
@@ -1878,8 +1883,9 @@ struct vtable_builder<facade<Es...>>
             static_cast<bases_of_t<Es...>*>(nullptr))};
   }
 
-  // `make_empty_owning_vtable`: build the owning table of an empty `proxy` of
-  // facade `F` under the policy floor `Floor`; see `empty_owning_vtable_for`.
+  // `make_empty_owning_vtable` to build the owning table of an empty `proxy`
+  // of facade `F` under the policy floor `Floor`; see
+  // `empty_owning_vtable_for`.
   //
   // The embedded `vt` is a copy of the standalone instance, as in
   // `make_owning_vtable`. `relocate` is the one non-null housekeeping slot;
@@ -1893,21 +1899,21 @@ struct vtable_builder<facade<Es...>>
   }
 };
 
-// `view_table_t`, `owning_table_t`: facade-to-table alias templates, the
-// families `upcast_table` walks over.
+// `view_table_t` and `owning_table_t` are the facade-to-table alias templates,
+// which the families `upcast_table` walks over.
 template<Facade F>
 using view_table_t = vtbuild_t<F>::vtable_t;
 template<Facade F>
 using owning_table_t = vtbuild_t<F>::owning_vtable_t;
 
-// `upcast_table`: narrow a table pointer from facade `D` to `B`, where `B` is
-// `D` itself or a facade it extends, by following the embedded direct-base
-// table pointers. The shared walk behind `upcast_vtable` and
-// `upcast_owning_vtable`, which differ only in the table family `TableFor`
-// selects.
+// `upcast_table` to narrow a table pointer from facade `D` to `B`, where `B`
+// is `D` itself or a facade it extends, by following the embedded direct-base
+// table pointers.
 //
-// The route is resolved at compile time; the runtime cost is one dependent
-// load per composition level crossed.
+// The shared walk behind `upcast_vtable` and `upcast_owning_vtable`, which
+// differ only in the table family `TableFor`, selects. The route is resolved
+// at compile time; the runtime cost is one dependent load per composition
+// level crossed.
 template<template<Facade> class TableFor, Facade B, Facade D>
 [[nodiscard]] constexpr const TableFor<B>*
 upcast_table(const TableFor<D>* vt) noexcept {
@@ -1922,8 +1928,8 @@ upcast_table(const TableFor<D>* vt) noexcept {
   }
 }
 
-// `upcast_vtable`, `upcast_owning_vtable`: `upcast_table` over the dispatch
-// tables and the owning tables.
+// `upcast_vtable` and `upcast_owning_vtable` are the `upcast_table`s over the
+// dispatch tables and the owning tables.
 template<Facade B, Facade D>
 [[nodiscard]] constexpr auto
 upcast_vtable(const typename vtbuild_t<D>::vtable_t* vt) noexcept
@@ -1938,7 +1944,7 @@ upcast_owning_vtable(const typename vtbuild_t<D>::owning_vtable_t* vt) noexcept
   return upcast_table<owning_table_t, B, D>(vt);
 }
 
-// `dispatch`: shared body of every handle's `call`.
+// `dispatch` is the shared body of every handle's `call`.
 //
 // Resolves `Key` against facade `F`'s slot list, surfaces the user-facing
 // errors, and invokes the thunk on the erased target. `Access` is the
@@ -1967,8 +1973,8 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
 #pragma endregion
 #pragma region Proxiable
 
-// `Extends`: concept for when facade `D` (transitively) extends facade `B`
-// through `extends` composition entries.
+// `Extends` is the concept for when facade `D` (transitively) extends facade
+// `B` through `extends` composition entries.
 //
 // Strict: false when `D` is `B` itself. Constraints that mean "B or anything
 // extending it" pair this with `std::same_as`.
@@ -1977,7 +1983,7 @@ concept Extends =
     Facade<D> && Facade<B> &&
     details::vtbuild_t<D>::template extends_facade<B>();
 
-// `InChainOf`: concept for when facade `B` is `D` itself or a facade `D`
+// `InChainOf` is the concept for when facade `B` is `D` itself or a facade `D`
 // (transitively) extends.
 //
 // This is `Extends` made reflexive and argument-flipped, so it can constrain
@@ -1995,9 +2001,9 @@ concept Extends =
 template<typename B, typename D>
 concept InChainOf = Facade<B> && (std::same_as<B, D> || Extends<D, B>);
 
-// `proxy_view`, `const_proxy_view`, `proxy`, `shared_proxy`, `weak_proxy`:
-// forward declarations of the erased-handle flavors, for the trait below and
-// the cross-handle constructors.
+// `proxy_view`, `const_proxy_view`, `proxy`, `shared_proxy`, and `weak_proxy`
+// are forward declarations of the erased-handle flavors, for the trait below
+// and the cross-handle constructors.
 //
 // The owning proxy's storage policy defaults here, on the first declaration.
 template<Facade F>
@@ -2013,8 +2019,8 @@ class weak_proxy;
 
 namespace details {
 
-// `handle_facade`: facade of a proxy handle type, or `void` for any other
-// type.
+// `handle_facade` is the facade of a proxy handle type, or `void` for any
+// other type.
 template<typename T>
 struct handle_facade {
   using type = void;
@@ -2036,7 +2042,7 @@ struct handle_facade<shared_proxy<F>> {
   using type = F;
 };
 
-// `is_handle_for`: whether `T` is a proxy handle whose facade is `F` or
+// `is_handle_for` is whether `T` is a proxy handle whose facade is `F` or
 // extends it, the set served by the dedicated viewing and upcasting
 // constructors.
 //
@@ -2051,7 +2057,7 @@ consteval bool is_handle_for() noexcept {
     return std::same_as<G, F> || Extends<G, F>;
 }
 
-// `qualified_key`: `Key` qualified by facade `F`'s name.
+// `qualified_key` is the `Key` qualified by facade `F`'s name.
 //
 // The library's self-conformance bindings forward through this spelling: `Key`
 // there is always one of `F`'s own method names, so the qualified key stays
@@ -2064,7 +2070,7 @@ consteval auto qualified_key() noexcept {
 
 } // namespace details
 
-// `Proxiable`: concept for when `T` can back facade `F`.
+// `Proxiable` is the concept for when `T` can back facade `F`.
 //
 // Satisfied when a usable `proxy_impl<F, T>` binding exists for every method
 // of `F`, and the pair itself has opted in: it is registered, or `T` is a
@@ -2087,7 +2093,7 @@ concept Proxiable =
 
 namespace details {
 
-// `strict_result`: exact-conversion carrier for the `api_probe`'s strict
+// `strict_result` is the exact-conversion carrier for the `api_probe`'s strict
 // `call`.
 //
 // The conversion operator is a template constrained to exactly `R`. Deduction
@@ -2104,7 +2110,7 @@ struct strict_result {
   }
 };
 
-// `strict_return_t`: result type of the probe's strict `call`.
+// `strict_return_t` is the result type of the probe's strict `call`.
 //
 // This is `strict_result` for object types, `void` for `void`, and references
 // passed through unchanged.
@@ -2116,7 +2122,7 @@ template<typename R>
 using strict_return_t = std::conditional_t<std::is_void_v<R>, void,
     std::conditional_t<std::is_reference_v<R>, R, strict_result<R>>>;
 
-// `api_probe`: synthetic dispatch target for `validate_api`.
+// `api_probe` is the synthetic dispatch target for `validate_api`.
 //
 // It inherits the facade's `api` and exposes a deliberately strict `call`.
 // Argument types must match the method's declared parameters exactly (per
@@ -2143,7 +2149,7 @@ struct api_probe: api_base_t<F> {
   }
 };
 
-// `corvid_proxy_spec`: probe registration, covering every facade.
+// `corvid_proxy_spec` is the probe registration, covering every facade.
 //
 // This is the only overload of `corvid_proxy_spec` the library itself
 // provides; it is what admits the probe to a facade author's
@@ -2162,8 +2168,8 @@ consteval auto corvid_proxy_spec(F*, api_probe<G>*) noexcept {
 
 } // namespace details
 
-// `validate_api`: validate a facade's `api` against its method list, spelling
-// neither the names nor the signatures again.
+// `validate_api` is to validate a facade's `api` against its method list,
+// spelling neither the names nor the signatures again.
 //
 // This runs automatically from `make_proxy_spec` at every registration of an
 // `api`-bearing facade, unless the registration opts out with
@@ -2214,8 +2220,8 @@ template<Facade F>
 
 namespace details {
 
-// `are_base_boilerplates_visible`: whether every facade in `F`'s extends chain
-// has a boilerplate impl visible to drive `F`'s api probe.
+// `are_base_boilerplates_visible` is whether every facade in `F`'s extends
+// chain has a boilerplate impl visible to drive `F`'s api probe.
 //
 // This is the registration-time guard for the base half of the requirement
 // stated above: `validate_api` runs the probe through each base's
@@ -2240,7 +2246,7 @@ template<Facade F>
 
 namespace details {
 
-// `view_base`: storage and const-method dispatch shared by the two view
+// `view_base` is the storage and const-method dispatch shared by the two view
 // flavors, which differ only in the constness of the erased target pointer.
 //
 // The `call` here serves const-qualified methods, the only dispatch a const
@@ -2254,8 +2260,8 @@ class view_base: public api_base_t<F> {
 public:
   using facade_t = F;
 
-  // `call`: call the const-qualified facade method named `Key`, forwarding
-  // `args` through the erased signature.
+  // `call` is to call the const-qualified facade method named `Key`,
+  // forwarding `args` through the erased signature.
   //
   // The call is `noexcept` when the method is and the argument conversions
   // cannot throw (they are the caller's, as with the `api` forwarders). It is
@@ -2271,7 +2277,7 @@ public:
         std::forward<Args>(args)...);
   }
 
-  // `operator bool`: an empty view holds no target.
+  // `operator bool` is whether the view is non-empty.
   //
   // Calling through an empty view runs the `on_empty` behavior its table
   // carries: `raise` for a view built empty, or the lending owner's, for a
@@ -2342,10 +2348,10 @@ class proxy_view: public details::view_base<F, access_mode::as_mutable> {
   using vtbuild_t = details::vtbuild_t<F>;
 
 public:
-  // `proxy_view`: an empty view holds no target; see the class comment.
+  // `proxy_view` default constructor.
   proxy_view() = default;
 
-  // `proxy_view`: converting constructor from an lvalue target.
+  // `proxy_view` converting constructor from an lvalue target.
   //
   // Intentionally implicit, like `string_view` from `string`. Rvalues do not
   // bind, so construction from a temporary is rejected at compile time. Const
@@ -2358,7 +2364,7 @@ public:
   constexpr explicit(false) proxy_view(T& target) noexcept
       : base{std::addressof(target), &details::vtable_for<F, T>} {}
 
-  // `proxy_view`: upcasting constructor from a view over a facade that extends
+  // `proxy_view` upcasting constructor from a view over a facade that extends
   // `F` (Rust trait upcasting).
   //
   // Intentionally implicit, like derived-to-base pointer conversion: the
@@ -2371,7 +2377,7 @@ public:
   constexpr explicit(false) proxy_view(const proxy_view<D>& view) noexcept
       : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
-  // `proxy_view`: viewing constructor from an owning `proxy` of `F`, or of a
+  // `proxy_view` viewing constructor from an owning `proxy` of `F`, or of a
   // facade that extends it.
   //
   // Intentionally implicit, and lvalue-only, so a view cannot be left dangling
@@ -2386,7 +2392,7 @@ public:
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
-  // `proxy_view`: viewing constructor from a `shared_proxy` of `F`, or of a
+  // `proxy_view` viewing constructor from a `shared_proxy` of `F`, or of a
   // facade that extends it, under the same rules as viewing an owning
   // `proxy`; the view does not share ownership, so it is good exactly as long
   // as some owner keeps the target alive (see the class comment).
@@ -2396,8 +2402,8 @@ public:
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
 
-  // `call`: call the facade method named `Key`, forwarding `args` through the
-  // erased signature.
+  // `call`, to call the facade method named `Key`, forwarding `args` through
+  // the erased signature.
   //
   // The call is `noexcept` when the method is and the argument conversions
   // cannot throw (they are the caller's, as with the `api` forwarders).
@@ -2415,19 +2421,21 @@ public:
 
   using base::call;
 
-  // `try_downcast`: attempt a view of `D`, a facade extending `F`, over a
+  // `try_downcast` to attempt a view of `D`, a facade extending `F`, over a
   // target that may have been upcast away from it.
   //
   // The view table remembers the facade the target was born as: the view's
   // own facade for a view built directly over a target, and the owning
   // handle's birth for a view lent from a `proxy` or `shared_proxy`, so a
-  // lent view recovers exactly what its owner could. On success the result
-  // is a new view over the same target; the source is copied from, never
-  // consumed, which is why this is const where the owning flavor is an
-  // rvalue method. On failure, including an empty source, the result is
-  // empty, and raises on a call. Like copying, this escapes the
-  // instance-level deep-const guardrail; the guarantee tier is
-  // `const_proxy_view`, whose downcast stays const.
+  // lent view recovers exactly what its owner could.
+  //
+  // On success the result is a new view over the same target; the source is
+  // copied from, never consumed, which is why this is const where the owning
+  // flavor is an rvalue method. On failure, including an empty source, the
+  // result is empty, and raises on a call.
+  //
+  // Like copying, this escapes the instance-level deep-const guardrail; the
+  // guarantee tier is `const_proxy_view`, whose downcast stays const.
   template<Facade D>
   requires Extends<D, F>
   [[nodiscard]] constexpr proxy_view<D> try_downcast() const noexcept {
@@ -2437,7 +2445,7 @@ public:
   }
 
 private:
-  // `proxy_view`: for `try_downcast`, whose target and table are already
+  // `proxy_view` for `try_downcast`, whose target and table are already
   // resolved.
   constexpr proxy_view(void* target, const base::vtable_t* vtable) noexcept
       : base{target, vtable} {}
@@ -2448,22 +2456,24 @@ private:
   friend class const_proxy_view;
 };
 
-// `proxy_impl`: library-provided binding so that a view satisfies its own
-// facade and every facade that facade extends (as in Rust, where `dyn Trait`
-// implements `Trait` and meets its supertrait bounds).
+// `proxy_impl` is the library-provided binding so that a view satisfies its
+// own facade and every facade that facade extends (as in Rust, where `dyn
+// Trait` implements `Trait` and meets its supertrait bounds).
 //
 // Calls forward through the wrapped view, with conditional `noexcept` so the
 // invariant also holds for facades with noexcept methods. The handle
 // parameter is deduced, serving const and mutable views with one overload,
 // so const methods route through the const `call` exactly as they would on
-// the view itself. This makes facade-constrained generic code accept
-// concrete and erased arguments interchangeably, including derived-facade
-// handles under a base-facade bound, and allows views of views.
+// the view itself.
+//
+// This makes facade-constrained generic code accept concrete and erased
+// arguments interchangeably, including derived-facade handles under a
+// base-facade bound, and allows views of views.
 template<Facade F, Facade D>
 requires(std::same_as<D, F> || Extends<D, F>)
 struct proxy_impl<F, proxy_view<D>> {
-  // `on`: the qualified spelling keeps the forwarded key unambiguous when
-  // `D`'s flattened list collides on `Key`; see `qualified_key`.
+  // `on` is the qualified spelling that keeps the forwarded key unambiguous
+  // when `D`'s flattened list collides on `Key`; see `qualified_key`.
   template<fixed_string Key, typename Handle, typename... Args>
   static constexpr decltype(auto)
   on(method_key<Key>, Handle& view, Args&&... args) noexcept(
@@ -2474,8 +2484,8 @@ struct proxy_impl<F, proxy_view<D>> {
   }
 };
 
-// `const_proxy_view`: non-owning read-only erased handle: Rust's `&dyn Trait`,
-// the `const_iterator` to `proxy_view`'s `iterator`.
+// `const_proxy_view` is the non-owning read-only erased handle: Rust's `&dyn
+// Trait`, the `const_iterator` to `proxy_view`'s `iterator`.
 //
 // Constness is part of the type, so unlike a `const proxy_view` it survives
 // copying. A const view only ever copies or converts to another const view.
@@ -2498,10 +2508,10 @@ class const_proxy_view: public details::view_base<F, access_mode::as_const> {
   using base = details::view_base<F, access_mode::as_const>;
 
 public:
-  // `const_proxy_view`: an empty view holds no target; see the class comment.
+  // `const_proxy_view` default constructor.
   const_proxy_view() = default;
 
-  // `const_proxy_view`: converting constructor from an lvalue target, const or
+  // `const_proxy_view` converting constructor from an lvalue target, const or
   // not.
   //
   // Intentionally implicit. Rvalues do not bind. Handles of `F`, or of a
@@ -2514,7 +2524,7 @@ public:
       : base{std::addressof(target),
             &details::vtable_for<F, std::remove_const_t<T>>} {}
 
-  // `const_proxy_view`: converting constructor from the mutable view.
+  // `const_proxy_view` converting constructor from the mutable view.
   //
   // Dropping mutability is implicit and safe, like `T*` to `const T*`, and
   // there is no path back.
@@ -2522,7 +2532,7 @@ public:
       const_proxy_view(const proxy_view<F>& view) noexcept
       : base{view.target_, view.vtable_} {}
 
-  // `const_proxy_view`: upcasting constructor from a const view over a facade
+  // `const_proxy_view` upcasting constructor from a const view over a facade
   // that extends `F` (Rust trait upcasting).
   //
   // Intentionally implicit; see the mutable view's upcasting constructor.
@@ -2532,16 +2542,15 @@ public:
       const_proxy_view(const const_proxy_view<D>& view) noexcept
       : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
-  // `const_proxy_view`: upcasting constructor from the mutable view of a
-  // facade that extends `F`, dropping mutability and upcasting in one implicit
-  // step.
+  // `const_proxy_view` upcasting constructor from the mutable view of a facade
+  // that extends `F`, dropping mutability and upcasting in one implicit step.
   template<Facade D>
   requires Extends<D, F>
   constexpr explicit(false)
       const_proxy_view(const proxy_view<D>& view) noexcept
       : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
-  // `const_proxy_view`: viewing constructor from an owning `proxy` of `F`, or
+  // `const_proxy_view` viewing constructor from an owning `proxy` of `F`, or
   // of a facade that extends it.
   //
   // Intentionally implicit, and lvalue-only. An empty `proxy` lends an empty
@@ -2561,7 +2570,7 @@ public:
   requires(std::same_as<D, F> || Extends<D, F>)
   const_proxy_view(const proxy<D, P>&&) = delete;
 
-  // `const_proxy_view`: viewing constructor from a `shared_proxy` of `F`, or
+  // `const_proxy_view` viewing constructor from a `shared_proxy` of `F`, or
   // of a facade that extends it; see the owning-proxy constructor above,
   // including the temporary-owner deletion.
   template<Facade D>
@@ -2578,8 +2587,8 @@ public:
   // dispatch is the entire interface, since the mutable methods do not exist
   // on this view.
 
-  // `try_downcast`: attempt a const view of `D`, a facade extending `F`, over
-  // a target that may have been upcast away from it; see
+  // `try_downcast` to attempt a const view of `D`, a facade extending `F`,
+  // over a target that may have been upcast away from it; see
   // `proxy_view::try_downcast`.
   //
   // The result is another const view, so downcasting never reopens
@@ -2593,8 +2602,8 @@ public:
   }
 
 private:
-  // `const_proxy_view`: for `try_downcast`, whose target and table are already
-  // resolved.
+  // `const_proxy_view` constructor for `try_downcast`, whose target and table
+  // are already resolved.
   constexpr const_proxy_view(const void* target,
       const base::vtable_t* vtable) noexcept
       : base{target, vtable} {}
@@ -2603,8 +2612,8 @@ private:
   friend class const_proxy_view;
 };
 
-// `proxy_impl`: library-provided binding so that a const view satisfies its
-// own facade, and the facades that facade extends, where that is possible.
+// `proxy_impl` is the library-provided binding so that a const view satisfies
+// its own facade, and the facades that facade extends, where that is possible.
 //
 // It dispatches only const methods, so the invariant holds exactly for
 // all-const facades.
@@ -2626,8 +2635,8 @@ struct proxy_impl<F, const_proxy_view<D>> {
   }
 };
 
-// `make_proxy_view`: make a view over `target`: a convenience for spelling the
-// facade at the call site.
+// `make_proxy_view` is to make a view over `target`: a convenience for
+// spelling the facade at the call site.
 //
 // When `target` is already a view of `F` it is copied rather than wrapped, so
 // generic facade-constrained code can erase its argument without stacking
@@ -2646,8 +2655,8 @@ requires Proxiable<T, F>
 #pragma endregion
 #pragma region proxy
 
-// `proxy`: owning erased handle over any `Proxiable` target: Rust's `Box<dyn
-// Trait>`, ngcpp's `proxy`.
+// `proxy` is the owning erased handle over any `Proxiable` target: Rust's
+// `Box<dyn Trait>`, ngcpp's `proxy`.
 //
 // Move-only. Storage follows `Policy` (see `invocable_policy`): by default,
 // eligible targets are stored inline and anything else lives in a
@@ -2667,11 +2676,11 @@ requires Proxiable<T, F>
 // through a const proxy. Being move-only, it cannot be copied out of that
 // constness the way a view can.
 //
-// A default-constructed or moved-from proxy is empty. It is destructible,
-// assignable, and testable via `operator bool`, and calling through it runs
-// the policy's `on_empty` behavior, taken per method as a floor (see
-// `invocable_policy::empty`); strict enforcement rejects a facade any of
-// whose methods cannot take the floor exactly.
+// A default-constructed, moved-from, or reset proxy is empty. It is
+// destructible, assignable, and testable via `operator bool`, and calling
+// through it runs the policy's `on_empty` behavior, taken per method as a
+// floor (see `invocable_policy::empty`); strict enforcement rejects a facade
+// any of whose methods cannot take the floor exactly.
 //
 // A non-empty lvalue proxy converts implicitly to `proxy_view` (mutable
 // proxies only) and `const_proxy_view`, of its own facade or of any facade it
@@ -2717,7 +2726,7 @@ class proxy: public details::api_base_t<F> {
 public:
   using facade_t = F;
 
-  // `inline_size`: inline storage capacity in bytes, 0 for a `heap_only`
+  // `inline_size` is the inline storage capacity in bytes, 0 for a `heap_only`
   // policy, which stores nothing inline (the pointer it keeps in the buffer's
   // place is not capacity).
   //
@@ -2725,13 +2734,13 @@ public:
   static constexpr size_t inline_size =
       Policy.admits_inline() ? Policy.inline_size : 0;
 
-  // `proxy`: an empty proxy holds no target.
+  // `proxy` default constructor.
   proxy() = default;
 
   proxy(const proxy&) = delete;
   proxy& operator=(const proxy&) = delete;
 
-  // `proxy`: construct an owning proxy holding a `T` built in place from
+  // `proxy` constructor for an owning proxy holding a `T` built in place from
   // `args`.
   //
   // Usually spelled through `make_proxy`.
@@ -2753,9 +2762,9 @@ public:
       storage_area_.ptr = new T(std::forward<Args>(args)...);
   }
 
-  // `proxy`: construct an owning proxy adopting a heap target already owned by
-  // a `std::unique_ptr` (with the default deleter; the proxy destroys through
-  // `delete` either way).
+  // `proxy` constructor of an owning proxy adopting a heap target already
+  // owned by a `std::unique_ptr` (with the default deleter; the proxy destroys
+  // through `delete` either way).
   //
   // Usually spelled through `make_proxy`.
   //
@@ -2786,13 +2795,13 @@ public:
     }
   }
 
-  // `proxy`: move construction and assignment leave the source empty.
+  // `proxy` move constructor and assignment leave the source empty.
   //
   // Inline targets relocate through the table's move slot, while heap targets
   // move by pointer steal.
   proxy(proxy&& other) noexcept { do_adopt(other); }
 
-  // `proxy`: converting move constructor from an owning proxy of any facade
+  // `proxy` converting move constructor from an owning proxy of any facade
   // that extends `F` (an upcast), of any other policy, or both at once.
   //
   // Intentionally implicit, like the view upcasts, but consuming: the target
@@ -2823,8 +2832,17 @@ public:
 
   ~proxy() { do_reset(); }
 
-  // `call`: call the facade method named `Key`, forwarding `args` through the
-  // erased signature.
+  // `reset` to destroy the target, if any, leaving the proxy empty on its own
+  // type's empty table.
+  void reset() noexcept { do_reset(); }
+
+  proxy& operator=(std::nullptr_t) noexcept {
+    do_reset();
+    return *this;
+  }
+
+  // `call` to call the facade method named `Key`, forwarding `args` through
+  // the erased signature.
   //
   // The call is `noexcept` when the method is and the argument conversions
   // cannot throw (they are the caller's, as with the `api` forwarders). The
@@ -2850,13 +2868,12 @@ public:
         target(), std::forward<Args>(args)...);
   }
 
-  // `operator bool`: an empty proxy (default-constructed or moved-from) holds
-  // no target.
+  // `operator bool` is whether this proxy is non-empty.
   [[nodiscard]] explicit operator bool() const noexcept {
     return (vtable_ != empty_vtable);
   }
 
-  // `can_clone`: whether `clone` would produce a faithful copy, meaning that
+  // `can_clone` is whether `clone` would produce a faithful copy, meaning that
   // the target is copy-constructible, or there is no target at all (an empty
   // proxy clones to an empty proxy).
   //
@@ -2866,8 +2883,8 @@ public:
     return (!*this || vtable_->copy);
   }
 
-  // `can_adopt`: whether this `proxy` type can accommodate `source`'s current
-  // target, so that converting (or assigning) from it will not throw
+  // `can_adopt` is whether this `proxy` type can accommodate `source`'s
+  // current target, so that converting (or assigning) from it will not throw
   // `std::length_error`.
   //
   // This is the up-front check that advertises, and lets a caller sidestep,
@@ -2892,8 +2909,8 @@ public:
     }
   }
 
-  // `clone`: clone the `proxy`, creating a new instance with the same policy,
-  // owning a copy of the target made through the table's copy slot.
+  // `clone` is to clone the `proxy`, creating a new instance with the same
+  // policy, owning a copy of the target made through the table's copy slot.
   //
   // Cloning an empty proxy yields an empty one, and so does cloning a proxy
   // whose target is not copy-constructible; `can_clone` is the up-front check
@@ -2916,8 +2933,8 @@ public:
     return result;
   }
 
-  // `extract`: move the target out into a `std::unique_ptr<T>`, leaving the
-  // proxy empty.
+  // `extract` is to move the target out into a `std::unique_ptr<T>`, leaving
+  // the proxy empty.
   //
   // The inverse of the adopting constructor, and the only way ownership leaves
   // a proxy other than destruction: a raw pointer is never exposed.
@@ -2950,17 +2967,18 @@ public:
     }
   }
 
-  // `try_downcast`: attempt to recover a proxy of `D`, a facade extending `F`,
-  // from a proxy that may have been upcast away from it.
+  // `try_downcast` is to attempt to recover a proxy of `D`, a facade extending
+  // `F`, from a proxy that may have been upcast away from it.
   //
   // The owning table remembers the facade the target was born as, meaning
   // the facade it was constructed under, not the concrete type's full
   // conformance: a target made through `make_proxy<marshal, texas_ranger>`
-  // downcasts to `marshal` but never to `ranger`. Its birth ancestry, the
-  // born facade plus every facade that one extends, is searched at runtime
-  // for `D` itself; a target born as a facade that extends `D` therefore
-  // matches, and through a diamond, the common base can sidecast to either
-  // sibling.
+  // downcasts to `marshal` but never to `ranger`.
+  //
+  // Its birth ancestry, the born facade plus every facade that one extends, is
+  // searched at runtime for `D` itself; a target born as a facade that extends
+  // `D` therefore matches, and through a diamond, the common base can sidecast
+  // to either sibling.
   //
   // On success the target moves into the result (whose table carries the
   // same birth, so further casts in either direction still work) and the
@@ -2987,14 +3005,15 @@ public:
   }
 
 private:
-  // `buf_size`, `buf_align`: a `heap_only` proxy shrinks the buffer to the
-  // pointer it overlays, so the whole handle is two words, like a view.
+  // `buf_size` and `buf_align` are the size and alignment. A `heap_only` proxy
+  // shrinks the buffer to the pointer it overlays, so the whole handle is two
+  // words, like a view.
   static constexpr size_t buf_size = Policy.buffer_size();
   static constexpr size_t buf_align = Policy.buffer_align();
 
   using storage_area_t = details::storage_area<buf_size, buf_align>;
 
-  // `target`: the target address, inline or heap, or the buffer's address
+  // `target` is the target address, inline or heap, or the buffer's address
   // when empty (whose contents the empty thunks never read).
   //
   // The active union member, and emptiness itself, are keyed by the table
@@ -3019,16 +3038,16 @@ private:
                : storage_area_.ptr;
   }
 
-  // `do_reset`: destroy the target, if any, leaving the proxy empty.
+  // `do_reset` is to destroy the target, if any, leaving the proxy empty.
   void do_reset() noexcept {
     if (!*this) return;
     vtable_->destroy(target());
     vtable_ = empty_vtable;
   }
 
-  // `do_adopt`: take over `other`'s target, upcasting its table when `other`'s
-  // facade extends `F`, and leaving `other` empty on its own type's empty
-  // table, so no empty behavior travels with a target.
+  // `do_adopt` is to take over `other`'s target, upcasting its table when
+  // `other`'s facade extends `F`, and leaving `other` empty on its own type's
+  // empty table, so no empty behavior travels with a target.
   //
   // Assumes `*this` holds no target (freshly constructed or just reset). Note
   // that we don't need to clear `buf` or `ptr` on `other.storage_area_`
@@ -3078,7 +3097,7 @@ private:
     other.vtable_ = other.empty_vtable;
   }
 
-  // `adoption_for`: the route the erased target behind `vt` takes into this
+  // `adoption_for` is the route the erased target behind `vt` takes into this
   // proxy, arriving from a proxy of policy `P`; see `adoption_of`, the rule
   // shared with `flexi_function`.
   //
@@ -3099,14 +3118,14 @@ private:
         vt->align, static_cast<bool>(vt->to_sbo));
   }
 
-  // `empty_vtable`: the table of an empty proxy of this type; see
+  // `empty_vtable` is the table of an empty proxy of this type; see
   // `empty_owning_vtable_for`.
   static constexpr const owning_vtable_t* empty_vtable =
       &details::empty_owning_vtable_for<F, Policy.empty>;
 
-  // Deliberately no initializer: emptiness and the active member are keyed by
-  // `vtable_` (see `target`), and zeroing the buffer on every construction
-  // would be pure waste.
+  // `storage_area_` deliberately has no initializer: emptiness and the active
+  // member are keyed by `vtable_` (see `target`), and zeroing the buffer on
+  // every construction would be pure waste.
   storage_area_t storage_area_;
   const owning_vtable_t* vtable_ = empty_vtable;
 
@@ -3120,8 +3139,9 @@ private:
   friend class shared_proxy;
 };
 
-// `proxy_impl`: library-provided binding so that an owning `proxy` satisfies
-// its own facade and every facade that facade extends, like the view.
+// `proxy_impl` is the library-provided binding so that an owning `proxy`
+// satisfies its own facade and every facade that facade extends, like the
+// view.
 //
 // Calls forward through the proxy, with conditional `noexcept`, through a
 // single deduced-handle binding that serves const and mutable proxies alike;
@@ -3141,8 +3161,8 @@ struct proxy_impl<F, proxy<D, P>> {
   }
 };
 
-// `make_proxy`: make an owning `proxy` of facade `F` holding a `T` constructed
-// in place from `args`.
+// `make_proxy` to make an owning `proxy` of facade `F` holding a `T`
+// constructed in place from `args`.
 //
 // To move an existing object in, pass it as the constructor argument:
 // `make_proxy<F, T>(std::move(obj))`. A non-default storage policy is the
@@ -3154,7 +3174,7 @@ requires Proxiable<T, F>
   return proxy<F, Policy>{std::in_place_type<T>, std::forward<Args>(args)...};
 }
 
-// `make_proxy`: make an owning `proxy` of facade `F`, adopting a heap target
+// `make_proxy` to make an owning `proxy` of facade `F`, adopting a heap target
 // already owned by a `std::unique_ptr`; see the adopting constructor.
 template<Facade F, invocable_policy Policy = invocable_policy{}, typename T>
 requires Proxiable<T, F>
@@ -3165,8 +3185,8 @@ requires Proxiable<T, F>
 #pragma endregion
 #pragma region Shared ownership
 
-// `shared_proxy`: shared-owning erased handle, like Rust's `Rc<dyn Trait>`,
-// backed by a `std::shared_ptr<void>`.
+// `shared_proxy` is the shared-owning erased handle, like Rust's `Rc<dyn
+// Trait>`, backed by a `std::shared_ptr<void>`.
 //
 // Copyable, and a copy shares the one target rather than cloning it; the
 // target dies with its last owner.
@@ -3207,13 +3227,14 @@ class shared_proxy: public details::api_base_t<F> {
 public:
   using facade_t = F;
 
-  // `shared_proxy`: an empty handle holds no target.
+  // `shared_proxy` default constructor.
   shared_proxy() = default;
 
   shared_proxy(const shared_proxy&) = default;
   shared_proxy& operator=(const shared_proxy&) = default;
 
-  // `shared_proxy`: moves leave the source empty, on the `raise` table.
+  // `shared_proxy` move constructor leaves the source empty, on the `raise`
+  // table.
   shared_proxy(shared_proxy&& other) noexcept
       : target_{std::move(other.target_)},
         vtable_{std::exchange(other.vtable_, empty_vtable)} {}
@@ -3228,8 +3249,8 @@ public:
 
   ~shared_proxy() = default;
 
-  // `shared_proxy`: adopting constructor from shared ownership of a concrete
-  // target. A null pointer yields an empty handle.
+  // `shared_proxy` adopting constructor from shared ownership of a concrete
+  // target; a null pointer yields an empty handle.
   //
   // Usually spelled through `make_shared_proxy`; there is deliberately no
   // raw-pointer constructor.
@@ -3240,7 +3261,7 @@ public:
     if (target_) vtable_ = &details::vtable_for<F, T>;
   }
 
-  // `shared_proxy`: adopting constructor from unique ownership, which becomes
+  // `shared_proxy` adopting constructor from unique ownership, which becomes
   // shared (this allocates the control block, so unlike the shared flavor it
   // can throw).
   template<typename T>
@@ -3248,23 +3269,23 @@ public:
   explicit shared_proxy(std::unique_ptr<T> target)
       : shared_proxy{std::shared_ptr<T>{std::move(target)}} {}
 
-  // `shared_proxy`: adopting constructor from an owning `proxy` of `F`, or of
-  // a facade that extends it.
+  // `shared_proxy` adopting constructor from an owning `proxy` of `F`, or of a
+  // facade that extends it.
   //
   // The unique ownership becomes shared (Rust: `Box<dyn T>` into `Rc<dyn T>`),
   // consuming the source.
   //
   // A heap-stored target is adopted as-is, the owning table's destroy slot
-  // becoming the control block's deleter, so only the control block
-  // allocates; an inline target moves onto the heap first. On a throw from
-  // the control-block allocation the target is destroyed rather than
-  // leaked, and the source is left empty (the same contract as
-  // `std::shared_ptr`'s constructor from a `unique_ptr`); a throw from the
-  // re-boxing leaves the source intact.
+  // becoming the control block's deleter, so only the control block allocates;
+  // an inline target moves onto the heap first. On a throw from the
+  // control-block allocation the target is destroyed rather than leaked, and
+  // the source is left empty (the same contract as `std::shared_ptr`'s
+  // constructor from a `unique_ptr`); a throw from the re-boxing leaves the
+  // source intact.
   //
-  // The reverse conversion deliberately does not exist: unique ownership
-  // cannot be recovered from a shared target, even at a use count of one,
-  // without racing the other owners, which is also why `std::shared_ptr`
+  // The reverse conversion deliberately does not exist because unique
+  // ownership cannot be recovered from a shared target, even at a use count of
+  // one, without racing the other owners, which is also why `std::shared_ptr`
   // has no `release`.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
@@ -3287,7 +3308,7 @@ public:
     target_ = std::shared_ptr<void>{ptr, destroy};
   }
 
-  // `shared_proxy`: upcasting converting constructors from a `shared_proxy`
+  // `shared_proxy` upcasting converting constructors from a `shared_proxy`
   // of a facade that extends `F`, sharing (copy) or transferring (move)
   // ownership. Intentionally implicit, like every handle upcast.
   //
@@ -3307,8 +3328,8 @@ public:
     other.vtable_ = other.empty_vtable;
   }
 
-  // `call`: call the facade method named `Key`, forwarding `args` through the
-  // erased signature; the same dispatch as the other handles, deep const
+  // `call` to call the facade method named `Key`, forwarding `args` through
+  // the erased signature; the same dispatch as the other handles, deep const
   // included.
   template<fixed_string Key, typename... Args>
   decltype(auto)
@@ -3327,22 +3348,23 @@ public:
         target(), std::forward<Args>(args)...);
   }
 
-  // `operator bool`: an empty handle (default-constructed or moved-from) holds
-  // no target.
+  // `operator bool` is whether this handle is non-empty.
   [[nodiscard]] explicit operator bool() const noexcept {
     return static_cast<bool>(target_);
   }
 
-  // `try_downcast`: attempt to recover a `shared_proxy` of `D`, a facade
+  // `try_downcast` to attempt to recover a `shared_proxy` of `D`, a facade
   // extending `F`, from a handle that may have been upcast away from it.
   //
   // The table remembers the facade the target was born as, exactly as with
   // the owning proxy (see `proxy::try_downcast`), including a birth adopted
-  // from a consumed `proxy`. Because shared ownership is copyable, the
-  // lvalue flavor shares: on success the result is another owner of the one
-  // target and the source keeps its own share. The rvalue flavor transfers
-  // instead, consuming the source only on success. On failure, including an
-  // empty source, the result is empty and the source is untouched.
+  // from a consumed `proxy`.
+  //
+  // Because shared ownership is copyable, the lvalue flavor shares: on success
+  // the result is another owner of the one target and the source keeps its own
+  // share. The rvalue flavor transfers instead, consuming the source only on
+  // success. On failure, including an empty source, the result is empty and
+  // the source is untouched.
   template<Facade D>
   requires Extends<D, F>
   [[nodiscard]] shared_proxy<D> try_downcast() const& noexcept {
@@ -3361,18 +3383,18 @@ public:
   }
 
 private:
-  // `target`: the target address, or null when empty (which the empty thunks
+  // `target` is the target address, or null when empty (which the empty thunks
   // never read).
   [[nodiscard]] void* target() noexcept { return target_.get(); }
   [[nodiscard]] const void* target() const noexcept { return target_.get(); }
 
-  // `shared_proxy`: for `weak_proxy::lock` and `try_downcast`, whose vtable
-  // pointer is already resolved; a null target (an expired weak pointer)
-  // yields an empty handle, on the `raise` table.
+  // `shared_proxy` constructor for `weak_proxy::lock` and `try_downcast`,
+  // whose vtable pointer is already resolved; a null target (an expired weak
+  // pointer) yields an empty handle, on the `raise` table.
   shared_proxy(std::shared_ptr<void> target, const vtable_t* vtable) noexcept
       : target_{std::move(target)}, vtable_{target_ ? vtable : empty_vtable} {}
 
-  // `empty_vtable`: the table of a handle built empty or emptied by a move;
+  // `empty_vtable` is the table of a handle built empty or emptied by a move;
   // see `empty_vtable_for`.
   static constexpr const vtable_t* empty_vtable =
       &details::empty_vtable_for<F, on_empty::raise>;
@@ -3390,9 +3412,9 @@ private:
   friend class const_proxy_view;
 };
 
-// `proxy_impl`: library-provided binding so that a shared proxy satisfies its
-// own facade and every facade that facade extends, like the other handles; see
-// the owning proxy's binding.
+// `proxy_impl` is the library-provided binding so that a shared proxy
+// satisfies its own facade and every facade that facade extends, like the
+// other handles; see the owning proxy's binding.
 template<Facade F, Facade D>
 requires(std::same_as<D, F> || Extends<D, F>)
 struct proxy_impl<F, shared_proxy<D>> {
@@ -3408,8 +3430,8 @@ struct proxy_impl<F, shared_proxy<D>> {
   }
 };
 
-// `weak_proxy`: weak counterpart to `shared_proxy`, which observes the target
-// without owning it, via a `std::weak_ptr<void>`.
+// `weak_proxy` is the weak counterpart to `shared_proxy`, which observes the
+// target without owning it, via a `std::weak_ptr<void>`.
 //
 // It carries no dispatch at all; regaining access always goes through
 // `lock`, which returns a shared proxy (empty if every owner is gone), so
@@ -3419,12 +3441,11 @@ class weak_proxy {
   using vtable_t = details::vtbuild_t<F>::vtable_t;
 
 public:
-  // `weak_proxy`: an empty weak proxy observes nothing; `lock` yields an
-  // empty handle.
+  // `weak_proxy` default constructor.
   weak_proxy() = default;
 
-  // `weak_proxy`: observe a `shared_proxy` of `F`, or of a facade that
-  // extends it (the upcast happens here, so `lock` is cheap).
+  // `weak_proxy` constructor observes a `shared_proxy` of `F`, or of a facade
+  // that extends it (the upcast happens here, so `lock` is cheap).
   //
   // Intentionally implicit.
   template<Facade D>
@@ -3432,7 +3453,7 @@ public:
   explicit(false) weak_proxy(const shared_proxy<D>& p) noexcept
       : target_{p.target_}, vtable_{details::upcast_vtable<F, D>(p.vtable_)} {}
 
-  // `weak_proxy`: upcasting converting constructors from a `weak_proxy` of a
+  // `weak_proxy` upcasting converting constructors from a `weak_proxy` of a
   // facade that extends `F`, by copy or by move, mirroring the
   // `shared_proxy`'s.
   //
@@ -3451,15 +3472,14 @@ public:
       : target_{std::move(other.target_)},
         vtable_{details::upcast_vtable<F, D>(other.vtable_)} {}
 
-  // `expired`: whether the target is already gone.
+  // `expired` is whether the target is already gone.
   //
   // As with `std::weak_ptr`, a false answer is stale the moment it is read;
   // `lock` is the reliable gate.
   [[nodiscard]] bool expired() const noexcept { return target_.expired(); }
 
-  // `lock`: regain shared ownership by creating a `shared_proxy` over the
-  // target, or an empty one, which raises on a call, when every owner is
-  // gone.
+  // `lock` to regain shared ownership by creating a `shared_proxy` over the
+  // target; or an empty one when every owner is gone.
   [[nodiscard]] shared_proxy<F> lock() const noexcept {
     return shared_proxy<F>{target_.lock(), vtable_};
   }
@@ -3472,7 +3492,7 @@ private:
   friend class weak_proxy;
 };
 
-// `make_shared_proxy`: make a shared proxy of facade `F` holding a `T`
+// `make_shared_proxy` to make a shared proxy of facade `F` holding a `T`
 // constructed in place from `args`, with target and control block in one
 // allocation (`std::make_shared`).
 template<Facade F, typename T, typename... Args>
@@ -3494,8 +3514,8 @@ requires Proxiable<T, F>
 // namespace.
 //
 // The authoring vocabulary generally stays inside `prox`, since those names
-// are too generic to export and facade and impl authors are already working in
-// that domain.
+// are too generic to export, and facade and impl authors are already working
+// in that domain.
 using prox::const_proxy_view;
 using prox::make_proxy;
 using prox::make_proxy_view;
