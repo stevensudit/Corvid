@@ -59,7 +59,7 @@ public:
         sym_ge{intern(">=")}, sym_cons{intern("cons")},
         sym_list{intern("list")}, sym_head{intern("head")},
         sym_tail{intern("tail")}, sym_nil_p{intern("nil?")},
-        sym_gensym{intern("gensym")} {}
+        sym_append{intern("append")}, sym_gensym{intern("gensym")} {}
 
   // The special forms, and the template marks the reader spells inside a
   // quote (special to the expander rather than the evaluator).
@@ -70,7 +70,7 @@ public:
   symbol sym_plus, sym_minus, sym_times, sym_divide;
   symbol sym_eq, sym_ne, sym_lt, sym_le, sym_gt, sym_ge;
   symbol sym_cons, sym_list, sym_head, sym_tail, sym_nil_p;
-  symbol sym_gensym;
+  symbol sym_append, sym_gensym;
 };
 
 #pragma endregion

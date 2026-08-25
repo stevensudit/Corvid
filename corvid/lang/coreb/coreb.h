@@ -25,6 +25,7 @@
 #include "runtime.h"
 #include "hall_reader.h"
 #include "eval.h"
+#include "expander.h"
 #include "monty_lexer.h"
 #include "monty_expression_parser.h"
 #include "monty_statement_parser.h"

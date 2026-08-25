@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -656,7 +657,18 @@ public:
       strings::shared_builder{name} << '%' << base << '_';
       strings::append_num(name, ++gensyms_);
     } while (syms_.contains(name));
-    return symbol{*syms_.emplace(std::move(name)).first};
+    const auto sym = symbol{*syms_.emplace(std::move(name)).first};
+    gensym_names_.insert(&sym.name());
+    return sym;
+  }
+
+  // Whether `s` was minted by `gensym`.
+  //
+  // This is what exempts a fresh name from the `%`-reservation policing at
+  // binding time: a macro's gensym-made temporary is bindable, while a
+  // hand-spelled `%` name stays the kernel's.
+  [[nodiscard]] bool is_gensym(symbol s) const noexcept {
+    return gensym_names_.contains(&s.name());
   }
 
   // Construct a cell.
@@ -797,6 +809,7 @@ private:
   std::vector<std::unique_ptr<primitive>> primitives_;
   std::vector<std::unique_ptr<environment>> envs_;
   std::vector<const gc_pin*> pins_;
+  std::unordered_set<const std::string*> gensym_names_;
   size_t gen_{};
   size_t allocs_{};
   size_t gensyms_{};
