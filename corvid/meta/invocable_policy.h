@@ -18,9 +18,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <type_traits>
-#include <utility>
 
 #include "bool_enums.h"
 #include "padding.h"
@@ -348,87 +346,6 @@ adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
 }
 
 } // namespace policy_details
-
-#pragma endregion
-#pragma region Function targets
-
-namespace fn_details {
-
-// Whether `Fn` is a null function or member pointer, which is the one kind of
-// constant that is not a target.
-template<auto Fn>
-consteval bool is_null_constant() noexcept {
-  if constexpr (std::is_pointer_v<decltype(Fn)> ||
-                std::is_member_pointer_v<decltype(Fn)>)
-    return (Fn == nullptr);
-  else
-    return false;
-}
-
-} // namespace fn_details
-
-// `constant_fn<Fn>` is a callable whose target is the compile-time constant
-// `Fn`, so that the target is part of the type rather than a value the
-// instance carries.
-//
-// `Fn` may be a function (with or without its address taken), a member
-// function or member object pointer (invoked as `std::invoke` does, with the
-// object as the first argument), or a structural callable object such as a
-// captureless lambda. A null pointer is refused at compile time.
-//
-// The instance has no data, and trivial construction and destruction, so it is
-// `direct_eligible`: an owner calls it without storing it, and the call
-// reaches `Fn` directly.
-template<auto Fn>
-struct constant_fn {
-  static_assert(!fn_details::is_null_constant<Fn>(),
-      "constant_fn: a null function or member pointer is not a target");
-
-  template<class... Args>
-  requires(std::is_invocable_v<decltype(Fn), Args...>)
-  constexpr decltype(auto) operator()(Args&&... args) const
-      noexcept(std::is_nothrow_invocable_v<decltype(Fn), Args...>) {
-    return std::invoke(Fn, std::forward<Args>(args)...);
-  }
-};
-
-// `runtime_fn<Ptr>` is a callable holding a function or member pointer whose
-// value is only known at runtime, spelled `runtime_fn{p}`.
-//
-// It is what a bare pointer target is, made explicit: stored as the pointer
-// and called through it, with the object as the first argument for a member
-// pointer. It may be null; an owner treats a null one as no callable, and
-// calling a null one is the same undefined behavior as calling a null
-// pointer.
-template<class Ptr>
-requires(
-    (std::is_pointer_v<Ptr> &&
-        std::is_function_v<std::remove_pointer_t<Ptr>>) ||
-    std::is_member_pointer_v<Ptr>)
-struct runtime_fn {
-  Ptr fn;
-
-  [[nodiscard]] explicit constexpr operator bool() const noexcept {
-    return (fn != nullptr);
-  }
-
-  template<class... Args>
-  requires(std::is_invocable_v<Ptr, Args...>)
-  constexpr decltype(auto) operator()(Args&&... args) const
-      noexcept(std::is_nothrow_invocable_v<Ptr, Args...>) {
-    return std::invoke(fn, std::forward<Args>(args)...);
-  }
-};
-
-template<class Ptr>
-runtime_fn(Ptr) -> runtime_fn<Ptr>;
-
-// Whether `T` is a `runtime_fn`.
-template<class T>
-constexpr bool is_runtime_fn_v = false;
-
-template<class Ptr>
-constexpr bool is_runtime_fn_v<runtime_fn<Ptr>> = true;
 
 #pragma endregion
 }} // namespace corvid::meta

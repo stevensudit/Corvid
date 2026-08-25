@@ -18,7 +18,6 @@
 #include <bit>
 #include <cassert>
 #include <cstddef>
-#include <exception>
 #include <functional>
 #include <limits>
 #include <new>
@@ -27,6 +26,7 @@
 #include <utility>
 
 #include "concepts.h"
+#include "invocable_common.h"
 #include "invocable_policy.h"
 #include "padding.h"
 #include "traits.h"
@@ -188,37 +188,19 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     }
   }
 
-  // Whether `ResultT` supports `on_empty::silent`: it can be value-initialized
-  // or is `void`.
-  static constexpr bool silenceable =
-      (std::is_void_v<ResultT> || std::is_default_constructible_v<ResultT>);
+  // The empty-call rules for `ResultT`.
+  using empty_traits = empty_call_traits<ResultT>;
 
-  // Whether calling an empty wrapper with `on_empty::silent` is noexcept; a
-  // subset of `silenceable`.
-  static constexpr bool nothrow_silenceable =
-      (std::is_void_v<ResultT> ||
-          std::is_nothrow_default_constructible_v<ResultT>);
-
-  // The invoke stub for an empty wrapper.
+  // The invoke stub for an empty wrapper, which performs the empty call under
+  // `Mode`.
   //
-  // Returns `ResultT{}`, throws `std::bad_function_call`, or terminates, per
-  // `Mode`. The wrapper's own `static_assert` has already ruled out `silent`
-  // on a result that is not `silenceable`.
+  // The wrapper's own `static_assert`s have already established that `Mode`
+  // is admitted.
   template<on_empty Mode>
   static ResultT
   empty_invoke_impl([[maybe_unused]] void*, [[maybe_unused]] Args...) noexcept(
-      (Mode == on_empty::terminate) ||
-      ((Mode == on_empty::silent) && nothrow_silenceable)) {
-    if constexpr (Mode == on_empty::silent) {
-      if constexpr (std::is_void_v<ResultT>)
-        return;
-      else
-        return ResultT{};
-    } else if constexpr (Mode == on_empty::terminate) {
-      std::terminate();
-    } else {
-      throw std::bad_function_call();
-    }
+      empty_traits::template nothrow_v<Mode>) {
+    return empty_traits::template invoke<Mode>();
   }
 
   // Manage the lifespan of a stored callable through a single function that
@@ -448,7 +430,7 @@ private:
 // A function name itself (`f = foo;`) is refused at compile time, since it is
 // the one spelling that cannot be a runtime value, and a policy with
 // `policy_enforcement::strict` refuses bare pointers too, so that the caller
-// chooses. See `invocable_policy.h`.
+// chooses. See `invocable_common.h`.
 //
 // - It is inflexibly move-only, because copying wrappers has limited uses, and
 // at a high cost to design choices. A copyable wrapper would need to be a
@@ -506,7 +488,8 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
       "accommodate a pointer");
   static_assert(std::has_single_bit(Policy.inline_align),
       "flexi_function: inline_align must be a power of two");
-  static_assert((Policy.empty != on_empty::silent) || thunks::silenceable,
+  static_assert(
+      (Policy.empty != on_empty::silent) || thunks::empty_traits::silenceable,
       "flexi_function: on_empty::silent needs a result that can be "
       "value-initialized (or void); choose raise or terminate for this "
       "signature");
@@ -515,7 +498,7 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
       "choose terminate, or silent (for a nothrow-value-initializable "
       "result)");
   static_assert(!thunks::noexcept_call || (Policy.empty != on_empty::silent) ||
-                    thunks::nothrow_silenceable,
+                    thunks::empty_traits::nothrow_silenceable,
       "flexi_function: on_empty::silent under a noexcept signature needs a "
       "result whose value-initialization cannot throw; choose terminate");
   static_assert(

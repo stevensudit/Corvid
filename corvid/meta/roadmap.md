@@ -43,6 +43,28 @@ The pending `proxy` changes, in the order to land them:
   vocabulary contracts, and the proxy.md storage-policy section can point at
   `invocable_policy.h` as the single description.
 
+## In progress: shared code between proxy and flexi_function
+
+Both owners answer the same questions about a target and a result, and the
+answers had been written twice. The shared parts now live in
+`invocable_common.h`, leaving `invocable_policy.h` as the policy and its
+`policy_details`:
+
+- `empty_call_traits<R>`: `silenceable`, `nothrow_silenceable`, `admits`
+  (one behavior exactly, given `noexcept`), `resolve_floor` (proxy's
+  mildest-at-or-above rule), and `invoke<Behavior>` (the empty call
+  itself). `flexi_thunks::empty_invoke_impl` and
+  `method_traits_base::make_empty_thunk` are one-line wrappers over it, and
+  `method_traits_base::empty_behavior` forwards to `resolve_floor`;
+  `flexi_function`'s three `static_assert`s keep their messages and read
+  the two bools. Truth table in meta_test.cpp.
+- `constant_fn`, `runtime_fn`, and `is_runtime_fn_v`, moved verbatim.
+
+Next is a pass over `proxy.h` and `flexi_function.h` for further overlap,
+factoring only where the two coincide. The proxy handles also vary among
+themselves, so not everything that looks alike is the same thing; the aim
+is to find the actual borders.
+
 ## Landed: empty calls for proxy
 
 An empty `proxy` now runs its policy's `on_empty` behavior instead of being

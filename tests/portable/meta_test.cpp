@@ -19,6 +19,7 @@
 #include "catch2_main.h"
 
 #include <bit>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -1624,6 +1625,74 @@ TEST_CASE("SignatureTraits", "[MetaTest]") {
   // Runtime anchor so the case is not assert-only.
   CHECK(
       signature_traits<int(char)>::noexcept_specifier == noexcept_spec::none);
+}
+
+#pragma endregion
+
+#pragma region EmptyCallTraits
+
+// Result types for the empty-call table: one that cannot be
+// value-initialized, and one whose value-initialization may throw (its
+// defaulted constructor allocates through the member initializer).
+struct nondefault_result {
+  explicit nondefault_result(int) {}
+};
+struct throwing_result {
+  std::vector<int> pad = std::vector<int>(1);
+};
+static_assert(!std::is_nothrow_default_constructible_v<throwing_result>);
+
+TEST_CASE("EmptyCallTraits", "[MetaTest]") {
+  using plain = empty_call_traits<int>;
+  using none = empty_call_traits<void>;
+  using ref = empty_call_traits<int&>;
+  using nondefault = empty_call_traits<nondefault_result>;
+  using throwing = empty_call_traits<throwing_result>;
+
+  // Silencing needs a value-initializable result, nothrow for a subset.
+  static_assert(plain::silenceable && plain::nothrow_silenceable);
+  static_assert(none::silenceable && none::nothrow_silenceable);
+  static_assert(!ref::silenceable && !ref::nothrow_silenceable);
+  static_assert(!nondefault::silenceable);
+  static_assert(throwing::silenceable && !throwing::nothrow_silenceable);
+
+  // `admits`: silent follows silenceability (nothrow under noexcept), raise
+  // needs a throwing call, terminate is always admitted.
+  static_assert(plain::admits(on_empty::silent, false));
+  static_assert(plain::admits(on_empty::silent, true));
+  static_assert(!ref::admits(on_empty::silent, false));
+  static_assert(throwing::admits(on_empty::silent, false));
+  static_assert(!throwing::admits(on_empty::silent, true));
+  static_assert(plain::admits(on_empty::raise, false));
+  static_assert(!plain::admits(on_empty::raise, true));
+  static_assert(ref::admits(on_empty::terminate, true));
+
+  // `resolve_floor`: the mildest admitted behavior at or above the floor.
+  static_assert(
+      plain::resolve_floor(on_empty::silent, false) == on_empty::silent);
+  static_assert(
+      plain::resolve_floor(on_empty::raise, false) == on_empty::raise);
+  static_assert(
+      plain::resolve_floor(on_empty::terminate, false) == on_empty::terminate);
+  static_assert(
+      ref::resolve_floor(on_empty::silent, false) == on_empty::raise);
+  static_assert(
+      ref::resolve_floor(on_empty::silent, true) == on_empty::terminate);
+  static_assert(
+      throwing::resolve_floor(on_empty::silent, true) == on_empty::terminate);
+  static_assert(
+      plain::resolve_floor(on_empty::raise, true) == on_empty::terminate);
+
+  // `invoke`: noexcept exactly when the behavior cannot throw.
+  static_assert(noexcept(plain::invoke<on_empty::silent>()));
+  static_assert(!noexcept(throwing::invoke<on_empty::silent>()));
+  static_assert(!noexcept(plain::invoke<on_empty::raise>()));
+  static_assert(noexcept(ref::invoke<on_empty::terminate>()));
+
+  // The silent and raise calls, performed.
+  CHECK(plain::invoke<on_empty::silent>() == 0);
+  CHECK_NOTHROW(none::invoke<on_empty::silent>());
+  CHECK_THROWS_AS(plain::invoke<on_empty::raise>(), std::bad_function_call);
 }
 
 #pragma endregion

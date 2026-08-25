@@ -15,7 +15,10 @@ how a callable moves between wrappers. The header's class comment states
 the contract, and every claim here is pinned by
 [flexi_function_test.cpp](../../tests/portable/flexi_function_test.cpp).
 The policy type is shared with `proxy` and documented in
-[invocable_policy.h](invocable_policy.h). Planned work is in
+[invocable_policy.h](invocable_policy.h). The target spellings
+(`constant_fn`, `runtime_fn`) and the empty-call rules
+(`empty_call_traits`), shared the same way, are in
+[invocable_common.h](invocable_common.h). Planned work is in
 [roadmap.md](roadmap.md).
 
 ## Contents

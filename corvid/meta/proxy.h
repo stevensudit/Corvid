@@ -21,7 +21,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
-#include <functional>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -31,6 +30,7 @@
 
 #include "crossplatform.h"
 #include "fixed_string.h"
+#include "invocable_common.h"
 #include "invocable_policy.h"
 #include "padding.h"
 
@@ -745,26 +745,14 @@ struct method_traits_base {
     };
   }
 
-  // `silenceable`, `nothrow_silenceable`: whether `R` can be value-initialized
-  // (or is `void`), and whether that cannot throw, which is what
-  // `on_empty::silent` needs of a result.
-  static constexpr bool silenceable =
-      (std::is_void_v<R> || std::is_default_constructible_v<R>);
-  static constexpr bool nothrow_silenceable =
-      (std::is_void_v<R> || std::is_nothrow_default_constructible_v<R>);
+  // `empty_traits`: the empty-call rules for `R`.
+  using empty_traits = empty_call_traits<R>;
 
   // `empty_behavior`: the behavior this method's empty thunk takes under the
   // policy floor `floor`, the mildest at or above it that the signature
   // admits.
-  //
-  // `silent` needs a value-initializable result, nothrow under `noexcept`;
-  // `raise` needs a method that may throw; `terminate` needs nothing.
   static consteval on_empty empty_behavior(on_empty floor) noexcept {
-    if ((floor == on_empty::silent) && silenceable &&
-        (!Noexcept || nothrow_silenceable))
-      return on_empty::silent;
-    if ((floor != on_empty::terminate) && !Noexcept) return on_empty::raise;
-    return on_empty::terminate;
+    return empty_traits::resolve_floor(floor, Noexcept);
   }
 
   // `make_empty_thunk`: the thunk an empty handle dispatches this method to
@@ -772,17 +760,7 @@ struct method_traits_base {
   template<on_empty Floor>
   static consteval thunk_ptr_t make_empty_thunk() noexcept {
     return [](erased_ptr_t, Args...) noexcept(Noexcept) -> R {
-      constexpr auto behavior = empty_behavior(Floor);
-      if constexpr (behavior == on_empty::silent) {
-        if constexpr (std::is_void_v<R>)
-          return;
-        else
-          return R{};
-      } else if constexpr (behavior == on_empty::raise) {
-        throw std::bad_function_call();
-      } else {
-        std::terminate();
-      }
+      return empty_traits::template invoke<empty_behavior(Floor)>();
     };
   }
 };
@@ -3067,8 +3045,11 @@ private:
   // and the `shared_proxy` adoption suppress its uninitialized-value and
   // use-after-release checks.
   [[nodiscard]] void* target() noexcept {
-    // NOLINTNEXTLINE(clang-analyzer-*)
+    // NOLINTBEGIN(clang-analyzer-core.uninitialized.UndefReturn)
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     return vtable_->relocate ? static_cast<void*>(storage_.buf) : storage_.ptr;
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+    // NOLINTEND(clang-analyzer-core.uninitialized.UndefReturn)
   }
   [[nodiscard]] const void* target() const noexcept {
     // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.UndefReturn)
