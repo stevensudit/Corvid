@@ -80,18 +80,26 @@ enum class on_empty : std::uint8_t { silent, raise, terminate };
 #pragma endregion
 #pragma region Allocation mode
 
-// `allocation_mode` is where an owner keeps one stored target: constructed in
-// its own inline buffer, in a heap block it points to, or nowhere at all.
+// `allocation_mode` is how an owner's invoke thunk reaches its target, and
+// therefore where the target lives.
 //
-// `stateless` is for a target whose type is empty, trivially default
-// constructible, and trivially destructible (see `is_stateless_v`). Every
-// instance of such a type is interchangeable, so the owner keeps none and its
-// invoke thunk materializes one for each call. The target occupies no storage
-// under any policy, `heap_only` included, and reports a size of 0.
+// Normally the owner's `invoke` slot points at a thunk that first finds the
+// target in the owner's storage and then calls it. Under `inlined` the target
+// is constructed in the owner's buffer, and under `dynamic` the buffer holds a
+// pointer to the target's heap block, one more dereference away.
+//
+// Under `direct` there is no finding step. The `invoke` slot points at a
+// thunk whose body is the call itself, which the optimizer collapses into a
+// direct call to the target's code, and the buffer is never read. This is
+// possible only for a type that carries nothing per instance: no data
+// members, and trivial default construction and destruction (see
+// `direct_eligible`), such as a captureless lambda or a `std::plus<>`. Such
+// a target occupies no storage under any policy, `heap_only` included, and
+// reports a size of 0.
 //
 // Unlike `invocable_alloc`, which is a policy choice, this is the outcome for
 // one target, and it is what the owner's thunks are keyed on.
-enum class allocation_mode : std::uint8_t { inlined, dynamic, stateless };
+enum class allocation_mode : std::uint8_t { inlined, dynamic, direct };
 
 #pragma endregion
 #pragma region invocable_policy
@@ -162,26 +170,31 @@ constexpr bool can_store_inline(invocable_policy p) noexcept {
   return (p.alloc != invocable_alloc::heap_only) && inline_eligible<T>(p);
 }
 
-// `is_stateless_v`: whether every `T` is interchangeable with every other, so
-// that an owner can keep none and materialize one at each call.
+// `direct_eligible`: whether a `T` can be called without storing one, so that
+// only its type survives, in the thunk generated for it.
 //
-// Empty rules out state. Trivially default constructible rules out a
-// constructor with side effects (a counter, a registration), and trivially
-// destructible rules out a destructor with them. A captureless lambda, a
-// `std::plus<>`, or a hand-written empty functor all qualify.
+// No data members (which is what `std::is_empty` checks, along with no
+// virtual functions) rules out per-instance state such as a capture or a
+// bound pointer. Trivial default construction rules out a constructor with
+// side effects (a counter, a registration), and trivial destruction a
+// destructor with them. Together they make the instance the thunk names to
+// call `operator()` a formality with no runtime presence.
+//
+// No policy parameter, because no policy affects the answer.
 template<typename T>
-constexpr bool is_stateless_v =
-    (std::is_empty_v<T> && std::is_trivially_default_constructible_v<T> &&
-        std::is_trivially_destructible_v<T>);
+consteval bool direct_eligible() noexcept {
+  return (std::is_empty_v<T> && std::is_trivially_default_constructible_v<T> &&
+          std::is_trivially_destructible_v<T>);
+}
 
-// `storage_mode`: where policy `p` keeps a `T`: nowhere when it is stateless,
-// inline when it can be, and on the heap otherwise.
+// `storage_mode`: where policy `p` keeps a `T`: nowhere when it is direct
+// eligible, inline when it can be, and on the heap otherwise.
 //
 // An `inline_only` policy over a target that can be neither is rejected
 // separately, with its own diagnostic.
 template<typename T>
 consteval allocation_mode storage_mode(invocable_policy p) noexcept {
-  if (is_stateless_v<T>) return allocation_mode::stateless;
+  if (direct_eligible<T>()) return allocation_mode::direct;
   if (can_store_inline<T>(p)) return allocation_mode::inlined;
   return allocation_mode::dynamic;
 }

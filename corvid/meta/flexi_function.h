@@ -168,13 +168,15 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // Invoke the stored callable, where `storage` is the wrapper's type-erased
   // buffer.
   //
-  // A stateless callable is not in the buffer at all; a static one is
-  // materialized for the call, and the signature's qualifiers apply to it
-  // exactly as they would to a stored one.
+  // An `allocation_mode::direct` callable is not in the buffer at all. The
+  // `target` named here is what the object model requires to call a member
+  // `operator()` (a null object is not an option, even for a body that never
+  // touches `this`); it has no data and no runtime presence, and the
+  // signature's qualifiers apply to it exactly as they would to a stored one.
   template<class F, allocation_mode SourceAlloc>
   static ResultT
   invoke_impl(void* storage, Args... args) noexcept(noexcept_call) {
-    if constexpr (SourceAlloc == allocation_mode::stateless) {
+    if constexpr (SourceAlloc == allocation_mode::direct) {
       F target{};
       return std::invoke_r<ResultT>(static_cast<qualified_target_t<F>>(target),
           std::forward<Args>(args)...);
@@ -223,7 +225,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // can size, destroy, probe, or relocate, depending on the arguments.
   //
   // - When `from` is null, it is a pure size query that returns the stored
-  // size: `sizeof(F)`, or 0 for a stateless source.
+  // size: `sizeof(F)`, or 0 for an `allocation_mode::direct` source.
   //
   // - When `from` is set and `dest` is null, it destroys the callable at
   // `from` (freeing its heap block, if applicable).
@@ -262,12 +264,12 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // responsibility: each wrapper's empty-call behavior is baked into its
   // type, so the caller reinstalls its own empty pair.
   //
-  // An `allocation_mode::stateless` source has nothing to size, destroy, or
+  // An `allocation_mode::direct` source has nothing to size, destroy, or
   // move: its size is 0, destruction is a no-op, every destination accepts it,
   // and a relocation only writes the thunk pair.
   template<class F, allocation_mode SourceAlloc>
   static size_t lifespan_impl(void* from, destination_spec* dest) {
-    if constexpr (SourceAlloc == allocation_mode::stateless) {
+    if constexpr (SourceAlloc == allocation_mode::direct) {
       if (from && dest && dest->to)
         *dest->dispatch = dispatch_for<F, SourceAlloc>();
       return 0;
@@ -457,6 +459,9 @@ private:
 // (Note that wrapping either of these std polymorphic function wrappers
 // requires nesting, so there's a performance penalty; that's why it's
 // `explicit`.)
+//
+// The mechanism, with memory layouts and the thunk protocol, is documented in
+// "flexi_function.md".
 template<invocable_policy Policy, class Sig, class ResultT, class... Args>
 class flexi_function<Policy, Sig, ResultT(Args...)> {
   static_assert(std::is_same_v<ResultT(Args...), signature_function_t<Sig>>,
@@ -546,8 +551,8 @@ public:
   // The inline path can't throw, but the heap path can throw on allocation,
   // and so can the move itself (which is precisely why a callable whose move
   // constructor may throw is heap-bound). A throw leaves this instance empty.
-  // An `allocation_mode::stateless` callable takes neither path: nothing
-  // is stored, under any policy.
+  // An `allocation_mode::direct` callable takes neither path: nothing is
+  // stored, under any policy.
   //
   // The std polymorphic function wrappers are deliberately excluded
   // here; wrapping one takes the explicit constructor below.
@@ -725,7 +730,7 @@ public:
   }
 
   // Size of the stored callable in bytes; 0 when empty, and also for an
-  // `allocation_mode::stateless` callable, which is not stored.
+  // `allocation_mode::direct` callable, which is not stored.
   [[nodiscard]] size_t size() const noexcept {
     return dispatch_.lifespan ? dispatch_.lifespan(nullptr, nullptr) : 0;
   }
@@ -754,8 +759,9 @@ public:
           .dispatch = nullptr,
           .to = nullptr};
       // The probe only reads, but the erased signature is mutable.
-      return source.dispatch_.lifespan(const_cast<std::byte*>(source.storage_),
-                 &probe) != thunks::refused;
+      return (
+          source.dispatch_.lifespan(const_cast<std::byte*>(source.storage_),
+              &probe) != thunks::refused);
     }
   }
 
@@ -778,8 +784,8 @@ private:
   //
   // `FD` is the stored type, already decayed and always passed explicitly;
   // `fn` is forwarded into it, so an rvalue is moved and a (trivially
-  // copyable) lvalue is copied. A stateless `fn` is not consumed at all: only
-  // its type survives, in the thunks.
+  // copyable) lvalue is copied. An `allocation_mode::direct` `fn` is not
+  // consumed at all: only its type survives, in the thunks.
   //
   // The caller handles any null-callable special case before calling, and
   // the instance is empty on entry.

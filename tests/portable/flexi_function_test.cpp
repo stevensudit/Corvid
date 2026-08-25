@@ -207,22 +207,23 @@ TEST_CASE("Cross-policy transplant", "[flexi_function]") {
   CHECK(live == 0);
 }
 
-// A stateless functor: empty, trivially constructible and destructible.
+// A direct-eligible functor: no data, trivially constructible and
+// destructible.
 struct nine_fn {
   int operator()() const noexcept { return 9; }
 };
 
-static_assert(policy_details::is_stateless_v<nine_fn>);
-static_assert(!policy_details::is_stateless_v<counted>);
-static_assert(!policy_details::is_stateless_v<int (*)()>);
+static_assert(policy_details::direct_eligible<nine_fn>());
+static_assert(!policy_details::direct_eligible<counted>());
+static_assert(!policy_details::direct_eligible<int (*)()>());
 
-// Storing a stateless callable is noexcept under every policy, heap_only
+// Storing a direct callable is noexcept under every policy, heap_only
 // included, because nothing is stored.
 static_assert(std::is_nothrow_constructible_v<flexi_function<heap_only, int()>,
     nine_fn>);
 
-TEST_CASE("Stateless callables are not stored", "[flexi_function]") {
-  // A captureless lambda and an empty functor occupy no storage under any
+TEST_CASE("Direct callables are not stored", "[flexi_function]") {
+  // A captureless lambda and a data-free functor occupy no storage under any
   // policy, so heap_only allocates nothing for them.
   flexi_function<dflt, int()> lam{[] { return 5; }};
   CHECK(lam);
@@ -597,8 +598,8 @@ TEST_CASE("Qualified signatures wrap and adopt like plain ones",
   const auto& cb = b;
   CHECK(cb() == 9);
 
-  // `const_only` and `rvalue_only` are stateless, so they are not stored, and
-  // the signature's qualifiers apply to the instance materialized per call.
+  // `const_only` and `rvalue_only` are direct, so they are not stored, and the
+  // signature's qualifiers apply to the instance the thunk names per call.
   CHECK(b.size() == 0);
   flexi_function<dflt, int() &&> rv{rvalue_only{}};
   CHECK(rv.size() == 0);
