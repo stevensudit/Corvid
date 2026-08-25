@@ -794,6 +794,12 @@ private:
   do_store(FN&& fn) noexcept(policy_details::can_store_nothrow<FD>(Policy)) {
     static_assert(!std::is_reference_v<FD>,
         "flexi_function: do_store requires the decayed stored type");
+    static_assert(!std::is_function_v<std::remove_reference_t<FN>>,
+        "flexi_function: a function name is a compile-time target. Wrap it as "
+        "constant_fn<f>{} to call it directly with nothing stored, or, when "
+        "the reference is a runtime value (it came through a forwarding "
+        "parameter or a conditional), take its address to store it as a "
+        "pointer");
     static_assert(
         supports_dynamic || policy_details::inline_eligible<FD>(Policy),
         "flexi_function: the callable is not eligible for an inline_only "

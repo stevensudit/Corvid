@@ -72,6 +72,14 @@ struct no_default {
 };
 
 int plain_seven() { return 7; }
+int add_one(int x) noexcept { return x + 1; }
+
+// A target for member-pointer constants.
+struct gadget {
+  int n = 0;
+  int tick() { return ++n; }
+  int twice(int x) const noexcept { return 2 * x; }
+};
 
 struct widget {
   int n;
@@ -221,6 +229,42 @@ static_assert(!policy_details::direct_eligible<int (*)()>());
 // included, because nothing is stored.
 static_assert(std::is_nothrow_constructible_v<flexi_function<heap_only, int()>,
     nine_fn>);
+
+TEST_CASE("constant_fn calls a compile-time target directly",
+    "[flexi_function]") {
+  static_assert(policy_details::direct_eligible<constant_fn<plain_seven>>());
+
+  // A function, named with or without its address; not stored under any
+  // policy.
+  flexi_function<dflt, int()> a{constant_fn<plain_seven>{}};
+  CHECK(a() == 7);
+  CHECK(a.size() == 0);
+  flexi_function<heap_only, int()> b{constant_fn<&plain_seven>{}};
+  CHECK(b() == 7);
+  CHECK(b.size() == 0);
+
+  // A member function, with the object as the first argument.
+  gadget w;
+  flexi_function<dflt, int(gadget&)> m{constant_fn<&gadget::tick>{}};
+  CHECK(m(w) == 1);
+  CHECK(m(w) == 2);
+  flexi_function<terminating, int(const gadget&, int) noexcept> mc{
+      constant_fn<&gadget::twice>{}};
+  CHECK(mc(w, 4) == 8);
+
+  // A captureless lambda as the constant.
+  flexi_function<dflt, int(int)> l{constant_fn<[](int x) { return x * 3; }>{}};
+  CHECK(l(2) == 6);
+
+  // noexcept follows the target, so only a nothrow target satisfies a
+  // noexcept signature.
+  static_assert(noexcept(constant_fn<add_one>{}(1)));
+  static_assert(!noexcept(constant_fn<plain_seven>{}()));
+  flexi_function<terminating, int(int) noexcept> ne{constant_fn<add_one>{}};
+  CHECK(ne(1) == 2);
+  static_assert(!std::is_constructible_v<
+      flexi_function<terminating, int() noexcept>, constant_fn<plain_seven>>);
+}
 
 TEST_CASE("Direct callables are not stored", "[flexi_function]") {
   // A captureless lambda and a data-free functor occupy no storage under any

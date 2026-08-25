@@ -53,6 +53,7 @@ The policy type is shared with `proxy` and documented in
 | box, un-box, hand over      | The three ways a relocation can change or keep a target's home: onto the heap, out of the heap into a buffer, or passing the heap block as is. |
 | `refused`                   | The `lifespan` return value for a relocation the destination cannot accept.                                                                    |
 | direct-eligible             | A type that can be `direct`: `policy_details::direct_eligible<T>()`.                                                                           |
+| `constant_fn<Fn>`           | A direct-eligible callable whose target is the compile-time constant `Fn`: a function, a member pointer, or a captureless lambda.              |
 
 ## The shape at a glance
 
@@ -232,6 +233,7 @@ inside the thunk depends on the stored type, not on the mode:
 | functor or capturing lambda                              | `inlined`                          | direct call to `F::operator()` with the buffer as `this`, inlined when visible |
 | functor or capturing lambda                              | `dynamic`                          | load `F*` from the buffer, then the same with the block as `this`              |
 | direct-eligible type (captureless lambda, `std::plus<>`) | `direct`                           | direct call to `F::operator()`, inlined when visible, and no load at all       |
+| `constant_fn<foo>`                                       | `direct`                           | direct call to `foo`, inlined when visible; the address is in the type         |
 
 The `static_cast<F*>(storage)` in the thunk is not an instruction. It is
 the compiler agreeing to treat those bytes as an `F`, and the call to
@@ -246,9 +248,20 @@ nothing is constructed, moved, or destroyed, nothing is allocated under
 
 Naming `foo` inside a captureless lambda, `[](int x) { return foo(x); }`,
 moves the address from data into the type, where the thunk can call it
-outright, and makes the wrapper `direct` as well. Whether `foo`'s body
-then inlines into the thunk follows the visibility rule above; even when
-it does not, the call to it is direct, not indirect.
+outright, and makes the wrapper `direct` as well. `constant_fn<foo>{}` is
+the same thing with a name and no body to write, and it also takes a
+member pointer (object as the first argument) or a captureless lambda.
+Whether `foo`'s body then inlines into the thunk follows the visibility
+rule above; even when it does not, the call to it is direct, not indirect.
+
+Storing a function by name, `fn_t f = foo;`, is refused at compile time,
+with a message pointing at `constant_fn`. The reference form is the one
+spelling the type system can tell apart from a runtime pointer, so it is
+the one place the wrapper can say "you are about to pay a second
+indirection for a target you know." `&foo` is indistinguishable from any
+other pointer value and is accepted as one. A function reference that
+really is a runtime value (it arrived through a forwarding parameter, or a
+conditional between two functions) decays to a pointer with `&`.
 
 ## Storing a callable
 
