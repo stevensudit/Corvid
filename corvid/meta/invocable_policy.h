@@ -310,8 +310,8 @@ namespace details {
 // buffer.
 //
 // The three conditions of inline eligibility, over values, so that the same
-// test serves a type (`is_inline_eligible`) and an erased arrival whose table
-// reports its footprint (`adoption_of`).
+// test serves a type (`is_inline_eligible`) and an erased arrival whose
+// footprint is known only at runtime (`adoption_of`).
 //
 // `constexpr` rather than `consteval`: `flexi_function`'s lifespan thunk
 // evaluates a type-erased destination's policy at runtime.
@@ -400,7 +400,7 @@ adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
 // move cannot throw when `is_nothrow_move`, takes into policy `to`, arriving
 // from storage mode `from`.
 //
-// The one statement of the adoption rule, which both owners follow. A heap
+// The one statement of the adoption rule. A heap
 // arrival is handed over whenever `to` admits the heap, never un-boxed, since
 // the allocation is already paid for; it is un-boxed only into an
 // `inline_only` buffer it fits. An inline arrival stays inline when it fits
@@ -410,9 +410,8 @@ adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
 // A `direct` arrival is not routed here: it has no storage to move, and every
 // destination accepts it.
 //
-// `constexpr` rather than `consteval`: `flexi_function`'s lifespan thunk asks
-// with a type-erased destination's policy, and `proxy` with an erased
-// arrival's footprint, both at runtime.
+// `constexpr` rather than `consteval`: an owner may ask at runtime, with a
+// type-erased destination's policy or an erased arrival's footprint.
 constexpr adoption adoption_of(invocable_policy to, storage_mode from,
     size_t size, size_t align, bool is_nothrow_move) noexcept {
   const bool fits =

@@ -132,9 +132,26 @@ answers had been written twice. The shared parts now live in
   through a `reinterpret_cast` of the byte array. Left alone, as different
   things or bare one-liners with their own messages: the empty-state
   reinstall after a move, the policy-validity and store-time asserts, and
-  the accessors flexi has and proxy lacks. One inconsistency surfaced for
-  a ruling: `flexi_function::storage_size` reports 0 under `heap_only`,
-  where `proxy::inline_size` reports the policy's number.
+  the accessors flexi has and proxy lacks. Review notes, applied: the two
+  `details` namespaces take the shared `details` in whole with one
+  using-directive (symbol-by-symbol is for publishing outward, not for
+  pulling a `details` into another); the shared housekeeping primitives are
+  typed on the target (`T*` in, a `void*` destination only for raw buffer
+  space), flexi's thunks re-type the erased storage at entry (`stored_fn`
+  returns `F*`, and `store_block` is the one place a block's address is
+  erased into the pointer slot), and proxy erases at its table slots with
+  lambdas, the last place the type is seen; the `storage_area` pointer is a
+  `void*` because the storage is one member of an owner that holds any
+  target type, so neither owner can name the type there. The shared headers
+  no longer enumerate their callers as "both owners": they are lower than
+  `proxy` and `flexi_function` and must not presume to know who uses them
+  (a copyable sibling of `flexi_function` is a live prospect). flexi's
+  pointer-slot `static_assert` covers every policy with a buffer, since
+  the union would otherwise silently grow to a pointer's size. Both owners
+  report inline capacity as 0 under `heap_only` (`proxy::inline_size` now
+  agrees with `flexi_function::storage_size`): the pointer kept in the
+  buffer's place is not capacity, and `invocable_policy::buffer_size()` is
+  the byte count for anyone who wants that instead.
 
 ## Landed: empty calls for proxy
 

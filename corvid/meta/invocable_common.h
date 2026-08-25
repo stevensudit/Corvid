@@ -28,9 +28,10 @@
 namespace corvid { inline namespace meta {
 namespace invocables {
 
-// What the invocable owners, `flexi_function` and `proxy`, share beyond the
-// `invocable_policy`: the rules for a call on an empty owner, the housekeeping
-// on a stored target, and the spellings for a function target.
+// What an owner of an invocable target (such as `flexi_function` or `proxy`)
+// needs beyond the `invocable_policy`: the rules for a call on an empty owner,
+// the housekeeping on a stored target, and the spellings for a function
+// target.
 //
 // `empty_call_traits<R>` answers, for a result type, which `on_empty`
 // behaviors a call can take, and performs the empty call itself, so that both
@@ -125,9 +126,13 @@ namespace details {
 // A union rather than a byte array, so that the heap pointer is read and
 // written as the pointer it is, with no reinterpretation, and so that both
 // homes share the one address an owner hands its thunks erased. Which member
-// is live, and whether either is, is keyed by the owner's dispatch state
-// (`flexi_function`'s `lifespan` thunk, `proxy`'s table), so an owner leaves
-// it uninitialized rather than zeroing the buffer on every construction.
+// is live, and whether either is, is keyed by the owner's dispatch state, so
+// an owner leaves it uninitialized rather than zeroing the buffer on every
+// construction.
+//
+// The pointer is a `void*` because the storage is one member of an owner
+// that holds any target type; the type comes back where the owner's thunks
+// know it.
 template<size_t Size, size_t Align>
 union storage_area {
   alignas(Align) std::byte buf[Size];
@@ -143,62 +148,59 @@ namespace details {
 
 // The housekeeping an owner performs on a stored target: destruction in
 // either home, and the three moves `adoption_of` can route (the analog of
-// Rust's drop glue, plus relocation). Each is over `T` itself, reached through
-// the erased address the owner keeps. `proxy` stores their addresses in its
-// owning table, and `flexi_function`'s lifespan thunk calls them directly.
+// Rust's drop glue, plus relocation). Each is typed on the target; a
+// destination buffer is `void*` because it is raw storage until the target is
+// constructed in it, which is placement new's own contract.
 //
 // Nothing here throws except `box`'s allocation: a target lives inline only
 // when its move cannot throw, so every move below is nothrow, and `box`
 // allocates before it touches the source.
 
-// `destroy_inline`: destroy the target in the buffer at `target`.
+// `destroy_inline`: destroy the target at `target`, which lives in a buffer.
 template<typename T>
-void destroy_inline(void* target) noexcept {
-  static_cast<T*>(target)->~T();
+void destroy_inline(T* target) noexcept {
+  target->~T();
 }
 
-// `destroy_heap`: destroy the target in the heap block at `target`, freeing
-// the block.
+// `destroy_heap`: destroy the target at `target`, which lives in a heap
+// block, freeing the block.
 template<typename T>
-void destroy_heap(void* target) noexcept {
-  delete static_cast<T*>(target);
+void destroy_heap(T* target) noexcept {
+  delete target;
 }
 
-// `relocate_inline`: move the target from the buffer at `from` into the
-// buffer at `to`, destroying the source.
+// `relocate_inline`: move the target at `from`, which lives in a buffer, into
+// the buffer at `to`, destroying the source.
 template<typename T>
-void relocate_inline(void* from, void* to) noexcept {
-  auto* source = static_cast<T*>(from);
+void relocate_inline(T* from, void* to) noexcept {
   // The analyzer cannot see that the caller's fit check ties `sizeof(T)` to
   // the true capacity of the buffer behind `to`.
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.PlacementNew)
-  ::new (to) T(std::move(*source));
-  source->~T();
+  ::new (to) T(std::move(*from));
+  from->~T();
 }
 
-// `box`: move the target from the buffer at `from` into a fresh heap block,
-// destroying the source, and return the block.
+// `box`: move the target at `from`, which lives in a buffer, into a fresh
+// heap block, destroying the source, and return the block.
 //
 // The allocation can throw, and it throws before the source is touched.
 template<typename T>
-void* box(void* from) {
-  auto* source = static_cast<T*>(from);
-  auto* target = new T(std::move(*source));
-  source->~T();
-  return static_cast<void*>(target);
+T* box(T* from) {
+  auto* block = new T(std::move(*from));
+  from->~T();
+  return block;
 }
 
-// `unbox`: move the target from the heap block at `from` into the buffer at
-// `to`, freeing the block.
+// `unbox`: move the target at `from`, which lives in a heap block, into the
+// buffer at `to`, freeing the block.
 //
 // The caller has already established the fit and the nothrow move (see
 // `adoption_of`).
 template<typename T>
-void unbox(void* from, void* to) noexcept {
-  auto* source = static_cast<T*>(from);
+void unbox(T* from, void* to) noexcept {
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.PlacementNew): see relocate_inline
-  ::new (to) T(std::move(*source));
-  delete source;
+  ::new (to) T(std::move(*from));
+  delete from;
 }
 
 } // namespace details

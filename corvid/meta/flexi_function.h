@@ -64,19 +64,9 @@ constexpr inline bool
 
 namespace details {
 
-// The policy helpers live with `invocable_policy`; pull them in so
-// unqualified `details::` calls find them.
-using invocables::details::adopt_may_throw;
-using invocables::details::adoption_of;
-using invocables::details::box;
-using invocables::details::can_store_nothrow;
-using invocables::details::destroy_heap;
-using invocables::details::destroy_inline;
-using invocables::details::is_inline_eligible;
-using invocables::details::relocate_inline;
-using invocables::details::storage_area;
-using invocables::details::storage_mode_of;
-using invocables::details::unbox;
+// The shared helpers live with `invocable_policy` and in invocable_common.h;
+// bring their `details` in whole, so unqualified `details::` calls find them.
+using namespace invocables::details;
 
 // `flexi_thunks` are the type-erased thunks for one signature, shared by every
 // `flexi_function` of that signature, regardless of policy.
@@ -201,7 +191,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     } else {
       return std::invoke_r<ResultT>(
           static_cast<qualified_target_t<F>>(
-              *static_cast<F*>(stored_target<SourceStorage>(storage))),
+              *stored_fn<F, SourceStorage>(storage)),
           std::forward<Args>(args)...);
     }
   }
@@ -272,9 +262,9 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   static size_t lifespan_impl(void* from, destination_spec* dest) {
     if (!from) return sizeof(F);
 
-    auto* target = stored_target<SourceStorage>(from);
+    F* f = stored_fn<F, SourceStorage>(from);
 
-    if (!dest) return do_destroy<F, SourceStorage>(target);
+    if (!dest) return do_destroy<F, SourceStorage>(f);
 
     // First decide whether a relocation is allowed, and which route it takes.
     const auto route = details::adoption_of(dest->policy, SourceStorage,
@@ -285,10 +275,10 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     if constexpr (SourceStorage == storage_mode::dynamic) {
       // A dynamically-allocated source never moves to a new box. It either
       // hands its box over or un-boxes into an `inline_only` buffer.
-      if (route == adoption::hand_over) return hand_over<F>(target, dest);
+      if (route == adoption::hand_over) return hand_over(f, dest);
       if constexpr (std::is_nothrow_move_constructible_v<F>) {
         assert(route == adoption::unbox);
-        return move_inlined<F, SourceStorage>(target, dest);
+        return move_inlined<F, SourceStorage>(f, dest);
       } else {
         // Unreachable: a throwing-move `F` never fits inline, so the rule has
         // already answered `hand_over` or `refuse`.
@@ -305,9 +295,9 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
       // An inline source stays inline when the destination is eligible, and
       // otherwise moves to a new block.
       if (route == adoption::relocate)
-        return move_inlined<F, SourceStorage>(target, dest);
+        return move_inlined<F, SourceStorage>(f, dest);
       assert(route == adoption::box);
-      return move_dynamic<F, SourceStorage>(target, dest);
+      return move_dynamic<F, SourceStorage>(f, dest);
     }
   }
 
@@ -322,73 +312,81 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   }
 
 private:
-  // The stored callable inside `storage`, as the erased address the
-  // housekeeping works over.
+  // The stored callable inside `storage`, typed.
   //
-  // An inline callable is constructed in the buffer itself, so `storage`
-  // points at it directly. A heap callable is instead reached through the
-  // pointer the storage holds (see `storage_area`), hence the extra
-  // dereference.
-  template<storage_mode SourceStorage>
-  static void* stored_target(void* storage) noexcept {
-    return (SourceStorage == storage_mode::dynamic)
-               ? *static_cast<void**>(storage)
-               : storage;
+  // The storage arrives erased, and this is where the type comes back, as
+  // early as the thunk can know it. An inline callable is constructed in the
+  // buffer itself, so `storage` points at it directly. A heap callable is
+  // instead reached through the pointer the storage holds (see
+  // `storage_area`), hence the extra dereference.
+  template<class F, storage_mode SourceStorage>
+  static F* stored_fn(void* storage) noexcept {
+    if constexpr (SourceStorage == storage_mode::dynamic)
+      return static_cast<F*>(*static_cast<void**>(storage));
+    else
+      return static_cast<F*>(storage);
   }
 
-  // Hand the heap block at `target` over to `dest`, which admits heap
-  // storage, and point dest's slots at the dynamic thunks.
+  // Store the heap block at `block` into `dest`'s pointer slot, and point
+  // `dest`'s slots at the dynamic thunks.
+  //
+  // The one place a block's address is erased into the storage.
+  template<class F>
+  static void store_block(F* block, destination_spec* dest) noexcept {
+    *static_cast<void**>(dest->to) = block;
+    *dest->dispatch = dispatch_for<F, storage_mode::dynamic>();
+  }
+
+  // Hand the heap block at `f` over to `dest`, which admits heap storage.
   //
   // The allocation is already paid for, so un-boxing would cost a move for
   // nothing.
   template<class F>
-  static size_t hand_over(void* target, destination_spec* dest) noexcept {
-    *static_cast<void**>(dest->to) = target;
-    *dest->dispatch = dispatch_for<F, storage_mode::dynamic>();
+  static size_t hand_over(F* f, destination_spec* dest) noexcept {
+    store_block(f, dest);
     return sizeof(F);
   }
 
-  // Move the callable at `target` inline into `dest`'s buffer and point
-  // `dest`'s slots at the inlined thunks.
+  // Move the callable at `f` inline into `dest`'s buffer and point `dest`'s
+  // slots at the inlined thunks.
   //
   // Serves both the buffer-to-buffer move (`relocate_inline`) and the
   // un-boxing of a dynamic source into an `inline_only` buffer (`unbox`); the
   // caller has already checked the fit.
   template<class F, storage_mode SourceStorage>
-  static size_t move_inlined(void* target, destination_spec* dest) noexcept {
+  static size_t move_inlined(F* f, destination_spec* dest) noexcept {
     static_assert(std::is_nothrow_move_constructible_v<F>,
         "move_inlined: only a nothrow-move source moves inline");
     if constexpr (SourceStorage == storage_mode::dynamic)
-      details::unbox<F>(target, dest->to);
+      details::unbox(f, dest->to);
     else
-      details::relocate_inline<F>(target, dest->to);
+      details::relocate_inline(f, dest->to);
     *dest->dispatch = dispatch_for<F, storage_mode::inlined>();
     return sizeof(F);
   }
 
-  // Box the inline callable at `target` onto the heap and point `dest`'s
-  // slots at the dynamic thunks.
+  // Box the inline callable at `f` onto the heap and store the block in
+  // `dest`.
   //
   // Only an inline source ever moves to dynamic; a dynamic block is handed
   // over or un-boxed instead. The allocation can throw, and the move cannot
   // (because an inline source is nothrow-move), so both sides are untouched on
   // a throw.
   template<class F, storage_mode SourceStorage>
-  static size_t move_dynamic(void* target, destination_spec* dest) {
+  static size_t move_dynamic(F* f, destination_spec* dest) {
     static_assert(SourceStorage == storage_mode::inlined,
         "move_dynamic: only an inline source moves to dynamic");
-    *static_cast<void**>(dest->to) = details::box<F>(target);
-    *dest->dispatch = dispatch_for<F, storage_mode::dynamic>();
+    store_block(details::box(f), dest);
     return sizeof(F);
   }
 
   // Destroy the stored callable, freeing its heap block when dynamic.
   template<class F, storage_mode SourceStorage>
-  static size_t do_destroy(void* target) noexcept {
+  static size_t do_destroy(F* f) noexcept {
     if constexpr (SourceStorage == storage_mode::dynamic)
-      details::destroy_heap<F>(target);
+      details::destroy_heap(f);
     else
-      details::destroy_inline<F>(target);
+      details::destroy_inline(f);
     return sizeof(F);
   }
 };
@@ -481,15 +479,17 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
   using destination_spec = thunks::destination_spec;
   using thunk_pair = thunks::thunk_pair;
 
-  // Under `inline_or_heap`, the buffer doubles as the pointer slot for a
-  // heap-stored callable, so it must be able to hold a pointer.
+  // The buffer overlays the pointer slot for a heap-stored callable (see
+  // `storage_area`), so it must be able to hold a pointer, whether or not the
+  // policy ever stores one: a smaller buffer would silently grow to the
+  // pointer's size and alignment.
   static_assert(
-      !(Policy.admits_inline() && Policy.admits_heap()) ||
+      !Policy.admits_inline() ||
           ((Policy.inline_size >= sizeof(void*)) &&
               (Policy.inline_align >= alignof(void*))),
-      "flexi_function: under inline_or_heap the buffer doubles as the pointer "
-      "slot for a heap-stored callable, so inline_size and inline_align must "
-      "accommodate a pointer");
+      "flexi_function: the buffer overlays the pointer slot for a heap-stored "
+      "callable, so inline_size and inline_align may not shrink below a "
+      "pointer's");
   static_assert(std::has_single_bit(Policy.inline_align),
       "flexi_function: inline_align must be a power of two");
   static_assert((Policy.empty != on_empty::silent) ||

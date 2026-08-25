@@ -129,20 +129,10 @@ consteval auto operator""_method() noexcept {
 
 namespace details {
 
-// The policy helpers live with `invocable_policy`, shared with
-// `flexi_function`; pull them in so unqualified `details::` calls below find
+// The shared helpers live with `invocable_policy` and in invocable_common.h;
+// bring their `details` in whole, so unqualified `details::` calls below find
 // them.
-using invocables::details::adopt_may_throw;
-using invocables::details::adoption_of;
-using invocables::details::box;
-using invocables::details::can_store_inline;
-using invocables::details::destroy_heap;
-using invocables::details::destroy_inline;
-using invocables::details::inline_fit_guaranteed;
-using invocables::details::is_inline_eligible;
-using invocables::details::relocate_inline;
-using invocables::details::storage_area;
-using invocables::details::unbox;
+using namespace invocables::details;
 
 // `storage_mode_of`: where a `proxy` under policy `p` keeps a `T`: `inlined`
 // when the policy can store it inline, else `dynamic`.
@@ -778,11 +768,6 @@ struct method_traits<M, R(Args...)> {
     };
   }
 };
-
-// The housekeeping thunks an owning table carries (`destroy_inline`,
-// `destroy_heap`, `relocate_inline`, `box`, `unbox`) are the shared ones in
-// invocable_common.h, pulled in above. The heap mode has no relocate slot,
-// because a heap target moves by pointer steal.
 
 // `empty_relocate`: the empty table's relocate slot, with nothing to move.
 //
@@ -1839,16 +1824,29 @@ struct vtable_builder<facade<Es...>>
             static_cast<bases_of_t<Es...>*>(nullptr))};
     static_assert(StorageMode != storage_mode::direct,
         "a proxy table is inlined or dynamic; see storage_mode_of");
+    // The housekeeping slots erase the shared primitives (invocable_common.h)
+    // here, the last place the target type is seen, as `make_thunk` does for
+    // dispatch.
     if constexpr (StorageMode == storage_mode::inlined) {
-      ovt.destroy = &destroy_inline<T>;
-      ovt.relocate = &relocate_inline<T>;
-      ovt.to_heap = &box<T>;
+      ovt.destroy = [](void* target) noexcept {
+        destroy_inline(static_cast<T*>(target));
+      };
+      ovt.relocate = [](void* from, void* to) noexcept {
+        relocate_inline(static_cast<T*>(from), to);
+      };
+      ovt.to_heap = [](void* from) -> void* {
+        return box(static_cast<T*>(from));
+      };
       ovt.heap_table = &owning_vtable_for<F, Born, T, storage_mode::dynamic>;
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &sbo_copy<T>;
     } else {
-      ovt.destroy = &destroy_heap<T>;
+      ovt.destroy = [](void* target) noexcept {
+        destroy_heap(static_cast<T*>(target));
+      };
       if constexpr (std::is_nothrow_move_constructible_v<T>) {
-        ovt.to_sbo = &unbox<T>;
+        ovt.to_sbo = [](void* from, void* to) noexcept {
+          unbox(static_cast<T*>(from), to);
+        };
         ovt.sbo_table = &owning_vtable_for<F, Born, T, storage_mode::inlined>;
       }
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &heap_copy<T>;
@@ -2719,11 +2717,13 @@ class proxy: public details::api_base_t<F> {
 public:
   using facade_t = F;
 
-  // `inline_size`: inline storage capacity in bytes (which a `heap_only`
-  // policy never uses).
+  // `inline_size`: inline storage capacity in bytes, 0 for a `heap_only`
+  // policy, which stores nothing inline (the pointer it keeps in the buffer's
+  // place is not capacity).
   //
   // See `invocable_policy` for the inline-eligibility conditions.
-  static constexpr size_t inline_size = Policy.inline_size;
+  static constexpr size_t inline_size =
+      Policy.admits_inline() ? Policy.inline_size : 0;
 
   // `proxy`: an empty proxy holds no target.
   proxy() = default;
@@ -2748,8 +2748,7 @@ public:
         Policy.admits_heap() || details::is_inline_eligible<T>(Policy),
         "the target is not eligible for an inline_only proxy's inline buffer");
     if constexpr (details::can_store_inline<T>(Policy))
-      ::new (static_cast<void*>(storage_area_.buf))
-          T(std::forward<Args>(args)...);
+      ::new (storage_area_.buf) T(std::forward<Args>(args)...);
     else
       storage_area_.ptr = new T(std::forward<Args>(args)...);
   }
@@ -2779,7 +2778,7 @@ public:
       static_assert(details::is_inline_eligible<T>(Policy),
           "the target is not eligible for an inline_only proxy's inline "
           "buffer");
-      ::new (static_cast<void*>(storage_area_.buf)) T(std::move(*target));
+      ::new (storage_area_.buf) T(std::move(*target));
       vtable_ = &details::owning_vtable_for<F, F, T, storage_mode::inlined>;
     } else {
       storage_area_.ptr = target.release();
