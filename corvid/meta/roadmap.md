@@ -93,10 +93,18 @@ answers had been written twice. The shared parts now live in
   allocators), the two mode-choosing functions are `storage_mode_of`, and
   the parameters that carry the enum are `StorageMode` (proxy) and
   `SourceStorage` (flexi), so they no longer share a generic `Mode` with
-  `access_mode`. Still to convert, in the sweep: proxy.h's
-  `_v` class members, the bool predicates lacking an `is_` (listed in
-  review), and `invocables::details::direct_eligible` and `inline_eligible` (to
-  `is_` names).
+  `access_mode`. The bool
+  predicates and constants now all lead with `is_`/`has_`/`are_`
+  (`is_all_bound`, `is_bound`, `is_exact`, `is_viable`, `is_name`,
+  `is_nothrow_args_v`, `is_legal_overload_pair`, `is_entry_listed_once`,
+  `are_base_boilerplates_visible`, `has_exact_args`,
+  `have_same_chain_owners`, `is_declared_in`, `is_direct_eligible`,
+  `is_inline_eligible`). The non-bool `_v` class members (`count_v`,
+  `name_v`, `none_v`, `ambiguous_v`, `base_count_v`) are pending a ruling:
+  `fixed_bitset` and the ECS use the same suffix on their count constants,
+  so dropping it is a repo-wide convention change, and `name_v` cannot
+  become `name` inside `prox::name` (a member may not share its class's
+  name).
 
 Next is a pass over `proxy.h` and `flexi_function.h` for further overlap,
 factoring only where the two coincide. The proxy handles also vary among
@@ -211,7 +219,7 @@ storage mode plus two spellings, with the mechanism in
 [flexi_function.md](flexi_function.md):
 
 - `storage_mode::direct`, beside `inlined` and `dynamic`. A target whose
-  type is `direct_eligible` (no data members, trivial default construction
+  type is `is_direct_eligible` (no data members, trivial default construction
   and destruction) is stored nowhere: the invoke thunk names an instance
   the object model requires and the optimizer erases, the lifespan thunk
   has nothing to size, destroy, or move, and every policy, `heap_only`

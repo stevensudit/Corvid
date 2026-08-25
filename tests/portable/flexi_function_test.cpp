@@ -238,9 +238,9 @@ struct nine_fn {
   int operator()() const noexcept { return 9; }
 };
 
-static_assert(invocables::details::direct_eligible<nine_fn>());
-static_assert(!invocables::details::direct_eligible<counted>());
-static_assert(!invocables::details::direct_eligible<int (*)()>());
+static_assert(invocables::details::is_direct_eligible<nine_fn>());
+static_assert(!invocables::details::is_direct_eligible<counted>());
+static_assert(!invocables::details::is_direct_eligible<int (*)()>());
 
 // Storing a direct callable is noexcept under every policy, heap_only
 // included, because nothing is stored.
@@ -250,7 +250,7 @@ static_assert(std::is_nothrow_constructible_v<flexi_function<int(), heap_only>,
 TEST_CASE("constant_fn calls a compile-time target directly",
     "[flexi_function]") {
   static_assert(
-      invocables::details::direct_eligible<constant_fn<plain_seven>>());
+      invocables::details::is_direct_eligible<constant_fn<plain_seven>>());
 
   // A function, named with or without its address; not stored under any
   // policy.

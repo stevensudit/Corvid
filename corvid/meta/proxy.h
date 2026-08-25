@@ -135,13 +135,13 @@ namespace details {
 using invocables::details::adopt_may_throw;
 using invocables::details::can_store_inline;
 using invocables::details::inline_fit_guaranteed;
-using invocables::details::inline_eligible;
+using invocables::details::is_inline_eligible;
 
 // `storage_mode_of`: where a `proxy` under policy `p` keeps a `T`: `inlined`
 // when the policy can store it inline, else `dynamic`.
 //
 // Never `direct`. A `proxy` table always resolves a target address, so a
-// target with no per-instance state (see `direct_eligible`) is stored like
+// target with no per-instance state (see `is_direct_eligible`) is stored like
 // any other, and the policy's direct eligibility is not consulted; whether
 // it should be is an open item in roadmap.md.
 template<typename T>
@@ -494,7 +494,7 @@ struct api_probe;
 
 // Forward declaration; defined under "API validation".
 template<Facade F>
-[[nodiscard]] consteval bool base_boilerplates_visible() noexcept;
+[[nodiscard]] consteval bool are_base_boilerplates_visible() noexcept;
 
 } // namespace details
 
@@ -529,7 +529,7 @@ consteval void maybe_validate_api() noexcept {
     // A composed facade's probe also runs through each base facade's
     // boilerplate, so their absence is diagnosed here rather than as a hard
     // error deep inside the table build.
-    constexpr bool has_base_boilerplates = base_boilerplates_visible<F>();
+    constexpr bool has_base_boilerplates = are_base_boilerplates_visible<F>();
     static_assert(has_base_boilerplates,
         "validating the api of a composed facade needs every base facade's "
         "boilerplate impl visible at the registration; pass api_check::off "
@@ -716,7 +716,7 @@ struct method_traits<M, R(Args...)> {
   // match.
   using norm_args_t = std::tuple<std::remove_cvref_t<Args>...>;
 
-  // `exact_v`, `viable_v`: whether `CallArgs` match the declared parameters
+  // `is_exact`, `is_viable`: whether `CallArgs` match the declared parameters
   // exactly after normalization, and whether they are merely viable through
   // the ordinary conversions a call performs.
   //
@@ -724,14 +724,14 @@ struct method_traits<M, R(Args...)> {
   // `resolve` tells an ambiguous call from an unmatched one when the ranking
   // probe rejects it.
   template<typename... CallArgs>
-  static constexpr bool exact_v =
+  static constexpr bool is_exact =
       std::same_as<std::tuple<std::remove_cvref_t<CallArgs>...>, norm_args_t>;
   template<typename... CallArgs>
-  static constexpr bool viable_v =
+  static constexpr bool is_viable =
       std::is_invocable_v<R (*)(Args...), CallArgs...>;
 
   template<typename F, typename T>
-  static constexpr bool bound_v = requires(target_t<T>& t, Args... args) {
+  static constexpr bool is_bound = requires(target_t<T>& t, Args... args) {
     {
       proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
           std::forward<Args>(args)...)
@@ -1111,7 +1111,7 @@ consteval size_t first_index_of_type() noexcept {
 // A slot type recurs when the same ancestor facade is reached through more
 // than one composition path, so this is what collapses a diamond to a single
 // set of slots (a literal duplicate entry would also collapse here, but
-// `entry_listed_once` rejects it instead). Per-facade conformance already
+// `is_entry_listed_once` rejects it instead). Per-facade conformance already
 // yields one `proxy_impl<Ancestor, T>` regardless of path (the effect of
 // Rust's coherence rule); dedup makes the flattened table agree.
 template<typename Slots>
@@ -1151,11 +1151,11 @@ consteval auto slot_owner_name() noexcept {
     return vtbuild_t<typename S::owner_t>::name_v;
 }
 
-// `same_chain_owners`: whether the declaring facades of two slots lie in one
-// extends chain: identical, or one extends the other, with the facade being
-// built (`void`) counting as extending every inherited owner.
+// `have_same_chain_owners`: whether the declaring facades of two slots lie in
+// one extends chain: identical, or one extends the other, with the facade
+// being built (`void`) counting as extending every inherited owner.
 template<typename S1, typename S2>
-consteval bool same_chain_owners() noexcept {
+consteval bool have_same_chain_owners() noexcept {
   using o1_t = S1::owner_t;
   using o2_t = S2::owner_t;
   if constexpr (std::is_void_v<o1_t> || std::is_void_v<o2_t> ||
@@ -1166,7 +1166,7 @@ consteval bool same_chain_owners() noexcept {
            vtbuild_t<o2_t>::template extends_facade<o1_t>();
 }
 
-// `legal_overload_pair`: whether two same-name slots form a legal overload
+// `is_legal_overload_pair`: whether two same-name slots form a legal overload
 // pair: distinct normalized argument lists, or the same arguments with
 // different constness (the const-pair idiom, a mutable accessor and a
 // read-only query sharing a name).
@@ -1174,7 +1174,7 @@ consteval bool same_chain_owners() noexcept {
 // The C++ member rules apply: the result type and `noexcept` do not
 // overload, so a pair distinguished by nothing else is a collision.
 template<typename S1, typename S2>
-consteval bool legal_overload_pair() noexcept {
+consteval bool is_legal_overload_pair() noexcept {
   using args1_t = method_traits<typename S1::method_t>::norm_args_t;
   using args2_t = method_traits<typename S2::method_t>::norm_args_t;
   return !std::same_as<args1_t, args2_t> || S1::is_const != S2::is_const;
@@ -1187,13 +1187,13 @@ consteval bool legal_overload_pair() noexcept {
 //
 // Within one extends chain, a recurring method name is an overload set,
 // legal when every pair differs in arguments or constness (see
-// `legal_overload_pair`), whether the declarations share a facade or span
+// `is_legal_overload_pair`), whether the declarations share a facade or span
 // levels: a base's `foo()` and a derived facade's `foo(int)` are different
 // functions that happen to share a spelling, exactly as within one facade.
 // A same-signature recurrence stays an error, since that is redeclaration (or
 // overriding), and facades carry no implementations, so there is nothing to
 // override. A literal duplicate entry never reaches this check: dedup
-// collapses it away, and `entry_listed_once` rejects it instead.
+// collapses it away, and `is_entry_listed_once` rejects it instead.
 //
 // Unrelated sibling facades may collide on a method name freely, including
 // on the full signature, since every facade is named and the qualified
@@ -1204,9 +1204,11 @@ consteval bool legal_overload_pair() noexcept {
 // collide.
 template<typename S1, typename... Ss>
 consteval bool no_chain_collision_against() noexcept {
-  return ((std::same_as<S1, Ss> || S1::name_v != Ss::name_v ||
-              !same_chain_owners<S1, Ss>() || legal_overload_pair<S1, Ss>()) &&
-          ...);
+  return (
+      (std::same_as<S1, Ss> || S1::name_v != Ss::name_v ||
+          !have_same_chain_owners<S1, Ss>() ||
+          is_legal_overload_pair<S1, Ss>()) &&
+      ...);
 }
 
 template<fixed_string OwnName, typename S1, typename... Ss>
@@ -1222,7 +1224,7 @@ consteval bool owner_names_unique_against() noexcept {
 //
 // Each entry contributes slots to the flattened list, base facades to the
 // direct-base list, base-table pointers to the dispatch table, and a
-// conformance term to `all_bound_v`.
+// conformance term to `is_all_bound`.
 //
 // A `method` contributes itself as an own slot. An `extends<B>` contributes
 // B's already-flattened slots, retagged so B's own methods carry B, with
@@ -1235,7 +1237,7 @@ struct entry_traits {
   using chain_t = std::tuple<>;
 
   template<typename F, typename T>
-  static constexpr bool bound_v = method_traits<M>::template bound_v<F, T>;
+  static constexpr bool is_bound = method_traits<M>::template is_bound<F, T>;
 };
 
 template<Facade B>
@@ -1248,7 +1250,7 @@ struct entry_traits<extends<B>> {
       std::declval<typename vtbuild_t<B>::ancestors_t>()));
 
   template<typename F, typename T>
-  static constexpr bool bound_v = vtbuild_t<B>::template all_bound_v<B, T>;
+  static constexpr bool is_bound = vtbuild_t<B>::template is_all_bound<B, T>;
 };
 
 template<fixed_string Name>
@@ -1259,7 +1261,7 @@ struct entry_traits<name<Name>> {
   using chain_t = std::tuple<>;
 
   template<typename F, typename T>
-  static constexpr auto bound_v = true;
+  static constexpr auto is_bound = true;
 };
 
 // `entry_name`: facade name carried by one entry of a facade's list, empty for
@@ -1267,16 +1269,16 @@ struct entry_traits<name<Name>> {
 template<typename E>
 struct entry_name {
   static constexpr fixed_string name_v = "";
-  static constexpr bool is_name_v{};
+  static constexpr bool is_name{};
 };
 template<fixed_string Name>
 struct entry_name<name<Name>> {
   static constexpr auto name_v = Name;
-  static constexpr auto is_name_v = true;
+  static constexpr auto is_name = true;
 };
 
-// `entry_listed_once`: whether entry `E` appears exactly once in the facade's
-// declaration list.
+// `is_entry_listed_once`: whether entry `E` appears exactly once in the
+// facade's declaration list.
 //
 // A literal duplicate entry, the identical `method` or `extends` spelled
 // twice, is a copy-paste slip with no meaning: dedup would silently collapse
@@ -1284,7 +1286,7 @@ struct entry_name<name<Name>> {
 // hide it. A diamond is different, two DISTINCT entries whose chains share an
 // ancestor, and stays legal.
 template<typename E, typename... Es>
-consteval bool entry_listed_once() noexcept {
+consteval bool is_entry_listed_once() noexcept {
   return (0 + ... + std::same_as<E, Es>) == 1;
 }
 
@@ -1307,8 +1309,8 @@ template<typename... Es>
 using bases_of_t = decltype(std::tuple_cat(
     std::declval<typename entry_traits<Es>::bases_t>()...));
 
-// `nothrow_args_v`: whether each declared parameter in the `Params` tuple is
-// nothrow-constructible from the corresponding call argument.
+// `is_nothrow_args_v`: whether each declared parameter in the `Params` tuple
+// is nothrow-constructible from the corresponding call argument.
 //
 // This is the argument-conversion half of a dispatch's `noexcept`. The
 // conversions run in the caller's position, outside the thunk, so when one
@@ -1316,11 +1318,11 @@ using bases_of_t = decltype(std::tuple_cat(
 // propagate exactly as it does from an `api` forwarder's parameter
 // initialization.
 template<typename Params, typename... CallArgs>
-constexpr inline bool nothrow_args_v = false;
+constexpr inline bool is_nothrow_args_v = false;
 
 template<typename... Ps, typename... CallArgs>
 requires(sizeof...(Ps) == sizeof...(CallArgs))
-constexpr inline bool nothrow_args_v<std::tuple<Ps...>, CallArgs...> =
+constexpr inline bool is_nothrow_args_v<std::tuple<Ps...>, CallArgs...> =
     (std::is_nothrow_constructible_v<Ps, CallArgs> && ...);
 
 // `rank_poison`: parameter type nothing converts to, making a probe overload
@@ -1535,13 +1537,13 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // performs.
   template<typename... CallArgs>
   static consteval std::array<bool, count_v> exact_flags() noexcept {
-    return {method_traits<typename Ss::method_t>::template exact_v<
+    return {method_traits<typename Ss::method_t>::template is_exact<
         CallArgs...>...};
   }
 
   template<typename... CallArgs>
   static consteval std::array<bool, count_v> viable_flags() noexcept {
-    return {method_traits<typename Ss::method_t>::template viable_v<
+    return {method_traits<typename Ss::method_t>::template is_viable<
         CallArgs...>...};
   }
 
@@ -1692,7 +1694,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     constexpr auto ndx = resolve<Key, Access, CallArgs...>();
     if constexpr (ndx < count_v)
       return flags[ndx] &&
-             nothrow_args_v<typename slot_t<ndx>::method_t::args_t,
+             is_nothrow_args_v<typename slot_t<ndx>::method_t::args_t,
                  CallArgs...>;
     else
       return false;
@@ -1719,12 +1721,13 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   template<fixed_string Key, access_mode Access, typename... CallArgs>
   using result_of_t = decltype(do_result_of<Key, Access, CallArgs...>())::type;
 
-  // `exact_args`: whether `Args` match the declared parameters of exactly one
-  // candidate for `Key`, after normalization, rather than by convertibility.
+  // `has_exact_args`: whether `Args` match the declared parameters of exactly
+  // one candidate for `Key`, after normalization, rather than by
+  // convertibility.
   //
   // False for an unknown key. This is the `api_probe`'s constraint.
   template<fixed_string Key, access_mode Access, typename... Args>
-  static consteval bool exact_args() noexcept {
+  static consteval bool has_exact_args() noexcept {
     return resolve_exact<Key, Access, Args...>() < count_v;
   }
 };
@@ -1735,16 +1738,16 @@ template<typename... Es>
 struct vtable_builder<facade<Es...>>
     : vtable_builder_impl<flat_slots_of_t<Es...>, bases_of_t<Es...>,
           facade_name_of_v<Es...>> {
-  static_assert((0 + ... + entry_name<Es>::is_name_v) == 1,
+  static_assert((0 + ... + entry_name<Es>::is_name) == 1,
       "every facade must carry exactly one name entry");
-  static_assert((entry_listed_once<Es, Es...>() && ...),
+  static_assert((is_entry_listed_once<Es, Es...>() && ...),
       "a facade may not list the identical method or extends entry twice");
 
   using impl_t = vtable_builder_impl<flat_slots_of_t<Es...>, bases_of_t<Es...>,
       facade_name_of_v<Es...>>;
   using vtable_t = impl_t::vtable_t;
 
-  // `all_bound_v`: whether every method of the facade, inherited and own, has
+  // `is_all_bound`: whether every method of the facade, inherited and own, has
   // a usable binding for `T`.
   //
   // Own methods bind through `proxy_impl<F, T>`; inherited ones recurse into
@@ -1755,8 +1758,8 @@ struct vtable_builder<facade<Es...>>
   // no methods; the per-pair opt-in that keeps vacuity from conforming lives
   // in `Proxiable`.
   template<typename F, typename T>
-  static constexpr bool all_bound_v =
-      (entry_traits<Es>::template bound_v<F, T> && ...);
+  static constexpr bool is_all_bound =
+      (entry_traits<Es>::template is_bound<F, T> && ...);
 
   // `make_view_bases`: view-table pointers of the direct bases, for the same
   // born family and target, built over the direct-base pack (carried by the
@@ -2114,7 +2117,7 @@ consteval auto qualified_key() noexcept {
 // static-dispatch templates.
 template<typename T, typename F>
 concept Proxiable =
-    Facade<F> && details::vtbuild_t<F>::template all_bound_v<F, T> &&
+    Facade<F> && details::vtbuild_t<F>::template is_all_bound<F, T> &&
     (ProxyRegistered<F, T> || details::is_handle_for<T, F>());
 
 #pragma endregion
@@ -2155,12 +2158,12 @@ using strict_return_t = std::conditional_t<std::is_void_v<R>, void,
 //
 // It inherits the facade's `api` and exposes a deliberately strict `call`.
 // Argument types must match the method's declared parameters exactly (per
-// `exact_args`), and the result converts only to exactly the declared result
-// type. Never constructed or executed; it exists to be type-checked.
+// `has_exact_args`), and the result converts only to exactly the declared
+// result type. Never constructed or executed; it exists to be type-checked.
 template<Facade F>
 struct api_probe: api_base_t<F> {
   template<fixed_string Key, typename... Args>
-  requires(vtbuild_t<F>::template exact_args<Key, access_mode::as_mutable,
+  requires(vtbuild_t<F>::template has_exact_args<Key, access_mode::as_mutable,
       Args...>())
   strict_return_t<typename vtbuild_t<F>::template result_of_t<Key,
       access_mode::as_mutable, Args...>>
@@ -2169,8 +2172,8 @@ struct api_probe: api_base_t<F> {
   }
 
   template<fixed_string Key, typename... Args>
-  requires(
-      vtbuild_t<F>::template exact_args<Key, access_mode::as_const, Args...>())
+  requires(vtbuild_t<F>::template has_exact_args<Key, access_mode::as_const,
+      Args...>())
   // NOLINTNEXTLINE(modernize-use-nodiscard): mirrors `call`, never executed.
   strict_return_t<typename vtbuild_t<F>::template result_of_t<Key,
       access_mode::as_const, Args...>> call(Args&&...) const {
@@ -2249,7 +2252,7 @@ template<Facade F>
 
 namespace details {
 
-// `base_boilerplates_visible`: whether every facade in `F`'s extends chain
+// `are_base_boilerplates_visible`: whether every facade in `F`'s extends chain
 // has a boilerplate impl visible to drive `F`'s api probe.
 //
 // This is the registration-time guard for the base half of the requirement
@@ -2258,13 +2261,13 @@ namespace details {
 // it into an incomplete-type hard error. The tuple pointer parameter carries
 // `vtbuild_t<F>::ancestors_t` in deducible position.
 template<Facade F, Facade... Bs>
-consteval bool do_base_boilerplates_visible(std::tuple<Bs...>*) noexcept {
+consteval bool do_are_base_boilerplates_visible(std::tuple<Bs...>*) noexcept {
   return (... && requires { sizeof(proxy_impl<Bs, api_probe<F>>); });
 }
 
 template<Facade F>
-[[nodiscard]] consteval bool base_boilerplates_visible() noexcept {
-  return do_base_boilerplates_visible<F>(
+[[nodiscard]] consteval bool are_base_boilerplates_visible() noexcept {
+  return do_are_base_boilerplates_visible<F>(
       static_cast<vtbuild_t<F>::ancestors_t*>(nullptr));
 }
 
@@ -2778,7 +2781,7 @@ public:
       : vtable_{&details::owning_vtable_for<F, F, T,
             details::storage_mode_of<T>(Policy)>} {
     static_assert(Policy.storage != storage_policy::inline_only ||
-                      details::inline_eligible<T>(Policy),
+                      details::is_inline_eligible<T>(Policy),
         "the target is not eligible for an inline_only proxy's inline buffer");
     if constexpr (details::can_store_inline<T>(Policy))
       ::new (static_cast<void*>(storage_.buf)) T(std::forward<Args>(args)...);
@@ -2808,7 +2811,7 @@ public:
   explicit proxy(std::unique_ptr<T> target) noexcept {
     if (!target) return;
     if constexpr (Policy.storage == storage_policy::inline_only) {
-      static_assert(details::inline_eligible<T>(Policy),
+      static_assert(details::is_inline_eligible<T>(Policy),
           "the target is not eligible for an inline_only proxy's inline "
           "buffer");
       ::new (static_cast<void*>(storage_.buf)) T(std::move(*target));

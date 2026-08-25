@@ -98,8 +98,8 @@ enum class on_empty : std::uint8_t { silent, raise, terminate };
 // direct call to the target's code, and the buffer is never read. This is
 // possible only for a type that carries nothing per instance: no data
 // members, and trivial default construction and destruction (see
-// `direct_eligible`), such as a captureless lambda or a stateless functor like
-// `std::plus<>`. Such a target occupies no storage under any policy,
+// `is_direct_eligible`), such as a captureless lambda or a stateless functor
+// like `std::plus<>`. Such a target occupies no storage under any policy,
 // `heap_only` included, and reports a size of 0.
 //
 // Unlike `storage_policy`, which is a policy choice, this is the outcome for
@@ -266,12 +266,13 @@ inline constexpr invocable_policy invocable_policy::fixed{
 
 namespace details {
 
-// `inline_eligible`: whether `T` is eligible for policy `P`'s inline buffer.
+// `is_inline_eligible`: whether `T` is eligible for policy `P`'s inline
+// buffer.
 //
 // `constexpr` rather than `consteval`: `flexi_function`'s lifespan thunk
 // evaluates a type-erased destination's policy at runtime.
 template<typename T>
-constexpr bool inline_eligible(invocable_policy p) noexcept {
+constexpr bool is_inline_eligible(invocable_policy p) noexcept {
   return (sizeof(T) <= p.inline_size) && (alignof(T) <= p.inline_align) &&
          std::is_nothrow_move_constructible_v<T>;
 }
@@ -282,11 +283,11 @@ constexpr bool inline_eligible(invocable_policy p) noexcept {
 // with its own diagnostic.
 template<typename T>
 constexpr bool can_store_inline(invocable_policy p) noexcept {
-  return (p.storage != storage_policy::heap_only) && inline_eligible<T>(p);
+  return (p.storage != storage_policy::heap_only) && is_inline_eligible<T>(p);
 }
 
-// `direct_eligible`: whether a `T` can be called without storing one, so that
-// only its type survives, in the thunk generated for it.
+// `is_direct_eligible`: whether a `T` can be called without storing one, so
+// that only its type survives, in the thunk generated for it.
 //
 // No data members (which is what `std::is_empty` checks, along with no
 // virtual functions) rules out per-instance state such as a capture or a
@@ -297,7 +298,7 @@ constexpr bool can_store_inline(invocable_policy p) noexcept {
 //
 // No policy parameter, because no policy affects the answer.
 template<typename T>
-consteval bool direct_eligible() noexcept {
+consteval bool is_direct_eligible() noexcept {
   return (std::is_empty_v<T> && std::is_trivially_default_constructible_v<T> &&
           std::is_trivially_destructible_v<T>);
 }
@@ -309,7 +310,7 @@ consteval bool direct_eligible() noexcept {
 // separately, with its own diagnostic.
 template<typename T>
 consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
-  if (direct_eligible<T>()) return storage_mode::direct;
+  if (is_direct_eligible<T>()) return storage_mode::direct;
   if (can_store_inline<T>(p)) return storage_mode::inlined;
   return storage_mode::dynamic;
 }

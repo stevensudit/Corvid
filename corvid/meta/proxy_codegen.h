@@ -60,14 +60,14 @@ codegen_starts(std::tuple<Ss...>*) noexcept {
   return starts;
 }
 
-// `declared_in`: whether the method `M`, declared by facade `Owner`, appears
-// in facade `P`'s flattened list, meaning an inherited `P::api` already
-// covers it.
+// `is_declared_in`: whether the method `M`, declared by facade `Owner`,
+// appears in facade `P`'s flattened list, meaning an inherited `P::api`
+// already covers it.
 //
 // The tuple pointer parameter carries `P`'s flattened slots in deducible
 // position.
 template<typename Owner, typename M, Facade P, typename... Ps>
-consteval bool declared_in(std::tuple<Ps...>*) noexcept {
+consteval bool is_declared_in(std::tuple<Ps...>*) noexcept {
   return (
       (std::same_as<Owner,
            std::conditional_t<std::is_void_v<typename Ps::owner_t>, P,
@@ -148,7 +148,7 @@ consteval bool api_emits() noexcept {
   if constexpr (std::is_void_v<typename S::owner_t> || std::is_void_v<P>)
     return true;
   else
-    return !declared_in<typename S::owner_t, typename S::method_t, P>(
+    return !is_declared_in<typename S::owner_t, typename S::method_t, P>(
         static_cast<vtbuild_t<P>::flat_slots_t*>(nullptr));
 }
 
@@ -178,9 +178,9 @@ void emit_api_slot(std::ostream& os, size_t next) {
   emit_params(os, next, args);
   os << ")";
   if constexpr (S::is_noexcept) os << " noexcept";
-  constexpr bool twin =
+  constexpr bool has_twin =
       has_const_twin<S>(static_cast<vtbuild_t<F>::flat_slots_t*>(nullptr));
-  if constexpr (twin) {
+  if constexpr (has_twin) {
     os << "\n    requires(requires {\n      { self.template call<\"" << name
        << "\">(";
     emit_args(os, next, args);

@@ -1170,7 +1170,7 @@ static_assert(Proxiable<proxy_view<vault>, vault>);
 // for initialization of 'proxy_view<gunslinger>' ... candidate template
 // ignored: constraints not satisfied [with T = cowboy] ... because
 // 'Proxiable<cowboy, gunslinger>' evaluated to false ... because
-// 'details::vtbuild_t<gunslinger>::all_bound_v<gunslinger, cowboy>'
+// 'details::vtbuild_t<gunslinger>::is_all_bound<gunslinger, cowboy>'
 // evaluated to false", plus two "could not match" notes for the dedicated
 // upcasting and proxy-viewing constructors. Calling `pv.call<"missing">()`
 // fires the static_assert "facade has no method with this name", followed by
@@ -1202,7 +1202,7 @@ static_assert(prox::method<"jams", bool() const noexcept>::is_noexcept);
 namespace {
 struct stateless_target {};
 } // namespace
-static_assert(invocables::details::direct_eligible<stateless_target>());
+static_assert(invocables::details::is_direct_eligible<stateless_target>());
 static_assert(
     prox::details::storage_mode_of<stateless_target>(
         invocable_policy::basic) == invocables::storage_mode::inlined);
@@ -1323,7 +1323,7 @@ static_assert(!prox::Extends<marshal, marshal>);
 // re-captured 2026-07-09 after the collision-rules rework). Constructing
 // `proxy_view<marshal>` from `vigilante` emits one error with the same
 // constraint walk as the `cowboy` case, ending at
-// 'details::vtbuild_t<marshal>::all_bound_v<marshal, vigilante>' evaluated
+// 'details::vtbuild_t<marshal>::is_all_bound<marshal, vigilante>' evaluated
 // to false"; the walk does not name the missing base facade. Redeclaring an
 // inherited name with the same signature
 // (`facade<extends<gunslinger>, method<"fire", int(int)>>`)
@@ -1342,7 +1342,7 @@ static_assert(!prox::Extends<marshal, marshal>);
 // Listing the identical entry twice, whether a `method` or an `extends`,
 // detonates at first use of the facade's machinery (diagnostic on record,
 // clang 22, captured 2026-07-11): "static assertion failed ...
-// 'entry_listed_once<...>()': a facade may not list the identical method or
+// 'is_entry_listed_once<...>()': a facade may not list the identical method or
 // extends entry twice", with the duplicated entry spelled out in the
 // requirement and no follow-on noise. Dedup would otherwise collapse the
 // duplicate silently; a diamond's two DISTINCT `extends` entries sharing an
@@ -1414,7 +1414,7 @@ static_assert(sizeof(proxy_view<posse_leader>) == 2 * sizeof(void*));
 // `name` entry from a facade detonates at first use of its machinery, as a
 // single clean error with the fold spelled out over the entries: "static
 // assertion failed due to requirement '0 + entry_name<method<...>,
-// ...>::is_name_v == 1': every facade must carry exactly one name entry".
+// ...>::is_name == 1': every facade must carry exactly one name entry".
 // Composing two facades whose name<> entries match (`copycat` claiming
 // name<"gunslinger">) detonates even without a method collision:
 // "static assertion failed ... 'owner_names_unique_against<...>()': facade
@@ -1715,7 +1715,8 @@ static_assert(!noexcept(std::declval<proxy_view<gunslinger>&>().fire(1)));
 // removed, fails through `lawman`'s registration alone, at the forwarder's
 // own line: "no matching member function for call to 'call' ... candidate
 // template ignored: constraints not satisfied [with K = ... \"fire\", Args =
-// <long long &>] ... because 'vtbuild_t<gunslinger>::template exact_args<...
+// <long long &>] ... because 'vtbuild_t<gunslinger>::template
+// has_exact_args<...
 // \"fire\", long long &>()' evaluated to false". Before the check existed,
 // the same drift compiled silently, with the sugar truncating wide arguments
 // at the thunk boundary.
@@ -2688,8 +2689,9 @@ TEST_CASE("Owning upcast lifetimes", "[proxy]") {
 // assertion failed due to requirement
 // 'corvid::invocables::invocable_policy{16, 16, 1, 1, 0}.storage !=
 // corvid::invocables::storage_policy::inline_only ||
-// details::inline_eligible(corvid::invocables::invocable_policy{16, 16, 1, 1,
-// 0})': the target is not eligible for an inline_only proxy's inline buffer".
+// details::is_inline_eligible(corvid::invocables::invocable_policy{16, 16, 1,
+// 1, 0})': the target is not eligible for an inline_only proxy's inline
+// buffer".
 TEST_CASE("Storage policies", "[proxy]") {
   // A buffer sized for `big_box` stores it inline, so moves relocate instead
   // of stealing a heap pointer.

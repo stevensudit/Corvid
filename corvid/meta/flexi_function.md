@@ -50,7 +50,7 @@ into `corvid::meta`; the shared vocabulary lives in
 | signature, `Sig`            | The `R(Args...)` type, possibly with `const`, `&`/`&&`, and `noexcept`.                                                                        |
 | thunk                       | A static function generated per stored type that does one erased job: invoke, or manage lifespan.                                              |
 | thunk pair, `dispatch_`     | The two thunk pointers every wrapper keeps ahead of its buffer: `invoke` and `lifespan`.                                                       |
-| storage, buffer, `storage_` | The byte array after the pair. Holds the target, a pointer to it, or nothing.                                                                  |
+| storage, buffer, `storage_blob_` | The byte array after the pair. Holds the target, a pointer to it, or nothing.                                                                  |
 | mode, `storage_mode`     | Where one stored target lives, and so which thunks serve it: `inlined`, `dynamic`, or `direct`. Baked into the thunks at store time.           |
 | `inlined`                   | The target is constructed in the buffer.                                                                                                       |
 | `dynamic`                   | The target is in a heap block, and the buffer holds the pointer to it.                                                                         |
@@ -59,7 +59,7 @@ into `corvid::meta`; the shared vocabulary lives in
 | adopt, transplant           | Moving the target out of a sibling into this wrapper, by asking the sibling's `lifespan` thunk to relocate it.                                 |
 | box, un-box, hand over      | The three ways a relocation can change or keep a target's home: onto the heap, out of the heap into a buffer, or passing the heap block as is. |
 | `refusal`                   | The `lifespan` return value for a relocation the destination cannot accept.                                                                    |
-| direct-eligible             | A type that can be `direct`: `invocables::details::direct_eligible<T>()`.                                                                           |
+| direct-eligible             | A type that can be `direct`: `invocables::details::is_direct_eligible<T>()`.                                                                           |
 | `constant_fn<Fn>`           | A direct-eligible callable whose target is the compile-time constant `Fn`: a function, a member pointer, or a captureless lambda.              |
 | `runtime_fn{p}`             | A callable holding a function or member pointer known only at runtime; a bare pointer target, made explicit. Nullable.                         |
 | `policy_enforcement`        | Whether a bare pointer is accepted as a target (`lenient`) or must be spelled as `constant_fn` or `runtime_fn` (`strict`). Border only.        |
@@ -114,7 +114,7 @@ offset  0 +---------------------------------------------------+
 offset  8 +---------------------------------------------------+
           | lifespan   size_t (*)(void*, destination_spec*)   |
 offset 16 +---------------------------------------------------+
-          | storage_[16]                                      |
+          | storage_blob_[16]                                      |
           |   inlined:  the target itself                     |
           |   dynamic:  F* in the first 8 bytes               |
           |   direct or empty:  never read                    |
@@ -143,7 +143,7 @@ offset  0 +--------------+
 offset  8 +--------------+
           | lifespan     |
 offset 16 +--------------+
-          | storage_[48] |  inlined only; a target that does not fit is a
+          | storage_blob_[48] |  inlined only; a target that does not fit is a
           |              |  compile error, or a refused adoption
 offset 64 +--------------+
 ```
@@ -194,10 +194,10 @@ protocol](#the-lifespan-protocol).
 
 ```mermaid
 flowchart LR
-    op["wrapper(args...)"] --> inv["dispatch_.invoke(storage_, args...)"]
+    op["wrapper(args...)"] --> inv["dispatch_.invoke(storage_blob_, args...)"]
     inv --> mode{thunk's mode}
-    mode -->|inlined| a["target = storage_ as F"]
-    mode -->|dynamic| b["target = the F that storage_ points at"]
+    mode -->|inlined| a["target = storage_blob_ as F"]
+    mode -->|dynamic| b["target = the F that storage_blob_ points at"]
     mode -->|direct| c["target = F{} (buffer never read)"]
     mode -->|empty| e["empty_invoke_impl: silent, raise, or terminate"]
     a --> q["cast to qualified_target_t, then std::invoke_r"]
@@ -302,15 +302,15 @@ on an empty instance.
 flowchart TD
     s["storage_mode_of&lt;FD&gt;(Policy)"] --> m{mode}
     m -->|direct| d["store nothing"]
-    m -->|inlined| i["placement-new FD into storage_"]
-    m -->|dynamic| h["storage_[0] = new FD(...)"]
+    m -->|inlined| i["placement-new FD into storage_blob_"]
+    m -->|dynamic| h["storage_blob_[0] = new FD(...)"]
     d --> p["dispatch_ = dispatch_for&lt;FD, mode&gt;()"]
     i --> p
     h --> p
 ```
 
 `invocables::details::storage_mode_of<T>(p)` is the one routing decision:
-`direct` when `direct_eligible<T>()`, else `inlined` when
+`direct` when `is_direct_eligible<T>()`, else `inlined` when
 `can_store_inline<T>(p)` (fits the buffer's size and alignment, is
 nothrow-move-constructible, and the policy is not `heap_only`), else
 `dynamic`. `can_store_nothrow<T>(p)` is "not `dynamic`", and it is the

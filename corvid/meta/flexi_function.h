@@ -69,7 +69,7 @@ namespace details {
 using invocables::details::adopt_may_throw;
 using invocables::details::can_store_inline;
 using invocables::details::can_store_nothrow;
-using invocables::details::inline_eligible;
+using invocables::details::is_inline_eligible;
 using invocables::details::storage_mode_of;
 
 // `flexi_thunks` are the type-erased thunks for one signature, shared by every
@@ -616,7 +616,7 @@ public:
   }
 
   ~flexi_function() noexcept {
-    if (dispatch_.lifespan) dispatch_.lifespan(storage_, nullptr);
+    if (dispatch_.lifespan) dispatch_.lifespan(storage_blob_, nullptr);
   }
 
 #pragma endregion
@@ -678,7 +678,7 @@ public:
   // Empty the instance.
   void reset() noexcept {
     if (!dispatch_.lifespan) return;
-    dispatch_.lifespan(storage_, nullptr);
+    dispatch_.lifespan(storage_blob_, nullptr);
     dispatch_ = empty_dispatch;
   }
 
@@ -725,7 +725,7 @@ public:
   requires(is_callable_through<Self>)
   ResultT
   operator()(this Self&& self, Args... args) noexcept(thunks::is_noexcept) {
-    return self.dispatch_.invoke(const_cast<std::byte*>(self.storage_),
+    return self.dispatch_.invoke(const_cast<std::byte*>(self.storage_blob_),
         std::forward<Args>(args)...);
   }
 
@@ -766,9 +766,9 @@ public:
           .dispatch = nullptr,
           .to = nullptr};
       // The probe only reads, but the erased signature is mutable.
-      return (
-          source.dispatch_.lifespan(const_cast<std::byte*>(source.storage_),
-              &probe) != thunks::refusal);
+      return (source.dispatch_.lifespan(
+                  const_cast<std::byte*>(source.storage_blob_), &probe) !=
+              thunks::refusal);
     }
   }
 
@@ -812,7 +812,7 @@ private:
         "pointer must be wrapped: constant_fn<f>{} when the target is known "
         "at compile time (a direct call, nothing stored), or runtime_fn{p} to "
         "store the pointer and call through it");
-    static_assert(supports_dynamic || details::inline_eligible<FD>(Policy),
+    static_assert(supports_dynamic || details::is_inline_eligible<FD>(Policy),
         "flexi_function: the callable is not eligible for an inline_only "
         "instance's inline buffer: too large, over-aligned, or its move "
         "constructor may throw");
@@ -829,9 +829,9 @@ private:
 
     constexpr auto mode = details::storage_mode_of<FD>(Policy);
     if constexpr (mode == storage_mode::inlined)
-      new (storage_) FD(std::forward<FN>(fn));
+      new (storage_blob_) FD(std::forward<FN>(fn));
     else if constexpr (mode == storage_mode::dynamic)
-      *reinterpret_cast<FD**>(storage_) = new FD(std::forward<FN>(fn));
+      *reinterpret_cast<FD**>(storage_blob_) = new FD(std::forward<FN>(fn));
     dispatch_ = thunks::template dispatch_for<FD, mode>();
   }
 
@@ -845,9 +845,10 @@ private:
     if (!other.dispatch_.lifespan) return;
     destination_spec dest{.policy = Policy,
         .dispatch = &dispatch_,
-        .to = storage_};
+        .to = storage_blob_};
     [[maybe_unused]] const bool is_refused =
-        (other.dispatch_.lifespan(other.storage_, &dest) == thunks::refusal);
+        (other.dispatch_.lifespan(other.storage_blob_, &dest) ==
+            thunks::refusal);
     if constexpr (details::adopt_may_throw(Policy, P)) {
       if (is_refused)
         throw std::length_error{"flexi_function: callable too large"};
@@ -869,7 +870,7 @@ private:
 
   // Deliberately no initializer: occupancy is keyed by `dispatch_.lifespan`,
   // and zeroing the buffer on every construction would be pure waste.
-  alignas(buf_align) std::byte storage_[buf_size];
+  alignas(buf_align) std::byte storage_blob_[buf_size];
 
 #pragma endregion
 };
