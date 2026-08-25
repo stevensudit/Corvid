@@ -82,6 +82,26 @@ enum class invocable_alloc : std::uint8_t {
 enum class on_empty : std::uint8_t { silent, raise, terminate };
 
 #pragma endregion
+#pragma region Runtime fn policy
+
+// `runtime_fn_policy` is whether an owner accepts a raw function or member
+// pointer as its target, or requires the caller to say which kind of target
+// it is.
+//
+// A raw pointer's value is runtime data, so calling through it costs a second
+// indirect call after the owner's own. When the target is really a function
+// known at compile time, `constant_fn<f>{}` puts it in the type instead, and
+// the owner calls it directly with nothing stored. `required` refuses a raw
+// pointer at compile time, so that the choice is made in the open:
+// `constant_fn<f>{}` for a compile-time target, `runtime_fn{p}` for one that
+// really is a runtime value.
+//
+// The check is at the border only, where a callable is stored into an owner.
+// A move from a sibling of another policy transplants whatever the sibling
+// held, unchecked.
+enum class runtime_fn_policy : std::uint8_t { optional, required };
+
+#pragma endregion
 #pragma region Allocation mode
 
 // `allocation_mode` is how an owner's invoke thunk reaches its target, and
@@ -132,6 +152,11 @@ enum class allocation_mode : std::uint8_t { direct, inlined, dynamic };
 // moved-from, or reset) does; see `on_empty`. The behavior is baked into the
 // owner's type; it cannot be changed at runtime.
 //
+// `runtime_fn` selects whether a raw function or member pointer is accepted
+// as a target; see `runtime_fn_policy`. Flipping the default to `required`
+// and rebuilding is a one-edit audit for pointer targets that could be
+// `constant_fn`. Not honored by `proxy`.
+//
 // A result type that cannot be value-initialized (a reference, or a type
 // without a default constructor) cannot be `silent`. For `flexi_function`,
 // whose one signature is chosen deliberately, that is a compile error naming
@@ -164,6 +189,7 @@ struct invocable_policy {
   size_t inline_align = alignof(std::max_align_t);
   invocable_alloc alloc = invocable_alloc::inline_or_heap;
   on_empty empty = on_empty::raise;
+  runtime_fn_policy runtime_fn = runtime_fn_policy::optional;
 
   friend constexpr bool
   operator==(const invocable_policy&, const invocable_policy&) = default;
@@ -177,6 +203,14 @@ struct invocable_policy {
   [[nodiscard]] consteval invocable_policy with(on_empty e) const noexcept {
     auto p = *this;
     p.empty = e;
+    return p;
+  }
+
+  // A copy with `runtime_fn` replaced.
+  [[nodiscard]] consteval invocable_policy with(
+      runtime_fn_policy r) const noexcept {
+    auto p = *this;
+    p.runtime_fn = r;
     return p;
   }
 
@@ -327,7 +361,7 @@ adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
 } // namespace policy_details
 
 #pragma endregion
-#pragma region constant_fn
+#pragma region Function targets
 
 namespace fn_details {
 
@@ -368,6 +402,44 @@ struct constant_fn {
     return std::invoke(Fn, std::forward<Args>(args)...);
   }
 };
+
+// `runtime_fn<Ptr>` is a callable holding a function or member pointer whose
+// value is only known at runtime, spelled `runtime_fn{p}`.
+//
+// It is what a bare pointer target is, made explicit: stored as the pointer
+// and called through it, with the object as the first argument for a member
+// pointer. It may be null; an owner treats a null one as no callable, and
+// calling a null one is the same undefined behavior as calling a null
+// pointer.
+template<class Ptr>
+requires(
+    (std::is_pointer_v<Ptr> &&
+        std::is_function_v<std::remove_pointer_t<Ptr>>) ||
+    std::is_member_pointer_v<Ptr>)
+struct runtime_fn {
+  Ptr fn;
+
+  [[nodiscard]] explicit constexpr operator bool() const noexcept {
+    return (fn != nullptr);
+  }
+
+  template<class... Args>
+  requires(std::is_invocable_v<Ptr, Args...>)
+  constexpr decltype(auto) operator()(Args&&... args) const
+      noexcept(std::is_nothrow_invocable_v<Ptr, Args...>) {
+    return std::invoke(fn, std::forward<Args>(args)...);
+  }
+};
+
+template<class Ptr>
+runtime_fn(Ptr) -> runtime_fn<Ptr>;
+
+// Whether `T` is a `runtime_fn`.
+template<class T>
+constexpr bool is_runtime_fn_v = false;
+
+template<class Ptr>
+constexpr bool is_runtime_fn_v<runtime_fn<Ptr>> = true;
 
 #pragma endregion
 }} // namespace corvid::meta

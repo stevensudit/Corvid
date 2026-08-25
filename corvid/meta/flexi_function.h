@@ -775,7 +775,7 @@ private:
   template<class FD>
   static bool is_null_callable(const FD& fn) noexcept {
     if constexpr (std::is_pointer_v<FD> || std::is_member_pointer_v<FD> ||
-                  is_flexi_function_v<FD>)
+                  is_flexi_function_v<FD> || is_runtime_fn_v<FD>)
       return !fn;
     else
       return false;
@@ -801,6 +801,12 @@ private:
         "the reference is a runtime value (it came through a forwarding "
         "parameter or a conditional), take its address to store it as a "
         "pointer");
+    static_assert((Policy.runtime_fn == runtime_fn_policy::optional) ||
+                      !(std::is_pointer_v<FD> || std::is_member_pointer_v<FD>),
+        "flexi_function: this policy requires a raw function or member "
+        "pointer to be wrapped: constant_fn<f>{} when the target is known at "
+        "compile time (a direct call, nothing stored), or runtime_fn{p} to "
+        "store the pointer and call through it");
     static_assert(
         supports_dynamic || policy_details::inline_eligible<FD>(Policy),
         "flexi_function: the callable is not eligible for an inline_only "

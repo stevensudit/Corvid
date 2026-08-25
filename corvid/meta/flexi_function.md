@@ -54,6 +54,8 @@ The policy type is shared with `proxy` and documented in
 | `refused`                   | The `lifespan` return value for a relocation the destination cannot accept.                                                                    |
 | direct-eligible             | A type that can be `direct`: `policy_details::direct_eligible<T>()`.                                                                           |
 | `constant_fn<Fn>`           | A direct-eligible callable whose target is the compile-time constant `Fn`: a function, a member pointer, or a captureless lambda.              |
+| `runtime_fn{p}`             | A callable holding a function or member pointer known only at runtime; a bare pointer target, made explicit. Nullable.                         |
+| `runtime_fn_policy`         | Whether a bare pointer is accepted as a target (`optional`) or must be spelled as `constant_fn` or `runtime_fn` (`required`). Border only.      |
 
 ## The shape at a glance
 
@@ -242,6 +244,7 @@ inside the thunk depends on the stored type, not on the mode:
 | functor or capturing lambda                              | `dynamic`                          | load `F*` from the buffer, then the same with the block as `this`              |
 | direct-eligible type (captureless lambda, `std::plus<>`) | `direct`                           | direct call to `F::operator()`, inlined when visible, and no load at all       |
 | `constant_fn<foo>`                                       | `direct`                           | direct call to `foo`, inlined when visible; the address is in the type         |
+| `runtime_fn{p}`                                          | `inlined`                          | as a function pointer: load, indirect call                                     |
 
 The `static_cast<F*>(storage)` in the thunk is not an instruction. It is
 the compiler agreeing to treat those bytes as an `F`, and the call to
@@ -270,6 +273,16 @@ indirection for a target you know." `&foo` is indistinguishable from any
 other pointer value and is accepted as one. A function reference that
 really is a runtime value (it arrived through a forwarding parameter, or a
 conditional between two functions) decays to a pointer with `&`.
+
+A policy with `runtime_fn = runtime_fn_policy::required` closes the `&foo`
+hole by refusing every bare function or member pointer at the border,
+so the caller has to say which kind of target it is: `constant_fn<foo>{}`
+for a compile-time one, `runtime_fn{p}` for a runtime one. The check is
+only at the border (construction and assignment from a callable); a
+converting move from a sibling transplants whatever it held, unchecked.
+Flipping the field's default in [invocable_policy.h](invocable_policy.h)
+and rebuilding is a one-edit audit of a codebase for pointer targets that
+could be `constant_fn`.
 
 ## Storing a callable
 

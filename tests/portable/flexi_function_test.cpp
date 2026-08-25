@@ -283,6 +283,63 @@ TEST_CASE("constant_fn calls a compile-time target directly",
       flexi_function<int() noexcept, terminating>, constant_fn<plain_seven>>);
 }
 
+TEST_CASE("runtime_fn is an explicit pointer target", "[flexi_function]") {
+  // Stored as the pointer and called through it, like a bare pointer.
+  flexi_function<int()> a{runtime_fn{&plain_seven}};
+  CHECK(a() == 7);
+  CHECK(a.size() == sizeof(int (*)()));
+  gadget g;
+  flexi_function<int(gadget&)> m{runtime_fn{&gadget::tick}};
+  CHECK(m(g) == 1);
+
+  // A null one is no callable: the wrapper is empty, not a truthy crash.
+  int (*null_fn)() = nullptr;
+  flexi_function<int()> n{runtime_fn{null_fn}};
+  CHECK(!n);
+  a = runtime_fn{null_fn};
+  CHECK(!a);
+  a = runtime_fn{&plain_seven};
+  CHECK(a() == 7);
+}
+
+// Refusals that cannot live in the suite, recorded from scratch compiles:
+//
+// - `flexi_function<int()> f = plain_seven;` (a function lvalue):
+//   "flexi_function: a function name is a compile-time target. Wrap it as
+//   constant_fn<f>{} to call it directly with nothing stored, or, when the
+//   reference is a runtime value (it came through a forwarding parameter or a
+//   conditional), take its address to store it as a pointer"
+//
+// - `strict_fn f = &plain_seven;` under `runtime_fn_policy::required`:
+//   "flexi_function: this policy requires a raw function or member pointer to
+//   be wrapped: constant_fn<f>{} when the target is known at compile time (a
+//   direct call, nothing stored), or runtime_fn{p} to store the pointer and
+//   call through it"
+//
+// - `constant_fn<static_cast<int (*)()>(nullptr)>`:
+//   "constant_fn: a null function or member pointer is not a target"
+TEST_CASE("runtime_fn_policy::required refuses raw pointers at the border",
+    "[flexi_function]") {
+  constexpr auto strict = dflt.with(runtime_fn_policy::required);
+  using strict_fn = flexi_function<int(), strict>;
+
+  // Every explicit spelling is accepted; a bare pointer is the static_assert
+  // recorded above.
+  strict_fn c{constant_fn<plain_seven>{}};
+  CHECK(c() == 7);
+  strict_fn r{runtime_fn{&plain_seven}};
+  CHECK(r() == 7);
+  strict_fn l{[] { return 3; }};
+  CHECK(l() == 3);
+
+  // The check is at the border only: a sibling that holds a bare pointer
+  // transplants it in unchecked.
+  flexi_function<int()> lax{&plain_seven};
+  strict_fn adopted{std::move(lax)};
+  CHECK(adopted() == 7);
+  CHECK(adopted.size() == sizeof(int (*)()));
+}
+
 TEST_CASE("Direct callables are not stored", "[flexi_function]") {
   // A captureless lambda and a data-free functor occupy no storage under any
   // policy, so heap_only allocates nothing for them.
