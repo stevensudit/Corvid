@@ -1077,7 +1077,7 @@ conversion: what matters is whether the destination can accommodate the
 target that actually arrives, decided per target at adoption time. The
 rule is `invocables::implementation::adoption_of`, one statement shared with
 `flexi_function`, which answers with an `adoption` route: an inline
-arrival relocates into the buffer when it fits, and otherwise re-boxes
+arrival relocates into the buffer when it fits, and otherwise is boxed
 onto the heap; a heap arrival moves by pointer steal, or un-boxes into an
 `inline_only` proxy's buffer; an arrival with no home is refused. The
 owning table is the erased arrival's witness, supplying its size and
@@ -1086,7 +1086,7 @@ compile-time when the destination's buffer dominates the source's, which
 covers every same-policy move.)
 
 Exactly the conversions that might change the storage mode can throw: the
-re-boxing allocation, or `std::length_error` when an erased target cannot
+boxing allocation, or `std::length_error` when an erased target cannot
 be stored inline and the policy forbids the heap. The latter is a real
 error path rather than a precondition, since the caller cannot inspect an
 erased target's size. A throw happens before anything moves, leaving the
@@ -1099,7 +1099,7 @@ destination type against the source's runtime target, so it needs no
 destination instance. Only an `inline_only` destination can ever answer no.
 
 The mode-changing thunks and the other-mode table cross-links live in the
-owning tables (`to_heap`/`to_sbo`, pointing at the shared `box`/`unbox`
+owning tables (`to_heap`/`to_inline`, pointing at the shared `box`/`unbox`
 in invocable_common.h), whose two modes reference
 each other by address.
 
@@ -1557,10 +1557,10 @@ absent capability throughout:
   (null marks a heap-mode table, whose target moves by pointer steal),
   and cloning (null marks an uncopyable target, which is what
   `can_clone` reads).
-- `to_heap` + `heap_table`, `to_sbo` + `sbo_table`: the mode-changing
+- `to_heap` + `heap_table`, `to_inline` + `inline_table`: the mode-changing
   pairs. Each mode's table points across at its sibling of the other
-  mode, so an adopting proxy can re-box an inline arrival or un-box a
-  heap one and land on the right table (`sbo_table` is null for a target
+  mode, so an adopting proxy can box an inline arrival or un-box a
+  heap one and land on the right table (`inline_table` is null for a target
   that can never live inline, lacking a nothrow move).
 - `type_tag`, `size`, `align`: the target's no-RTTI identity (the
   address of a per-type static) and footprint, which is how `extract<T>`
@@ -1591,7 +1591,7 @@ flowchart LR
     subgraph OH["heap-mode owning table"]
         V2["vt: embedded dispatch table"]
         L2["destroy, copy (relocate null)"]
-        X2["to_sbo + inline sibling"]
+        X2["to_inline + inline sibling"]
         N2["ancestry (heap), bases"]
     end
     VP2 --> OS
@@ -1927,9 +1927,9 @@ site rather than merely equivalent.
 
 Allocator plumbing would thread a user allocator through the owning tier
 (ngcpp's `allocate_proxy`): allocate the target through it, remember it,
-free through it, use it for clones and re-boxing. The heap mode here is
+free through it, use it for clones and boxing. The heap mode here is
 plain `new`/`delete`, and an allocator would infect the whole
-owning-table ABI. `destroy`, `copy`, `to_heap`, and `to_sbo` would all
+owning-table ABI. `destroy`, `copy`, `to_heap`, and `to_inline` would all
 need to reach it, meaning per-instance storage or per-allocator table
 families, plus an allocator-compatibility axis on every adoption. The
 allocation story runs through policy instead: hot targets live inline

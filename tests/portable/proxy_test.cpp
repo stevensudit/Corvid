@@ -2764,7 +2764,7 @@ TEST_CASE("Storage policies", "[proxy]") {
   }
   CHECK(sbo_stats.destroyed == sbo_stats.constructed);
 
-  // An inline target arriving at a heap_only proxy re-boxes onto the heap
+  // An inline target arriving at a heap_only proxy is boxed onto the heap
   // (one move, upcasting in the same conversion); moves from then on are
   // pointer steals.
   life_stats rebox_stats;
@@ -2784,7 +2784,7 @@ TEST_CASE("Storage policies", "[proxy]") {
   CHECK(rebox_stats.destroyed == rebox_stats.constructed);
 
   // Adoption accommodates per target, not per policy: from the same
-  // big-buffer source, an oversized inline target re-boxes onto the
+  // big-buffer source, an oversized inline target is boxed onto the
   // destination's heap while a small one relocates into its buffer and
   // stays inline.
   life_stats shrink_stats;
@@ -2929,7 +2929,7 @@ TEST_CASE("Downcast lifetimes", "[proxy]") {
 
   // Mode changes keep the birth memory usable: a mode-changing adoption
   // lands on the table's other-mode sibling, which carries its own mode's
-  // ancestry. Re-boxing into heap_only, then downcasting (a steal);
+  // ancestry. Boxing into heap_only, then downcasting (a steal);
   // un-boxing into inline_only, then downcasting (a relocation).
   life_stats rebox_stats;
   if (true) {
@@ -3150,7 +3150,7 @@ TEST_CASE("Over-aligned targets", "[proxy]") {
     CHECK(q.call<"gold">() == 8);
 
     // An inline_only destination cannot align it and refuses up front; the
-    // default policy re-boxes the inline arrival to the heap.
+    // default policy boxes the inline arrival onto the heap.
     using sbo_proxy = proxy<lockbox, policies::inline_only>;
     CHECK(!sbo_proxy::can_adopt(q));
     proxy<lockbox> d = std::move(q);

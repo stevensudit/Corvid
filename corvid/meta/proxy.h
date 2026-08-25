@@ -783,13 +783,13 @@ inline void empty_relocate(void*, void*) noexcept {}
 // Copy thunks, present in the owning table only for copy-constructible
 // targets.
 //
-// Both return the copy's address. `sbo_copy` copy-constructs `*from` into
+// Both return the copy's address. `inline_copy` copy-constructs `*from` into
 // the buffer at `to` (and the return is that same address); `heap_copy`
 // allocates the copy, ignoring `to`. Either can throw (the target's copy
 // constructor, or the allocation), so unlike the other housekeeping thunks
 // they are not `noexcept`; the caller publishes the result only on success.
 template<typename T>
-void* sbo_copy(const void* from, void* to) {
+void* inline_copy(const void* from, void* to) {
   return ::new (to) T(*static_cast<const T*>(from));
 }
 
@@ -1754,9 +1754,9 @@ struct vtable_builder<facade<Es...>>
   // The mode-changing pairs point across to the table's other-mode sibling:
   // an inline-mode table carries `to_heap` (see `box`) plus `heap_table`,
   // which is how a `heap_only` proxy adopts an erased inline arrival, and a
-  // heap-mode table carries `to_sbo` (see `unbox`) plus `sbo_table` (null
-  // when the target is not nothrow-move-constructible and so can never live
-  // inline), the un-boxing inverse for an `inline_only` proxy.
+  // heap-mode table carries `to_inline` (see `unbox`) plus `inline_table`
+  // (null when the target is not nothrow-move-constructible and so can never
+  // live inline), the un-boxing inverse for an `inline_only` proxy.
   //
   // `ancestry` names the born family's birth ancestry for this mode (see
   // `ancestry_for`): the facade the target was constructed as plus every
@@ -1767,10 +1767,10 @@ struct vtable_builder<facade<Es...>>
     void (*relocate)(void*, void*) noexcept {};
     void* (*copy)(const void*, void*){};
     void* (*to_heap)(void*){};
-    void (*to_sbo)(void*, void*) noexcept {};
+    void (*to_inline)(void*, void*) noexcept {};
     const void* type_tag{};
     const owning_vtable_t* heap_table{};
-    const owning_vtable_t* sbo_table{};
+    const owning_vtable_t* inline_table{};
     size_t size{};
     size_t align{};
     const ancestry_t* ancestry{};
@@ -1832,16 +1832,18 @@ struct vtable_builder<facade<Es...>>
         return box(static_cast<T*>(from));
       };
       ovt.heap_table = &owning_vtable_for<F, Born, T, storage_mode::dynamic>;
-      if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &sbo_copy<T>;
+      if constexpr (std::is_copy_constructible_v<T>)
+        ovt.copy = &inline_copy<T>;
     } else {
       ovt.destroy = [](void* target) noexcept {
         destroy_heap(static_cast<T*>(target));
       };
       if constexpr (std::is_nothrow_move_constructible_v<T>) {
-        ovt.to_sbo = [](void* from, void* to) noexcept {
+        ovt.to_inline = [](void* from, void* to) noexcept {
           unbox(static_cast<T*>(from), to);
         };
-        ovt.sbo_table = &owning_vtable_for<F, Born, T, storage_mode::inlined>;
+        ovt.inline_table =
+            &owning_vtable_for<F, Born, T, storage_mode::inlined>;
       }
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &heap_copy<T>;
     }
@@ -2643,7 +2645,7 @@ requires Proxiable<T, F>
 // Proxies of different policies interconvert as rvalues, in the same move
 // that upcasts. The source's policy never matters: this proxy accommodates
 // whatever target actually arrives, changing its storage mode when the
-// policy demands it (re-boxing an inline arrival onto the heap under
+// policy demands it (boxing an inline arrival onto the heap under
 // `heap_only`, un-boxing a heap arrival into the buffer under `inline_only`).
 // Only the conversions that might change the mode can throw; everything
 // else is `noexcept`, including every same-policy move.
@@ -3058,8 +3060,8 @@ private:
       break;
     case adoption::unbox:
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage): see target
-      vt->to_sbo(other.storage_area_.ptr, storage_area_.buf);
-      vtable_ = vt->sbo_table;
+      vt->to_inline(other.storage_area_.ptr, storage_area_.buf);
+      vtable_ = vt->inline_table;
       break;
     case adoption::refuse:
       if constexpr (details::adopt_may_throw(Policy, P))
@@ -3075,7 +3077,7 @@ private:
   // shared with `flexi_function`.
   //
   // The table is the arrival's witness: `relocate` marks an inline target,
-  // nothrow-move by eligibility, and `to_sbo` a heap target that could live
+  // nothrow-move by eligibility, and `to_inline` a heap target that could live
   // inline; `size` and `align` are its footprint. When every inline target
   // the source policy admits is guaranteed to fit this buffer, which covers
   // every same-policy move, an inline arrival skips the runtime fit check.
@@ -3088,7 +3090,7 @@ private:
           vt->align, true);
     }
     return details::adoption_of(Policy, storage_mode::dynamic, vt->size,
-        vt->align, static_cast<bool>(vt->to_sbo));
+        vt->align, static_cast<bool>(vt->to_inline));
   }
 
   // Table of an empty proxy of this type; see `empty_owning_vtable_for`.
@@ -3253,7 +3255,7 @@ public:
   // an inline target moves onto the heap first. On a throw from the
   // control-block allocation the target is destroyed rather than leaked, and
   // the source is left empty (the same contract as `std::shared_ptr`'s
-  // constructor from a `unique_ptr`); a throw from the re-boxing leaves the
+  // constructor from a `unique_ptr`); a throw from the boxing leaves the
   // source intact.
   //
   // The reverse conversion deliberately does not exist because unique

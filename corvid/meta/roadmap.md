@@ -15,12 +15,13 @@ contract.
 
 The pending `proxy` changes, in the order to land them:
 
-- Vocabulary sweep in `proxy.h` / `proxy.md`. The internal table identifiers
-  (`to_sbo`, `sbo_table`, `sbo_copy`) still say "sbo", and
-  the prose still says "re-boxed" for an inline-to-heap move, which falsely
-  implies the target was boxed before. The shared policy vocabulary has
-  already moved to inline_size / inline_align / inline_only / inline_or_heap
-  and the wrapper says "boxed"; the internals should follow.
+- Landed: the vocabulary sweep in `proxy.h` / `proxy.md`. The owning
+  table's mode-changing slots are `to_heap`/`to_inline` with their
+  `heap_table`/`inline_table` siblings, the copy thunks are
+  `heap_copy`/`inline_copy`, and the prose says "boxed" for an
+  inline-to-heap move, agreeing with the shared policy vocabulary
+  (inline_size / inline_align / inline_only / inline_or_heap) and the
+  wrapper. Nothing in proxy says "sbo" or "re-boxed" now.
 - Two open questions, neither blocking. Whether `proxy` could or should
   honor `storage_mode::direct` (a direct-eligible target stored
   nowhere): today `details::storage_mode_of` is the one place proxy chooses a
@@ -131,7 +132,7 @@ answers had been written twice. The shared parts now live in
   eligibility test `is_inline_eligible` now calls), answering with an
   `adoption` route: `flexi_thunks::lifespan_impl` and `proxy::do_adopt`
   (one switch, replacing `do_take_inline`/`do_take_heap`, its
-  `adoption_for` reading the table's `relocate`/`to_sbo`/`size`/`align` as
+  `adoption_for` reading the table's `relocate`/`to_inline`/`size`/`align` as
   the erased arrival's witnesses) act on the route, and both `can_adopt`s
   are `!= refuse`. The housekeeping primitives live in invocable_common.h
   as `destroy_inline`, `destroy_heap`, `relocate_inline`, `box`, and
