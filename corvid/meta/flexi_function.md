@@ -207,21 +207,48 @@ a stored target.
 
 ## Indirection, counted
 
-Every call pays one indirect call, through `invoke`. That is the floor for
-a type-erased wrapper. Whether there is a second one depends on the
-stored type, not on the mode:
+Three things a call site can compile to, in ascending cost:
 
-| Stored type                                                 | What the thunk does                                                    | Indirect calls |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------- | -------------- |
-| function pointer (`fn_t f = &foo;`)                         | loads the pointer from the buffer, calls through it                    | 2              |
-| capturing lambda or functor                                 | calls its `operator()`, a function the compiler can see, which inlines | 1              |
-| captureless lambda, `std::plus<>`, any direct-eligible type | same, and reads nothing from the buffer                                | 1              |
+- Inlined. The callee's body is pasted in and there is no call at all.
+  This needs the definition visible where the caller is compiled: the same
+  TU, a header, or LTO. A lambda's `operator()` is always visible, since
+  the closure type is defined in the TU that uses it.
+- A direct call. `call foo`, with the target fixed in the instruction by
+  the linker. No load, and nothing for the branch predictor to guess.
+  (Calling into a shared library goes through the PLT, an indirect jump
+  through the GOT, so that one configuration reintroduces a hop; within
+  one executable, or under LTO, the call is direct.)
+- An indirect call. The target is a pointer loaded at runtime, `call
+*reg`.
 
-A pointer's value is runtime data, so nothing can lift `&foo` to a direct
-call. Naming `foo` inside a captureless lambda puts the address in the
-type instead, where the thunk can call it outright. The lambda is then
-`direct` as well: nothing constructed, moved, destroyed, or allocated,
-under any policy.
+The erased call through `invoke` is always the third kind. That is the
+floor for a type-erased wrapper, and every call pays it. What follows it
+inside the thunk depends on the stored type, not on the mode:
+
+| Stored type                                              | Mode                               | The thunk body, after the erased call                                          |
+| -------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
+| function pointer (`fn_t f = &foo;`)                      | `inlined`                          | load the pointer from the buffer, indirect call through it                     |
+| function pointer                                         | `dynamic` (only under `heap_only`) | load `F*` from the buffer, load the pointer from the block, indirect call      |
+| functor or capturing lambda                              | `inlined`                          | direct call to `F::operator()` with the buffer as `this`, inlined when visible |
+| functor or capturing lambda                              | `dynamic`                          | load `F*` from the buffer, then the same with the block as `this`              |
+| direct-eligible type (captureless lambda, `std::plus<>`) | `direct`                           | direct call to `F::operator()`, inlined when visible, and no load at all       |
+
+The `static_cast<F*>(storage)` in the thunk is not an instruction. It is
+the compiler agreeing to treat those bytes as an `F`, and the call to
+`F::operator()` is to a function it knows by name.
+
+So the second indirection exists only for a stored function pointer,
+whose value is runtime data that nothing at compile time can replace. A
+functor and a `direct` target have the same call structure, one indirect
+call and then an inlineable direct one. What `direct` changes is storage:
+nothing is constructed, moved, or destroyed, nothing is allocated under
+`heap_only`, and the buffer is never read.
+
+Naming `foo` inside a captureless lambda, `[](int x) { return foo(x); }`,
+moves the address from data into the type, where the thunk can call it
+outright, and makes the wrapper `direct` as well. Whether `foo`'s body
+then inlines into the thunk follows the visibility rule above; even when
+it does not, the call to it is direct, not indirect.
 
 ## Storing a callable
 
@@ -234,7 +261,7 @@ flowchart TD
     s["storage_mode&lt;FD&gt;(Policy)"] --> m{mode}
     m -->|direct| d["store nothing"]
     m -->|inlined| i["placement-new FD into storage_"]
-    m -->|dynamic| h["storage_ = new FD(...)"]
+    m -->|dynamic| h["storage_[0] = new FD(...)"]
     d --> p["dispatch_ = dispatch_for&lt;FD, mode&gt;()"]
     i --> p
     h --> p
