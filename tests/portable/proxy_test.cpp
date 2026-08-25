@@ -1204,11 +1204,11 @@ struct stateless_target {};
 } // namespace
 static_assert(policy_details::direct_eligible<stateless_target>());
 static_assert(
-    prox::details::storage_mode<stateless_target>(invocable_policy::basic) ==
-    allocation_mode::inlined);
+    prox::details::storage_mode_of<stateless_target>(
+        invocable_policy::basic) == storage_mode::inlined);
 static_assert(
-    prox::details::storage_mode<stateless_target>(invocable_policy::heap) ==
-    allocation_mode::dynamic);
+    prox::details::storage_mode_of<stateless_target>(invocable_policy::heap) ==
+    storage_mode::dynamic);
 
 // Noexcept conformance: the binding itself must be noexcept.
 static_assert(Proxiable<lawman, hair_trigger>);

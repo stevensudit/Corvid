@@ -133,7 +133,7 @@ using policy_details::can_store_inline;
 using policy_details::inline_fit_guaranteed;
 using policy_details::inline_eligible;
 
-// `storage_mode`: where a `proxy` under policy `p` keeps a `T`: `inlined`
+// `storage_mode_of`: where a `proxy` under policy `p` keeps a `T`: `inlined`
 // when the policy can store it inline, else `dynamic`.
 //
 // Never `direct`. A `proxy` table always resolves a target address, so a
@@ -141,10 +141,10 @@ using policy_details::inline_eligible;
 // any other, and the policy's direct eligibility is not consulted; whether
 // it should be is an open item in roadmap.md.
 template<typename T>
-consteval allocation_mode storage_mode(invocable_policy p) noexcept {
+consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
   return can_store_inline<T>(p)
-             ? allocation_mode::inlined
-             : allocation_mode::dynamic;
+             ? storage_mode::inlined
+             : storage_mode::dynamic;
 }
 
 // `name_is_unqualified`: whether `s` avoids the `"::"` separator, which
@@ -895,8 +895,8 @@ constexpr inline vtbuild_t<F>::vtable_t vtable_for =
 // `owning_vtable_for`: per-(facade, born facade, type, storage mode) owning
 // dispatch table instance, for `proxy`.
 //
-// `Mode` is where the target lives, `allocation_mode::inlined` or
-// `allocation_mode::dynamic`, decided by the constructing handle's policy as
+// `StorageMode` is where the target lives, `storage_mode::inlined` or
+// `storage_mode::dynamic`, decided by the constructing handle's policy as
 // well as by `T`.
 //
 // `Born` is the facade the target was constructed as. Every pointer a table
@@ -911,9 +911,9 @@ constexpr inline vtbuild_t<F>::vtable_t vtable_for =
 // The type is spelled explicitly, not deduced: the two modes' tables
 // reference each other by address, which is fine for initialization but
 // would make `auto` deduction circular.
-template<Facade F, Facade Born, typename T, allocation_mode Mode>
+template<Facade F, Facade Born, typename T, storage_mode StorageMode>
 constexpr inline vtbuild_t<F>::owning_vtable_t owning_vtable_for =
-    vtbuild_t<F>::template make_owning_vtable<F, Born, T, Mode>();
+    vtbuild_t<F>::template make_owning_vtable<F, Born, T, StorageMode>();
 
 // `empty_vtable_for`, `empty_owning_vtable_for`: per-(facade, empty floor)
 // tables for a handle holding no target.
@@ -986,33 +986,35 @@ find_downcast_table(const typename vtbuild_t<F>::vtable_t* vt) noexcept
 }
 
 // `make_ancestor_table`: build the ancestor table for a target born as (Born,
-// T, Mode).
+// T, StorageMode).
 //
 // Contains `Born` itself first, then every facade it extends, all keyed by the
 // same birth. The tuple pointer parameter carries
 // `vtbuild_t<Born>::ancestors_t` in deducible position.
-template<Facade Born, typename T, allocation_mode Mode, Facade... As>
+template<Facade Born, typename T, storage_mode StorageMode, Facade... As>
 consteval std::array<ancestor_entry, 1 + sizeof...(As)>
 make_ancestor_table(std::tuple<As...>*) noexcept {
-  return {{{&facade_tag_v<Born>, &owning_vtable_for<Born, Born, T, Mode>},
-      {&facade_tag_v<As>, &owning_vtable_for<As, Born, T, Mode>}...}};
+  return {{{&facade_tag_v<Born>,
+               &owning_vtable_for<Born, Born, T, StorageMode>},
+      {&facade_tag_v<As>, &owning_vtable_for<As, Born, T, StorageMode>}...}};
 }
 
-template<Facade Born, typename T, allocation_mode Mode>
-constexpr inline auto ancestor_table_for = make_ancestor_table<Born, T, Mode>(
-    static_cast<vtbuild_t<Born>::ancestors_t*>(nullptr));
+template<Facade Born, typename T, storage_mode StorageMode>
+constexpr inline auto ancestor_table_for =
+    make_ancestor_table<Born, T, StorageMode>(
+        static_cast<vtbuild_t<Born>::ancestors_t*>(nullptr));
 
-// `ancestry_for`: the birth ancestry for a target born as (Born, T, Mode), the
-// object every owning table of that born family points at.
+// `ancestry_for`: the birth ancestry for a target born as (Born, T,
+// StorageMode), the object every owning table of that born family points at.
 //
 // Each storage mode has its own ancestry, whose entries are that mode's
 // tables; a mode-changing adoption switches the proxy to the table's
 // other-mode sibling, which carries the other mode's ancestry, so the tables
 // an ancestry hands out always match the target's current home.
-template<Facade Born, typename T, allocation_mode Mode>
+template<Facade Born, typename T, storage_mode StorageMode>
 constexpr inline ancestry_t ancestry_for{
-    ancestor_table_for<Born, T, Mode>.data(),
-    ancestor_table_for<Born, T, Mode>.size()};
+    ancestor_table_for<Born, T, StorageMode>.data(),
+    ancestor_table_for<Born, T, StorageMode>.size()};
 
 // `make_view_ancestor_table`: build the view-table ancestor table for a
 // target born as (Born, T), mirroring `make_ancestor_table`.
@@ -1837,14 +1839,15 @@ struct vtable_builder<facade<Es...>>
   // mid-instantiation, which a deduced return type cannot survive. A member
   // is unique per (facade, born, type, mode) and so is only ever entered
   // once.
-  template<typename Born, typename T, allocation_mode Mode, typename... Bs2>
+  template<typename Born, typename T, storage_mode StorageMode,
+      typename... Bs2>
   static consteval owning_bases_t
   make_owning_bases(std::tuple<Bs2...>*) noexcept {
-    return {&owning_vtable_for<Bs2, Born, T, Mode>...};
+    return {&owning_vtable_for<Bs2, Born, T, StorageMode>...};
   }
 
   // `make_owning_vtable`: build the owning table for target `T` born as facade
-  // `Born`, stored `inlined` or `dynamic` per `Mode`.
+  // `Born`, stored `inlined` or `dynamic` per `StorageMode`.
   //
   // The mode is decided at proxy construction from the handle's policy, so it
   // is part of the table's identity rather than a property of the type alone;
@@ -1856,28 +1859,26 @@ struct vtable_builder<facade<Es...>>
   // it is mid-instantiation from here, the same diamond hazard as
   // `make_owning_bases`. Reading the completed variable keeps `make_vtable`
   // entered from exactly one place, its own `vtable_for`.
-  template<typename F, typename Born, typename T, allocation_mode Mode>
+  template<typename F, typename Born, typename T, storage_mode StorageMode>
   static consteval owning_vtable_t make_owning_vtable() noexcept {
     owning_vtable_t ovt{vtable_for<F, T, Born>, nullptr, nullptr, nullptr,
         nullptr, nullptr, &type_tag_v<T>, nullptr, nullptr, sizeof(T),
-        alignof(T), &ancestry_for<Born, T, Mode>,
-        make_owning_bases<Born, T, Mode>(
+        alignof(T), &ancestry_for<Born, T, StorageMode>,
+        make_owning_bases<Born, T, StorageMode>(
             static_cast<bases_of_t<Es...>*>(nullptr))};
-    static_assert(Mode != allocation_mode::direct,
-        "a proxy table is inlined or dynamic; see storage_mode");
-    if constexpr (Mode == allocation_mode::inlined) {
+    static_assert(StorageMode != storage_mode::direct,
+        "a proxy table is inlined or dynamic; see storage_mode_of");
+    if constexpr (StorageMode == storage_mode::inlined) {
       ovt.destroy = &sbo_destroy<T>;
       ovt.relocate = &sbo_relocate<T>;
       ovt.to_heap = &sbo_to_heap<T>;
-      ovt.heap_table =
-          &owning_vtable_for<F, Born, T, allocation_mode::dynamic>;
+      ovt.heap_table = &owning_vtable_for<F, Born, T, storage_mode::dynamic>;
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &sbo_copy<T>;
     } else {
       ovt.destroy = &heap_destroy<T>;
       if constexpr (std::is_nothrow_move_constructible_v<T>) {
         ovt.to_sbo = &heap_to_sbo<T>;
-        ovt.sbo_table =
-            &owning_vtable_for<F, Born, T, allocation_mode::inlined>;
+        ovt.sbo_table = &owning_vtable_for<F, Born, T, storage_mode::inlined>;
       }
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &heap_copy<T>;
     }
@@ -2771,7 +2772,7 @@ public:
   requires(Proxiable<T, F> && std::constructible_from<T, Args...>)
   explicit proxy(std::in_place_type_t<T>, Args&&... args)
       : vtable_{&details::owning_vtable_for<F, F, T,
-            details::storage_mode<T>(Policy)>} {
+            details::storage_mode_of<T>(Policy)>} {
     static_assert(Policy.alloc != invocable_alloc::inline_only ||
                       details::inline_eligible<T>(Policy),
         "the target is not eligible for an inline_only proxy's inline buffer");
@@ -2807,10 +2808,10 @@ public:
           "the target is not eligible for an inline_only proxy's inline "
           "buffer");
       ::new (static_cast<void*>(storage_.buf)) T(std::move(*target));
-      vtable_ = &details::owning_vtable_for<F, F, T, allocation_mode::inlined>;
+      vtable_ = &details::owning_vtable_for<F, F, T, storage_mode::inlined>;
     } else {
       storage_.ptr = target.release();
-      vtable_ = &details::owning_vtable_for<F, F, T, allocation_mode::dynamic>;
+      vtable_ = &details::owning_vtable_for<F, F, T, storage_mode::dynamic>;
     }
   }
 

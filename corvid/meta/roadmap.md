@@ -29,8 +29,8 @@ The pending `proxy` changes, in the order to land them:
   already moved to inline_size / inline_align / inline_only / inline_or_heap
   and the wrapper says "boxed"; the internals should follow.
 - Two open questions, neither blocking. Whether `proxy` could or should
-  honor `allocation_mode::direct` (a direct-eligible target stored
-  nowhere): today `details::storage_mode` is the one place proxy chooses a
+  honor `storage_mode::direct` (a direct-eligible target stored
+  nowhere): today `details::storage_mode_of` is the one place proxy chooses a
   mode, and it documents `direct` as not consulted, since a proxy table
   always resolves a target address. And whether a method signature could
   carry a reference qualifier, as `flexi_function`'s now may; `method`
@@ -74,8 +74,14 @@ answers had been written twice. The shared parts now live in
   `ConstOnly` and `view_base`'s flag are `access_mode` (a handle declares
   how it accesses, a different fact from a qualifier found on a signature,
   and the enum keeps the two apart), and the owning-table builders take
-  `allocation_mode` in place of `bool Sbo`, with `details::storage_mode` the
-  one place proxy chooses a mode. Still to convert, in the sweep: proxy.h's
+  `storage_mode` in place of `bool Sbo`, with `details::storage_mode_of` the
+  one place proxy chooses a mode. `allocation_mode` is now `storage_mode`
+  (the enum says where a target is kept, and in two of its three values
+  nothing is allocated; the old name also invited confusion with container
+  allocators), the two mode-choosing functions are `storage_mode_of`, and
+  the parameters that carry the enum are `StorageMode` (proxy) and
+  `SourceStorage` (flexi), so they no longer share a generic `Mode` with
+  `access_mode`. Still to convert, in the sweep: proxy.h's
   `_v` class members, the bool predicates lacking an `is_` (listed in
   review), and `policy_details::direct_eligible` and `inline_eligible` (to
   `is_` names).
@@ -192,7 +198,7 @@ outright. So the landed design is not a new construction path but a
 storage mode plus two spellings, with the mechanism in
 [flexi_function.md](flexi_function.md):
 
-- `allocation_mode::direct`, beside `inlined` and `dynamic`. A target whose
+- `storage_mode::direct`, beside `inlined` and `dynamic`. A target whose
   type is `direct_eligible` (no data members, trivial default construction
   and destruction) is stored nowhere: the invoke thunk names an instance
   the object model requires and the optimizer erases, the lifespan thunk

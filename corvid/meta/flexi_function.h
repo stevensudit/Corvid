@@ -66,8 +66,8 @@ namespace fn_details {
 // callable between them.
 //
 // A stored callable lives either inline in the wrapper's buffer or on the
-// heap, owned by the pointer kept in that buffer. The `SourceAlloc` parameter
-// in each thunk selects how the `storage` is interpreted.
+// heap, owned by the pointer kept in that buffer. The `SourceStorage`
+// parameter in each thunk selects how the `storage` is interpreted.
 //
 // The second parameter mirrors `flexi_function`'s third: it is the
 // pattern-matching hook, not a choice.
@@ -167,22 +167,22 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // Invoke the stored callable, where `storage` is the wrapper's type-erased
   // buffer.
   //
-  // An `allocation_mode::direct` callable is not in the buffer at all. The
+  // An `storage_mode::direct` callable is not in the buffer at all. The
   // `target` named here is what the object model requires to call a member
   // `operator()` (a null object is not an option, even for a body that never
   // touches `this`); it has no data and no runtime presence, and the
   // signature's qualifiers apply to it exactly as they would to a stored one.
-  template<class F, allocation_mode SourceAlloc>
+  template<class F, storage_mode SourceStorage>
   static ResultT
   invoke_impl(void* storage, Args... args) noexcept(is_noexcept) {
-    if constexpr (SourceAlloc == allocation_mode::direct) {
+    if constexpr (SourceStorage == storage_mode::direct) {
       F target{};
       return std::invoke_r<ResultT>(static_cast<qualified_target_t<F>>(target),
           std::forward<Args>(args)...);
     } else {
       return std::invoke_r<ResultT>(
           static_cast<qualified_target_t<F>>(
-              *stored_fn<F, SourceAlloc>(storage)),
+              *stored_fn<F, SourceStorage>(storage)),
           std::forward<Args>(args)...);
     }
   }
@@ -191,22 +191,22 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   using empty_traits = empty_call_traits<ResultT>;
 
   // The invoke stub for an empty wrapper, which performs the empty call under
-  // `Mode`.
+  // `Behavior`.
   //
-  // The wrapper's own `static_assert`s have already established that `Mode`
-  // is admitted.
-  template<on_empty Mode>
+  // The wrapper's own `static_assert`s have already established that
+  // `Behavior` is admitted.
+  template<on_empty Behavior>
   static ResultT
   empty_invoke_impl([[maybe_unused]] void*, [[maybe_unused]] Args...) noexcept(
-      empty_traits::template is_nothrow<Mode>) {
-    return empty_traits::template invoke<Mode>();
+      empty_traits::template is_nothrow<Behavior>) {
+    return empty_traits::template invoke<Behavior>();
   }
 
   // Manage the lifespan of a stored callable through a single function that
   // can size, destroy, probe, or relocate, depending on the arguments.
   //
   // - When `from` is null, it is a pure size query that returns the stored
-  // size: `sizeof(F)`, or 0 for an `allocation_mode::direct` source.
+  // size: `sizeof(F)`, or 0 for an `storage_mode::direct` source.
   //
   // - When `from` is set and `dest` is null, it destroys the callable at
   // `from` (freeing its heap block, if applicable).
@@ -244,25 +244,25 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // responsibility: each wrapper's empty-call behavior is baked into its
   // type, so the caller reinstalls its own empty pair.
   //
-  // An `allocation_mode::direct` source has nothing to size, destroy, or
+  // An `storage_mode::direct` source has nothing to size, destroy, or
   // move: its size is 0, destruction is a no-op, every destination accepts it,
   // and a relocation only writes the thunk pair.
-  template<class F, allocation_mode SourceAlloc>
-  requires(SourceAlloc == allocation_mode::direct)
+  template<class F, storage_mode SourceStorage>
+  requires(SourceStorage == storage_mode::direct)
   static size_t lifespan_impl(void* from, destination_spec* dest) {
     if (from && dest && dest->to)
-      *dest->dispatch = dispatch_for<F, SourceAlloc>();
+      *dest->dispatch = dispatch_for<F, SourceStorage>();
     return 0;
   }
 
-  template<class F, allocation_mode SourceAlloc>
-  requires(SourceAlloc != allocation_mode::direct)
+  template<class F, storage_mode SourceStorage>
+  requires(SourceStorage != storage_mode::direct)
   static size_t lifespan_impl(void* from, destination_spec* dest) {
     if (!from) return sizeof(F);
 
-    F* f = stored_fn<F, SourceAlloc>(from);
+    F* f = stored_fn<F, SourceStorage>(from);
 
-    if (!dest) return do_destroy<F, SourceAlloc>(f);
+    if (!dest) return do_destroy<F, SourceStorage>(f);
 
     // First decide whether a relocation is allowed.
     const bool fits_inline = policy_details::can_store_inline<F>(dest->policy);
@@ -270,7 +270,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     if (!fits_inline && !may_heap) return refusal;
     if (!dest->to) return sizeof(F);
 
-    if constexpr (SourceAlloc == allocation_mode::dynamic) {
+    if constexpr (SourceStorage == storage_mode::dynamic) {
       // A dynamically-allocated source never moves to a new box. It either
       // hands its box over or un-boxes into an `inline_only` buffer.
       if (may_heap) return hand_over<F>(f, dest);
@@ -278,7 +278,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
         // An `inline_only` destination forces un-boxing, and the refusal
         // check above guaranteed the fit.
         assert(fits_inline);
-        return move_inlined<F, SourceAlloc>(f, dest);
+        return move_inlined<F, SourceStorage>(f, dest);
       } else {
         // Unreachable: a throwing-move `F` is never `fits_inline`, while
         // `may_heap` was consumed above, so the refusal check has already
@@ -295,19 +295,19 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     } else {
       // An inline source stays inline when the destination is eligible, and
       // otherwise moves to a new block.
-      if (fits_inline) return move_inlined<F, SourceAlloc>(f, dest);
-      return move_dynamic<F, SourceAlloc>(f, dest);
+      if (fits_inline) return move_inlined<F, SourceStorage>(f, dest);
+      return move_dynamic<F, SourceStorage>(f, dest);
     }
   }
 
-  // The pair for a callable of type `F` stored under `SourceAlloc`.
+  // The pair for a callable of type `F` stored under `SourceStorage`.
   //
   // A function rather than a variable template, so that the static analyzer
   // can see the thunk addresses flow into the pair, and follow the heap
   // block's deletion through the erased lifespan call.
-  template<class F, allocation_mode SourceAlloc>
+  template<class F, storage_mode SourceStorage>
   static consteval thunk_pair dispatch_for() noexcept {
-    return {&invoke_impl<F, SourceAlloc>, &lifespan_impl<F, SourceAlloc>};
+    return {&invoke_impl<F, SourceStorage>, &lifespan_impl<F, SourceStorage>};
   }
 
 private:
@@ -316,9 +316,9 @@ private:
   // An inline callable is constructed in the buffer itself, so `storage`
   // points at it directly. A heap callable is instead reached through the
   // `F*` that the buffer holds, hence the extra dereference.
-  template<class F, allocation_mode SourceAlloc>
+  template<class F, storage_mode SourceStorage>
   static F* stored_fn(void* storage) noexcept {
-    return (SourceAlloc == allocation_mode::dynamic)
+    return (SourceStorage == storage_mode::dynamic)
                ? *static_cast<F**>(storage)
                : static_cast<F*>(storage);
   }
@@ -331,7 +331,7 @@ private:
   template<class F>
   static size_t hand_over(F* f, destination_spec* dest) noexcept {
     *static_cast<F**>(dest->to) = f;
-    *dest->dispatch = dispatch_for<F, allocation_mode::dynamic>();
+    *dest->dispatch = dispatch_for<F, storage_mode::dynamic>();
     return sizeof(F);
   }
 
@@ -341,7 +341,7 @@ private:
   // Serves both the buffer-to-buffer move and the un-boxing of a dynamic
   // source into an `inline_only` buffer; the caller has already checked the
   // fit.
-  template<class F, allocation_mode SourceAlloc>
+  template<class F, storage_mode SourceStorage>
   static size_t move_inlined(F* f, destination_spec* dest) noexcept {
     static_assert(std::is_nothrow_move_constructible_v<F>,
         "move_inlined: only a nothrow-move source moves inline");
@@ -349,8 +349,8 @@ private:
     // to the true capacity of the buffer behind `dest->to`.
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.PlacementNew)
     new (dest->to) F(std::move(*f));
-    do_destroy<F, SourceAlloc>(f);
-    *dest->dispatch = dispatch_for<F, allocation_mode::inlined>();
+    do_destroy<F, SourceStorage>(f);
+    *dest->dispatch = dispatch_for<F, storage_mode::inlined>();
     return sizeof(F);
   }
 
@@ -361,21 +361,21 @@ private:
   // over or un-boxed instead. The allocation can throw, and the move cannot
   // (because an inline source is nothrow-move), so both sides are untouched on
   // a throw.
-  template<class F, allocation_mode SourceAlloc>
+  template<class F, storage_mode SourceStorage>
   static size_t move_dynamic(F* f, destination_spec* dest) {
-    static_assert(SourceAlloc == allocation_mode::inlined,
+    static_assert(SourceStorage == storage_mode::inlined,
         "move_dynamic: only an inline source moves to dynamic");
     F* boxed = new F(std::move(*f));
     f->~F();
     *static_cast<F**>(dest->to) = boxed;
-    *dest->dispatch = dispatch_for<F, allocation_mode::dynamic>();
+    *dest->dispatch = dispatch_for<F, storage_mode::dynamic>();
     return sizeof(F);
   }
 
   // Destroy the stored callable, freeing its heap block when dynamic.
-  template<class F, allocation_mode SourceAlloc>
+  template<class F, storage_mode SourceStorage>
   static size_t do_destroy(F* f) noexcept {
-    if constexpr (SourceAlloc == allocation_mode::dynamic)
+    if constexpr (SourceStorage == storage_mode::dynamic)
       delete f;
     else
       f->~F();
@@ -544,7 +544,7 @@ public:
   // The inline path can't throw, but the heap path can throw on allocation,
   // and so can the move itself (which is precisely why a callable whose move
   // constructor may throw is heap-bound). A throw leaves this instance empty.
-  // An `allocation_mode::direct` callable takes neither path: nothing is
+  // An `storage_mode::direct` callable takes neither path: nothing is
   // stored, under any policy.
   //
   // The std polymorphic function wrappers are deliberately excluded
@@ -723,7 +723,7 @@ public:
   }
 
   // Size of the stored callable in bytes; 0 when empty, and also for an
-  // `allocation_mode::direct` callable, which is not stored.
+  // `storage_mode::direct` callable, which is not stored.
   [[nodiscard]] size_t size() const noexcept {
     return dispatch_.lifespan ? dispatch_.lifespan(nullptr, nullptr) : 0;
   }
@@ -777,7 +777,7 @@ private:
   //
   // `FD` is the stored type, already decayed and always passed explicitly;
   // `fn` is forwarded into it, so an rvalue is moved and a (trivially
-  // copyable) lvalue is copied. An `allocation_mode::direct` `fn` is not
+  // copyable) lvalue is copied. An `storage_mode::direct` `fn` is not
   // consumed at all: only its type survives, in the thunks.
   //
   // The caller handles any null-callable special case before calling, and
@@ -815,10 +815,10 @@ private:
         "reference type; every call would produce a dangling reference");
     assert(!dispatch_.lifespan);
 
-    constexpr auto mode = policy_details::storage_mode<FD>(Policy);
-    if constexpr (mode == allocation_mode::inlined)
+    constexpr auto mode = policy_details::storage_mode_of<FD>(Policy);
+    if constexpr (mode == storage_mode::inlined)
       new (storage_) FD(std::forward<FN>(fn));
-    else if constexpr (mode == allocation_mode::dynamic)
+    else if constexpr (mode == storage_mode::dynamic)
       *reinterpret_cast<FD**>(storage_) = new FD(std::forward<FN>(fn));
     dispatch_ = thunks::template dispatch_for<FD, mode>();
   }

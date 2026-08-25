@@ -84,8 +84,8 @@ enum class on_empty : std::uint8_t { silent, raise, terminate };
 #pragma endregion
 #pragma region Allocation mode
 
-// `allocation_mode` is how an owner's invoke thunk reaches its target, and
-// therefore where the target lives.
+// `storage_mode` is where an owner keeps its target, which is also how the
+// owner's invoke thunk reaches it.
 //
 // Normally the owner's `invoke` slot points at a thunk that first finds the
 // target in the owner's storage and then calls it. Under `inlined` the target
@@ -103,7 +103,7 @@ enum class on_empty : std::uint8_t { silent, raise, terminate };
 //
 // Unlike `invocable_alloc`, which is a policy choice, this is the outcome for
 // one target, and it is what the owner's thunks are keyed on.
-enum class allocation_mode : std::uint8_t { direct, inlined, dynamic };
+enum class storage_mode : std::uint8_t { direct, inlined, dynamic };
 
 #pragma endregion
 #pragma region invocable_policy
@@ -301,23 +301,23 @@ consteval bool direct_eligible() noexcept {
           std::is_trivially_destructible_v<T>);
 }
 
-// `storage_mode`: where policy `p` keeps a `T`: nowhere when it is direct
+// `storage_mode_of`: where policy `p` keeps a `T`: nowhere when it is direct
 // eligible, inline when it can be, and on the heap otherwise.
 //
 // An `inline_only` policy over a target that can be neither is rejected
 // separately, with its own diagnostic.
 template<typename T>
-consteval allocation_mode storage_mode(invocable_policy p) noexcept {
-  if (direct_eligible<T>()) return allocation_mode::direct;
-  if (can_store_inline<T>(p)) return allocation_mode::inlined;
-  return allocation_mode::dynamic;
+consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
+  if (direct_eligible<T>()) return storage_mode::direct;
+  if (can_store_inline<T>(p)) return storage_mode::inlined;
+  return storage_mode::dynamic;
 }
 
 // `can_store_nothrow`: whether storing a `T` under policy `p` cannot throw,
 // which is whenever it does not go to the heap.
 template<typename T>
 consteval bool can_store_nothrow(invocable_policy p) noexcept {
-  return (storage_mode<T>(p) != allocation_mode::dynamic);
+  return (storage_mode_of<T>(p) != storage_mode::dynamic);
 }
 
 // `inline_fit_guaranteed`: whether every inline target the source policy

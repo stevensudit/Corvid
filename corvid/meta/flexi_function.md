@@ -47,7 +47,7 @@ The policy type is shared with `proxy` and documented in
 | thunk                       | A static function generated per stored type that does one erased job: invoke, or manage lifespan.                                              |
 | thunk pair, `dispatch_`     | The two thunk pointers every wrapper keeps ahead of its buffer: `invoke` and `lifespan`.                                                       |
 | storage, buffer, `storage_` | The byte array after the pair. Holds the target, a pointer to it, or nothing.                                                                  |
-| mode, `allocation_mode`     | Where one stored target lives, and so which thunks serve it: `inlined`, `dynamic`, or `direct`. Baked into the thunks at store time.           |
+| mode, `storage_mode`     | Where one stored target lives, and so which thunks serve it: `inlined`, `dynamic`, or `direct`. Baked into the thunks at store time.           |
 | `inlined`                   | The target is constructed in the buffer.                                                                                                       |
 | `dynamic`                   | The target is in a heap block, and the buffer holds the pointer to it.                                                                         |
 | `direct`                    | Nothing is stored. The invoke thunk's body is the call itself. Only for a type with no data and trivial construction and destruction.          |
@@ -296,7 +296,7 @@ on an empty instance.
 
 ```mermaid
 flowchart TD
-    s["storage_mode&lt;FD&gt;(Policy)"] --> m{mode}
+    s["storage_mode_of&lt;FD&gt;(Policy)"] --> m{mode}
     m -->|direct| d["store nothing"]
     m -->|inlined| i["placement-new FD into storage_"]
     m -->|dynamic| h["storage_[0] = new FD(...)"]
@@ -305,7 +305,7 @@ flowchart TD
     h --> p
 ```
 
-`policy_details::storage_mode<T>(p)` is the one routing decision:
+`policy_details::storage_mode_of<T>(p)` is the one routing decision:
 `direct` when `direct_eligible<T>()`, else `inlined` when
 `can_store_inline<T>(p)` (fits the buffer's size and alignment, is
 nothrow-move-constructible, and the policy is not `heap_only`), else
