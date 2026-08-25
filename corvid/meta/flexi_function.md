@@ -374,6 +374,26 @@ type against the source's runtime target, so it works before any
 destination exists. It is a probe, and it does not promise the allocation
 a boxing adoption may need.
 
+What a move costs, in `lifespan` calls, each an indirect call through the
+thunk pointer:
+
+| Operation | Destination's `lifespan` | Source's `lifespan` |
+| --- | --- | --- |
+| move construction, same type or converting | none | 1 (relocate) |
+| same-type move assignment | 1 (destroy, when non-empty) | 1 (relocate) |
+| converting move assignment, destination not `inline_only` | 1 (destroy, when non-empty) | 1 (relocate) |
+| converting move assignment, destination `inline_only` | 1 (destroy, when non-empty) | 2 (probe, then relocate) |
+| `swap` | three moves' worth | |
+
+The extra probe is the price of leaving the destination's target intact
+on a refusal: the alternative, relocating into a temporary and then
+moving that in, would cost a second relocation instead of a probe, which
+reads nothing. Relocation itself destroys the source's target (or hands
+its block over), so there is no separate destroy call on the source;
+`do_adopt` just reinstalls the source's `empty_dispatch`. These are
+assignment costs; the wrapper is optimized for the call, which pays one
+indirect call and nothing else.
+
 ## The empty state
 
 ```cpp
