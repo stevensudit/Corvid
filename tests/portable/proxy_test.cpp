@@ -2754,15 +2754,15 @@ TEST_CASE("Storage policies", "[proxy]") {
 
   // An inline_only proxy accepts an eligible target; converting it into a
   // default-policy proxy of a base facade upcasts and relocates in one move.
-  life_stats sbo_stats;
+  life_stats inline_stats;
   if (true) {
-    auto p = make_proxy<vault, small_box, policies::inline_only>(sbo_stats);
+    auto p = make_proxy<vault, small_box, policies::inline_only>(inline_stats);
     CHECK(p.call<"add">(5) == 5);
     proxy<lockbox> r = std::move(p);
-    CHECK(sbo_stats.moves == 1);
+    CHECK(inline_stats.moves == 1);
     CHECK(r.call<"gold">() == 5);
   }
-  CHECK(sbo_stats.destroyed == sbo_stats.constructed);
+  CHECK(inline_stats.destroyed == inline_stats.constructed);
 
   // An inline target arriving at a heap_only proxy is boxed onto the heap
   // (one move, upcasting in the same conversion); moves from then on are
@@ -2817,11 +2817,11 @@ TEST_CASE("Storage policies", "[proxy]") {
   // destination can ever refuse, and an empty source is always adoptable.
   life_stats unbox_stats;
   if (true) {
-    using sbo_proxy = proxy<lockbox, policies::inline_only>;
+    using inline_proxy = proxy<lockbox, policies::inline_only>;
     auto p = make_proxy<lockbox, small_box, policies::heap_only>(unbox_stats);
     p.call<"add">(4);
-    CHECK(sbo_proxy::can_adopt(p));
-    sbo_proxy s = std::move(p);
+    CHECK(inline_proxy::can_adopt(p));
+    inline_proxy s = std::move(p);
     CHECK(unbox_stats.moves == 1);
     CHECK(s.call<"gold">() == 4);
     auto s2 = std::move(s);
@@ -2830,11 +2830,11 @@ TEST_CASE("Storage policies", "[proxy]") {
 
     auto big = make_proxy<lockbox, big_box, policies::heap_only>(unbox_stats);
     big.call<"add">(6);
-    CHECK(!sbo_proxy::can_adopt(big));
+    CHECK(!inline_proxy::can_adopt(big));
     CHECK(proxy<lockbox>::can_adopt(big));
     proxy<lockbox, policies::heap_only> no_target;
-    CHECK(sbo_proxy::can_adopt(no_target));
-    CHECK_THROWS_AS(sbo_proxy{std::move(big)}, std::length_error);
+    CHECK(inline_proxy::can_adopt(no_target));
+    CHECK_THROWS_AS(inline_proxy{std::move(big)}, std::length_error);
     REQUIRE(big); // NOLINT(bugprone-use-after-move): kept whole on failure.
     CHECK(big.call<"gold">() == 6);
   }
@@ -3151,16 +3151,16 @@ TEST_CASE("Over-aligned targets", "[proxy]") {
 
     // An inline_only destination cannot align it and refuses up front; the
     // default policy boxes the inline arrival onto the heap.
-    using sbo_proxy = proxy<lockbox, policies::inline_only>;
-    CHECK(!sbo_proxy::can_adopt(q));
+    using inline_proxy = proxy<lockbox, policies::inline_only>;
+    CHECK(!inline_proxy::can_adopt(q));
     proxy<lockbox> d = std::move(q);
     CHECK(inline_stats.moves == 2);
     CHECK(d.call<"gold">() == 8);
 
     // Un-boxing a heap ingot into the inline_only buffer fails the same way,
     // throwing and leaving the source whole.
-    CHECK(!sbo_proxy::can_adopt(d));
-    CHECK_THROWS_AS(sbo_proxy{std::move(d)}, std::length_error);
+    CHECK(!inline_proxy::can_adopt(d));
+    CHECK_THROWS_AS(inline_proxy{std::move(d)}, std::length_error);
     REQUIRE(d); // NOLINT(bugprone-use-after-move): kept whole on failure.
     CHECK(d.call<"gold">() == 8);
   }
@@ -3221,12 +3221,12 @@ TEST_CASE("unique_ptr interop", "[proxy]") {
   }
   CHECK(stats.destroyed == stats.constructed);
 
-  life_stats sbo_stats;
+  life_stats inline_stats;
   if (true) {
     // Extraction verifies the type at runtime: the wrong type comes back
     // null and leaves the proxy intact. An inline target moves onto the
     // heap; an empty proxy has nothing to extract.
-    auto p = make_proxy<lockbox, small_coffer>(sbo_stats);
+    auto p = make_proxy<lockbox, small_coffer>(inline_stats);
     p.call<"add">(3);
     CHECK(!p.extract<big_coffer>());
     CHECK(p);
@@ -3234,10 +3234,10 @@ TEST_CASE("unique_ptr interop", "[proxy]") {
     REQUIRE(out);
     CHECK(!p);
     CHECK(out->gold() == 3);
-    CHECK(sbo_stats.moves == 1);
+    CHECK(inline_stats.moves == 1);
     CHECK(!p.extract<small_coffer>());
   }
-  CHECK(sbo_stats.destroyed == sbo_stats.constructed);
+  CHECK(inline_stats.destroyed == inline_stats.constructed);
 
   // An inline_only proxy un-boxes an adopted unique_ptr at construction, where
   // the concrete type makes the fit a compile-time fact.
