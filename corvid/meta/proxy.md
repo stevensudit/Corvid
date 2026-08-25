@@ -1796,11 +1796,16 @@ deliberately NOT inline: `facade`, `method`, and `key` are too generic to
 dump into `corvid`.
 
 The call-site vocabulary (`proxy`, `proxy_view`, `const_proxy_view`,
-`shared_proxy`, `weak_proxy`, `invocable_policy`, `invocable_alloc`, `make_proxy`,
-`make_proxy_view`, `make_shared_proxy`, `Proxiable`, `proxy_impl_base`) is
-exported into `corvid::meta` by using-declarations, so consuming code
-spells `proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
-registration) needs `prox::`, the domain those authors already work in.
+`shared_proxy`, `weak_proxy`, `make_proxy`, `make_proxy_view`,
+`make_shared_proxy`, `Proxiable`, `proxy_impl_base`) is exported into
+`corvid::meta` by using-declarations, so consuming code spells
+`proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
+registration) needs `prox::`, the domain those authors already work in. The
+shared policy vocabulary follows the same rule from its own non-inline
+namespace, `corvid::meta::invocables`: `invocable_policy`, `on_empty`,
+`constant_fn`, and `runtime_fn` are exported; `storage_policy` and the rest
+stay home, reached through `invocable_policy`'s fluent starting points
+(`basic`, `heap`, `fixed`) or qualified.
 
 The header stays out of the `meta.h` umbrella to limit include weight (the
 formatting.h precedent); include `corvid/meta/proxy.h` directly. Promote

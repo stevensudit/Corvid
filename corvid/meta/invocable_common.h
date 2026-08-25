@@ -24,6 +24,7 @@
 #include "traits.h"
 
 namespace corvid { inline namespace meta {
+namespace invocables {
 
 // What the invocable owners, `flexi_function` and `proxy`, share beyond the
 // `invocable_policy`: the rules for a call on an empty owner, and the
@@ -108,7 +109,7 @@ struct empty_call_traits {
 #pragma endregion
 #pragma region Function targets
 
-namespace fn_details {
+namespace details {
 
 // Whether `Fn` is a null function or member pointer, which is the one kind of
 // constant that is not a target.
@@ -121,7 +122,7 @@ consteval bool is_null_constant() noexcept {
     return false;
 }
 
-} // namespace fn_details
+} // namespace details
 
 // `constant_fn<Fn>` is a callable whose target is the compile-time constant
 // `Fn`, so that the target is part of the type rather than a value the
@@ -137,7 +138,7 @@ consteval bool is_null_constant() noexcept {
 // reaches `Fn` directly.
 template<auto Fn>
 struct constant_fn {
-  static_assert(!fn_details::is_null_constant<Fn>(),
+  static_assert(!details::is_null_constant<Fn>(),
       "constant_fn: a null function or member pointer is not a target");
 
   template<class... Args>
@@ -186,5 +187,12 @@ constexpr bool is_runtime_fn_v = false;
 template<class Ptr>
 constexpr bool is_runtime_fn_v<runtime_fn<Ptr>> = true;
 
+#pragma endregion
+} // namespace invocables
+
+#pragma region Exports
+// Call-site vocabulary, exported to `corvid::meta`; see invocable_policy.h.
+using invocables::constant_fn;
+using invocables::runtime_fn;
 #pragma endregion
 }} // namespace corvid::meta

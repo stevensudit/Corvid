@@ -110,7 +110,7 @@ struct widget {
 static_assert(std::is_same_v<fixed_function<int(), 64>,
     flexi_function<int(),
         invocable_policy{.inline_size = 64 - (2 * sizeof(void*)),
-            .alloc = invocable_alloc::inline_only}>>);
+            .storage = invocables::storage_policy::inline_only}>>);
 static_assert(is_fixed_function_v<fixed_function<int(), 64>>);
 static_assert(!is_fixed_function_v<flexi_function<int(), dflt>>);
 static_assert(is_flexi_function_v<fixed_function<int(), 64>>);
@@ -238,9 +238,9 @@ struct nine_fn {
   int operator()() const noexcept { return 9; }
 };
 
-static_assert(policy_details::direct_eligible<nine_fn>());
-static_assert(!policy_details::direct_eligible<counted>());
-static_assert(!policy_details::direct_eligible<int (*)()>());
+static_assert(invocables::details::direct_eligible<nine_fn>());
+static_assert(!invocables::details::direct_eligible<counted>());
+static_assert(!invocables::details::direct_eligible<int (*)()>());
 
 // Storing a direct callable is noexcept under every policy, heap_only
 // included, because nothing is stored.
@@ -249,7 +249,8 @@ static_assert(std::is_nothrow_constructible_v<flexi_function<int(), heap_only>,
 
 TEST_CASE("constant_fn calls a compile-time target directly",
     "[flexi_function]") {
-  static_assert(policy_details::direct_eligible<constant_fn<plain_seven>>());
+  static_assert(
+      invocables::details::direct_eligible<constant_fn<plain_seven>>());
 
   // A function, named with or without its address; not stored under any
   // policy.

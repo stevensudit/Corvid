@@ -22,6 +22,7 @@
 #include "padding.h"
 
 namespace corvid { inline namespace meta {
+namespace flexi {
 
 #pragma region fixed_function
 
@@ -56,7 +57,7 @@ template<typename T>
 constexpr inline bool is_fixed_function_v = false;
 
 template<class Sig, invocable_policy Policy, class FunctionT>
-requires(Policy.alloc == invocable_alloc::inline_only)
+requires(Policy.storage == storage_policy::inline_only)
 constexpr inline bool
     is_fixed_function_v<flexi_function<Sig, Policy, FunctionT>> = true;
 
@@ -76,5 +77,12 @@ struct fixed_function_of {
   using type = fixed_function<Sig, Size>;
 };
 
+#pragma endregion
+} // namespace flexi
+
+#pragma region Exports
+using flexi::fixed_function;
+using flexi::fixed_function_of;
+using flexi::is_fixed_function_v;
 #pragma endregion
 }} // namespace corvid::meta

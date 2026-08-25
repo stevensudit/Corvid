@@ -44,7 +44,7 @@ The pending `proxy` changes, in the order to land them:
 Both owners answer the same questions about a target and a result, and the
 answers had been written twice. The shared parts now live in
 `invocable_common.h`, leaving `invocable_policy.h` as the policy and its
-`policy_details`:
+`details`:
 
 - `empty_call_traits<R>`: `is_silenceable`, `is_nothrow_silenceable`, `admits`
   (one behavior exactly, given `noexcept`), `resolve_floor` (proxy's
@@ -55,6 +55,18 @@ answers had been written twice. The shared parts now live in
   `flexi_function`'s three `static_assert`s keep their messages and read
   the two bools. Truth table in meta_test.cpp.
 - `constant_fn`, `runtime_fn`, and `is_runtime_fn_v`, moved verbatim.
+- Namespaces, on proxy's pattern. The shared vocabulary is
+  `corvid::meta::invocables` (not inline) with `policy_details` folded into
+  its `details`, and `flexi_function.h` and `fixed_function.h` are
+  `corvid::meta::flexi` (not inline) with `fn_details` likewise. Each
+  header ends in an Exports region using-declaring only what a caller
+  spells at a call site (`invocable_policy`, `on_empty`, `constant_fn`,
+  `runtime_fn`; `flexi_function`, `fixed_function`, `fixed_function_of`,
+  the two `is_` traits), and an exported name carries its own qualifier
+  because the wide namespace no longer supplies one. `invocable_alloc`
+  became `storage_policy` with the member `storage`, unexported: a caller
+  uses the fluent starting points. `flexi` and `prox` open with
+  `using namespace invocables;`.
 - `method` and `method_traits` sit on `signature_traits` instead of
   re-matching the signature: one primary each (the four `const` x
   `noexcept` specializations of both are gone, `method_traits` recovering
@@ -83,7 +95,7 @@ answers had been written twice. The shared parts now live in
   `SourceStorage` (flexi), so they no longer share a generic `Mode` with
   `access_mode`. Still to convert, in the sweep: proxy.h's
   `_v` class members, the bool predicates lacking an `is_` (listed in
-  review), and `policy_details::direct_eligible` and `inline_eligible` (to
+  review), and `invocables::details::direct_eligible` and `inline_eligible` (to
   `is_` names).
 
 Next is a pass over `proxy.h` and `flexi_function.h` for further overlap,

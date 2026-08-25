@@ -1648,11 +1648,11 @@ struct throwing_result {
 static_assert(!std::is_nothrow_default_constructible_v<throwing_result>);
 
 TEST_CASE("EmptyCallTraits", "[MetaTest]") {
-  using plain = empty_call_traits<int>;
-  using none = empty_call_traits<void>;
-  using ref = empty_call_traits<int&>;
-  using nondefault = empty_call_traits<nondefault_result>;
-  using throwing = empty_call_traits<throwing_result>;
+  using plain = invocables::empty_call_traits<int>;
+  using none = invocables::empty_call_traits<void>;
+  using ref = invocables::empty_call_traits<int&>;
+  using nondefault = invocables::empty_call_traits<nondefault_result>;
+  using throwing = invocables::empty_call_traits<throwing_result>;
 
   // Silencing needs a value-initializable result, nothrow for a subset.
   static_assert(plain::is_silenceable && plain::is_nothrow_silenceable);

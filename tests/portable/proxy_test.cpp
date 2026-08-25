@@ -1016,8 +1016,8 @@ using big_coffer = coffer<64>;
 // policy requires, so they conform on any platform alignment.
 namespace policies {
 constexpr invocable_policy big_inline{.inline_size = padded_size(96)};
-constexpr invocable_policy inline_only{.alloc = invocable_alloc::inline_only};
-constexpr invocable_policy heap_only{.alloc = invocable_alloc::heap_only};
+constexpr auto inline_only = invocable_policy::fixed;
+constexpr auto heap_only = invocable_policy::heap;
 constexpr invocable_policy big_align{
     .inline_size = padded_size(96, 2 * alignof(std::max_align_t)),
     .inline_align = 2 * alignof(std::max_align_t)};
@@ -1202,13 +1202,13 @@ static_assert(prox::method<"jams", bool() const noexcept>::is_noexcept);
 namespace {
 struct stateless_target {};
 } // namespace
-static_assert(policy_details::direct_eligible<stateless_target>());
+static_assert(invocables::details::direct_eligible<stateless_target>());
 static_assert(
     prox::details::storage_mode_of<stateless_target>(
-        invocable_policy::basic) == storage_mode::inlined);
+        invocable_policy::basic) == invocables::storage_mode::inlined);
 static_assert(
     prox::details::storage_mode_of<stateless_target>(invocable_policy::heap) ==
-    storage_mode::dynamic);
+    invocables::storage_mode::dynamic);
 
 // Noexcept conformance: the binding itself must be noexcept.
 static_assert(Proxiable<lawman, hair_trigger>);
@@ -2685,10 +2685,11 @@ TEST_CASE("Owning upcast lifetimes", "[proxy]") {
 // Diagnostics on record: constructing an inline_only proxy over an ineligible
 // target, e.g. `make_proxy<lockbox, big_box, policies::inline_only>(stats)`,
 // fires a single clean error from the in-place constructor: "static
-// assertion failed due to requirement 'corvid::meta::invocable_policy{16, 8,
-// 1, true}.alloc != corvid::meta::invocable_alloc::inline_only ||
-// details::inline_eligible(corvid::meta::invocable_policy{16, 8, 1, true})':
-// the target is not eligible for an inline_only proxy's inline buffer".
+// assertion failed due to requirement
+// 'corvid::invocables::invocable_policy{16, 16, 1, 1, 0}.storage !=
+// corvid::invocables::storage_policy::inline_only ||
+// details::inline_eligible(corvid::invocables::invocable_policy{16, 16, 1, 1,
+// 0})': the target is not eligible for an inline_only proxy's inline buffer".
 TEST_CASE("Storage policies", "[proxy]") {
   // A buffer sized for `big_box` stores it inline, so moves relocate instead
   // of stealing a heap pointer.

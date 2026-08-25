@@ -93,6 +93,10 @@
 namespace corvid { inline namespace meta {
 namespace prox {
 
+// The shared invocable vocabulary (`invocable_policy`, `storage_mode`, and
+// kin) is spelled unqualified throughout.
+using namespace invocables;
+
 #pragma region Method and key
 
 // `method_key`: a tag carrying a method name as a compile-time string.
@@ -128,10 +132,10 @@ namespace details {
 // The policy helpers live with `invocable_policy`, shared with
 // `flexi_function`; pull them in so unqualified `details::` calls below find
 // them.
-using policy_details::adopt_may_throw;
-using policy_details::can_store_inline;
-using policy_details::inline_fit_guaranteed;
-using policy_details::inline_eligible;
+using invocables::details::adopt_may_throw;
+using invocables::details::can_store_inline;
+using invocables::details::inline_fit_guaranteed;
+using invocables::details::inline_eligible;
 
 // `storage_mode_of`: where a `proxy` under policy `p` keeps a `T`: `inlined`
 // when the policy can store it inline, else `dynamic`.
@@ -2727,14 +2731,14 @@ class proxy: public details::api_base_t<F> {
   // the default buffer stays eligible for every buffer; a `heap_only` proxy
   // has no buffer for the knobs to apply to.
   static_assert(
-      Policy.alloc == invocable_alloc::heap_only ||
+      Policy.storage == storage_policy::heap_only ||
           (Policy.inline_size >= invocable_policy{}.inline_size &&
               Policy.inline_align >= invocable_policy{}.inline_align),
       "inline_size and inline_align may not shrink below their defaults");
   static_assert(std::has_single_bit(Policy.inline_align),
       "inline_align must be a power of two");
   static_assert(
-      Policy.alloc == invocable_alloc::heap_only ||
+      Policy.storage == storage_policy::heap_only ||
           Policy.inline_size ==
               padded_size(Policy.inline_size, Policy.inline_align),
       "inline_size that is not a multiple of inline_align would waste the "
@@ -2773,7 +2777,7 @@ public:
   explicit proxy(std::in_place_type_t<T>, Args&&... args)
       : vtable_{&details::owning_vtable_for<F, F, T,
             details::storage_mode_of<T>(Policy)>} {
-    static_assert(Policy.alloc != invocable_alloc::inline_only ||
+    static_assert(Policy.storage != storage_policy::inline_only ||
                       details::inline_eligible<T>(Policy),
         "the target is not eligible for an inline_only proxy's inline buffer");
     if constexpr (details::can_store_inline<T>(Policy))
@@ -2803,7 +2807,7 @@ public:
   requires Proxiable<T, F>
   explicit proxy(std::unique_ptr<T> target) noexcept {
     if (!target) return;
-    if constexpr (Policy.alloc == invocable_alloc::inline_only) {
+    if constexpr (Policy.storage == storage_policy::inline_only) {
       static_assert(details::inline_eligible<T>(Policy),
           "the target is not eligible for an inline_only proxy's inline "
           "buffer");
@@ -2912,7 +2916,7 @@ public:
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   [[nodiscard]] static bool can_adopt(const proxy<D, P>& source) noexcept {
-    if constexpr (Policy.alloc != invocable_alloc::inline_only) {
+    if constexpr (Policy.storage != storage_policy::inline_only) {
       return true;
     } else {
       if (!source) return true;
@@ -3017,11 +3021,11 @@ private:
   // `buf_size`, `buf_align`: a `heap_only` proxy shrinks the buffer to the
   // pointer it overlays, so the whole handle is two words, like a view.
   static constexpr size_t buf_size =
-      (Policy.alloc == invocable_alloc::heap_only)
+      (Policy.storage == storage_policy::heap_only)
           ? sizeof(void*)
           : Policy.inline_size;
   static constexpr size_t buf_align =
-      (Policy.alloc == invocable_alloc::heap_only)
+      (Policy.storage == storage_policy::heap_only)
           ? alignof(void*)
           : Policy.inline_align;
 
@@ -3103,21 +3107,21 @@ private:
   // unreachable, so a `noexcept` adoption contains no throw at all.
   template<Facade D, invocable_policy P>
   void do_take_inline(proxy<D, P>& other, const owning_vtable_t* vt) {
-    if constexpr (P.alloc == invocable_alloc::heap_only) {
+    if constexpr (P.storage == storage_policy::heap_only) {
       // Unreachable: a heap_only source never carries an inline target.
     } else if constexpr (details::inline_fit_guaranteed(Policy, P)) {
       vt->relocate(other.storage_.buf, storage_.buf);
       vtable_ = vt;
     } else {
       const auto inline_ok =
-          (Policy.alloc != invocable_alloc::heap_only) &&
+          (Policy.storage != storage_policy::heap_only) &&
           (vt->size <= buf_size) && (vt->align <= buf_align);
       if (inline_ok) {
         vt->relocate(other.storage_.buf, storage_.buf);
         vtable_ = vt;
         return;
       }
-      if constexpr (Policy.alloc != invocable_alloc::inline_only) {
+      if constexpr (Policy.storage != storage_policy::inline_only) {
         storage_.ptr = vt->to_heap(other.storage_.buf);
         vtable_ = vt->heap_table;
       } else {
@@ -3132,9 +3136,9 @@ private:
   // when the erased target does not fit it or cannot move).
   template<Facade D, invocable_policy P>
   void do_take_heap(proxy<D, P>& other, const owning_vtable_t* vt) {
-    if constexpr (P.alloc == invocable_alloc::inline_only) {
+    if constexpr (P.storage == storage_policy::inline_only) {
       // Unreachable: an inline_only source never carries a heap target.
-    } else if constexpr (Policy.alloc != invocable_alloc::inline_only) {
+    } else if constexpr (Policy.storage != storage_policy::inline_only) {
       // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
       storage_.ptr = other.storage_.ptr;
       vtable_ = vt;

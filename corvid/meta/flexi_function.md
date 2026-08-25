@@ -18,7 +18,11 @@ The policy type is shared with `proxy` and documented in
 [invocable_policy.h](invocable_policy.h). The target spellings
 (`constant_fn`, `runtime_fn`) and the empty-call rules
 (`empty_call_traits`), shared the same way, are in
-[invocable_common.h](invocable_common.h). Planned work is in
+[invocable_common.h](invocable_common.h). The header's namespace is
+`corvid::meta::flexi`, deliberately not inline, with `flexi_function`,
+`fixed_function`, `fixed_function_of`, and the two `is_` traits exported
+into `corvid::meta`; the shared vocabulary lives in
+`corvid::meta::invocables` under the same rule. Planned work is in
 [roadmap.md](roadmap.md).
 
 ## Contents
@@ -55,7 +59,7 @@ The policy type is shared with `proxy` and documented in
 | adopt, transplant           | Moving the target out of a sibling into this wrapper, by asking the sibling's `lifespan` thunk to relocate it.                                 |
 | box, un-box, hand over      | The three ways a relocation can change or keep a target's home: onto the heap, out of the heap into a buffer, or passing the heap block as is. |
 | `refusal`                   | The `lifespan` return value for a relocation the destination cannot accept.                                                                    |
-| direct-eligible             | A type that can be `direct`: `policy_details::direct_eligible<T>()`.                                                                           |
+| direct-eligible             | A type that can be `direct`: `invocables::details::direct_eligible<T>()`.                                                                           |
 | `constant_fn<Fn>`           | A direct-eligible callable whose target is the compile-time constant `Fn`: a function, a member pointer, or a captureless lambda.              |
 | `runtime_fn{p}`             | A callable holding a function or member pointer known only at runtime; a bare pointer target, made explicit. Nullable.                         |
 | `policy_enforcement`        | Whether a bare pointer is accepted as a target (`lenient`) or must be spelled as `constant_fn` or `runtime_fn` (`strict`). Border only.        |
@@ -166,7 +170,7 @@ What the two accessors report:
 
 ## The thunk pair
 
-`fn_details::flexi_thunks<Sig>` generates the thunks. It is keyed by the
+`flexi::details::flexi_thunks<Sig>` generates the thunks. It is keyed by the
 signature alone, not the policy, and that is what lets siblings transplant
 a target: every wrapper of a signature speaks the same erased protocol.
 
@@ -305,7 +309,7 @@ flowchart TD
     h --> p
 ```
 
-`policy_details::storage_mode_of<T>(p)` is the one routing decision:
+`invocables::details::storage_mode_of<T>(p)` is the one routing decision:
 `direct` when `direct_eligible<T>()`, else `inlined` when
 `can_store_inline<T>(p)` (fits the buffer's size and alignment, is
 nothrow-move-constructible, and the policy is not `heap_only`), else
@@ -403,7 +407,7 @@ What can throw, and what it leaves behind:
 - A refusal is a `std::length_error` from `do_adopt`, with both sides
   intact. The converting assignment pre-flights with `can_adopt` so it
   throws before touching either side.
-- `policy_details::adopt_may_throw(to, from)` computes at compile time
+- `invocables::details::adopt_may_throw(to, from)` computes at compile time
   whether any of that is reachable for a pair of policies, and the
   converting constructor and assignment are `noexcept` exactly when it is
   not. `inline_fit_guaranteed(to, from)` is the inline half of that: a

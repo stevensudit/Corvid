@@ -24,6 +24,7 @@
 #include "padding.h"
 
 namespace corvid { inline namespace meta {
+namespace invocables {
 
 // `invocable_policy` and related types are used by owning type-erased types,
 // such as `proxy` and `flexi_function`, to determine how to store and invoke
@@ -33,9 +34,9 @@ namespace corvid { inline namespace meta {
 // An owner type is specialized on a policy, which fixes these choices for
 // all of its instances at compile time.
 
-#pragma region Invocable alloc
+#pragma region Storage policy
 
-// `invocable_alloc` is the allocation strategy.
+// `storage_policy` is where a policy permits its owner to store a target.
 //
 // `inline_or_heap` stores a target inline when it is eligible and efficient
 // (see `invocable_policy`), and on the heap otherwise.
@@ -53,7 +54,7 @@ namespace corvid { inline namespace meta {
 // move is boxed onto the heap. With no buffer for them to size, `inline_size`
 // and `inline_align` are ignored; leave them at their defaults rather than
 // spelling out a zero.
-enum class invocable_alloc : std::uint8_t {
+enum class storage_policy : std::uint8_t {
   inline_only = 1 << 0,
   heap_only = 1 << 1,
   inline_or_heap = inline_only | heap_only
@@ -101,7 +102,7 @@ enum class on_empty : std::uint8_t { silent, raise, terminate };
 // `std::plus<>`. Such a target occupies no storage under any policy,
 // `heap_only` included, and reports a size of 0.
 //
-// Unlike `invocable_alloc`, which is a policy choice, this is the outcome for
+// Unlike `storage_policy`, which is a policy choice, this is the outcome for
 // one target, and it is what the owner's thunks are keyed on.
 enum class storage_mode : std::uint8_t { direct, inlined, dynamic };
 
@@ -174,7 +175,7 @@ enum class storage_mode : std::uint8_t { direct, inlined, dynamic };
 struct invocable_policy {
   size_t inline_size = 2 * sizeof(void*);
   size_t inline_align = alignof(std::max_align_t);
-  invocable_alloc alloc = invocable_alloc::inline_or_heap;
+  storage_policy storage = storage_policy::inline_or_heap;
   on_empty empty = on_empty::raise;
   policy_enforcement enforcement = policy_enforcement::lenient;
 
@@ -209,7 +210,7 @@ struct invocable_policy {
   // time.
   [[nodiscard]] consteval invocable_policy with_alignment(
       size_t align) const noexcept {
-    if (alloc == invocable_alloc::heap_only) needs_a_buffer();
+    if (storage == storage_policy::heap_only) needs_a_buffer();
     if (!std::has_single_bit(align)) must_be_a_power_of_two();
     auto p = *this;
     p.inline_align = align;
@@ -224,7 +225,7 @@ struct invocable_policy {
   // buffer, both enforced at compile time.
   [[nodiscard]] consteval invocable_policy with_size(
       size_t sz) const noexcept {
-    if (alloc == invocable_alloc::heap_only) needs_a_buffer();
+    if (storage == storage_policy::heap_only) needs_a_buffer();
     const auto total = padded_size(sz, inline_align);
     const auto header = padded_size(dispatch_size, inline_align);
     if (total <= header) must_exceed_two_pointers();
@@ -242,7 +243,7 @@ struct invocable_policy {
   // The instance size of an owner with this policy: the two thunk pointers
   // and the buffer, or the heap pointer under `heap_only`.
   [[nodiscard]] consteval size_t size() const noexcept {
-    if (alloc == invocable_alloc::heap_only)
+    if (storage == storage_policy::heap_only)
       return dispatch_size + sizeof(void*);
     return padded_size(dispatch_size, inline_align) + inline_size;
   }
@@ -259,11 +260,11 @@ private:
 
 inline constexpr invocable_policy invocable_policy::basic{};
 inline constexpr invocable_policy invocable_policy::heap{
-    .alloc = invocable_alloc::heap_only};
+    .storage = storage_policy::heap_only};
 inline constexpr invocable_policy invocable_policy::fixed{
-    .alloc = invocable_alloc::inline_only};
+    .storage = storage_policy::inline_only};
 
-namespace policy_details {
+namespace details {
 
 // `inline_eligible`: whether `T` is eligible for policy `P`'s inline buffer.
 //
@@ -281,7 +282,7 @@ constexpr bool inline_eligible(invocable_policy p) noexcept {
 // with its own diagnostic.
 template<typename T>
 constexpr bool can_store_inline(invocable_policy p) noexcept {
-  return (p.alloc != invocable_alloc::heap_only) && inline_eligible<T>(p);
+  return (p.storage != storage_policy::heap_only) && inline_eligible<T>(p);
 }
 
 // `direct_eligible`: whether a `T` can be called without storing one, so that
@@ -326,7 +327,7 @@ consteval bool can_store_nothrow(invocable_policy p) noexcept {
 // arrivals).
 consteval bool
 inline_fit_guaranteed(invocable_policy to, invocable_policy from) noexcept {
-  return (to.alloc != invocable_alloc::heap_only) &&
+  return (to.storage != storage_policy::heap_only) &&
          (to.inline_size >= from.inline_size) &&
          (to.inline_align >= from.inline_align);
 }
@@ -339,13 +340,27 @@ inline_fit_guaranteed(invocable_policy to, invocable_policy from) noexcept {
 // arrival that must un-box into an `inline_only` buffer it might not fit.
 consteval bool
 adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
-  const auto from_inline = (from.alloc != invocable_alloc::heap_only);
-  const auto from_heap = (from.alloc != invocable_alloc::inline_only);
+  const auto from_inline = (from.storage != storage_policy::heap_only);
+  const auto from_heap = (from.storage != storage_policy::inline_only);
   return (from_inline && !inline_fit_guaranteed(to, from)) ||
-         (from_heap && (to.alloc == invocable_alloc::inline_only));
+         (from_heap && (to.storage == storage_policy::inline_only));
 }
 
-} // namespace policy_details
+} // namespace details
 
+#pragma endregion
+} // namespace invocables
+
+#pragma region Exports
+// Call-site vocabulary, exported to `corvid::meta`.
+//
+// A name is exported when a caller spells it at a call site, and it then
+// carries its own qualifier, since the wider namespace no longer supplies
+// one. The rest of the vocabulary leans on `invocables::` and stays home;
+// `flexi_function` and `proxy` see all of it through a using-directive, and
+// a caller reaches the storage choices through `invocable_policy`'s fluent
+// starting points.
+using invocables::invocable_policy;
+using invocables::on_empty;
 #pragma endregion
 }} // namespace corvid::meta
