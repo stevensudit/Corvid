@@ -43,6 +43,16 @@ The pending `proxy` changes, in the order to land them:
   "Empty proxies honor on_empty" (inline target, both spellings, both
   behaviors) and "Owning proxy, heap target" (destruction counted).
 
+## Planned: meta/invoke
+
+These headers have grown large. Once the catch-up list above is done, move
+`invocable_policy.h`, `invocable_common.h`, `proxy.h`, `flexi_function.h`,
+and `fixed_function.h` into `corvid/meta/invoke/`, then break up the big
+ones. `proxy.h` splits naturally into a `proxy_common.h` (the facade,
+registration, and dispatch machinery), one header for `proxy`, one for the
+two views, and one for `shared_proxy` and `weak_proxy`. The docs, tests,
+and umbrella header follow the move.
+
 ## In progress: shared code between proxy and flexi_function
 
 Both owners answer the same questions about a target and a result, and the

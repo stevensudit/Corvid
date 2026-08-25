@@ -873,7 +873,7 @@ private:
   // Deliberately no initializer: occupancy and the live member are keyed by
   // `dispatch_.lifespan`, and zeroing the buffer on every construction would
   // be pure waste.
-  storage_t storage_area_;
+  storage_area_t storage_area_;
 
 #pragma endregion
 };
