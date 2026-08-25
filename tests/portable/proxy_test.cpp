@@ -17,6 +17,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -1020,6 +1021,10 @@ constexpr invocable_policy heap_only{.alloc = invocable_alloc::heap_only};
 constexpr invocable_policy big_align{
     .inline_size = padded_size(96, 2 * alignof(std::max_align_t)),
     .inline_align = 2 * alignof(std::max_align_t)};
+constexpr auto silent = invocable_policy::basic.with(on_empty::silent);
+constexpr auto strict =
+    invocable_policy::basic.with(policy_enforcement::strict);
+constexpr auto strict_silent = silent.with(policy_enforcement::strict);
 } // namespace policies
 
 // `ingot` is `strongbox`'s over-aligned sibling: its alignment exceeds the
@@ -1888,8 +1893,8 @@ TEST_CASE("Const view", "[proxy]") {
 
 TEST_CASE("Empty handles propagate emptiness", "[proxy]") {
   // Lending from an empty proxy yields an empty view, exactly as copying an
-  // empty view does; only calling through the result is undefined behavior.
-  // The same holds when the lend upcasts.
+  // empty view does, and the same holds when the lend upcasts. What a call
+  // through the result does is pinned in the next two cases.
   proxy<marshal> pm;
   proxy_view<marshal> pv = pm;
   CHECK(!pv);
@@ -1927,6 +1932,171 @@ TEST_CASE("Empty handles propagate emptiness", "[proxy]") {
   const_proxy_view<gunslinger> scb = sm;
   CHECK(!scb);
 }
+
+// Diagnostics on record: `proxy<hair_trigger, policies::strict>` (strict
+// enforcement over a facade of noexcept methods, which cannot raise) fires one
+// error per offending method, each under an instantiation note naming it, and
+// then the messageless trailing error from the proxy's own assert:
+//
+//   error: static assertion failed due to requirement 'value':
+//   policy_enforcement::strict: this method cannot take the policy's on_empty
+//   behavior exactly on an empty proxy (a noexcept method cannot raise, and
+//   silent needs a value-initializable result); see the instantiation note
+//   for the method, and choose a behavior every method admits, or lenient
+//   enforcement
+//   note: in instantiation of template class 'corvid::prox::details::
+//   empty_fit_check<corvid::prox::method<corvid::basic_fixed_string<char,
+//   5UL - 1>{"jams"}, bool () const noexcept>, corvid::on_empty::raise>'
+//   requested here
+//   (the same error and note for `method<{"fire"}, int (int) noexcept>`)
+//   error: static assertion expression is not an integral constant expression
+//   note: in instantiation of template class 'corvid::prox::proxy<
+//   hair_trigger, invocable_policy{16, 16, 3, 1, 1}>' requested here
+//
+// Calling through moved-from handles is the subject of the next two cases,
+// so the moved-from diagnostics are suppressed for both. Those calls are
+// spelled through `call` so the use is reported here rather than inside the
+// `api` forwarder.
+// NOLINTBEGIN(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
+TEST_CASE("Empty proxies honor on_empty", "[proxy]") {
+  // The default is raise, as with `std::function`, through either spelling
+  // and through a const proxy.
+  proxy<gunslinger> p;
+  CHECK(!p);
+  CHECK_THROWS_AS(p.fire(1), std::bad_function_call);
+  CHECK_THROWS_AS(p.call<"describe">(), std::bad_function_call);
+  CHECK_THROWS_AS(p.shots(), std::bad_function_call);
+  const auto& cp = p;
+  CHECK_THROWS_AS(cp.describe(), std::bad_function_call);
+
+  // `silent` returns a value-initialized result, or nothing. The value is a
+  // floor per method: `shots` returns a reference, which cannot be
+  // value-initialized, so it raises instead.
+  proxy<gunslinger, policies::silent> s;
+  CHECK(s.fire(1) == 0);
+  CHECK(s.describe().empty());
+  CHECK_NOTHROW(s.reload());
+  CHECK_THROWS_AS(s.shots(), std::bad_function_call);
+
+  // A noexcept method cannot raise, so under the default floor it terminates
+  // on an empty proxy, which a unit test cannot observe; under `silent` its
+  // results (int, bool) value-initialize without throwing, so it is silent.
+  proxy<hair_trigger, policies::silent> h;
+  CHECK(h.fire(3) == 0);
+  CHECK(!h.jams());
+  static_assert(noexcept(h.fire(3)));
+
+  // The behavior is the type's own: a moved-from proxy reverts to it, and
+  // nothing travels with the target into a proxy of another policy.
+  auto live = make_proxy<gunslinger, lawman, policies::silent>();
+  proxy<gunslinger> taken = std::move(live);
+  CHECK(taken.fire(2) == 2);
+  CHECK(!live);
+  CHECK(live.call<"fire">(1) == 0);
+  proxy<gunslinger> hollow = std::move(taken);
+  CHECK_THROWS_AS(taken.call<"fire">(1), std::bad_function_call);
+  CHECK(hollow.fire(1) == 3);
+
+  // An empty source upcasts to an empty proxy of the destination's behavior.
+  proxy<marshal, policies::silent> em;
+  proxy<gunslinger> eg = std::move(em);
+  CHECK(!eg);
+  CHECK_THROWS_AS(eg.fire(1), std::bad_function_call);
+  CHECK(em.call<"fire">(1) == 0);
+
+  // A failed downcast leaves the source on its behavior, and yields a result
+  // on its own type's.
+  proxy<gunslinger, policies::silent> unborn;
+  auto still_empty = std::move(unborn).try_downcast<marshal>();
+  CHECK(!still_empty);
+  CHECK(still_empty.fire(1) == 0);
+  CHECK(unborn.call<"fire">(1) == 0);
+
+  // Strict enforcement admits a floor every method takes exactly: raise over
+  // throwing methods, or silent over noexcept methods whose results
+  // value-initialize without throwing. The refusal is recorded above.
+  proxy<gunslinger, policies::strict> st;
+  CHECK_THROWS_AS(st.fire(1), std::bad_function_call);
+  proxy<hair_trigger, policies::strict_silent> hs;
+  CHECK(hs.fire(1) == 0);
+}
+
+TEST_CASE("Empty views and shared proxies raise, or mirror their lender",
+    "[proxy]") {
+  // A handle with no policy of its own raises when built empty, including
+  // after an upcast.
+  proxy_view<gunslinger> v;
+  CHECK_THROWS_AS(v.fire(1), std::bad_function_call);
+  const_proxy_view<gunslinger> cv;
+  CHECK_THROWS_AS(cv.describe(), std::bad_function_call);
+  proxy_view<marshal> vm;
+  proxy_view<gunslinger> vg = vm;
+  CHECK_THROWS_AS(vg.fire(1), std::bad_function_call);
+  const_proxy_view<gunslinger> cvg = vm;
+  CHECK_THROWS_AS(cvg.describe(), std::bad_function_call);
+
+  // A view lent from an empty proxy keeps the proxy's behavior, whether the
+  // lend upcasts, drops mutability, or both, and a view of that view keeps
+  // it too.
+  proxy<marshal, policies::silent> pm;
+  proxy_view<marshal> lent = pm;
+  CHECK(!lent);
+  CHECK(lent.fire(1) == 0);
+  CHECK(!lent.arrest(1));
+  proxy_view<gunslinger> lent_up = pm;
+  CHECK(lent_up.fire(1) == 0);
+  const_proxy_view<gunslinger> lent_c = pm;
+  CHECK(lent_c.describe().empty());
+  const_proxy_view<gunslinger> again = lent;
+  CHECK(again.describe().empty());
+
+  // Downcasting an empty view fails, and the result is a view built empty.
+  auto down = lent_up.try_downcast<marshal>();
+  CHECK(!down);
+  CHECK_THROWS_AS(down.fire(1), std::bad_function_call);
+
+  // A shared proxy raises when built empty, and mirrors an empty proxy it
+  // adopts, as do the views it lends.
+  shared_proxy<gunslinger> sp;
+  CHECK_THROWS_AS(sp.fire(1), std::bad_function_call);
+  shared_proxy<gunslinger> mirrored{std::move(pm)};
+  CHECK(!mirrored);
+  CHECK(mirrored.fire(1) == 0);
+  proxy_view<gunslinger> from_shared = mirrored;
+  CHECK(from_shared.fire(1) == 0);
+  shared_proxy<gunslinger> mirrored_copy = mirrored;
+  CHECK(mirrored_copy.fire(1) == 0);
+
+  // A moved-from shared proxy raises, whether the move is a plain move, an
+  // upcast, or a transferring downcast.
+  auto sm = make_shared_proxy<marshal, texas_ranger>();
+  auto sm2 = std::move(sm);
+  CHECK(!sm);
+  CHECK_THROWS_AS(sm.call<"fire">(1), std::bad_function_call);
+  CHECK(sm2.fire(1) == 1);
+  shared_proxy<gunslinger> sg = std::move(sm2);
+  CHECK_THROWS_AS(sm2.call<"fire">(1), std::bad_function_call);
+  CHECK(sg.fire(1) == 2);
+  auto back = std::move(sg).try_downcast<marshal>();
+  CHECK(back);
+  CHECK_THROWS_AS(sg.call<"fire">(1), std::bad_function_call);
+  CHECK(back.fire(1) == 3);
+  sm = std::move(back);
+  CHECK_THROWS_AS(back.call<"fire">(1), std::bad_function_call);
+
+  // Locking an expired weak proxy yields an empty handle that raises, and an
+  // empty weak proxy upcasts and locks the same way.
+  weak_proxy<marshal> w = sm;
+  sm = shared_proxy<marshal>{};
+  CHECK(w.expired());
+  auto locked = w.lock();
+  CHECK(!locked);
+  CHECK_THROWS_AS(locked.fire(1), std::bad_function_call);
+  weak_proxy<marshal> wm;
+  weak_proxy<gunslinger> wg = wm;
+  CHECK_THROWS_AS(wg.lock().fire(1), std::bad_function_call);
+}
+// NOLINTEND(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
 
 TEST_CASE("Generic code accepts concrete and erased alike", "[proxy]") {
   // Facade-constrained generic code. Erase, then call. `Proxiable` is the
@@ -2000,9 +2170,12 @@ TEST_CASE("Owning proxy, heap target", "[proxy]") {
     CHECK(stats.destroyed == 0);
     CHECK(q.call<"gold">() == 7);
 
-    // Move assignment over a live target destroys the old target.
+    // Move assignment over a live target destroys the old target. (The
+    // analyzer cannot see that emptiness is keyed by the table.)
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDeleteLeaks)
     q = make_proxy<lockbox, big_box>(stats);
     CHECK(stats.constructed == 2);
+    // NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
     CHECK(stats.destroyed == 1);
     CHECK(q.call<"gold">() == 0);
   }

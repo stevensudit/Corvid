@@ -38,7 +38,7 @@ The policy type is shared with `proxy` and documented in
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | wrapper                     | A `flexi_function` instance.                                                                                                                   |
 | target, callable            | The thing the wrapper calls. "Target" is the stored object; "callable" is the same thing before it is stored.                                  |
-| policy                      | The `invocable_policy` NTTP: buffer size and alignment, `alloc`, `empty`, and `runtime_fn`.                                                    |
+| policy                      | The `invocable_policy` NTTP: buffer size and alignment, `alloc`, `empty`, and `enforcement`.                                                   |
 | sibling                     | A `flexi_function` with the same signature and a different policy. Siblings are friends and can adopt from each other.                         |
 | signature, `Sig`            | The `R(Args...)` type, possibly with `const`, `&`/`&&`, and `noexcept`.                                                                        |
 | thunk                       | A static function generated per stored type that does one erased job: invoke, or manage lifespan.                                              |
@@ -55,7 +55,7 @@ The policy type is shared with `proxy` and documented in
 | direct-eligible             | A type that can be `direct`: `policy_details::direct_eligible<T>()`.                                                                           |
 | `constant_fn<Fn>`           | A direct-eligible callable whose target is the compile-time constant `Fn`: a function, a member pointer, or a captureless lambda.              |
 | `runtime_fn{p}`             | A callable holding a function or member pointer known only at runtime; a bare pointer target, made explicit. Nullable.                         |
-| `runtime_fn_policy`         | Whether a bare pointer is accepted as a target (`optional`) or must be spelled as `constant_fn` or `runtime_fn` (`required`). Border only.     |
+| `policy_enforcement`        | Whether a bare pointer is accepted as a target (`lenient`) or must be spelled as `constant_fn` or `runtime_fn` (`strict`). Border only.        |
 
 ## The shape at a glance
 
@@ -83,7 +83,7 @@ Construction paths, all landing in one of two private workers:
 
 | Spelling                           | Goes to    | Notes                                                                                                                                                                                                                                                                                      |
 | ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `fn_t f = callable;`               | `do_store` | Implicit. Any callable that the signature can invoke, except the std wrappers. A null function or member pointer, or a null `runtime_fn`, yields an empty wrapper. A function name, or a bare pointer under `runtime_fn_policy::required` is a compile error (see "Indirection, counted"). |
+| `fn_t f = callable;`               | `do_store` | Implicit. Any callable that the signature can invoke, except the std wrappers. A null function or member pointer, or a null `runtime_fn`, yields an empty wrapper. A function name, or a bare pointer under `policy_enforcement::strict` is a compile error (see "Indirection, counted"). |
 | `fn_t f{std::function<...>{...}};` | `do_store` | Explicit. Wraps a `std::function` or `std::move_only_function`, nesting it at a cost.                                                                                                                                                                                                      |
 | `fn_t f{std::move(sibling)};`      | `do_adopt` | Transplants the target across policies.                                                                                                                                                                                                                                                    |
 | `fn_t f{std::move(same)};`         | `do_adopt` | Same type. Always `noexcept`.                                                                                                                                                                                                                                                              |
@@ -275,7 +275,7 @@ other pointer value and is accepted as one. A function reference that
 really is a runtime value (it arrived through a forwarding parameter, or a
 conditional between two functions) decays to a pointer with `&`.
 
-A policy with `runtime_fn = runtime_fn_policy::required` closes the `&foo`
+A policy with `enforcement = policy_enforcement::strict` closes the `&foo`
 hole by refusing every bare function or member pointer at the border,
 so the caller has to say which kind of target it is: `constant_fn<foo>{}`
 for a compile-time one, `runtime_fn{p}` for a runtime one. The check is
@@ -311,7 +311,7 @@ nothrow-move-constructible, and the policy is not `heap_only`), else
 
 The `static_assert`s in `do_store` rule out, with named diagnostics: a
 function lvalue as the callable, a bare function or member pointer under
-`runtime_fn_policy::required`, an `inline_only` policy over a target that
+`policy_enforcement::strict`, an `inline_only` policy over a target that
 cannot live inline, a target whose destructor may throw, and a callable
 returning a prvalue under a reference-returning signature (every call
 would dangle).

@@ -17,11 +17,11 @@
 #pragma once
 #include <array>
 #include <bit>
-#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -744,6 +744,47 @@ struct method_traits_base {
           *static_cast<target_t<T>*>(target), std::forward<Args>(args)...);
     };
   }
+
+  // `silenceable`, `nothrow_silenceable`: whether `R` can be value-initialized
+  // (or is `void`), and whether that cannot throw, which is what
+  // `on_empty::silent` needs of a result.
+  static constexpr bool silenceable =
+      (std::is_void_v<R> || std::is_default_constructible_v<R>);
+  static constexpr bool nothrow_silenceable =
+      (std::is_void_v<R> || std::is_nothrow_default_constructible_v<R>);
+
+  // `empty_behavior`: the behavior this method's empty thunk takes under the
+  // policy floor `floor`, the mildest at or above it that the signature
+  // admits.
+  //
+  // `silent` needs a value-initializable result, nothrow under `noexcept`;
+  // `raise` needs a method that may throw; `terminate` needs nothing.
+  static consteval on_empty empty_behavior(on_empty floor) noexcept {
+    if ((floor == on_empty::silent) && silenceable &&
+        (!Noexcept || nothrow_silenceable))
+      return on_empty::silent;
+    if ((floor != on_empty::terminate) && !Noexcept) return on_empty::raise;
+    return on_empty::terminate;
+  }
+
+  // `make_empty_thunk`: the thunk an empty handle dispatches this method to
+  // under the policy floor `Floor`; see `empty_behavior`.
+  template<on_empty Floor>
+  static consteval thunk_ptr_t make_empty_thunk() noexcept {
+    return [](erased_ptr_t, Args...) noexcept(Noexcept) -> R {
+      constexpr auto behavior = empty_behavior(Floor);
+      if constexpr (behavior == on_empty::silent) {
+        if constexpr (std::is_void_v<R>)
+          return;
+        else
+          return R{};
+      } else if constexpr (behavior == on_empty::raise) {
+        throw std::bad_function_call();
+      } else {
+        std::terminate();
+      }
+    };
+  }
 };
 
 template<typename M>
@@ -786,6 +827,13 @@ void sbo_relocate(void* from, void* to) noexcept {
   ::new (to) T(std::move(*source));
   source->~T();
 }
+
+// `empty_relocate`: the empty table's relocate slot, with nothing to move.
+//
+// A thunk rather than a null slot, so that an empty proxy's `target` resolves
+// to its buffer, a valid address, rather than reading the heap pointer it
+// never wrote.
+inline void empty_relocate(void*, void*) noexcept {}
 
 // `sbo_copy`, `heap_copy`: copy thunks, present in the owning table only for
 // copy-constructible targets.
@@ -904,6 +952,26 @@ template<Facade F, Facade Born, typename T, bool Sbo>
 constexpr inline vtbuild_t<F>::owning_vtable_t owning_vtable_for =
     vtbuild_t<F>::template make_owning_vtable<F, Born, T, Sbo>();
 
+// `empty_vtable_for`, `empty_owning_vtable_for`: per-(facade, empty floor)
+// tables for a handle holding no target.
+//
+// Each dispatch slot holds the method's empty thunk (see `make_empty_thunk`),
+// so calling through an empty handle runs the policy's `on_empty` behavior
+// with no branch on the call path. The housekeeping slots are null and there
+// is no birth ancestry, so a downcast fails as it must. The base pointers
+// lead to the same-floor empty tables of the base facades, so an empty handle
+// upcasts and lends exactly as a full one does, carrying its floor along.
+//
+// `Floor` is the owner's `invocable_policy::empty`. A handle without a policy
+// (the views, `shared_proxy`, `weak_proxy`) starts on the `raise` table.
+template<Facade F, on_empty Floor>
+constexpr inline vtbuild_t<F>::vtable_t empty_vtable_for =
+    vtbuild_t<F>::template make_empty_vtable<Floor>();
+
+template<Facade F, on_empty Floor>
+constexpr inline vtbuild_t<F>::owning_vtable_t empty_owning_vtable_for =
+    vtbuild_t<F>::template make_empty_owning_vtable<F, Floor>();
+
 // `ancestor_entry`: one entry of a birth ancestry.
 //
 // Contains a facade's identity tag and that facade's table for the same birth
@@ -939,7 +1007,8 @@ find_ancestor(const ancestry_t& ancestry, const void* tag) noexcept {
 }
 
 // `find_downcast_table`: `D`'s view table from `vt`'s birth ancestry, or null
-// when `vt` is null or the born family does not include `D`.
+// when `vt` is an empty table (which has no ancestry) or the born family does
+// not include `D`.
 //
 // The shared lookup behind every view-table `try_downcast`; `F` is the
 // handle's own facade, spelling the source table type, so call sites pass
@@ -948,7 +1017,7 @@ template<Facade D, Facade F>
 [[nodiscard]] constexpr auto
 find_downcast_table(const typename vtbuild_t<F>::vtable_t* vt) noexcept
     -> const vtbuild_t<D>::vtable_t* {
-  if (!vt) return nullptr;
+  if (!vt->ancestry) return nullptr;
   return static_cast<const vtbuild_t<D>::vtable_t*>(
       find_ancestor(*vt->ancestry, &facade_tag_v<D>));
 }
@@ -1328,6 +1397,23 @@ struct rank_set: Probes... {
   using Probes::operator()...;
 };
 
+// `empty_fit_check`: strict enforcement's per-method detonator, requiring
+// method `M` to take the policy floor `Floor` exactly on an empty handle.
+//
+// One instantiation per slot, so every method that cannot is reported, each
+// with the method named in its instantiation note.
+template<typename M, on_empty Floor>
+struct empty_fit_check {
+  static constexpr bool value =
+      (method_traits<M>::empty_behavior(Floor) == Floor);
+  static_assert(value,
+      "policy_enforcement::strict: this method cannot take the policy's "
+      "on_empty behavior exactly on an empty proxy (a noexcept method cannot "
+      "raise, and silent needs a value-initializable result); see the "
+      "instantiation note for the method, and choose a behavior every method "
+      "admits, or lenient enforcement");
+};
+
 // `vtable_builder_impl`: the flattened core of the builder, over the full slot
 // list `Ss` (bases' methods first, in declaration order, then own, deduped),
 // the direct-base facades `Bs`, and the facade's own name `OwnName`.
@@ -1370,6 +1456,29 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   template<typename F, typename T>
   static consteval thunks_t make_thunks() noexcept {
     return {slot_thunk<F, T, Ss>()...};
+  }
+
+  // `make_empty_thunks`: build the thunk tuple of an empty handle under the
+  // policy floor `Floor`, one empty thunk per slot.
+  template<on_empty Floor>
+  static consteval thunks_t make_empty_thunks() noexcept {
+    return {method_traits<typename Ss::method_t>::template make_empty_thunk<
+        Floor>()...};
+  }
+
+  // `empty_fits_policy`: whether every slot takes `Policy.empty` exactly on
+  // an empty handle, which strict enforcement requires and lenient waives.
+  //
+  // Under strict enforcement the answer is reached through one
+  // `empty_fit_check` per slot, so that each offending method is reported by
+  // name.
+  template<invocable_policy Policy>
+  static consteval bool empty_fits_policy() noexcept {
+    if constexpr (Policy.enforcement == policy_enforcement::lenient)
+      return true;
+    else
+      return (
+          empty_fit_check<typename Ss::method_t, Policy.empty>::value && ...);
   }
 
   // `vtable_t`: dispatch table, with one thunk slot per flattened method, plus
@@ -1806,6 +1915,44 @@ struct vtable_builder<facade<Es...>>
     }
     return ovt;
   }
+
+  // `make_empty_view_bases`, `make_empty_owning_bases`: the base-table
+  // pointers of an empty table, leading to the direct bases' empty tables of
+  // the same floor, built over the direct-base pack like `make_view_bases`.
+  template<on_empty Floor, typename... Bs2>
+  static consteval std::tuple<const typename vtbuild_t<Bs2>::vtable_t*...>
+  make_empty_view_bases(std::tuple<Bs2...>*) noexcept {
+    return {&empty_vtable_for<Bs2, Floor>...};
+  }
+
+  template<on_empty Floor, typename... Bs2>
+  static consteval owning_bases_t
+  make_empty_owning_bases(std::tuple<Bs2...>*) noexcept {
+    return {&empty_owning_vtable_for<Bs2, Floor>...};
+  }
+
+  // `make_empty_vtable`: build the dispatch table of an empty handle under
+  // the policy floor `Floor`; see `empty_vtable_for`.
+  template<on_empty Floor>
+  static consteval vtable_t make_empty_vtable() noexcept {
+    return {impl_t::template make_empty_thunks<Floor>(), nullptr,
+        make_empty_view_bases<Floor>(
+            static_cast<bases_of_t<Es...>*>(nullptr))};
+  }
+
+  // `make_empty_owning_vtable`: build the owning table of an empty `proxy` of
+  // facade `F` under the policy floor `Floor`; see `empty_owning_vtable_for`.
+  //
+  // The embedded `vt` is a copy of the standalone instance, as in
+  // `make_owning_vtable`. `relocate` is the one non-null housekeeping slot;
+  // see `empty_relocate`.
+  template<typename F, on_empty Floor>
+  static consteval owning_vtable_t make_empty_owning_vtable() noexcept {
+    return {.vt = empty_vtable_for<F, Floor>,
+        .relocate = &empty_relocate,
+        .bases = make_empty_owning_bases<Floor>(
+            static_cast<bases_of_t<Es...>*>(nullptr))};
+  }
 };
 
 // `view_table_t`, `owning_table_t`: facade-to-table alias templates, the
@@ -2181,17 +2328,17 @@ public:
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   constexpr decltype(auto) call(Args&&... args) const
       noexcept(vtbuild_t<F>::template is_noexcept<Key, true, Args...>()) {
-    assert(vtable_);
     return dispatch<F, true, Key>(vtable_->thunks, target_,
         std::forward<Args>(args)...);
   }
 
-  // `operator bool`: an empty view (default-constructed) holds no target.
+  // `operator bool`: an empty view holds no target.
   //
-  // It is testable and rebindable by assignment, but calling through it is
-  // undefined behavior, exactly as with an empty proxy.
+  // Calling through an empty view runs the `on_empty` behavior its table
+  // carries: `raise` for a view built empty, or the lending owner's, for a
+  // view lent from an empty `proxy` or `shared_proxy`.
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
-    return vtable_;
+    return target_;
   }
 
 protected:
@@ -2203,7 +2350,7 @@ protected:
       : target_{target}, vtable_{vtable} {}
 
   target_ptr_t target_{};
-  const vtable_t* vtable_{};
+  const vtable_t* vtable_ = &empty_vtable_for<F, on_empty::raise>;
 };
 
 } // namespace details
@@ -2243,8 +2390,9 @@ protected:
 // copying.
 //
 // A default-constructed view is empty, like a default-constructed `proxy`:
-// testable via `operator bool` and rebindable by assignment, but calling
-// through it is undefined behavior.
+// testable via `operator bool` and rebindable by assignment. Calling through
+// an empty view raises `std::bad_function_call`, or, for a view lent from an
+// empty `proxy`, runs that proxy's `on_empty` behavior; see `view_base`.
 //
 // When the facade defines a nested `api`, the view inherits it, so the
 // member-call sugar forwarders dispatch alongside `call`.
@@ -2277,26 +2425,26 @@ public:
   // target carries over unchanged and the dispatch table narrows to `F`'s by
   // following the embedded base-table pointers, so the upcast view dispatches
   // exactly what a directly-built `F` view of the target would. An empty view
-  // upcasts to an empty view.
+  // upcasts to an empty view with the same empty behavior.
   template<Facade D>
   requires Extends<D, F>
   constexpr explicit(false) proxy_view(const proxy_view<D>& view) noexcept
-      : base{view.target_,
-            view ? details::upcast_vtable<F, D>(view.vtable_) : nullptr} {}
+      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
   // `proxy_view`: viewing constructor from an owning `proxy` of `F`, or of a
   // facade that extends it.
   //
   // Intentionally implicit, and lvalue-only, so a view cannot be left dangling
-  // by a temporary `proxy`. An empty `proxy` lends an empty view; otherwise
-  // the view is good until the `proxy` dies or has its contents removed or
-  // replaced (see the class comment). A const `proxy` takes a
-  // `const_proxy_view` instead, preserving deep const.
+  // by a temporary `proxy`. An empty `proxy` lends an empty view that keeps
+  // the proxy's `on_empty` behavior; otherwise the view is good until the
+  // `proxy` dies or has its contents removed or replaced (see the class
+  // comment). A const `proxy` takes a `const_proxy_view` instead, preserving
+  // deep const.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy_view(proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
-            p ? details::upcast_vtable<F, D>(&p.vtable_->vt) : nullptr} {}
+            details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
   // `proxy_view`: viewing constructor from a `shared_proxy` of `F`, or of a
   // facade that extends it, under the same rules as viewing an owning
@@ -2306,7 +2454,7 @@ public:
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy_view(shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
-            p ? details::upcast_vtable<F, D>(p.vtable_) : nullptr} {}
+            details::upcast_vtable<F, D>(p.vtable_)} {}
 
   // `call`: call the facade method named `Key`, forwarding `args` through the
   // erased signature.
@@ -2320,7 +2468,6 @@ public:
   template<fixed_string Key, typename... Args>
   constexpr decltype(auto) call(Args&&... args) noexcept(
       vtbuild_t::template is_noexcept<Key, false, Args...>()) {
-    assert(this->vtable_);
     return details::dispatch<F, false, Key>(this->vtable_->thunks,
         this->target_, std::forward<Args>(args)...);
   }
@@ -2337,9 +2484,9 @@ public:
   // is a new view over the same target; the source is copied from, never
   // consumed, which is why this is const where the owning flavor is an
   // rvalue method. On failure, including an empty source, the result is
-  // empty. Like copying, this escapes the instance-level deep-const
-  // guardrail; the guarantee tier is `const_proxy_view`, whose downcast
-  // stays const.
+  // empty, and raises on a call. Like copying, this escapes the
+  // instance-level deep-const guardrail; the guarantee tier is
+  // `const_proxy_view`, whose downcast stays const.
   template<Facade D>
   requires Extends<D, F>
   [[nodiscard]] constexpr proxy_view<D> try_downcast() const noexcept {
@@ -2398,7 +2545,9 @@ struct proxy_impl<F, proxy_view<D>> {
 // its class comment).
 //
 // A default-constructed view is empty: testable via `operator bool` and
-// rebindable by assignment, but calling through it is undefined behavior.
+// rebindable by assignment. Calling through an empty view raises
+// `std::bad_function_call`, or, for a view lent from an empty owner, runs
+// that owner's `on_empty` behavior; see `view_base`.
 //
 // When the facade defines a nested `api`, the view inherits it. Only the const
 // forwarders are callable; a mutable forwarder fails inside its `call` if
@@ -2440,8 +2589,7 @@ public:
   requires Extends<D, F>
   constexpr explicit(false)
       const_proxy_view(const const_proxy_view<D>& view) noexcept
-      : base{view.target_,
-            view ? details::upcast_vtable<F, D>(view.vtable_) : nullptr} {}
+      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
   // `const_proxy_view`: upcasting constructor from the mutable view of a
   // facade that extends `F`, dropping mutability and upcasting in one implicit
@@ -2450,22 +2598,21 @@ public:
   requires Extends<D, F>
   constexpr explicit(false)
       const_proxy_view(const proxy_view<D>& view) noexcept
-      : base{view.target_,
-            view ? details::upcast_vtable<F, D>(view.vtable_) : nullptr} {}
+      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
   // `const_proxy_view`: viewing constructor from an owning `proxy` of `F`, or
   // of a facade that extends it.
   //
   // Intentionally implicit, and lvalue-only. An empty `proxy` lends an empty
-  // view; otherwise the view is good until the `proxy` dies or has its
-  // contents removed or replaced (see `proxy_view`'s class comment). Mutable
-  // and const proxies alike yield the const view; there is no path back to
-  // mutability.
+  // view that keeps the proxy's `on_empty` behavior; otherwise the view is
+  // good until the `proxy` dies or has its contents removed or replaced (see
+  // `proxy_view`'s class comment). Mutable and const proxies alike yield the
+  // const view; there is no path back to mutability.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
-            p ? details::upcast_vtable<F, D>(&p.vtable_->vt) : nullptr} {}
+            details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
   // A temporary owner must not lend a view: without this deletion, the const
   // reference above would bind an rvalue and dangle.
@@ -2480,7 +2627,7 @@ public:
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
-            p ? details::upcast_vtable<F, D>(p.vtable_) : nullptr} {}
+            details::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
@@ -2580,8 +2727,10 @@ requires Proxiable<T, F>
 // constness the way a view can.
 //
 // A default-constructed or moved-from proxy is empty. It is destructible,
-// assignable, and testable via `operator bool`, but calling through it is
-// undefined behavior.
+// assignable, and testable via `operator bool`, and calling through it runs
+// the policy's `on_empty` behavior, taken per method as a floor (see
+// `invocable_policy::empty`); strict enforcement rejects a facade any of
+// whose methods cannot take the floor exactly.
 //
 // A non-empty lvalue proxy converts implicitly to `proxy_view` (mutable
 // proxies only) and `const_proxy_view`, of its own facade or of any facade it
@@ -2618,6 +2767,11 @@ class proxy: public details::api_base_t<F> {
               padded_size(Policy.inline_size, Policy.inline_align),
       "inline_size that is not a multiple of inline_align would waste the "
       "difference as padding; pass it through padded_size");
+  // Strict enforcement detonates per method (see `empty_fit_check`), each
+  // error naming its method, so this assert carries no message of its own. A
+  // failed detonation is no longer a constant expression, and the error
+  // reported here is the trailing one those detonations leave behind.
+  static_assert(vtbuild_t::template empty_fits_policy<Policy>());
 
 public:
   using facade_t = F;
@@ -2754,7 +2908,9 @@ public:
 
   // `operator bool`: an empty proxy (default-constructed or moved-from) holds
   // no target.
-  [[nodiscard]] explicit operator bool() const noexcept { return vtable_; }
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return (vtable_ != empty_vtable);
+  }
 
   // `can_clone`: whether `clone` would produce a faithful copy, meaning that
   // the target is copy-constructible, or there is no target at all (an empty
@@ -2763,7 +2919,7 @@ public:
   // The answer is a runtime property of the erased target, not of the proxy
   // type; a container of proxies can mix cloneable and uncloneable targets.
   [[nodiscard]] bool can_clone() const noexcept {
-    return !vtable_ || vtable_->copy;
+    return (!*this || vtable_->copy);
   }
 
   // `can_adopt`: whether this `proxy` type can accommodate `source`'s current
@@ -2786,8 +2942,8 @@ public:
     if constexpr (Policy.alloc != invocable_alloc::inline_only) {
       return true;
     } else {
+      if (!source) return true;
       const auto* src = source.vtable_;
-      if (!src) return true;
       return src->size <= buf_size && src->align <= buf_align &&
              (src->relocate || src->to_sbo);
     }
@@ -2808,7 +2964,7 @@ public:
   // concept-probed guarantee into a lie.
   [[nodiscard]] proxy clone() const {
     proxy result;
-    if (!vtable_ || !vtable_->copy) return result;
+    if (!vtable_->copy) return result;
     if (vtable_->relocate)
       (void)vtable_->copy(target(), result.storage_.buf);
     else
@@ -2831,11 +2987,11 @@ public:
   // leaving the proxy untouched).
   template<typename T>
   [[nodiscard]] std::unique_ptr<T> extract() {
-    if (!vtable_ || vtable_->type_tag != &details::type_tag_v<T>)
-      return nullptr;
+    if (vtable_->type_tag != &details::type_tag_v<T>) return nullptr;
     if (!vtable_->relocate) {
       auto* ptr = static_cast<T*>(storage_.ptr);
-      vtable_ = nullptr;
+      vtable_ = empty_vtable;
+      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete): see target
       return std::unique_ptr<T>{ptr};
     }
     if constexpr (std::is_move_constructible_v<T>) {
@@ -2869,7 +3025,7 @@ public:
   requires Extends<D, F>
   [[nodiscard]] proxy<D, Policy> try_downcast() && noexcept {
     proxy<D, Policy> result;
-    if (!vtable_) return result;
+    if (!*this) return result;
     const auto* table =
         details::find_ancestor(*vtable_->ancestry, &details::facade_tag_v<D>);
     if (!table) return result;
@@ -2880,7 +3036,7 @@ public:
     else
       // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
       result.storage_.ptr = storage_.ptr;
-    vtable_ = nullptr;
+    vtable_ = empty_vtable;
     return result;
   }
 
@@ -2901,20 +3057,20 @@ private:
     void* ptr;
   };
 
-  // `target`: the target address, inline or heap, which is meaningless when
-  // empty.
+  // `target`: the target address, inline or heap, or the buffer's address
+  // when empty (whose contents the empty thunks never read).
   //
-  // The active union member is keyed by the table's `relocate` slot (null
-  // means heap), an invariant every write site maintains but the static
-  // analyzer cannot see, so the union reads here and in `do_take_heap` and
-  // `try_downcast` suppress its uninitialized-value checks.
+  // The active union member, and emptiness itself, are keyed by the table
+  // (`relocate` null means heap; the empty table's is `empty_relocate`), an
+  // invariant every write site maintains but the static analyzer cannot see,
+  // so the union reads here and in `do_take_heap`, `try_downcast`, `extract`,
+  // and the `shared_proxy` adoption suppress its uninitialized-value and
+  // use-after-release checks.
   [[nodiscard]] void* target() noexcept {
-    assert(vtable_);
-    // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.UndefReturn)
+    // NOLINTNEXTLINE(clang-analyzer-*)
     return vtable_->relocate ? static_cast<void*>(storage_.buf) : storage_.ptr;
   }
   [[nodiscard]] const void* target() const noexcept {
-    assert(vtable_);
     // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.UndefReturn)
     return vtable_->relocate
                ? static_cast<const void*>(storage_.buf)
@@ -2923,13 +3079,14 @@ private:
 
   // `do_reset`: destroy the target, if any, leaving the proxy empty.
   void do_reset() noexcept {
-    if (!vtable_) return;
+    if (!*this) return;
     vtable_->destroy(target());
-    vtable_ = nullptr;
+    vtable_ = empty_vtable;
   }
 
   // `do_adopt`: take over `other`'s target, upcasting its table when `other`'s
-  // facade extends `F`, and leaving `other` empty.
+  // facade extends `F`, and leaving `other` empty on its own type's empty
+  // table, so no empty behavior travels with a target.
   //
   // Assumes `*this` holds no target (freshly constructed or just reset). Note
   // that we don't need to clear `buf` or `ptr` on `other.storage_` because
@@ -2952,14 +3109,14 @@ private:
   template<Facade D, invocable_policy P>
   void
   do_adopt(proxy<D, P>& other) noexcept(!details::adopt_may_throw(Policy, P)) {
+    if (!other) return;
     const auto* src = other.vtable_;
-    if (!src) return;
     const auto* vt = details::upcast_owning_vtable<F, D>(src);
     if (src->relocate)
       do_take_inline(other, vt);
     else
       do_take_heap(other, vt);
-    other.vtable_ = nullptr;
+    other.vtable_ = other.empty_vtable;
   }
 
   // `do_take_inline`: the inline-arrival half of `do_adopt`, which relocates
@@ -3015,11 +3172,16 @@ private:
     }
   }
 
+  // `empty_vtable`: the table of an empty proxy of this type; see
+  // `empty_owning_vtable_for`.
+  static constexpr const owning_vtable_t* empty_vtable =
+      &details::empty_owning_vtable_for<F, Policy.empty>;
+
   // Deliberately no initializer: emptiness and the active member are keyed by
   // `vtable_` (see `target`), and zeroing the buffer on every construction
   // would be pure waste.
   storage_t storage_;
-  const owning_vtable_t* vtable_{};
+  const owning_vtable_t* vtable_ = empty_vtable;
 
   template<Facade G, invocable_policy P>
   friend class proxy;
@@ -3106,8 +3268,10 @@ requires Proxiable<T, F>
 // `const shared_proxy` is mutable). A `weak_proxy` observes without owning.
 //
 // A default-constructed or moved-from handle is empty: testable via
-// `operator bool`, but calling through it is undefined behavior. Handles
-// upcast implicitly, by copy or by move, to any facade theirs extends.
+// `operator bool`, and a call through it raises `std::bad_function_call`,
+// or, when the handle was adopted from an empty `proxy`, runs that proxy's
+// `on_empty` behavior. Handles upcast implicitly, by copy or by move, to any
+// facade theirs extends.
 template<Facade F>
 class shared_proxy: public details::api_base_t<F> {
   using vtbuild_t = details::vtbuild_t<F>;
@@ -3118,6 +3282,24 @@ public:
 
   // `shared_proxy`: an empty handle holds no target.
   shared_proxy() = default;
+
+  shared_proxy(const shared_proxy&) = default;
+  shared_proxy& operator=(const shared_proxy&) = default;
+
+  // `shared_proxy`: moves leave the source empty, on the `raise` table.
+  shared_proxy(shared_proxy&& other) noexcept
+      : target_{std::move(other.target_)},
+        vtable_{std::exchange(other.vtable_, empty_vtable)} {}
+
+  shared_proxy& operator=(shared_proxy&& other) noexcept {
+    if (this != &other) {
+      target_ = std::move(other.target_);
+      vtable_ = std::exchange(other.vtable_, empty_vtable);
+    }
+    return *this;
+  }
+
+  ~shared_proxy() = default;
 
   // `shared_proxy`: adopting constructor from shared ownership of a concrete
   // target. A null pointer yields an empty handle.
@@ -3161,43 +3343,41 @@ public:
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit shared_proxy(proxy<D, P>&& source) {
     const auto* src = source.vtable_;
-    if (!src) return;
     const auto* ovt = details::upcast_owning_vtable<F, D>(src);
+    vtable_ = &ovt->vt;
+    if (!source) return;
     void* ptr{};
     void (*destroy)(void*) noexcept {};
     if (src->relocate) {
       ptr = ovt->to_heap(source.storage_.buf);
       destroy = ovt->heap_table->destroy;
     } else {
+      // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
       ptr = source.storage_.ptr;
       destroy = ovt->destroy;
     }
-    source.vtable_ = nullptr;
+    source.vtable_ = source.empty_vtable;
     target_ = std::shared_ptr<void>{ptr, destroy};
-    vtable_ = &ovt->vt;
   }
 
   // `shared_proxy`: upcasting converting constructors from a `shared_proxy`
   // of a facade that extends `F`, sharing (copy) or transferring (move)
   // ownership. Intentionally implicit, like every handle upcast.
   //
-  // The move flavor computes `vtable_` in the init list and moves `target_`
-  // in the body: members initialize in declaration order (`target_` first),
-  // and the `vtable_` initializer must read `other`'s emptiness before the
-  // move empties it.
+  // An empty source upcasts to an empty handle with the same empty behavior;
+  // a moved-from source is left on its own type's `raise` table.
   template<Facade D>
   requires Extends<D, F>
   explicit(false) shared_proxy(const shared_proxy<D>& other) noexcept
       : target_{other.target_},
-        vtable_{
-            other ? details::upcast_vtable<F, D>(other.vtable_) : nullptr} {}
+        vtable_{details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   explicit(false) shared_proxy(shared_proxy<D>&& other) noexcept
-      : vtable_{
-            other ? details::upcast_vtable<F, D>(other.vtable_) : nullptr} {
-    target_ = std::move(other.target_);
+      : target_{std::move(other.target_)},
+        vtable_{details::upcast_vtable<F, D>(other.vtable_)} {
+    other.vtable_ = other.empty_vtable;
   }
 
   // `call`: call the facade method named `Key`, forwarding `args` through the
@@ -3238,51 +3418,39 @@ public:
   template<Facade D>
   requires Extends<D, F>
   [[nodiscard]] shared_proxy<D> try_downcast() const& noexcept {
-    const auto* table = do_find_downcast<D>();
+    const auto* table = details::find_downcast_table<D, F>(vtable_);
     if (!table) return {};
     return shared_proxy<D>{target_, table};
   }
   template<Facade D>
   requires Extends<D, F>
   [[nodiscard]] shared_proxy<D> try_downcast() && noexcept {
-    const auto* table = do_find_downcast<D>();
+    const auto* table = details::find_downcast_table<D, F>(vtable_);
     if (!table) return {};
     shared_proxy<D> result{std::move(target_), table};
-    vtable_ = nullptr;
+    vtable_ = empty_vtable;
     return result;
   }
 
 private:
-  // `target`: the target address; meaningless when empty.
-  [[nodiscard]] void* target() noexcept {
-    assert(target_);
-    return target_.get();
-  }
-  [[nodiscard]] const void* target() const noexcept {
-    assert(target_);
-    return target_.get();
-  }
-
-  // `do_find_downcast`: `D`'s view table from the birth ancestry, or null when
-  // the handle is empty or was not born as `D` or a facade extending it.
-  //
-  // The guard tests `target_`, which is what defines emptiness here: a
-  // moved-from or expired-lock handle keeps a stale non-null `vtable_`.
-  template<Facade D>
-  [[nodiscard]] const details::vtbuild_t<D>::vtable_t*
-  do_find_downcast() const noexcept {
-    if (!target_) return nullptr;
-    return details::find_downcast_table<D, F>(vtable_);
-  }
+  // `target`: the target address, or null when empty (which the empty thunks
+  // never read).
+  [[nodiscard]] void* target() noexcept { return target_.get(); }
+  [[nodiscard]] const void* target() const noexcept { return target_.get(); }
 
   // `shared_proxy`: for `weak_proxy::lock` and `try_downcast`, whose vtable
   // pointer is already resolved; a null target (an expired weak pointer)
-  // yields an empty handle.
+  // yields an empty handle, on the `raise` table.
   shared_proxy(std::shared_ptr<void> target, const vtable_t* vtable) noexcept
-      : target_{std::move(target)}, vtable_{vtable} {}
+      : target_{std::move(target)}, vtable_{target_ ? vtable : empty_vtable} {}
+
+  // `empty_vtable`: the table of a handle built empty or emptied by a move;
+  // see `empty_vtable_for`.
+  static constexpr const vtable_t* empty_vtable =
+      &details::empty_vtable_for<F, on_empty::raise>;
 
   std::shared_ptr<void> target_;
-  const vtable_t* vtable_{};
+  const vtable_t* vtable_ = empty_vtable;
 
   template<Facade G>
   friend class shared_proxy;
@@ -3334,8 +3502,7 @@ public:
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) weak_proxy(const shared_proxy<D>& p) noexcept
-      : target_{p.target_},
-        vtable_{p ? details::upcast_vtable<F, D>(p.vtable_) : nullptr} {}
+      : target_{p.target_}, vtable_{details::upcast_vtable<F, D>(p.vtable_)} {}
 
   // `weak_proxy`: upcasting converting constructors from a `weak_proxy` of a
   // facade that extends `F`, by copy or by move, mirroring the
@@ -3348,15 +3515,13 @@ public:
   requires Extends<D, F>
   explicit(false) weak_proxy(const weak_proxy<D>& other) noexcept
       : target_{other.target_},
-        vtable_{other.vtable_ ? details::upcast_vtable<F, D>(other.vtable_)
-                              : nullptr} {}
+        vtable_{details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   explicit(false) weak_proxy(weak_proxy<D>&& other) noexcept
       : target_{std::move(other.target_)},
-        vtable_{other.vtable_ ? details::upcast_vtable<F, D>(other.vtable_)
-                              : nullptr} {}
+        vtable_{details::upcast_vtable<F, D>(other.vtable_)} {}
 
   // `expired`: whether the target is already gone.
   //
@@ -3365,14 +3530,15 @@ public:
   [[nodiscard]] bool expired() const noexcept { return target_.expired(); }
 
   // `lock`: regain shared ownership by creating a `shared_proxy` over the
-  // target, or an empty one when every owner is gone.
+  // target, or an empty one, which raises on a call, when every owner is
+  // gone.
   [[nodiscard]] shared_proxy<F> lock() const noexcept {
     return shared_proxy<F>{target_.lock(), vtable_};
   }
 
 private:
   std::weak_ptr<void> target_;
-  const vtable_t* vtable_{};
+  const vtable_t* vtable_ = &details::empty_vtable_for<F, on_empty::raise>;
 
   template<Facade G>
   friend class weak_proxy;

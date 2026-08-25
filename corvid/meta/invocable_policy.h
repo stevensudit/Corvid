@@ -77,29 +77,11 @@ enum class invocable_alloc : std::uint8_t {
 // the call operator is `noexcept` and the result cannot be value-initialized
 // without throwing.
 //
-// By design, termination on an empty call is never reached by accident; it has
-// to be asked for by name.
+// `flexi_function` admits only a behavior its one signature supports, so
+// termination is never reached there by accident. `proxy` treats the value as
+// a floor per method, since a facade mixes methods; see
+// `invocable_policy::empty`.
 enum class on_empty : std::uint8_t { silent, raise, terminate };
-
-#pragma endregion
-#pragma region Runtime fn policy
-
-// `runtime_fn_policy` is whether an owner accepts a raw function or member
-// pointer as its target, or requires the caller to say which kind of target
-// it is.
-//
-// A raw pointer's value is runtime data, so calling through it costs a second
-// indirect call after the owner's own. When the target is really a function
-// known at compile time, `constant_fn<f>{}` puts it in the type instead, and
-// the owner calls it directly with nothing stored. `required` refuses a raw
-// pointer at compile time, so that the choice is made in the open:
-// `constant_fn<f>{}` for a compile-time target, `runtime_fn{p}` for one that
-// really is a runtime value.
-//
-// The check is at the border only, where a callable is stored into an owner.
-// A move from a sibling of another policy transplants whatever the sibling
-// held, unchecked.
-enum class runtime_fn_policy : std::uint8_t { optional, required };
 
 #pragma endregion
 #pragma region Allocation mode
@@ -150,19 +132,25 @@ enum class allocation_mode : std::uint8_t { direct, inlined, dynamic };
 //
 // `empty` selects what invoking an empty owner (default-constructed,
 // moved-from, or reset) does; see `on_empty`. The behavior is baked into the
-// owner's type; it cannot be changed at runtime.
+// owner's type; it cannot be changed at runtime. For `flexi_function`, whose
+// one signature is chosen deliberately, a behavior the signature does not
+// admit is a compile error naming the alternatives. For `proxy`, whose facade
+// mixes methods, the value is a floor, and each method takes the mildest
+// behavior at or above it that its own signature admits, so `silent` falls
+// back to `raise` for a result that cannot be value-initialized, and either
+// falls back to `terminate` for a `noexcept` method.
 //
-// `runtime_fn` selects whether a raw function or member pointer is accepted
-// as a target; see `runtime_fn_policy`. Flipping the default to `required`
-// and rebuilding is a one-edit audit for pointer targets that could be
-// `constant_fn`. Not honored by `proxy`.
-//
-// A result type that cannot be value-initialized (a reference, or a type
-// without a default constructor) cannot be `silent`. For `flexi_function`,
-// whose one signature is chosen deliberately, that is a compile error naming
-// `raise` and `terminate` as the alternatives. For `proxy`, whose facade may
-// mix such methods with ordinary ones, the call falls back to `raise`, which
-// lets one policy serve the whole facade.
+// `enforcement` selects lenient or strict enforcement of the policy; see
+// `policy_enforcement`. What strictness rejects depends on the owner. For
+// `flexi_function` it is a raw function or member pointer as a target, whose
+// value is runtime data and costs a second indirect call, so the caller must
+// say which kind of target it is: `constant_fn<f>{}` for one known at compile
+// time (called directly, nothing stored), `runtime_fn{p}` for one that really
+// is a runtime value. The check is at the border only, where a callable is
+// stored; a move from a sibling transplants whatever it held, unchecked. For
+// `proxy` it is any method that would take a behavior other than `empty`
+// itself. Flipping the default to `strict` and rebuilding is a one-edit
+// audit.
 //
 // For `proxy`, policies are checked at proxy construction, not at
 // registration. Registration is per (facade, type) and knows nothing about
@@ -178,6 +166,7 @@ enum class allocation_mode : std::uint8_t { direct, inlined, dynamic };
 // wasted (which means you must set the alignment before the size):
 //
 //   flexi_function<int(), invocable_policy::heap.with(on_empty::silent)>
+//   proxy<F, invocable_policy::basic.with(policy_enforcement::strict)>
 //   flexi_function<int(), invocable_policy::fixed.with_size(64)>
 //   flexi_function<int(), invocable_policy::fixed.with_alignment(8)>
 //
@@ -189,7 +178,7 @@ struct invocable_policy {
   size_t inline_align = alignof(std::max_align_t);
   invocable_alloc alloc = invocable_alloc::inline_or_heap;
   on_empty empty = on_empty::raise;
-  runtime_fn_policy runtime_fn = runtime_fn_policy::optional;
+  policy_enforcement enforcement = policy_enforcement::lenient;
 
   friend constexpr bool
   operator==(const invocable_policy&, const invocable_policy&) = default;
@@ -206,11 +195,11 @@ struct invocable_policy {
     return p;
   }
 
-  // A copy with `runtime_fn` replaced.
+  // A copy with `enforcement` replaced.
   [[nodiscard]] consteval invocable_policy with(
-      runtime_fn_policy r) const noexcept {
+      policy_enforcement e) const noexcept {
     auto p = *this;
-    p.runtime_fn = r;
+    p.enforcement = e;
     return p;
   }
 

@@ -70,6 +70,7 @@ using-declaration merges, and diamonds.
 - [The handle family](#the-handle-family)
 - [Ownership and storage](#ownership-and-storage)
   - [Storage policies](#storage-policies)
+  - [Empty handles](#empty-handles)
   - [Owning upcast](#owning-upcast)
   - [Cloning](#cloning)
   - [std smart-pointer interop](#std-smart-pointer-interop)
@@ -677,8 +678,8 @@ than wrapping the handle.
 The proxy-to-view constructors are lvalue-only, so a temporary proxy
 cannot leave a dangling view, and a const proxy yields only the const
 view. Emptiness propagates: viewing an empty proxy yields an empty view,
-and upcasting an empty handle yields an empty one, so only calling through
-an empty handle is a contract violation.
+and upcasting an empty handle yields an empty one. A call through an empty
+handle runs its empty behavior (see "Empty handles").
 
 The generic target constructors exclude handles of the same or an
 extending facade (`details::is_handle_for`), so the re-pointing
@@ -1017,7 +1018,8 @@ flowchart LR
 
 Emptiness propagates along every handle-to-handle edge: an empty source
 produces an empty result, whether lending, upcasting, adopting, or
-downcasting. Only calling through an empty handle violates the contract.
+downcasting. A call through an empty handle runs its empty behavior, which
+a lend or adoption carries over from the source (see "Empty handles").
 
 Lent views carry the standard limitations of views. A view lent from an
 owning `proxy` is tied to the proxy's contents, not just its lifetime:
@@ -1050,9 +1052,9 @@ alignment, with heap fallback. A target stores inline when it fits the
 buffer, is no more strictly aligned, and is nothrow-move-constructible.
 Anything else is a unique-owned heap allocation. A default-constructed or
 moved-from proxy is empty, testable via `operator bool`, and calling
-through one is undefined behavior.
+through one runs the policy's empty-call behavior (see "Empty handles").
 
-The policy is shared with `flexi_function` and lives in `invocable_policy.h`. Its fourth knob, `empty`, selects the empty-call behavior and is not yet honored by `proxy` (calling through an empty proxy remains undefined). The other three are storage knobs. The `fixed_function` lesson is that the
+The policy is shared with `flexi_function` and lives in `invocable_policy.h`. Its `empty` knob selects the empty-call behavior, and `enforcement` whether that behavior is applied best-effort or exactly (both under "Empty handles"). The other three are storage knobs. The `fixed_function` lesson is that the
 default inline buffer is sometimes a little too small, so `inline_size` and `inline_align`
 are settable, growing only (a target eligible for the default buffer stays
 eligible for every buffer). The `inline_size` must be a multiple of
@@ -1095,6 +1097,59 @@ destination instance. Only an `inline_only` destination can ever answer no.
 The mode-changing thunks and the other-mode table cross-links live in the
 owning tables (`sbo_to_heap`/`heap_to_sbo`), whose two modes reference
 each other by address.
+
+### Empty handles
+
+Every empty handle has a defined call behavior, selected for a `proxy` by
+`invocable_policy::empty` (see `on_empty`). `raise` throws
+`std::bad_function_call`, the default, as with `std::function`. `silent`
+returns a value-initialized result, or nothing. `terminate` terminates.
+
+The value is a floor, applied per method. A facade mixes methods that
+vary in result type and `noexcept`, and composition multiplies them, so
+one behavior applied uniformly would asymptote toward `terminate` as the
+method count grows. Instead, each method takes the mildest behavior at or
+above the floor that its signature admits. `silent` needs a
+value-initializable result, nothrow under `noexcept`. `raise` needs a
+method that may throw. `terminate` needs nothing. A `silent` proxy
+therefore raises through a method returning a reference, and any proxy
+terminates through a `noexcept` method it cannot silence. This is where
+`proxy` departs from `flexi_function`, whose single signature is chosen
+deliberately and which refuses a behavior it cannot honor at compile time.
+`policy_enforcement::strict` restores that strictness for a proxy. Any
+method that would take a behavior other than the floor is then a compile
+error, one per offending method with the method named, so flipping the
+default and rebuilding audits a whole facade at once.
+
+The behavior is the proxy type's own and never travels with a target. A
+converting move puts the target under the destination's behavior and
+leaves the source empty under its own, exactly as `flexi_function` does.
+
+Views, `shared_proxy`, and `weak_proxy` carry no policy. A handle built
+empty, emptied by a move, or produced by an expired `lock()` raises. The
+`raise` table is the one that is neither harsh where an exception is
+possible, as `terminate` would be, nor able to hide an error, as `silent`
+would; Rust's `Option<Box<dyn Trait>>`, whose `unwrap` panics on `None`,
+is the precedent. A view lent from an empty `proxy`, and a `shared_proxy`
+adopted from one, mirror that proxy's behavior instead, and pass it along
+through further lends and upcasts. Two empty views of one type can
+therefore behave differently by provenance, the same fact the birth key
+already established for downcasts. A failed `try_downcast` of an empty
+handle yields a handle built empty, since an empty table has no ancestry
+to search.
+
+Mechanically, an empty handle's table pointer names an empty table for
+its facade and floor, `empty_vtable_for` for the views and the shared
+tier, and `empty_owning_vtable_for` for `proxy`. Its dispatch slots hold
+one empty thunk per method and its housekeeping slots are null.
+Emptiness is a pointer compare against that table, and the call path has
+no branch. Because the owning table embeds the view table, and every
+handle conversion reads it through the same base-pointer walk (the empty
+tables' base pointers lead to the base facades' empty tables of the same
+floor), mirroring costs no code at the lend sites. The one wrinkle is
+`relocate`. An empty owning table's is a no-op rather than null, so that
+`target` resolves to the buffer, a valid address the empty thunk never
+reads, instead of a heap pointer the proxy never wrote.
 
 ### Owning upcast
 
@@ -1509,6 +1564,11 @@ absent capability throughout:
 - `ancestry` and `bases`: as on the dispatch table, but over owning
   tables, and per storage mode, so a downcast or upcast lands on a table
   whose lifetime thunks match where the target actually lives.
+
+An empty `proxy` points at the empty table for its facade and floor
+(`empty_owning_vtable_for`), the same shape with every housekeeping slot
+null, except `relocate`, a no-op that keeps `target` resolving to the
+buffer; see "Empty handles".
 
 ```mermaid
 flowchart LR

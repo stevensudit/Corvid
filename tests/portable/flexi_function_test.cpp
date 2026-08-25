@@ -310,17 +310,17 @@ TEST_CASE("runtime_fn is an explicit pointer target", "[flexi_function]") {
 //   reference is a runtime value (it came through a forwarding parameter or a
 //   conditional), take its address to store it as a pointer"
 //
-// - `strict_fn f = &plain_seven;` under `runtime_fn_policy::required`:
-//   "flexi_function: this policy requires a raw function or member pointer to
-//   be wrapped: constant_fn<f>{} when the target is known at compile time (a
-//   direct call, nothing stored), or runtime_fn{p} to store the pointer and
-//   call through it"
+// - `strict_fn f = &plain_seven;` under `policy_enforcement::strict`:
+//   "flexi_function: under strict enforcement a raw function or member
+//   pointer must be wrapped: constant_fn<f>{} when the target is known at
+//   compile time (a direct call, nothing stored), or runtime_fn{p} to store
+//   the pointer and call through it"
 //
 // - `constant_fn<static_cast<int (*)()>(nullptr)>`:
 //   "constant_fn: a null function or member pointer is not a target"
-TEST_CASE("runtime_fn_policy::required refuses raw pointers at the border",
+TEST_CASE("Strict enforcement refuses raw pointers at the border",
     "[flexi_function]") {
-  constexpr auto strict = dflt.with(runtime_fn_policy::required);
+  constexpr auto strict = dflt.with(policy_enforcement::strict);
   using strict_fn = flexi_function<int(), strict>;
 
   // Every explicit spelling is accepted; a bare pointer is the static_assert

@@ -93,5 +93,9 @@ enum class shot_type : bool { single = false, multi = true };
 // Whether the data is generated in advance or on demand.
 enum class production_policy : bool { complete = false, streaming = true };
 
+// Whether a policy is enforced leniently (best effort) or strictly (any
+// departure from what the policy names is a compile error).
+enum class policy_enforcement : bool { lenient = false, strict = true };
+
 #pragma endregion
 }}} // namespace corvid::meta::bool_enums

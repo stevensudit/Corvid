@@ -4,35 +4,24 @@ Status and next steps for `corvid/meta`. Proxy-specific future work stays in
 [proxy.md](proxy.md); this file tracks the shared `invocable_policy` effort
 and `flexi_function`.
 
-## In progress: flexi_function
+## In progress: proxy catch-up
 
 `flexi_function<Sig, Policy>` generalizes `fixed_function` over
 `invocable_policy` (inline-only, inline-or-heap, heap-only storage, plus the
 empty-call behavior), with `fixed_function` reduced to the `inline_only`
-alias. The wrapper itself is landed and green; what remains is bringing
-`proxy` up to the same contract.
+alias. The wrapper itself is landed and green, and `proxy` now honors the
+empty-call behavior (below); what remains is the rest of the shared
+contract.
 
 The pending `proxy` changes, in the order to land them:
 
-- Honor `invocable_policy::empty`. An empty proxy today is undefined to call
-  through (null vtable). Needs a per-facade empty vtable per policy whose
-  slots raise `std::bad_function_call` or return a value-initialized result,
-  with the per-method fallback to `raise` when a method's result cannot be
-  value-initialized. The behavior is fixed by the proxy's type, as in
-  `flexi_function`: no runtime override, and no behavior traveling with a
-  target across a converting move. Remove the "not yet honored" caveat in
-  proxy.md when done.
-- Decide what views do. `proxy_view` and `const_proxy_view` carry no policy,
-  so an empty view stays undefined to call through unless views grow a
-  policy of their own or borrow the raise behavior unconditionally. Default
-  answer: leave views as they are and say so.
 - Prefer the heap handover in adoption. A heap-stored target moving to a
   heap-admitting destination is handed over as a pointer, never un-boxed,
   even when it would fit inline; the allocation is already paid for. The
   shared policy doc already promises this; verify `do_adopt` matches and add
   a test that pins it.
 - `reset()` and `nullptr` assignment, for parity with `flexi_function`.
-  Both empty the proxy and reinstall its type's empty behavior.
+  Both empty the proxy and reinstall its type's empty table.
 - Replace the `bool Sbo` template parameters on the owning-table machinery
   (`owning_vtable_for`, `make_owning_vtable`, `make_ancestor_table`,
   `ancestor_table_for`, `ancestry_for`) with `allocation_mode`, the same
@@ -43,14 +32,64 @@ The pending `proxy` changes, in the order to land them:
   the prose still says "re-boxed" for an inline-to-heap move, which falsely
   implies the target was boxed before. The shared policy vocabulary has
   already moved to inline_size / inline_align / inline_only / inline_or_heap
-  and the wrapper says "boxed"; the internals should follow.
-- Honor, or explicitly document as ignored, the two policy members that
-  landed with the direct-call work below and that `proxy` does not yet use:
-  `runtime_fn` (the bare-pointer refusal at the border) and
-  `allocation_mode::direct` (a direct-eligible target stored nowhere).
+  and the wrapper says "boxed"; the internals should follow. In the same
+  sweep, `method` adopts the `signature_traits` enums (`const_qual`,
+  `noexcept_spec`) in place of its `bool Const, bool Noexcept` flags, as
+  sequenced under "Landed: qualified signatures" below.
+- Honor, or explicitly document as ignored, `allocation_mode::direct` (a
+  direct-eligible target stored nowhere), which landed with the direct-call
+  work below and which `proxy` does not yet use.
 - Once the above lands, both types share the same empty-call, handover, and
   vocabulary contracts, and the proxy.md storage-policy section can point at
   `invocable_policy.h` as the single description.
+
+## Landed: empty calls for proxy
+
+An empty `proxy` now runs its policy's `on_empty` behavior instead of being
+undefined to call through, and the policy-less handles have a defined
+behavior too. The shape, with the rulings that fixed it:
+
+- One empty table per (facade, `on_empty` value), `empty_owning_vtable_for`
+  over `empty_vtable_for`, whose dispatch slots hold per-method empty thunks
+  and whose housekeeping slots are null. An empty handle's table pointer
+  names it, so the call path has no branch, and emptiness is the pointer
+  compare. Its `relocate` slot is a no-op so `target` resolves to the
+  buffer rather than reading a pointer never written, and its base pointers
+  lead to the same-value empty tables of the base facades, so an empty
+  handle upcasts and lends through the ordinary walk.
+- Best effort, per method. A facade mixes methods that vary in result type
+  and `noexcept`, and composition multiplies them, so a single behavior
+  applied uniformly would asymptote toward `terminate` as the method count
+  grows. The policy's `empty` is therefore a floor, and each method takes
+  the mildest behavior at or above it that its signature admits (`silent`
+  needs a value-initializable result, nothrow under `noexcept`; `raise`
+  needs a method that may throw; `terminate` needs nothing). This is the
+  one place proxy departs from `flexi_function`, whose single signature is
+  chosen deliberately and whose static_asserts name the alternatives.
+- `policy_enforcement`, a single flag in place of `runtime_fn_policy`,
+  because both were the same intent: strict or lenient enforcement of the
+  policy, with what strictness rejects depending on the owner. For
+  `flexi_function` it is the bare-pointer refusal at the border; for
+  `proxy` it is any method that would take a behavior other than the floor
+  itself, reported per method through one `empty_fit_check` instantiation
+  per slot, so an audit sees every offender at once rather than the first.
+- Views, `shared_proxy`, and `weak_proxy` carry no policy, so a handle built
+  empty (or emptied by a move, or an expired `lock`) is on the `raise`
+  table: `terminate` is harsh where an exception is possible, and `silent`
+  would hide an error. (Rust is the precedent: a trait object is never
+  empty, absence is `Option`, and `unwrap` on `None` panics, which unwinds.)
+  A view or shared proxy lent or adopted from an empty owner mirrors that
+  owner's behavior, because the owning table already embeds the view table
+  and the handle conversions read it. Two consequences: two empty views of
+  one type can behave differently by provenance (the same fact the birth
+  key already established), and a failed downcast of an empty handle yields
+  a handle built empty, since an empty table has no ancestry to search.
+- `shared_proxy`'s moves are now user-defined, so a moved-from handle is on
+  the `raise` table rather than keeping its live table with a null target.
+
+Coverage: "Empty proxies honor on_empty" and "Empty views and shared proxies
+raise, or mirror their lender" in proxy_test.cpp, with the strict-enforcement
+refusal captured as a comment.
 
 ## Landed: qualified signatures for flexi_function
 
@@ -132,16 +171,16 @@ storage mode plus two spellings, with the mechanism in
 - Two border refusals, both `static_assert`s in `do_store`. A function
   lvalue (`f = foo;`) is always refused, since it is the one spelling the
   type system can tell from a runtime pointer; `&foo` cannot be told from
-  `get_handler()`. A policy with `runtime_fn = runtime_fn_policy::required`
-  refuses bare function and member pointers too, so the caller must pick
-  `constant_fn` or `runtime_fn`. Moves and sibling adoption never re-check.
-  Flipping the field's default and rebuilding is a one-edit audit.
+  `get_handler()`. A policy with `policy_enforcement::strict` refuses bare
+  function and member pointers too, so the caller must pick `constant_fn` or
+  `runtime_fn`. Moves and sibling adoption never re-check. Flipping the
+  field's default and rebuilding is a one-edit audit.
 
 Landed alongside, from the same conversation: the template order is now
 `flexi_function<Sig, Policy = invocable_policy::basic>` and
 `fixed_function<Sig, Size = invocable_policy::fixed.size()>`; and
 `invocable_policy` is spelled fluently from `basic`, `heap`, and `fixed`
-through `with(on_empty)`, `with(runtime_fn_policy)`, `with_alignment`,
+through `with(on_empty)`, `with(policy_enforcement)`, `with_alignment`,
 `with_size` (instance bytes, rounded up at the buffer alignment),
 `with_storage_size`, and `size()`.
 

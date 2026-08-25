@@ -447,7 +447,7 @@ private:
 // its value is runtime data; `runtime_fn{p}` is the same thing spelled out.
 // A function name itself (`f = foo;`) is refused at compile time, since it is
 // the one spelling that cannot be a runtime value, and a policy with
-// `runtime_fn_policy::required` refuses bare pointers too, so that the caller
+// `policy_enforcement::strict` refuses bare pointers too, so that the caller
 // chooses. See `invocable_policy.h`.
 //
 // - It is inflexibly move-only, because copying wrappers has limited uses, and
@@ -811,11 +811,11 @@ private:
         "the reference is a runtime value (it came through a forwarding "
         "parameter or a conditional), take its address to store it as a "
         "pointer");
-    static_assert((Policy.runtime_fn == runtime_fn_policy::optional) ||
+    static_assert((Policy.enforcement == policy_enforcement::lenient) ||
                       !(std::is_pointer_v<FD> || std::is_member_pointer_v<FD>),
-        "flexi_function: this policy requires a raw function or member "
-        "pointer to be wrapped: constant_fn<f>{} when the target is known at "
-        "compile time (a direct call, nothing stored), or runtime_fn{p} to "
+        "flexi_function: under strict enforcement a raw function or member "
+        "pointer must be wrapped: constant_fn<f>{} when the target is known "
+        "at compile time (a direct call, nothing stored), or runtime_fn{p} to "
         "store the pointer and call through it");
     static_assert(
         supports_dynamic || policy_details::inline_eligible<FD>(Policy),
