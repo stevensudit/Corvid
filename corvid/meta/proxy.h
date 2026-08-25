@@ -33,6 +33,7 @@
 #include "invocable_common.h"
 #include "invocable_policy.h"
 #include "padding.h"
+#include "traits.h"
 
 // Registration-based runtime polymorphism ("proxy") system.
 //
@@ -137,22 +138,6 @@ using policy_details::inline_eligible;
   return !s.contains("::");
 }
 
-// `method_base`: shared base for the four `method` flavors (`const` crossed
-// with `noexcept`).
-//
-// It carries the qualification flags and the result type, which are the only
-// things that vary, and supplies the `method_key` base.
-template<fixed_string Name, bool Const, bool Noexcept, typename R>
-struct method_base: method_key<Name> {
-  static_assert(!Name.empty(), "method names may not be empty");
-  static_assert(name_is_unqualified(Name.view()),
-      "method names may not contain \"::\"; it is reserved for qualifying a "
-      "key with the facade name");
-  static constexpr bool const_v = Const;
-  static constexpr bool noexcept_v = Noexcept;
-  using result_t = R;
-};
-
 } // namespace details
 
 // `method`: Method descriptor, a name plus the erased signature.
@@ -177,32 +162,30 @@ struct method_base: method_key<Name> {
 // per-name overload sets themselves are supported by listing the name
 // repeatedly, and the bindings overload on the trailing parameters.
 //
-// Each specialization exposes `args_t`, the declared parameter list, for
-// introspection (`codegen` walks it).
+// The signature may carry `const` and `noexcept`, but not a reference
+// qualifier: a handle dispatches on the target's constness alone. The
+// qualifiers are exposed as `const_qualifier` and `noexcept_specifier`, and
+// as the bools `is_const` and `is_noexcept`; `args_t` is the declared
+// parameter list, for introspection (`codegen` walks it).
 template<fixed_string Name, typename Sig>
-struct method;
+struct method: method_key<Name> {
+  static_assert(!Name.empty(), "method names may not be empty");
+  static_assert(details::name_is_unqualified(Name.view()),
+      "method names may not contain \"::\"; it is reserved for qualifying a "
+      "key with the facade name");
 
-template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...)>: details::method_base<Name, false, false, R> {
-  using args_t = std::tuple<Args...>;
-};
+  using traits = signature_traits<Sig>;
+  static_assert(traits::ref_qualifier == ref_qual::none,
+      "a method signature may be const and noexcept, but not ref-qualified");
 
-template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...) const>
-    : details::method_base<Name, true, false, R> {
-  using args_t = std::tuple<Args...>;
-};
-
-template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...) noexcept>
-    : details::method_base<Name, false, true, R> {
-  using args_t = std::tuple<Args...>;
-};
-
-template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...) const noexcept>
-    : details::method_base<Name, true, true, R> {
-  using args_t = std::tuple<Args...>;
+  using result_t = traits::result_t;
+  using args_t = traits::args_t;
+  using function_t = traits::function_t;
+  static constexpr const_qual const_qualifier = traits::const_qualifier;
+  static constexpr noexcept_spec noexcept_specifier =
+      traits::noexcept_specifier;
+  static constexpr bool is_const = traits::is_const;
+  static constexpr bool is_noexcept = traits::is_noexcept;
 };
 
 #pragma endregion
@@ -686,8 +669,8 @@ constexpr inline auto proxy_spec_v =
 
 namespace details {
 
-// `method_traits_base`: per-method dispatch machinery, shared by the four
-// erased-signature flavors (`const` crossed with `noexcept`).
+// `method_traits`: per-method dispatch machinery for method `M`, matched on
+// its `function_t` to recover the result and parameter pack.
 //
 // Contains the thunk pointer type, the compile-time check that a `proxy_impl`
 // binding exists, and the thunk itself, which is where the concrete type is
@@ -697,13 +680,15 @@ namespace details {
 // void*`. A noexcept method additionally requires the binding to be
 // noexcept-invocable, and its thunk pointer type carries `noexcept` through
 // the erased ABI.
-template<fixed_string Name, bool Const, bool Noexcept, typename R,
-    typename... Args>
-struct method_traits_base {
+template<typename M, typename FunctionT = M::function_t>
+struct method_traits;
+
+template<typename M, typename R, typename... Args>
+struct method_traits<M, R(Args...)> {
   template<typename T>
-  using target_t = std::conditional_t<Const, const T, T>;
-  using erased_ptr_t = std::conditional_t<Const, const void*, void*>;
-  using thunk_ptr_t = R (*)(erased_ptr_t, Args...) noexcept(Noexcept);
+  using target_t = std::conditional_t<M::is_const, const T, T>;
+  using erased_ptr_t = std::conditional_t<M::is_const, const void*, void*>;
+  using thunk_ptr_t = R (*)(erased_ptr_t, Args...) noexcept(M::is_noexcept);
 
   // `norm_args_t`: parameter list normalized for exact-match probing.
   //
@@ -729,20 +714,23 @@ struct method_traits_base {
   template<typename F, typename T>
   static constexpr bool bound_v = requires(target_t<T>& t, Args... args) {
     {
-      proxy_impl<F, T>::on(method_key<Name>{}, t, std::forward<Args>(args)...)
+      proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
+          std::forward<Args>(args)...)
     } -> std::convertible_to<R>;
-  } && (!Noexcept || requires(target_t<T>& t, Args... args) {
+  } && (!M::is_noexcept || requires(target_t<T>& t, Args... args) {
     {
-      proxy_impl<F, T>::on(method_key<Name>{}, t, std::forward<Args>(args)...)
+      proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
+          std::forward<Args>(args)...)
     } noexcept;
   });
 
   template<typename F, typename T>
   static consteval thunk_ptr_t make_thunk() noexcept {
-    return [](erased_ptr_t target, Args... args) noexcept(Noexcept) -> R {
-      return proxy_impl<F, T>::on(method_key<Name>{},
-          *static_cast<target_t<T>*>(target), std::forward<Args>(args)...);
-    };
+    return
+        [](erased_ptr_t target, Args... args) noexcept(M::is_noexcept) -> R {
+          return proxy_impl<F, T>::on(method_key<M::name_v>{},
+              *static_cast<target_t<T>*>(target), std::forward<Args>(args)...);
+        };
   }
 
   // `empty_traits`: the empty-call rules for `R`.
@@ -752,37 +740,18 @@ struct method_traits_base {
   // policy floor `floor`, the mildest at or above it that the signature
   // admits.
   static consteval on_empty empty_behavior(on_empty floor) noexcept {
-    return empty_traits::resolve_floor(floor, Noexcept);
+    return empty_traits::resolve_floor(floor, M::noexcept_specifier);
   }
 
   // `make_empty_thunk`: the thunk an empty handle dispatches this method to
   // under the policy floor `Floor`; see `empty_behavior`.
   template<on_empty Floor>
   static consteval thunk_ptr_t make_empty_thunk() noexcept {
-    return [](erased_ptr_t, Args...) noexcept(Noexcept) -> R {
+    return [](erased_ptr_t, Args...) noexcept(M::is_noexcept) -> R {
       return empty_traits::template invoke<empty_behavior(Floor)>();
     };
   }
 };
-
-template<typename M>
-struct method_traits;
-
-template<fixed_string Name, typename R, typename... Args>
-struct method_traits<method<Name, R(Args...)>>
-    : method_traits_base<Name, false, false, R, Args...> {};
-
-template<fixed_string Name, typename R, typename... Args>
-struct method_traits<method<Name, R(Args...) const>>
-    : method_traits_base<Name, true, false, R, Args...> {};
-
-template<fixed_string Name, typename R, typename... Args>
-struct method_traits<method<Name, R(Args...) noexcept>>
-    : method_traits_base<Name, false, true, R, Args...> {};
-
-template<fixed_string Name, typename R, typename... Args>
-struct method_traits<method<Name, R(Args...) const noexcept>>
-    : method_traits_base<Name, true, true, R, Args...> {};
 
 // `sbo_destroy`, `heap_destroy`, `sbo_relocate`: housekeeping thunks for the
 // owning `proxy`, the analog of Rust's drop glue.
@@ -1077,8 +1046,8 @@ struct slot {
   using owner_t = Owner;
   using method_t = M;
   static constexpr auto name_v = M::name_v;
-  static constexpr bool const_v = M::const_v;
-  static constexpr bool noexcept_v = M::noexcept_v;
+  static constexpr bool is_const = M::is_const;
+  static constexpr bool is_noexcept = M::is_noexcept;
   using result_t = M::result_t;
 };
 
@@ -1186,7 +1155,7 @@ template<typename S1, typename S2>
 consteval bool legal_overload_pair() noexcept {
   using args1_t = method_traits<typename S1::method_t>::norm_args_t;
   using args2_t = method_traits<typename S2::method_t>::norm_args_t;
-  return !std::same_as<args1_t, args2_t> || S1::const_v != S2::const_v;
+  return !std::same_as<args1_t, args2_t> || S1::is_const != S2::is_const;
 }
 
 // `no_chain_collision_against`, `owner_names_unique_against`: the two
@@ -1350,16 +1319,16 @@ struct rank_poison {
 // type carries the slot index out of a resolved call expression. Probes are
 // only ever named in unevaluated contexts, so the operators need no
 // definitions.
-template<size_t Ndx, bool Const, typename ArgsTuple>
+template<size_t Ndx, const_qual Const, typename ArgsTuple>
 struct rank_probe;
 
 template<size_t Ndx, typename... Args>
-struct rank_probe<Ndx, false, std::tuple<Args...>> {
+struct rank_probe<Ndx, const_qual::none, std::tuple<Args...>> {
   std::integral_constant<size_t, Ndx> operator()(Args...);
 };
 
 template<size_t Ndx, typename... Args>
-struct rank_probe<Ndx, true, std::tuple<Args...>> {
+struct rank_probe<Ndx, const_qual::present, std::tuple<Args...>> {
   std::integral_constant<size_t, Ndx> operator()(Args...) const;
 };
 
@@ -1534,7 +1503,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // handle).
   template<fixed_string Key, bool ConstOnly>
   static consteval std::array<bool, count_v> candidates() noexcept {
-    return {(slot_matches<Ss, Key>() && (!ConstOnly || Ss::const_v))...};
+    return {(slot_matches<Ss, Key>() && (!ConstOnly || Ss::is_const))...};
   }
 
   // `exact_flags`, `viable_flags`: per-slot flags over the whole list, marking
@@ -1577,7 +1546,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `nonconst_flags`: per-slot flags marking the non-const methods, the
   // tiebreak preference for `resolve_exact` through a mutable strict call.
   static consteval std::array<bool, count_v> nonconst_flags() noexcept {
-    return {!Ss::const_v...};
+    return {!Ss::is_const...};
   }
 
   // `tally_preferring_nonconst`: tally `flags`, breaking a tie in favor of a
@@ -1611,9 +1580,9 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   static consteval auto make_rank_set(std::index_sequence<Ndx...>) noexcept {
     return std::type_identity<
         rank_set<std::conditional_t<candidates<Key, ConstOnly>()[Ndx],
-            rank_probe<Ndx, slot_t<Ndx>::const_v,
+            rank_probe<Ndx, slot_t<Ndx>::method_t::const_qualifier,
                 typename slot_t<Ndx>::method_t::args_t>,
-            rank_probe<Ndx, false, std::tuple<rank_poison>>>...>>{};
+            rank_probe<Ndx, const_qual::none, std::tuple<rank_poison>>>...>>{};
   }
 
   // `resolve`: resolve `Key`, called with `CallArgs`, to a slot index, or to
@@ -1680,7 +1649,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // key, since rejecting one is `resolve`'s job.
   template<fixed_string Key>
   static consteval bool is_const() noexcept {
-    return ((slot_matches<Ss, Key>() && Ss::const_v) || ...);
+    return ((slot_matches<Ss, Key>() && Ss::is_const) || ...);
   }
 
   // `is_noexcept`: whether the call `Key` resolves to, with `CallArgs`,
@@ -1695,7 +1664,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // False when the call does not resolve.
   template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval bool is_noexcept() noexcept {
-    constexpr std::array<bool, count_v> flags{Ss::noexcept_v...};
+    constexpr std::array<bool, count_v> flags{Ss::is_noexcept...};
     constexpr auto ndx = resolve<Key, ConstOnly, CallArgs...>();
     if constexpr (ndx < count_v)
       return flags[ndx] &&

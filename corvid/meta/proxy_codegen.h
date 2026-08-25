@@ -93,7 +93,7 @@ name_declared_in(std::string_view name, std::tuple<Ps...>*) noexcept {
 template<typename S, typename... Ss>
 consteval bool has_const_twin(std::tuple<Ss...>*) noexcept {
   return (
-      (!std::same_as<S, Ss> && Ss::const_v && !S::const_v &&
+      (!std::same_as<S, Ss> && Ss::is_const && !S::is_const &&
           Ss::name_v.view() == S::name_v.view() &&
           std::same_as<
               typename method_traits<typename S::method_t>::norm_args_t,
@@ -174,10 +174,10 @@ void emit_api_slot(std::ostream& os, size_t next) {
   const auto name = S::name_v.view();
   const auto result = friendly_type_name<result_t>();
   os << "    " << result << " " << name << "(this "
-     << (S::const_v ? "const auto&" : "auto&&") << " self";
+     << (S::is_const ? "const auto&" : "auto&&") << " self";
   emit_params(os, next, args);
   os << ")";
-  if constexpr (S::noexcept_v) os << " noexcept";
+  if constexpr (S::is_noexcept) os << " noexcept";
   constexpr bool twin =
       has_const_twin<S>(static_cast<vtbuild_t<F>::flat_slots_t*>(nullptr));
   if constexpr (twin) {
@@ -202,10 +202,10 @@ void emit_boilerplate_slot(std::ostream& os, size_t next) {
   constexpr auto* args = static_cast<S::method_t::args_t*>(nullptr);
   const auto name = S::name_v.view();
   os << "    static " << friendly_type_name<result_t>() << " on(method_key<\""
-     << name << "\">, " << (S::const_v ? "const T& t" : "T& t");
+     << name << "\">, " << (S::is_const ? "const T& t" : "T& t");
   emit_params(os, next, args);
   os << ")";
-  if constexpr (S::noexcept_v) os << " noexcept";
+  if constexpr (S::is_noexcept) os << " noexcept";
   os << " {\n      ";
   if constexpr (!std::is_void_v<result_t>) os << "return ";
   os << "t." << name << "(";

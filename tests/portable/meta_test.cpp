@@ -1614,6 +1614,11 @@ TEST_CASE("SignatureTraits", "[MetaTest]") {
   static_assert(std::is_same_v<st::args_t, std::tuple<int&, double&&>>);
   static_assert(std::is_same_v<st::function_t, void(int&, double&&)>);
 
+  // The two-valued axes, restated as bools.
+  static_assert(st::is_const && !st::is_noexcept);
+  static_assert(!signature_traits<int() noexcept>::is_const);
+  static_assert(signature_traits<int() noexcept>::is_noexcept);
+
   // Only the twelve variants qualify: not a non-function, a pointer to one,
   // a `volatile`-qualified one, or a C-variadic one.
   static_assert(HasSignatureTraits<int(char)>);
@@ -1650,38 +1655,45 @@ TEST_CASE("EmptyCallTraits", "[MetaTest]") {
   using throwing = empty_call_traits<throwing_result>;
 
   // Silencing needs a value-initializable result, nothrow for a subset.
-  static_assert(plain::silenceable && plain::nothrow_silenceable);
-  static_assert(none::silenceable && none::nothrow_silenceable);
-  static_assert(!ref::silenceable && !ref::nothrow_silenceable);
-  static_assert(!nondefault::silenceable);
-  static_assert(throwing::silenceable && !throwing::nothrow_silenceable);
+  static_assert(plain::is_silenceable && plain::is_nothrow_silenceable);
+  static_assert(none::is_silenceable && none::is_nothrow_silenceable);
+  static_assert(!ref::is_silenceable && !ref::is_nothrow_silenceable);
+  static_assert(!nondefault::is_silenceable);
+  static_assert(throwing::is_silenceable && !throwing::is_nothrow_silenceable);
 
   // `admits`: silent follows silenceability (nothrow under noexcept), raise
   // needs a throwing call, terminate is always admitted.
-  static_assert(plain::admits(on_empty::silent, false));
-  static_assert(plain::admits(on_empty::silent, true));
-  static_assert(!ref::admits(on_empty::silent, false));
-  static_assert(throwing::admits(on_empty::silent, false));
-  static_assert(!throwing::admits(on_empty::silent, true));
-  static_assert(plain::admits(on_empty::raise, false));
-  static_assert(!plain::admits(on_empty::raise, true));
-  static_assert(ref::admits(on_empty::terminate, true));
+  static_assert(plain::admits(on_empty::silent, noexcept_spec::none));
+  static_assert(plain::admits(on_empty::silent, noexcept_spec::present));
+  static_assert(!ref::admits(on_empty::silent, noexcept_spec::none));
+  static_assert(throwing::admits(on_empty::silent, noexcept_spec::none));
+  static_assert(!throwing::admits(on_empty::silent, noexcept_spec::present));
+  static_assert(plain::admits(on_empty::raise, noexcept_spec::none));
+  static_assert(!plain::admits(on_empty::raise, noexcept_spec::present));
+  static_assert(ref::admits(on_empty::terminate, noexcept_spec::present));
 
   // `resolve_floor`: the mildest admitted behavior at or above the floor.
   static_assert(
-      plain::resolve_floor(on_empty::silent, false) == on_empty::silent);
+      plain::resolve_floor(on_empty::silent, noexcept_spec::none) ==
+      on_empty::silent);
   static_assert(
-      plain::resolve_floor(on_empty::raise, false) == on_empty::raise);
+      plain::resolve_floor(on_empty::raise, noexcept_spec::none) ==
+      on_empty::raise);
   static_assert(
-      plain::resolve_floor(on_empty::terminate, false) == on_empty::terminate);
+      plain::resolve_floor(on_empty::terminate, noexcept_spec::none) ==
+      on_empty::terminate);
   static_assert(
-      ref::resolve_floor(on_empty::silent, false) == on_empty::raise);
+      ref::resolve_floor(on_empty::silent, noexcept_spec::none) ==
+      on_empty::raise);
   static_assert(
-      ref::resolve_floor(on_empty::silent, true) == on_empty::terminate);
+      ref::resolve_floor(on_empty::silent, noexcept_spec::present) ==
+      on_empty::terminate);
   static_assert(
-      throwing::resolve_floor(on_empty::silent, true) == on_empty::terminate);
+      throwing::resolve_floor(on_empty::silent, noexcept_spec::present) ==
+      on_empty::terminate);
   static_assert(
-      plain::resolve_floor(on_empty::raise, true) == on_empty::terminate);
+      plain::resolve_floor(on_empty::raise, noexcept_spec::present) ==
+      on_empty::terminate);
 
   // `invoke`: noexcept exactly when the behavior cannot throw.
   static_assert(noexcept(plain::invoke<on_empty::silent>()));

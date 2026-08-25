@@ -1192,10 +1192,10 @@ static_assert(prox::SpecCarriesImpl<gunslinger, turncoat>);
 static_assert(!prox::SpecCarriesImpl<gunslinger, lawman>);
 
 // Noexcept qualification is part of the method flavor.
-static_assert(!prox::method<"fire", int(int)>::noexcept_v);
-static_assert(prox::method<"fire", int(int) noexcept>::noexcept_v);
-static_assert(prox::method<"jams", bool() const noexcept>::const_v);
-static_assert(prox::method<"jams", bool() const noexcept>::noexcept_v);
+static_assert(!prox::method<"fire", int(int)>::is_noexcept);
+static_assert(prox::method<"fire", int(int) noexcept>::is_noexcept);
+static_assert(prox::method<"jams", bool() const noexcept>::is_const);
+static_assert(prox::method<"jams", bool() const noexcept>::is_noexcept);
 
 // Noexcept conformance: the binding itself must be noexcept.
 static_assert(Proxiable<lawman, hair_trigger>);

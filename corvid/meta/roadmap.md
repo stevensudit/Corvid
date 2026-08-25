@@ -32,10 +32,7 @@ The pending `proxy` changes, in the order to land them:
   the prose still says "re-boxed" for an inline-to-heap move, which falsely
   implies the target was boxed before. The shared policy vocabulary has
   already moved to inline_size / inline_align / inline_only / inline_or_heap
-  and the wrapper says "boxed"; the internals should follow. In the same
-  sweep, `method` adopts the `signature_traits` enums (`const_qual`,
-  `noexcept_spec`) in place of its `bool Const, bool Noexcept` flags, as
-  sequenced under "Landed: qualified signatures" below.
+  and the wrapper says "boxed"; the internals should follow.
 - Honor, or explicitly document as ignored, `allocation_mode::direct` (a
   direct-eligible target stored nowhere), which landed with the direct-call
   work below and which `proxy` does not yet use.
@@ -50,7 +47,7 @@ answers had been written twice. The shared parts now live in
 `invocable_common.h`, leaving `invocable_policy.h` as the policy and its
 `policy_details`:
 
-- `empty_call_traits<R>`: `silenceable`, `nothrow_silenceable`, `admits`
+- `empty_call_traits<R>`: `is_silenceable`, `is_nothrow_silenceable`, `admits`
   (one behavior exactly, given `noexcept`), `resolve_floor` (proxy's
   mildest-at-or-above rule), and `invoke<Behavior>` (the empty call
   itself). `flexi_thunks::empty_invoke_impl` and
@@ -59,6 +56,26 @@ answers had been written twice. The shared parts now live in
   `flexi_function`'s three `static_assert`s keep their messages and read
   the two bools. Truth table in meta_test.cpp.
 - `constant_fn`, `runtime_fn`, and `is_runtime_fn_v`, moved verbatim.
+- `method` and `method_traits` sit on `signature_traits` instead of
+  re-matching the signature: one primary each (the four `const` x
+  `noexcept` specializations of both are gone, `method_traits` recovering
+  its parameter pack through a defaulted `FunctionT = M::function_t`, as
+  `flexi_function` does). A ref-qualified method signature is now refused
+  by a `static_assert` rather than an incomplete type. The naming rule that
+  settled alongside: a value taken as a parameter is an enum, so it is
+  self-documenting (`const_qual` for `rank_probe`, `noexcept_spec` for
+  `empty_call_traits`), while a traits class demuxes its input into
+  properties and may expose those as bools with an `is_` prefix and no `_v`
+  (`is_const`, `is_noexcept` on `signature_traits` and `method`;
+  `is_silenceable`, `is_nothrow_silenceable`, `is_nothrow<Behavior>` on
+  `empty_call_traits`; `is_noexcept`, `is_invocable<F>`,
+  `is_callable_through<Self>` on `flexi_thunks`). The `_v` suffix stays on
+  namespace-scope variable templates that mirror std. A non-bool sentinel
+  gets a noun: `flexi_thunks::refusal`. Still to convert, in the sweep:
+  proxy.h's `_v` class members, `policy_details::direct_eligible` and
+  `inline_eligible` (to `is_` names), the calling-context `ConstOnly` and
+  `view_base` flags (to `access_mode`), and `bool Sbo` (to
+  `allocation_mode`, bundled with documenting `direct` as ignored).
 
 Next is a pass over `proxy.h` and `flexi_function.h` for further overlap,
 factoring only where the two coincide. The proxy handles also vary among
@@ -134,11 +151,11 @@ for reference when proxy catches up:
 - Invoke as the standard does. The thunks apply the signature's qualifiers
   to the stored target (`qualified_target_t<F>`: `F cv&`, or `F cv&&` under
   `&&`) and constrain construction on invocability through that type
-  (`invocable_v<F>`, the nothrow variant under `noexcept`). An unqualified
+  (`is_invocable<F>`, the nothrow variant under `noexcept`). An unqualified
   and an `&` signature invoke the target identically; they differ only in
   which wrappers may call.
 - One call operator. A deducing-`this` member with a `requires` clause
-  (`callable_through_v<Self>`) admits exactly the wrapper constness and value
+  (`is_callable_through<Self>`) admits exactly the wrapper constness and value
   category the signature permits, and is `noexcept` exactly when the
   signature is.
 - Constrain, do not deduce. A `noexcept` signature does not follow the
@@ -157,11 +174,9 @@ Coverage: truth tables in meta_test.cpp (decomposition) and
 flexi_function_test.cpp (which callables are admitted, which wrappers may
 call, and `noexcept`).
 
-Qualified signatures landed before the proxy catch-up, as sequenced.
-Proxy's method descriptors already carry their own `Const`/`Noexcept` flags
-(`method_key`), and the empty-vtable work must reason about each method's
-qualifiers, so `method_key` adopts the `signature_traits` vocabulary when
-the proxy work lands rather than having it retrofitted.
+Qualified signatures landed before the proxy catch-up, as sequenced, and
+`method` has since adopted the `signature_traits` vocabulary (see "In
+progress: shared code" above).
 
 ## Landed: direct calls for flexi_function
 
@@ -180,7 +195,7 @@ storage mode plus two spellings, with the mechanism in
   the object model requires and the optimizer erases, the lifespan thunk
   has nothing to size, destroy, or move, and every policy, `heap_only`
   included, allocates nothing for it. `size()` reports 0. The lifespan
-  refusal sentinel moved off 0 (`flexi_thunks::refused`) to make that
+  refusal sentinel moved off 0 (`flexi_thunks::refusal`) to make that
   honest.
 - `constant_fn<Fn>`, a direct-eligible functor over a compile-time
   constant: a function, a member pointer (object as the first argument),

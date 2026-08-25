@@ -234,6 +234,8 @@ struct signature_traits_base {
   static constexpr const_qual const_qualifier = Const;
   static constexpr ref_qual ref_qualifier = Ref;
   static constexpr noexcept_spec noexcept_specifier = Noex;
+  static constexpr bool is_const = (Const == const_qual::present);
+  static constexpr bool is_noexcept = (Noex == noexcept_spec::present);
 };
 
 } // namespace details
@@ -248,7 +250,9 @@ struct signature_traits_base {
 // The trait provides `result_t`, `args_t` (the parameter types, as a
 // `std::tuple`), `function_t` (the signature with every qualifier stripped,
 // `noexcept` included), and one constant per axis: `const_qualifier`,
-// `ref_qualifier`, and `noexcept_specifier`, each typed by its own enum.
+// `ref_qualifier`, and `noexcept_specifier`, each typed by its own enum. The
+// two-valued axes are restated as the bools `is_const` and `is_noexcept`, for
+// boolean expressions and `noexcept` clauses.
 //
 // Only the twelve variants are specialized, so the trait doubles as the gate
 // for what counts as a signature: anything else, `volatile` qualification and

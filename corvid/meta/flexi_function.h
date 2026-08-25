@@ -80,13 +80,12 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
 
   // Whether the signature is `noexcept`, which makes the invoke thunks, and
   // the wrapper's call operator, `noexcept`.
-  static constexpr bool noexcept_call =
-      (traits::noexcept_specifier == noexcept_spec::present);
+  static constexpr bool is_noexcept = traits::is_noexcept;
 
   // `F` with the signature's cv-qualifier applied.
   template<class F>
-  using cv_qualified_target_t = std::conditional_t<
-      (traits::const_qualifier == const_qual::present), const F, F>;
+  using cv_qualified_target_t =
+      std::conditional_t<traits::is_const, const F, F>;
 
   // `F` with the signature's qualifiers applied, which is how the stored
   // target is invoked: `F cv&`, or `F cv&&` under an `&&` signature.
@@ -105,14 +104,14 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // Construction and assignment are constrained on this to force the user to
   // explicitly select the correct `on_empty` policy.
   template<class F>
-  static constexpr bool invocable_v =
-      noexcept_call
+  static constexpr bool is_invocable =
+      is_noexcept
           ? std::is_nothrow_invocable_r_v<ResultT, qualified_target_t<F>,
                 Args...>
           : std::is_invocable_r_v<ResultT, qualified_target_t<F>, Args...>;
 
   // Invocation function pointer, where the `void*` is the type-erased storage.
-  using invoke_fn_t = ResultT (*)(void*, Args...) noexcept(noexcept_call);
+  using invoke_fn_t = ResultT (*)(void*, Args...) noexcept(is_noexcept);
 
   struct destination_spec; // Fwd.
 
@@ -126,7 +125,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // In contrast, a 0 is a legitimate answer when the invocation points
   // directly at the function and there's no storage, or further indirection,
   // needed.
-  static constexpr size_t refused = std::numeric_limits<size_t>::max();
+  static constexpr size_t refusal = std::numeric_limits<size_t>::max();
 
   // The pair of thunk pointers a wrapper keeps ahead of its storage, which
   // is what a relocation transfers.
@@ -175,7 +174,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // signature's qualifiers apply to it exactly as they would to a stored one.
   template<class F, allocation_mode SourceAlloc>
   static ResultT
-  invoke_impl(void* storage, Args... args) noexcept(noexcept_call) {
+  invoke_impl(void* storage, Args... args) noexcept(is_noexcept) {
     if constexpr (SourceAlloc == allocation_mode::direct) {
       F target{};
       return std::invoke_r<ResultT>(static_cast<qualified_target_t<F>>(target),
@@ -199,7 +198,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   template<on_empty Mode>
   static ResultT
   empty_invoke_impl([[maybe_unused]] void*, [[maybe_unused]] Args...) noexcept(
-      empty_traits::template nothrow_v<Mode>) {
+      empty_traits::template is_nothrow<Mode>) {
     return empty_traits::template invoke<Mode>();
   }
 
@@ -214,7 +213,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   //
   // - When `from` and `dest` are set, but `dest->to` is null, it is a probe
   // that returns the stored size when a relocation into `dest` would be
-  // accepted and `refused` otherwise.
+  // accepted and `refusal` otherwise.
   //
   // - When `from` (and `dest`) and `dest->to` are set, it relocates the
   // callable into `dest->to`, filling `dest->dispatch`.
@@ -238,7 +237,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   //
   // -- When the destination allows only inline storage but the source doesn't
   // fit (or, to be more specific, is ineligible due to size, alignment, or
-  // a throwing move) it refuses with `refused`, leaving both sides intact.
+  // a throwing move) it refuses with `refusal`, leaving both sides intact.
   //
   // -- On success, the destination's thunk pair is written for the mode the
   // callable landed in. The source's own pair is the caller's
@@ -268,7 +267,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     // First decide whether a relocation is allowed.
     const bool fits_inline = policy_details::can_store_inline<F>(dest->policy);
     const bool may_heap = (dest->policy.alloc != invocable_alloc::inline_only);
-    if (!fits_inline && !may_heap) return refused;
+    if (!fits_inline && !may_heap) return refusal;
     if (!dest->to) return sizeof(F);
 
     if constexpr (SourceAlloc == allocation_mode::dynamic) {
@@ -291,7 +290,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
         // logic error fails safe instead of reporting a successful
         // relocation.
         assert(false);
-        return refused;
+        return refusal;
       }
     } else {
       // An inline source stays inline when the destination is eligible, and
@@ -488,17 +487,17 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
       "accommodate a pointer");
   static_assert(std::has_single_bit(Policy.inline_align),
       "flexi_function: inline_align must be a power of two");
-  static_assert(
-      (Policy.empty != on_empty::silent) || thunks::empty_traits::silenceable,
+  static_assert((Policy.empty != on_empty::silent) ||
+                    thunks::empty_traits::is_silenceable,
       "flexi_function: on_empty::silent needs a result that can be "
       "value-initialized (or void); choose raise or terminate for this "
       "signature");
-  static_assert(!thunks::noexcept_call || (Policy.empty != on_empty::raise),
+  static_assert(!thunks::is_noexcept || (Policy.empty != on_empty::raise),
       "flexi_function: on_empty::raise cannot serve a noexcept signature; "
       "choose terminate, or silent (for a nothrow-value-initializable "
       "result)");
-  static_assert(!thunks::noexcept_call || (Policy.empty != on_empty::silent) ||
-                    thunks::empty_traits::nothrow_silenceable,
+  static_assert(!thunks::is_noexcept || (Policy.empty != on_empty::silent) ||
+                    thunks::empty_traits::is_nothrow_silenceable,
       "flexi_function: on_empty::silent under a noexcept signature needs a "
       "result whose value-initialization cannot throw; choose terminate");
   static_assert(
@@ -551,7 +550,7 @@ public:
   // The std polymorphic function wrappers are deliberately excluded
   // here; wrapping one takes the explicit constructor below.
   template<Consumable FN>
-  requires(thunks::template invocable_v<std::decay_t<FN>> &&
+  requires(thunks::template is_invocable<std::decay_t<FN>> &&
            !is_std_function_wrapper_v<std::decay_t<FN>>)
   flexi_function(FN&& fn) noexcept(
       policy_details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
@@ -576,7 +575,7 @@ public:
   // `int() &&` one, while an `&&`-qualified signature does the reverse.
   template<Consumable FN>
   requires(is_std_function_wrapper_v<std::decay_t<FN>> &&
-           thunks::template invocable_v<std::decay_t<FN>>)
+           thunks::template is_invocable<std::decay_t<FN>>)
   explicit flexi_function(FN&& fn) noexcept(
       policy_details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
     if (!fn) return;
@@ -645,7 +644,7 @@ public:
   // A throw leaves this instance empty.
   template<Consumable FN>
   requires(
-      thunks::template invocable_v<std::decay_t<FN>> &&
+      thunks::template is_invocable<std::decay_t<FN>> &&
       !is_std_function_wrapper_v<std::decay_t<FN>> &&
       !is_flexi_function_v<std::decay_t<FN>>)
   flexi_function& operator=(FN&& fn) noexcept(
@@ -689,8 +688,8 @@ public:
   // A `const` wrapper needs a `const` signature, an rvalue wrapper is refused
   // by an `&` signature, and an lvalue wrapper by an `&&` one.
   template<class Self>
-  static constexpr bool callable_through_v =
-      ((thunks::traits::const_qualifier == const_qual::present) ||
+  static constexpr bool is_callable_through =
+      (thunks::traits::is_const ||
           !std::is_const_v<std::remove_reference_t<Self>>) &&
       ((thunks::traits::ref_qualifier == ref_qual::none) ||
           ((thunks::traits::ref_qualifier == ref_qual::lvalue) ==
@@ -709,9 +708,9 @@ public:
   // The call is `noexcept` exactly when the signature is, which the
   // construction constraint and the `on_empty` checks above make sound.
   template<class Self>
-  requires(callable_through_v<Self>)
+  requires(is_callable_through<Self>)
   ResultT
-  operator()(this Self&& self, Args... args) noexcept(thunks::noexcept_call) {
+  operator()(this Self&& self, Args... args) noexcept(thunks::is_noexcept) {
     return self.dispatch_.invoke(const_cast<std::byte*>(self.storage_),
         std::forward<Args>(args)...);
   }
@@ -755,7 +754,7 @@ public:
       // The probe only reads, but the erased signature is mutable.
       return (
           source.dispatch_.lifespan(const_cast<std::byte*>(source.storage_),
-              &probe) != thunks::refused);
+              &probe) != thunks::refusal);
     }
   }
 
@@ -836,7 +835,7 @@ private:
         .dispatch = &dispatch_,
         .to = storage_};
     [[maybe_unused]] const bool is_refused =
-        (other.dispatch_.lifespan(other.storage_, &dest) == thunks::refused);
+        (other.dispatch_.lifespan(other.storage_, &dest) == thunks::refusal);
     if constexpr (policy_details::adopt_may_throw(Policy, P)) {
       if (is_refused)
         throw std::length_error{"flexi_function: callable too large"};

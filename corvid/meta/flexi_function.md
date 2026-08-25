@@ -54,7 +54,7 @@ The policy type is shared with `proxy` and documented in
 | empty                       | No target. `lifespan` is null, and `invoke` is the policy's empty-call thunk.                                                                  |
 | adopt, transplant           | Moving the target out of a sibling into this wrapper, by asking the sibling's `lifespan` thunk to relocate it.                                 |
 | box, un-box, hand over      | The three ways a relocation can change or keep a target's home: onto the heap, out of the heap into a buffer, or passing the heap block as is. |
-| `refused`                   | The `lifespan` return value for a relocation the destination cannot accept.                                                                    |
+| `refusal`                   | The `lifespan` return value for a relocation the destination cannot accept.                                                                    |
 | direct-eligible             | A type that can be `direct`: `policy_details::direct_eligible<T>()`.                                                                           |
 | `constant_fn<Fn>`           | A direct-eligible callable whose target is the compile-time constant `Fn`: a function, a member pointer, or a captureless lambda.              |
 | `runtime_fn{p}`             | A callable holding a function or member pointer known only at runtime; a bare pointer target, made explicit. Nullable.                         |
@@ -171,7 +171,7 @@ signature alone, not the policy, and that is what lets siblings transplant
 a target: every wrapper of a signature speaks the same erased protocol.
 
 ```cpp
-using invoke_fn_t = ResultT (*)(void*, Args...) noexcept(noexcept_call);
+using invoke_fn_t = ResultT (*)(void*, Args...) noexcept(is_noexcept);
 using lifespan_fn_t = size_t (*)(void*, destination_spec*);
 struct thunk_pair { invoke_fn_t invoke; lifespan_fn_t lifespan; };
 ```
@@ -202,7 +202,7 @@ flowchart LR
 ```
 
 `operator()` is one deducing-this member. `Self` carries the calling
-wrapper's constness and value category, and `callable_through_v<Self>`
+wrapper's constness and value category, and `is_callable_through<Self>`
 admits exactly what the signature permits (a `const` wrapper needs a
 `const` signature, an `&&` signature refuses an lvalue wrapper, and so
 on). It then passes the buffer's address, cast to non-const, to `invoke`.
@@ -340,15 +340,15 @@ serves four requests, distinguished by which arguments are null:
 | ------ | ------ | ---------- | -------------------------------------------------- | ------------------------------------------- |
 | null   | any    |            | size query                                         | stored size: `sizeof(F)`, or 0 for `direct` |
 | set    | null   |            | destroy (and free the block when `dynamic`)        | stored size                                 |
-| set    | set    | null       | probe: would a relocation into `dest` be accepted? | stored size, or `refused`                   |
-| set    | set    | set        | relocate into `dest->to`, writing `dest->dispatch` | stored size, or `refused`                   |
+| set    | set    | null       | probe: would a relocation into `dest` be accepted? | stored size, or `refusal`                   |
+| set    | set    | set        | relocate into `dest->to`, writing `dest->dispatch` | stored size, or `refusal`                   |
 
 `destination_spec` describes the receiving wrapper: its `policy` (whose
 storage members decide inline, heap, or neither), the address of its thunk
 pair (`dispatch`, a passive output), and its buffer (`to`, null for a
 probe).
 
-`refused` is `size_t(-1)`, kept off 0 so that a size of 0 remains a
+`refusal` is `size_t(-1)`, kept off 0 so that a size of 0 remains a
 legitimate answer. Only `inline_only` destinations can refuse; every other
 policy has the heap to fall back on.
 
@@ -362,7 +362,7 @@ flowchart TD
     dir -->|yes| pair["relocate: write dest.dispatch; probe: nothing. return 0"]
     dir -->|no| fit["fits_inline: can_store_inline under dest.policy. may_heap: dest.policy is not inline_only"]
     fit --> ref{neither fits_inline nor may_heap?}
-    ref -->|yes| r["return refused"]
+    ref -->|yes| r["return refusal"]
     ref -->|no| probe{dest.to null?}
     probe -->|yes| ok["return sizeof(F)"]
     probe -->|no| src{source mode}
@@ -464,13 +464,13 @@ three qualifier enums `const_qualifier`, `ref_qualifier`, and
 
 - `qualified_target_t<F>`: how the target is invoked (`F cv&`, or
   `F cv&&` under `&&`).
-- `invocable_v<F>`: the construction constraint, `is_invocable_r_v` on
+- `is_invocable<F>`: the construction constraint, `is_invocable_r_v` on
   `qualified_target_t<F>`, or the nothrow variant under a `noexcept`
   signature. This is what makes the `noexcept` call operator sound: only
   nothrow-invocable callables get in.
-- `noexcept_call`: whether `invoke_fn_t` and `operator()` are `noexcept`.
+- `is_noexcept`: whether `invoke_fn_t` and `operator()` are `noexcept`.
 
-And `flexi_function` adds `callable_through_v<Self>`, the constraint on
+And `flexi_function` adds `is_callable_through<Self>`, the constraint on
 the deducing-this `operator()` that selects which wrappers may call.
 
 A wrapped `std::move_only_function` is checked the same way as any other

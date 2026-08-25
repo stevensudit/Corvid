@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "invocable_policy.h"
+#include "traits.h"
 
 namespace corvid { inline namespace meta {
 
@@ -49,36 +50,38 @@ namespace corvid { inline namespace meta {
 template<class R>
 struct empty_call_traits {
   // Whether `R` can be value-initialized, or is `void`.
-  static constexpr bool silenceable =
+  static constexpr bool is_silenceable =
       (std::is_void_v<R> || std::is_default_constructible_v<R>);
 
   // Whether that value-initialization cannot throw; a subset of
-  // `silenceable`.
-  static constexpr bool nothrow_silenceable =
+  // `is_silenceable`.
+  static constexpr bool is_nothrow_silenceable =
       (std::is_void_v<R> || std::is_nothrow_default_constructible_v<R>);
 
   // Whether `invoke<Behavior>` cannot throw.
   template<on_empty Behavior>
-  static constexpr bool nothrow_v =
+  static constexpr bool is_nothrow =
       (Behavior == on_empty::terminate) ||
-      ((Behavior == on_empty::silent) && nothrow_silenceable);
+      ((Behavior == on_empty::silent) && is_nothrow_silenceable);
 
-  // `admits`: whether the call can take `behavior` exactly, given whether it
-  // is `noexcept`.
-  static consteval bool admits(on_empty behavior, bool is_noexcept) noexcept {
+  // `admits`: whether the call can take `behavior` exactly, given its
+  // `noexcept` specifier `noex`.
+  static consteval bool
+  admits(on_empty behavior, noexcept_spec noex) noexcept {
+    const bool may_throw = (noex == noexcept_spec::none);
     if (behavior == on_empty::silent)
-      return silenceable && (!is_noexcept || nothrow_silenceable);
-    if (behavior == on_empty::raise) return !is_noexcept;
+      return is_silenceable && (may_throw || is_nothrow_silenceable);
+    if (behavior == on_empty::raise) return may_throw;
     return true;
   }
 
   // `resolve_floor`: the mildest behavior at or above `floor` that the call
   // admits, `terminate` being the ceiling.
   static consteval on_empty
-  resolve_floor(on_empty floor, bool is_noexcept) noexcept {
-    if ((floor == on_empty::silent) && admits(on_empty::silent, is_noexcept))
+  resolve_floor(on_empty floor, noexcept_spec noex) noexcept {
+    if ((floor == on_empty::silent) && admits(on_empty::silent, noex))
       return on_empty::silent;
-    if ((floor != on_empty::terminate) && admits(on_empty::raise, is_noexcept))
+    if ((floor != on_empty::terminate) && admits(on_empty::raise, noex))
       return on_empty::raise;
     return on_empty::terminate;
   }
@@ -88,7 +91,7 @@ struct empty_call_traits {
   //
   // The caller has already established that `Behavior` is admitted.
   template<on_empty Behavior>
-  static R invoke() noexcept(nothrow_v<Behavior>) {
+  static R invoke() noexcept(is_nothrow<Behavior>) {
     if constexpr (Behavior == on_empty::silent) {
       if constexpr (std::is_void_v<R>)
         return;
