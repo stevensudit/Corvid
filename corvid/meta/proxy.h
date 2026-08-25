@@ -28,6 +28,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "bool_enums.h"
 #include "crossplatform.h"
 #include "fixed_string.h"
 #include "invocable_common.h"
@@ -131,6 +132,20 @@ using policy_details::adopt_may_throw;
 using policy_details::can_store_inline;
 using policy_details::inline_fit_guaranteed;
 using policy_details::inline_eligible;
+
+// `storage_mode`: where a `proxy` under policy `p` keeps a `T`: `inlined`
+// when the policy can store it inline, else `dynamic`.
+//
+// Never `direct`. A `proxy` table always resolves a target address, so a
+// target with no per-instance state (see `direct_eligible`) is stored like
+// any other, and the policy's direct eligibility is not consulted; whether
+// it should be is an open item in roadmap.md.
+template<typename T>
+consteval allocation_mode storage_mode(invocable_policy p) noexcept {
+  return can_store_inline<T>(p)
+             ? allocation_mode::inlined
+             : allocation_mode::dynamic;
+}
 
 // `name_is_unqualified`: whether `s` avoids the `"::"` separator, which
 // qualified keys reserve for splitting the facade name from the method name.
@@ -880,8 +895,9 @@ constexpr inline vtbuild_t<F>::vtable_t vtable_for =
 // `owning_vtable_for`: per-(facade, born facade, type, storage mode) owning
 // dispatch table instance, for `proxy`.
 //
-// `Sbo` marks a table whose target is stored inline; whether it is depends on
-// the constructing handle's policy as well as on `T`.
+// `Mode` is where the target lives, `allocation_mode::inlined` or
+// `allocation_mode::dynamic`, decided by the constructing handle's policy as
+// well as by `T`.
 //
 // `Born` is the facade the target was constructed as. Every pointer a table
 // embeds (the direct-base tables, the other-mode sibling, the birth
@@ -895,9 +911,9 @@ constexpr inline vtbuild_t<F>::vtable_t vtable_for =
 // The type is spelled explicitly, not deduced: the two modes' tables
 // reference each other by address, which is fine for initialization but
 // would make `auto` deduction circular.
-template<Facade F, Facade Born, typename T, bool Sbo>
+template<Facade F, Facade Born, typename T, allocation_mode Mode>
 constexpr inline vtbuild_t<F>::owning_vtable_t owning_vtable_for =
-    vtbuild_t<F>::template make_owning_vtable<F, Born, T, Sbo>();
+    vtbuild_t<F>::template make_owning_vtable<F, Born, T, Mode>();
 
 // `empty_vtable_for`, `empty_owning_vtable_for`: per-(facade, empty floor)
 // tables for a handle holding no target.
@@ -970,33 +986,33 @@ find_downcast_table(const typename vtbuild_t<F>::vtable_t* vt) noexcept
 }
 
 // `make_ancestor_table`: build the ancestor table for a target born as (Born,
-// T, Sbo).
+// T, Mode).
 //
 // Contains `Born` itself first, then every facade it extends, all keyed by the
 // same birth. The tuple pointer parameter carries
 // `vtbuild_t<Born>::ancestors_t` in deducible position.
-template<Facade Born, typename T, bool Sbo, Facade... As>
+template<Facade Born, typename T, allocation_mode Mode, Facade... As>
 consteval std::array<ancestor_entry, 1 + sizeof...(As)>
 make_ancestor_table(std::tuple<As...>*) noexcept {
-  return {{{&facade_tag_v<Born>, &owning_vtable_for<Born, Born, T, Sbo>},
-      {&facade_tag_v<As>, &owning_vtable_for<As, Born, T, Sbo>}...}};
+  return {{{&facade_tag_v<Born>, &owning_vtable_for<Born, Born, T, Mode>},
+      {&facade_tag_v<As>, &owning_vtable_for<As, Born, T, Mode>}...}};
 }
 
-template<Facade Born, typename T, bool Sbo>
-constexpr inline auto ancestor_table_for = make_ancestor_table<Born, T, Sbo>(
+template<Facade Born, typename T, allocation_mode Mode>
+constexpr inline auto ancestor_table_for = make_ancestor_table<Born, T, Mode>(
     static_cast<vtbuild_t<Born>::ancestors_t*>(nullptr));
 
-// `ancestry_for`: the birth ancestry for a target born as (Born, T, Sbo), the
+// `ancestry_for`: the birth ancestry for a target born as (Born, T, Mode), the
 // object every owning table of that born family points at.
 //
 // Each storage mode has its own ancestry, whose entries are that mode's
 // tables; a mode-changing adoption switches the proxy to the table's
 // other-mode sibling, which carries the other mode's ancestry, so the tables
 // an ancestry hands out always match the target's current home.
-template<Facade Born, typename T, bool Sbo>
+template<Facade Born, typename T, allocation_mode Mode>
 constexpr inline ancestry_t ancestry_for{
-    ancestor_table_for<Born, T, Sbo>.data(),
-    ancestor_table_for<Born, T, Sbo>.size()};
+    ancestor_table_for<Born, T, Mode>.data(),
+    ancestor_table_for<Born, T, Mode>.size()};
 
 // `make_view_ancestor_table`: build the view-table ancestor table for a
 // target born as (Born, T), mirroring `make_ancestor_table`.
@@ -1501,9 +1517,10 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `candidates`: per-slot flags over the whole list, marking the slots that
   // answer to `Key` (const-qualified only, when dispatching through a const
   // handle).
-  template<fixed_string Key, bool ConstOnly>
+  template<fixed_string Key, access_mode Access>
   static consteval std::array<bool, count_v> candidates() noexcept {
-    return {(slot_matches<Ss, Key>() && (!ConstOnly || Ss::is_const))...};
+    return {(slot_matches<Ss, Key>() &&
+             ((Access == access_mode::as_mutable) || Ss::is_const))...};
   }
 
   // `exact_flags`, `viable_flags`: per-slot flags over the whole list, marking
@@ -1554,15 +1571,15 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   //
   // This is C++ overload resolution's object-parameter preference, applied
   // as a tiebreak for `resolve_exact`, whose exact-match filter cannot see
-  // the object parameter: through a mutable call (`ConstOnly` false), a
+  // the object parameter: through a mutable call (`Access` is `as_mutable`), a
   // const pair resolves to its non-const member, as a call on a non-const
   // object would. `resolve` needs no such tiebreak, because the compiler
   // weighs the object parameter itself during ranking.
-  template<bool ConstOnly>
+  template<access_mode Access>
   static consteval std::pair<size_t, size_t>
   tally_preferring_nonconst(const std::array<bool, count_v>& flags) noexcept {
     const auto whole = tally(flags);
-    if constexpr (!ConstOnly) {
+    if constexpr (Access == access_mode::as_mutable) {
       if (whole.first > 1) {
         const auto preferred = tally(both(flags, nonconst_flags()));
         if (preferred.first == 1) return preferred;
@@ -1576,10 +1593,10 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // The set spans the whole slot list positionally; a non-candidate slot
   // contributes a `rank_poison` overload no call can select, so the winning
   // index needs no translation.
-  template<fixed_string Key, bool ConstOnly, size_t... Ndx>
+  template<fixed_string Key, access_mode Access, size_t... Ndx>
   static consteval auto make_rank_set(std::index_sequence<Ndx...>) noexcept {
     return std::type_identity<
-        rank_set<std::conditional_t<candidates<Key, ConstOnly>()[Ndx],
+        rank_set<std::conditional_t<candidates<Key, Access>()[Ndx],
             rank_probe<Ndx, slot_t<Ndx>::method_t::const_qualifier,
                 typename slot_t<Ndx>::method_t::args_t>,
             rank_probe<Ndx, const_qual::none, std::tuple<rank_poison>>>...>>{};
@@ -1591,8 +1608,8 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // An unqualified key with a single candidate resolves to it
   // unconditionally, so a call with unsuitable arguments still fails
   // directly at the thunk; a qualified key narrows the candidates to one
-  // facade's before the same rules run. `ConstOnly` restricts the
-  // candidates to const-qualified methods, for dispatch through const
+  // facade's before the same rules run. An `Access` of `as_const` restricts
+  // the candidates to const-qualified methods, for dispatch through const
   // handles.
   //
   // A key over an overload set (per-name overloads within a facade, or a
@@ -1605,14 +1622,15 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // included. An ill-formed ranking call is classified by per-slot
   // viability: some viable candidate means the call is ambiguous, none
   // means nothing matched.
-  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, access_mode Access, typename... CallArgs>
   static consteval size_t resolve() noexcept {
-    constexpr auto cand = candidates<Key, ConstOnly>();
+    constexpr auto cand = candidates<Key, Access>();
     const auto [cnt, at] = tally(cand);
     if (cnt < 2) return cnt ? at : none_v;
-    using set_t = decltype(make_rank_set<Key, ConstOnly>(
+    using set_t = decltype(make_rank_set<Key, Access>(
         std::make_index_sequence<count_v>{}))::type;
-    using probe_t = std::conditional_t<ConstOnly, const set_t, set_t>;
+    using probe_t = std::conditional_t<(Access == access_mode::as_const),
+        const set_t, set_t>;
     // cl C4244: narrowing here is the ranked overload's own argument
     // conversion, chosen by design.
     PRAGMA_DIAG(push)
@@ -1635,10 +1653,10 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // This is the validation probe's strictness: a merely-viable signature does
   // not count. The tiebreak is what lets the probe's mutable strict call
   // single out the non-const member of a const pair.
-  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, access_mode Access, typename... CallArgs>
   static consteval size_t resolve_exact() noexcept {
-    const auto [cnt, at] = tally_preferring_nonconst<ConstOnly>(
-        both(candidates<Key, ConstOnly>(), exact_flags<CallArgs...>()));
+    const auto [cnt, at] = tally_preferring_nonconst<Access>(
+        both(candidates<Key, Access>(), exact_flags<CallArgs...>()));
     if (cnt == 1) return at;
     return cnt ? ambiguous_v : none_v;
   }
@@ -1662,10 +1680,10 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // dispatcher may be `noexcept` only when those conversions cannot throw.
   //
   // False when the call does not resolve.
-  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, access_mode Access, typename... CallArgs>
   static consteval bool is_noexcept() noexcept {
     constexpr std::array<bool, count_v> flags{Ss::is_noexcept...};
-    constexpr auto ndx = resolve<Key, ConstOnly, CallArgs...>();
+    constexpr auto ndx = resolve<Key, Access, CallArgs...>();
     if constexpr (ndx < count_v)
       return flags[ndx] &&
              nothrow_args_v<typename slot_t<ndx>::method_t::args_t,
@@ -1679,9 +1697,9 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   //
   // The permissive fallback keeps return-type substitution in the `api_probe`
   // from hard-erroring before its constraint can reject the key.
-  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, access_mode Access, typename... CallArgs>
   static consteval auto do_result_of() noexcept {
-    constexpr auto ndx = resolve_exact<Key, ConstOnly, CallArgs...>();
+    constexpr auto ndx = resolve_exact<Key, Access, CallArgs...>();
     if constexpr (ndx < count_v) {
       using s_t = std::tuple_element_t<ndx, std::tuple<Ss...>>;
       return std::type_identity<typename s_t::result_t>{};
@@ -1692,17 +1710,16 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
 
   // `result_of_t`: declared result type of the exact-match candidate for
   // `Key`, or `void` when there is none.
-  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
-  using result_of_t =
-      decltype(do_result_of<Key, ConstOnly, CallArgs...>())::type;
+  template<fixed_string Key, access_mode Access, typename... CallArgs>
+  using result_of_t = decltype(do_result_of<Key, Access, CallArgs...>())::type;
 
   // `exact_args`: whether `Args` match the declared parameters of exactly one
   // candidate for `Key`, after normalization, rather than by convertibility.
   //
   // False for an unknown key. This is the `api_probe`'s constraint.
-  template<fixed_string Key, bool ConstOnly, typename... Args>
+  template<fixed_string Key, access_mode Access, typename... Args>
   static consteval bool exact_args() noexcept {
-    return resolve_exact<Key, ConstOnly, Args...>() < count_v;
+    return resolve_exact<Key, Access, Args...>() < count_v;
   }
 };
 
@@ -1820,14 +1837,14 @@ struct vtable_builder<facade<Es...>>
   // mid-instantiation, which a deduced return type cannot survive. A member
   // is unique per (facade, born, type, mode) and so is only ever entered
   // once.
-  template<typename Born, typename T, bool Sbo, typename... Bs2>
+  template<typename Born, typename T, allocation_mode Mode, typename... Bs2>
   static consteval owning_bases_t
   make_owning_bases(std::tuple<Bs2...>*) noexcept {
-    return {&owning_vtable_for<Bs2, Born, T, Sbo>...};
+    return {&owning_vtable_for<Bs2, Born, T, Mode>...};
   }
 
   // `make_owning_vtable`: build the owning table for target `T` born as facade
-  // `Born`, stored inline (`Sbo`) or on the heap.
+  // `Born`, stored `inlined` or `dynamic` per `Mode`.
   //
   // The mode is decided at proxy construction from the handle's policy, so it
   // is part of the table's identity rather than a property of the type alone;
@@ -1839,24 +1856,28 @@ struct vtable_builder<facade<Es...>>
   // it is mid-instantiation from here, the same diamond hazard as
   // `make_owning_bases`. Reading the completed variable keeps `make_vtable`
   // entered from exactly one place, its own `vtable_for`.
-  template<typename F, typename Born, typename T, bool Sbo>
+  template<typename F, typename Born, typename T, allocation_mode Mode>
   static consteval owning_vtable_t make_owning_vtable() noexcept {
     owning_vtable_t ovt{vtable_for<F, T, Born>, nullptr, nullptr, nullptr,
         nullptr, nullptr, &type_tag_v<T>, nullptr, nullptr, sizeof(T),
-        alignof(T), &ancestry_for<Born, T, Sbo>,
-        make_owning_bases<Born, T, Sbo>(
+        alignof(T), &ancestry_for<Born, T, Mode>,
+        make_owning_bases<Born, T, Mode>(
             static_cast<bases_of_t<Es...>*>(nullptr))};
-    if constexpr (Sbo) {
+    static_assert(Mode != allocation_mode::direct,
+        "a proxy table is inlined or dynamic; see storage_mode");
+    if constexpr (Mode == allocation_mode::inlined) {
       ovt.destroy = &sbo_destroy<T>;
       ovt.relocate = &sbo_relocate<T>;
       ovt.to_heap = &sbo_to_heap<T>;
-      ovt.heap_table = &owning_vtable_for<F, Born, T, false>;
+      ovt.heap_table =
+          &owning_vtable_for<F, Born, T, allocation_mode::dynamic>;
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &sbo_copy<T>;
     } else {
       ovt.destroy = &heap_destroy<T>;
       if constexpr (std::is_nothrow_move_constructible_v<T>) {
         ovt.to_sbo = &heap_to_sbo<T>;
-        ovt.sbo_table = &owning_vtable_for<F, Born, T, true>;
+        ovt.sbo_table =
+            &owning_vtable_for<F, Born, T, allocation_mode::inlined>;
       }
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &heap_copy<T>;
     }
@@ -1950,16 +1971,15 @@ upcast_owning_vtable(const typename vtbuild_t<D>::owning_vtable_t* vt) noexcept
 // `dispatch`: shared body of every handle's `call`.
 //
 // Resolves `Key` against facade `F`'s slot list, surfaces the user-facing
-// errors, and invokes the thunk on the erased target. `ConstOnly` marks
-// dispatch through a const handle.
-template<Facade F, bool ConstOnly, fixed_string Key, typename ErasedPtr,
+// errors, and invokes the thunk on the erased target. `Access` is the
+// calling handle's access mode.
+template<Facade F, access_mode Access, fixed_string Key, typename ErasedPtr,
     typename... Args>
 constexpr decltype(auto)
 dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
-    Args&&... args) noexcept(vtbuild_t<F>::template is_noexcept<Key, ConstOnly,
+    Args&&... args) noexcept(vtbuild_t<F>::template is_noexcept<Key, Access,
     Args...>()) {
-  constexpr auto ndx =
-      vtbuild_t<F>::template resolve<Key, ConstOnly, Args...>();
+  constexpr auto ndx = vtbuild_t<F>::template resolve<Key, Access, Args...>();
   static_assert(ndx != vtbuild_t<F>::none_v, "no matching signature");
   static_assert(ndx != vtbuild_t<F>::ambiguous_v,
       "ambiguous method call; qualify the key with the facade name, or match "
@@ -2135,19 +2155,20 @@ using strict_return_t = std::conditional_t<std::is_void_v<R>, void,
 template<Facade F>
 struct api_probe: api_base_t<F> {
   template<fixed_string Key, typename... Args>
-  requires(vtbuild_t<F>::template exact_args<Key, false, Args...>())
-  strict_return_t<
-      typename vtbuild_t<F>::template result_of_t<Key, false, Args...>>
+  requires(vtbuild_t<F>::template exact_args<Key, access_mode::as_mutable,
+      Args...>())
+  strict_return_t<typename vtbuild_t<F>::template result_of_t<Key,
+      access_mode::as_mutable, Args...>>
   call(Args&&...) {
     std::terminate();
   }
 
   template<fixed_string Key, typename... Args>
-  requires(vtbuild_t<F>::template exact_args<Key, true, Args...>())
+  requires(
+      vtbuild_t<F>::template exact_args<Key, access_mode::as_const, Args...>())
   // NOLINTNEXTLINE(modernize-use-nodiscard): mirrors `call`, never executed.
-  strict_return_t<
-      typename vtbuild_t<F>::template result_of_t<Key, true, Args...>>
-  call(Args&&...) const {
+  strict_return_t<typename vtbuild_t<F>::template result_of_t<Key,
+      access_mode::as_const, Args...>> call(Args&&...) const {
     std::terminate();
   }
 };
@@ -2258,7 +2279,7 @@ namespace details {
 //
 // This is also where the views pick up the facade's `api` base, keeping each
 // view a single-inheritance chain.
-template<Facade F, bool Const>
+template<Facade F, access_mode Access>
 class view_base: public api_base_t<F> {
 public:
   using facade_t = F;
@@ -2273,9 +2294,10 @@ public:
   template<fixed_string Key, typename... Args>
   requires(vtbuild_t<F>::template is_const<Key>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
-  constexpr decltype(auto) call(Args&&... args) const
-      noexcept(vtbuild_t<F>::template is_noexcept<Key, true, Args...>()) {
-    return dispatch<F, true, Key>(vtable_->thunks, target_,
+  constexpr decltype(auto)
+  call(Args&&... args) const noexcept(vtbuild_t<F>::template is_noexcept<Key,
+      access_mode::as_const, Args...>()) {
+    return dispatch<F, access_mode::as_const, Key>(vtable_->thunks, target_,
         std::forward<Args>(args)...);
   }
 
@@ -2290,7 +2312,8 @@ public:
 
 protected:
   using vtable_t = vtbuild_t<F>::vtable_t;
-  using target_ptr_t = std::conditional_t<Const, const void*, void*>;
+  using target_ptr_t = std::conditional_t<(Access == access_mode::as_const),
+      const void*, void*>;
 
   constexpr view_base() noexcept = default;
   constexpr view_base(target_ptr_t target, const vtable_t* vtable) noexcept
@@ -2344,8 +2367,8 @@ protected:
 // When the facade defines a nested `api`, the view inherits it, so the
 // member-call sugar forwarders dispatch alongside `call`.
 template<Facade F>
-class proxy_view: public details::view_base<F, false> {
-  using base = details::view_base<F, false>;
+class proxy_view: public details::view_base<F, access_mode::as_mutable> {
+  using base = details::view_base<F, access_mode::as_mutable>;
   using vtbuild_t = details::vtbuild_t<F>;
 
 public:
@@ -2413,10 +2436,11 @@ public:
   // re-exposed by the using-declaration, is constrained to const-qualified
   // methods, mirroring the owning `proxy`'s deep const.
   template<fixed_string Key, typename... Args>
-  constexpr decltype(auto) call(Args&&... args) noexcept(
-      vtbuild_t::template is_noexcept<Key, false, Args...>()) {
-    return details::dispatch<F, false, Key>(this->vtable_->thunks,
-        this->target_, std::forward<Args>(args)...);
+  constexpr decltype(auto)
+  call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<Key,
+      access_mode::as_mutable, Args...>()) {
+    return details::dispatch<F, access_mode::as_mutable, Key>(
+        this->vtable_->thunks, this->target_, std::forward<Args>(args)...);
   }
 
   using base::call;
@@ -2500,8 +2524,8 @@ struct proxy_impl<F, proxy_view<D>> {
 // forwarders are callable; a mutable forwarder fails inside its `call` if
 // used.
 template<Facade F>
-class const_proxy_view: public details::view_base<F, true> {
-  using base = details::view_base<F, true>;
+class const_proxy_view: public details::view_base<F, access_mode::as_const> {
+  using base = details::view_base<F, access_mode::as_const>;
 
 public:
   // `const_proxy_view`: an empty view holds no target; see the class comment.
@@ -2747,7 +2771,7 @@ public:
   requires(Proxiable<T, F> && std::constructible_from<T, Args...>)
   explicit proxy(std::in_place_type_t<T>, Args&&... args)
       : vtable_{&details::owning_vtable_for<F, F, T,
-            details::can_store_inline<T>(Policy)>} {
+            details::storage_mode<T>(Policy)>} {
     static_assert(Policy.alloc != invocable_alloc::inline_only ||
                       details::inline_eligible<T>(Policy),
         "the target is not eligible for an inline_only proxy's inline buffer");
@@ -2783,10 +2807,10 @@ public:
           "the target is not eligible for an inline_only proxy's inline "
           "buffer");
       ::new (static_cast<void*>(storage_.buf)) T(std::move(*target));
-      vtable_ = &details::owning_vtable_for<F, F, T, true>;
+      vtable_ = &details::owning_vtable_for<F, F, T, allocation_mode::inlined>;
     } else {
       storage_.ptr = target.release();
-      vtable_ = &details::owning_vtable_for<F, F, T, false>;
+      vtable_ = &details::owning_vtable_for<F, F, T, allocation_mode::dynamic>;
     }
   }
 
@@ -2838,19 +2862,20 @@ public:
   // to the facade method rather than the dispatcher (the `std::invoke`
   // precedent).
   template<fixed_string Key, typename... Args>
-  decltype(auto) call(Args&&... args) noexcept(
-      vtbuild_t::template is_noexcept<Key, false, Args...>()) {
-    return details::dispatch<F, false, Key>(vtable_->vt.thunks, target(),
-        std::forward<Args>(args)...);
+  decltype(auto)
+  call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<Key,
+      access_mode::as_mutable, Args...>()) {
+    return details::dispatch<F, access_mode::as_mutable, Key>(
+        vtable_->vt.thunks, target(), std::forward<Args>(args)...);
   }
 
   template<fixed_string Key, typename... Args>
   requires(details::vtbuild_t<F>::template is_const<Key>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
-  decltype(auto) call(Args&&... args) const
-      noexcept(vtbuild_t::template is_noexcept<Key, true, Args...>()) {
-    return details::dispatch<F, true, Key>(vtable_->vt.thunks, target(),
-        std::forward<Args>(args)...);
+  decltype(auto) call(Args&&... args) const noexcept(
+      vtbuild_t::template is_noexcept<Key, access_mode::as_const, Args...>()) {
+    return details::dispatch<F, access_mode::as_const, Key>(vtable_->vt.thunks,
+        target(), std::forward<Args>(args)...);
   }
 
   // `operator bool`: an empty proxy (default-constructed or moved-from) holds
@@ -3334,19 +3359,20 @@ public:
   // erased signature; the same dispatch as the other handles, deep const
   // included.
   template<fixed_string Key, typename... Args>
-  decltype(auto) call(Args&&... args) noexcept(
-      vtbuild_t::template is_noexcept<Key, false, Args...>()) {
-    return details::dispatch<F, false, Key>(vtable_->thunks, target(),
-        std::forward<Args>(args)...);
+  decltype(auto)
+  call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<Key,
+      access_mode::as_mutable, Args...>()) {
+    return details::dispatch<F, access_mode::as_mutable, Key>(vtable_->thunks,
+        target(), std::forward<Args>(args)...);
   }
 
   template<fixed_string Key, typename... Args>
   requires(details::vtbuild_t<F>::template is_const<Key>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
-  decltype(auto) call(Args&&... args) const
-      noexcept(vtbuild_t::template is_noexcept<Key, true, Args...>()) {
-    return details::dispatch<F, true, Key>(vtable_->thunks, target(),
-        std::forward<Args>(args)...);
+  decltype(auto) call(Args&&... args) const noexcept(
+      vtbuild_t::template is_noexcept<Key, access_mode::as_const, Args...>()) {
+    return details::dispatch<F, access_mode::as_const, Key>(vtable_->thunks,
+        target(), std::forward<Args>(args)...);
   }
 
   // `operator bool`: an empty handle (default-constructed or moved-from) holds

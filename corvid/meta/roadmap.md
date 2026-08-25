@@ -22,20 +22,19 @@ The pending `proxy` changes, in the order to land them:
   a test that pins it.
 - `reset()` and `nullptr` assignment, for parity with `flexi_function`.
   Both empty the proxy and reinstall its type's empty table.
-- Replace the `bool Sbo` template parameters on the owning-table machinery
-  (`owning_vtable_for`, `make_owning_vtable`, `make_ancestor_table`,
-  `ancestor_table_for`, `ancestry_for`) with `allocation_mode`, the same
-  cure applied to `flexi_function`'s `UseHeap`: a bare `bool` at a call site
-  says nothing.
 - Vocabulary sweep in `proxy.h` / `proxy.md`. The internal table identifiers
   (`to_sbo`, `sbo_table`, `sbo_to_heap`, `heap_to_sbo`) still say "sbo", and
   the prose still says "re-boxed" for an inline-to-heap move, which falsely
   implies the target was boxed before. The shared policy vocabulary has
   already moved to inline_size / inline_align / inline_only / inline_or_heap
   and the wrapper says "boxed"; the internals should follow.
-- Honor, or explicitly document as ignored, `allocation_mode::direct` (a
-  direct-eligible target stored nowhere), which landed with the direct-call
-  work below and which `proxy` does not yet use.
+- Two open questions, neither blocking. Whether `proxy` could or should
+  honor `allocation_mode::direct` (a direct-eligible target stored
+  nowhere): today `details::storage_mode` is the one place proxy chooses a
+  mode, and it documents `direct` as not consulted, since a proxy table
+  always resolves a target address. And whether a method signature could
+  carry a reference qualifier, as `flexi_function`'s now may; `method`
+  refuses one with a `static_assert`.
 - Once the above lands, both types share the same empty-call, handover, and
   vocabulary contracts, and the proxy.md storage-policy section can point at
   `invocable_policy.h` as the single description.
@@ -71,11 +70,15 @@ answers had been written twice. The shared parts now live in
   `empty_call_traits`; `is_noexcept`, `is_invocable<F>`,
   `is_callable_through<Self>` on `flexi_thunks`). The `_v` suffix stays on
   namespace-scope variable templates that mirror std. A non-bool sentinel
-  gets a noun: `flexi_thunks::refusal`. Still to convert, in the sweep:
-  proxy.h's `_v` class members, `policy_details::direct_eligible` and
-  `inline_eligible` (to `is_` names), the calling-context `ConstOnly` and
-  `view_base` flags (to `access_mode`), and `bool Sbo` (to
-  `allocation_mode`, bundled with documenting `direct` as ignored).
+  gets a noun: `flexi_thunks::refusal`. Landed since:
+  `ConstOnly` and `view_base`'s flag are `access_mode` (a handle declares
+  how it accesses, a different fact from a qualifier found on a signature,
+  and the enum keeps the two apart), and the owning-table builders take
+  `allocation_mode` in place of `bool Sbo`, with `details::storage_mode` the
+  one place proxy chooses a mode. Still to convert, in the sweep: proxy.h's
+  `_v` class members, the bool predicates lacking an `is_` (listed in
+  review), and `policy_details::direct_eligible` and `inline_eligible` (to
+  `is_` names).
 
 Next is a pass over `proxy.h` and `flexi_function.h` for further overlap,
 factoring only where the two coincide. The proxy handles also vary among

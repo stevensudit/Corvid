@@ -1197,6 +1197,19 @@ static_assert(prox::method<"fire", int(int) noexcept>::is_noexcept);
 static_assert(prox::method<"jams", bool() const noexcept>::is_const);
 static_assert(prox::method<"jams", bool() const noexcept>::is_noexcept);
 
+// A direct-eligible target is stored like any other: proxy has no direct
+// mode, so its policy's direct eligibility is not consulted.
+namespace {
+struct stateless_target {};
+} // namespace
+static_assert(policy_details::direct_eligible<stateless_target>());
+static_assert(
+    prox::details::storage_mode<stateless_target>(invocable_policy::basic) ==
+    allocation_mode::inlined);
+static_assert(
+    prox::details::storage_mode<stateless_target>(invocable_policy::heap) ==
+    allocation_mode::dynamic);
+
 // Noexcept conformance: the binding itself must be noexcept.
 static_assert(Proxiable<lawman, hair_trigger>);
 static_assert(!Proxiable<robber, hair_trigger>);
