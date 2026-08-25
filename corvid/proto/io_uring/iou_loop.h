@@ -160,13 +160,13 @@ concept AnyCompletionInvocable =
 
 // Callback scheduled via `post` to run on the loop thread. These are used to
 // force single-threading of ring access.
-using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
+using posted_fn = fixed_function<bool(), default_fixed_function::capacity>;
 
 // Callback for entries registered with the loop's `timeouts` sweeper.
 // Sized for the typical idle-timeout capture: one `std::weak_ptr` on top of
 // the `fixed_function` invoke/manage overhead.
-using expiration_fn = fixed_function<32,
-    steady_now_clock::time_point_t(steady_now_clock::time_point_t)>;
+using expiration_fn = fixed_function<
+    steady_now_clock::time_point_t(steady_now_clock::time_point_t), 32>;
 
 #pragma endregion
 #pragma region iou_loop
@@ -251,8 +251,9 @@ public:
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
-  using completion_fn = fixed_function<default_fixed_function::capacity,
-      slot_retention(completion_id, iou_res, iou_cqe_flags)>;
+  using completion_fn =
+      fixed_function<slot_retention(completion_id, iou_res, iou_cqe_flags),
+          default_fixed_function::capacity>;
 
   // Completion callback for operations using a `buffer`, which includes the
   // `iou_res` and `iou_cqe_flags`. If the `buffer` is not moved from during
@@ -260,22 +261,24 @@ public:
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
-  using buf_completion_fn = fixed_function<default_fixed_function::capacity,
-      slot_retention(completion_id, buffer&)>;
+  using buf_completion_fn =
+      fixed_function<slot_retention(completion_id, buffer&),
+          default_fixed_function::capacity>;
 
   // Completion callback for operations that return an endpoint, like `accept`.
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
   using endpoint_completion_fn =
-      fixed_function<default_fixed_function::capacity,
-          slot_retention(completion_id, iou_res, iou_cqe_flags,
-              combined_endpoint&)>;
+      fixed_function<slot_retention(completion_id, iou_res, iou_cqe_flags,
+                         combined_endpoint&),
+          default_fixed_function::capacity>;
 
   // Completion callback for operations that return a `msghdr`, like
   // `recvmsg_multishot`.
-  using msghdr_completion_fn = fixed_function<default_fixed_function::capacity,
-      slot_retention(completion_id, iou_res, iou_cqe_flags, msghdr&)>;
+  using msghdr_completion_fn = fixed_function<
+      slot_retention(completion_id, iou_res, iou_cqe_flags, msghdr&),
+      default_fixed_function::capacity>;
 
 #pragma endregion
 #pragma region Details

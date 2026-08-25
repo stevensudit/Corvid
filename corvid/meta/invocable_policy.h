@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -22,6 +23,7 @@
 #include <utility>
 
 #include "bool_enums.h"
+#include "padding.h"
 
 namespace corvid { inline namespace meta {
 
@@ -141,6 +143,22 @@ enum class allocation_mode : std::uint8_t { direct, inlined, dynamic };
 // registration. Registration is per (facade, type) and knows nothing about
 // any particular proxy's storage. One facade can serve proxies of different
 // policies, and views, simultaneously.
+//
+// A policy is usually spelled fluently, from one of three starting points:
+// `basic` (the default, `inline_or_heap`), `heap` (`heap_only`), and `fixed`
+// (`inline_only`), each with the default buffer. `with` replaces one member
+// by its value's type, `with_alignment` sets the buffer alignment, and
+// `with_size` and `with_storage_size` resize the buffer by the instance size
+// or the buffer size, rounding up to the buffer alignment so no padding is
+// wasted (which means you must set the alignment before the size):
+//
+//   flexi_function<int(), invocable_policy::heap.with(on_empty::silent)>
+//   flexi_function<int(), invocable_policy::fixed.with_size(64)>
+//   flexi_function<int(), invocable_policy::fixed.with_alignment(8)>
+//
+// The sizes assume `flexi_function`'s layout, two thunk pointers ahead of the
+// buffer, which `size` reports for any policy. Designated initializers remain
+// available for anything the fluent forms do not cover.
 struct invocable_policy {
   size_t inline_size = 2 * sizeof(void*);
   size_t inline_align = alignof(std::max_align_t);
@@ -149,7 +167,80 @@ struct invocable_policy {
 
   friend constexpr bool
   operator==(const invocable_policy&, const invocable_policy&) = default;
+
+  // The starting points, defined after the class.
+  static const invocable_policy basic;
+  static const invocable_policy heap;
+  static const invocable_policy fixed;
+
+  // A copy with `empty` replaced.
+  [[nodiscard]] consteval invocable_policy with(on_empty e) const noexcept {
+    auto p = *this;
+    p.empty = e;
+    return p;
+  }
+
+  // A copy whose buffer is aligned to `align`, a power of two, with the
+  // buffer size rounded up to it so the instance stays padding-free.
+  //
+  // Set the alignment before the size: `with_size` pads to whatever
+  // alignment is in force. The policy must have a buffer, enforced at compile
+  // time.
+  [[nodiscard]] consteval invocable_policy with_alignment(
+      size_t align) const noexcept {
+    if (alloc == invocable_alloc::heap_only) needs_a_buffer();
+    if (!std::has_single_bit(align)) must_be_a_power_of_two();
+    auto p = *this;
+    p.inline_align = align;
+    p.inline_size = padded_size(inline_size, align);
+    return p;
+  }
+
+  // A copy whose buffer fills out an instance of `sz` bytes, rounded up to
+  // the buffer alignment.
+  //
+  // `sz` must exceed the two thunk pointers, and the policy must have a
+  // buffer, both enforced at compile time.
+  [[nodiscard]] consteval invocable_policy with_size(
+      size_t sz) const noexcept {
+    if (alloc == invocable_alloc::heap_only) needs_a_buffer();
+    const auto total = padded_size(sz, inline_align);
+    const auto header = padded_size(dispatch_size, inline_align);
+    if (total <= header) must_exceed_two_pointers();
+    auto p = *this;
+    p.inline_size = total - header;
+    return p;
+  }
+
+  // A copy whose buffer holds `sz` bytes, rounded up as `with_size` rounds.
+  [[nodiscard]] consteval invocable_policy with_storage_size(
+      size_t sz) const noexcept {
+    return with_size(sz + padded_size(dispatch_size, inline_align));
+  }
+
+  // The instance size of an owner with this policy: the two thunk pointers
+  // and the buffer, or the heap pointer under `heap_only`.
+  [[nodiscard]] consteval size_t size() const noexcept {
+    if (alloc == invocable_alloc::heap_only)
+      return dispatch_size + sizeof(void*);
+    return padded_size(dispatch_size, inline_align) + inline_size;
+  }
+
+private:
+  static constexpr size_t dispatch_size = 2 * sizeof(void*);
+
+  // Not defined: naming one in a constant expression is how the buffer
+  // members reject their arguments.
+  static void needs_a_buffer();
+  static void must_exceed_two_pointers();
+  static void must_be_a_power_of_two();
 };
+
+inline constexpr invocable_policy invocable_policy::basic{};
+inline constexpr invocable_policy invocable_policy::heap{
+    .alloc = invocable_alloc::heap_only};
+inline constexpr invocable_policy invocable_policy::fixed{
+    .alloc = invocable_alloc::inline_only};
 
 namespace policy_details {
 

@@ -53,7 +53,7 @@ class iou_provided_buf_pool: public buffer_pool_base {
 
 #pragma region Construction
 public:
-  using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
+  using posted_fn = fixed_function<bool(), default_fixed_function::capacity>;
   using dispatcher_t = owner_thread_dispatcher<posted_fn>;
 
   // Public for `std::make_shared`; external callers must go through `create`.

@@ -51,7 +51,7 @@ TEST_CASE("IsLoopThread", "[OwnerThreadDispatcher]") {
 TEST_CASE("OneInstancePerThread", "[OwnerThreadDispatcher]") {
   // The thread is claimed by the dispatcher, not by the callback type, so a
   // second one is refused even when it stores its callbacks differently.
-  using fixed_dispatcher = owner_thread_dispatcher<fixed_function<64, bool()>>;
+  using fixed_dispatcher = owner_thread_dispatcher<fixed_function<bool(), 64>>;
   owner_thread_dispatcher<> dispatcher;
   CHECK_THROWS_AS(owner_thread_dispatcher<>{}, std::logic_error);
   CHECK_THROWS_AS(fixed_dispatcher{}, std::logic_error);

@@ -33,7 +33,7 @@
 
 namespace corvid { inline namespace meta {
 
-//  `flexi_function<Policy, Sig>` is a wrapper for an invocable target.
+//  `flexi_function<Sig, Policy>` is a wrapper for an invocable target.
 //
 //  It is a move-only type-erased callable, like `std::move_only_function` or
 //  `stdext::inplace_function`, whose storage and empty-call behavior follow a
@@ -42,7 +42,7 @@ namespace corvid { inline namespace meta {
 #pragma region Traits
 
 // Fwd.
-template<invocable_policy Policy, class Sig,
+template<class Sig, invocable_policy Policy = invocable_policy::basic,
     class FunctionT = signature_function_t<Sig>>
 class flexi_function;
 
@@ -50,9 +50,9 @@ class flexi_function;
 template<typename T>
 constexpr inline bool is_flexi_function_v = false;
 
-template<invocable_policy Policy, class Sig, class FunctionT>
+template<class Sig, invocable_policy Policy, class FunctionT>
 constexpr inline bool
-    is_flexi_function_v<flexi_function<Policy, Sig, FunctionT>> = true;
+    is_flexi_function_v<flexi_function<Sig, Policy, FunctionT>> = true;
 
 #pragma endregion
 #pragma region fn_details
@@ -267,54 +267,55 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // move: its size is 0, destruction is a no-op, every destination accepts it,
   // and a relocation only writes the thunk pair.
   template<class F, allocation_mode SourceAlloc>
+  requires(SourceAlloc == allocation_mode::direct)
   static size_t lifespan_impl(void* from, destination_spec* dest) {
-    if constexpr (SourceAlloc == allocation_mode::direct) {
-      if (from && dest && dest->to)
-        *dest->dispatch = dispatch_for<F, SourceAlloc>();
-      return 0;
-    } else {
-      if (!from) return sizeof(F);
+    if (from && dest && dest->to)
+      *dest->dispatch = dispatch_for<F, SourceAlloc>();
+    return 0;
+  }
 
-      F* f = stored_fn<F, SourceAlloc>(from);
+  template<class F, allocation_mode SourceAlloc>
+  requires(SourceAlloc != allocation_mode::direct)
+  static size_t lifespan_impl(void* from, destination_spec* dest) {
+    if (!from) return sizeof(F);
 
-      if (!dest) return do_destroy<F, SourceAlloc>(f);
+    F* f = stored_fn<F, SourceAlloc>(from);
 
-      // First decide whether a relocation is allowed.
-      const bool fits_inline =
-          policy_details::can_store_inline<F>(dest->policy);
-      const bool may_heap =
-          (dest->policy.alloc != invocable_alloc::inline_only);
-      if (!fits_inline && !may_heap) return refused;
-      if (!dest->to) return sizeof(F);
+    if (!dest) return do_destroy<F, SourceAlloc>(f);
 
-      if constexpr (SourceAlloc == allocation_mode::dynamic) {
-        // A dynamically-allocated source never moves to a new box. It either
-        // hands its box over or un-boxes into an `inline_only` buffer.
-        if (may_heap) return hand_over<F>(f, dest);
-        if constexpr (std::is_nothrow_move_constructible_v<F>) {
-          // An `inline_only` destination forces un-boxing, and the refusal
-          // check above guaranteed the fit.
-          assert(fits_inline);
-          return move_inlined<F, SourceAlloc>(f, dest);
-        } else {
-          // Unreachable: a throwing-move `F` is never `fits_inline`, while
-          // `may_heap` was consumed above, so the refusal check has already
-          // returned.
-          //
-          // The arm exists because it is the branch the `if constexpr`
-          // instantiates for a throwing-move `F` (whose `move_inlined` would
-          // not compile), and it returns the refusal value so that a future
-          // logic error fails safe instead of reporting a successful
-          // relocation.
-          assert(false);
-          return refused;
-        }
+    // First decide whether a relocation is allowed.
+    const bool fits_inline = policy_details::can_store_inline<F>(dest->policy);
+    const bool may_heap = (dest->policy.alloc != invocable_alloc::inline_only);
+    if (!fits_inline && !may_heap) return refused;
+    if (!dest->to) return sizeof(F);
+
+    if constexpr (SourceAlloc == allocation_mode::dynamic) {
+      // A dynamically-allocated source never moves to a new box. It either
+      // hands its box over or un-boxes into an `inline_only` buffer.
+      if (may_heap) return hand_over<F>(f, dest);
+      if constexpr (std::is_nothrow_move_constructible_v<F>) {
+        // An `inline_only` destination forces un-boxing, and the refusal
+        // check above guaranteed the fit.
+        assert(fits_inline);
+        return move_inlined<F, SourceAlloc>(f, dest);
       } else {
-        // An inline source stays inline when the destination is eligible, and
-        // otherwise moves to a new block.
-        if (fits_inline) return move_inlined<F, SourceAlloc>(f, dest);
-        return move_dynamic<F, SourceAlloc>(f, dest);
+        // Unreachable: a throwing-move `F` is never `fits_inline`, while
+        // `may_heap` was consumed above, so the refusal check has already
+        // returned.
+        //
+        // The arm exists because it is the branch the `if constexpr`
+        // instantiates for a throwing-move `F` (whose `move_inlined` would
+        // not compile), and it returns the refusal value so that a future
+        // logic error fails safe instead of reporting a successful
+        // relocation.
+        assert(false);
+        return refused;
       }
+    } else {
+      // An inline source stays inline when the destination is eligible, and
+      // otherwise moves to a new block.
+      if (fits_inline) return move_inlined<F, SourceAlloc>(f, dest);
+      return move_dynamic<F, SourceAlloc>(f, dest);
     }
   }
 
@@ -462,8 +463,8 @@ private:
 //
 // The mechanism, with memory layouts and the thunk protocol, is documented in
 // "flexi_function.md".
-template<invocable_policy Policy, class Sig, class ResultT, class... Args>
-class flexi_function<Policy, Sig, ResultT(Args...)> {
+template<class Sig, invocable_policy Policy, class ResultT, class... Args>
+class flexi_function<Sig, Policy, ResultT(Args...)> {
   static_assert(std::is_same_v<ResultT(Args...), signature_function_t<Sig>>,
       "flexi_function: the third template parameter is derived from the "
       "signature; do not pass it");
@@ -515,7 +516,7 @@ class flexi_function<Policy, Sig, ResultT(Args...)> {
       "would waste the difference as padding; pass it through padded_size");
 
   // Siblings are friends.
-  template<invocable_policy, class, class>
+  template<class, invocable_policy, class>
   friend class flexi_function;
 
   // Actual buffer geometry: a `heap_only` instance keeps just the pointer.
@@ -603,7 +604,7 @@ public:
   // and then the constructor is `noexcept`.
   template<invocable_policy P>
   requires(P != Policy)
-  flexi_function(flexi_function<P, Sig>&& other) noexcept(
+  flexi_function(flexi_function<Sig, P>&& other) noexcept(
       !policy_details::adopt_may_throw(Policy, P)) {
     do_adopt(other);
   }
@@ -631,7 +632,7 @@ public:
   // instance empty.
   template<invocable_policy P>
   requires(P != Policy)
-  flexi_function& operator=(flexi_function<P, Sig>&& other) noexcept(
+  flexi_function& operator=(flexi_function<Sig, P>&& other) noexcept(
       !policy_details::adopt_may_throw(Policy, P)) {
     if constexpr (policy_details::adopt_may_throw(Policy, P)) {
       if (!can_adopt(other))
@@ -750,7 +751,7 @@ public:
   // not promise the allocation a boxing adoption may need.
   template<invocable_policy P>
   [[nodiscard]] static bool
-  can_adopt(const flexi_function<P, Sig>& source) noexcept {
+  can_adopt(const flexi_function<Sig, P>& source) noexcept {
     if constexpr (Policy.alloc != invocable_alloc::inline_only) {
       return true;
     } else {
@@ -828,8 +829,8 @@ private:
   //
   // This instance must be empty on entry, and `other` is left empty.
   template<invocable_policy P>
-  void do_adopt(flexi_function<P, Sig>& other) {
-    using other_t = flexi_function<P, Sig>;
+  void do_adopt(flexi_function<Sig, P>& other) {
+    using other_t = flexi_function<Sig, P>;
     assert(!dispatch_.lifespan);
     if (!other.dispatch_.lifespan) return;
     destination_spec dest{.policy = Policy,

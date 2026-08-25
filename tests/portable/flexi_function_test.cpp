@@ -35,11 +35,27 @@ using namespace corvid;
 
 namespace {
 
-constexpr invocable_policy dflt{};
-constexpr invocable_policy silent{.empty = on_empty::silent};
-constexpr invocable_policy terminating{.empty = on_empty::terminate};
-constexpr invocable_policy heap_only{.alloc = invocable_alloc::heap_only};
-constexpr invocable_policy big_inline{.inline_size = padded_size(96)};
+constexpr auto dflt = invocable_policy::basic;
+constexpr auto silent = dflt.with(on_empty::silent);
+constexpr auto terminating = dflt.with(on_empty::terminate);
+constexpr auto heap_only = invocable_policy::heap;
+constexpr auto big_inline = dflt.with_storage_size(96);
+
+// The starting points and the size arithmetic, on a 64-bit platform.
+static_assert(dflt == invocable_policy{});
+static_assert(big_inline.inline_size == 96);
+static_assert(invocable_policy::fixed.size() == 4 * sizeof(void*));
+static_assert(invocable_policy::heap.size() == 3 * sizeof(void*));
+static_assert(invocable_policy::fixed.with_size(64).inline_size == 48);
+static_assert(invocable_policy::fixed.with_size(64).size() == 64);
+static_assert(invocable_policy::fixed.with_storage_size(48).size() == 64);
+static_assert(invocable_policy::fixed.with_size(17).size() == padded_size(17));
+static_assert(invocable_policy::fixed.with_alignment(32).size() == 64);
+static_assert(
+    invocable_policy::fixed.with_alignment(32).with_size(64).inline_size ==
+    32);
+static_assert(sizeof(flexi_function<int()>) == invocable_policy::basic.size());
+static_assert(sizeof(flexi_function<int(), heap_only>) == heap_only.size());
 
 // A callable whose payload exceeds the default buffer.
 struct fat_fn {
@@ -77,8 +93,9 @@ int add_one(int x) noexcept { return x + 1; }
 // A target for member-pointer constants.
 struct gadget {
   int n = 0;
+  int factor = 2;
   int tick() { return ++n; }
-  int twice(int x) const noexcept { return 2 * x; }
+  [[nodiscard]] int scaled(int x) const noexcept { return x * factor; }
 };
 
 struct widget {
@@ -90,42 +107,42 @@ struct widget {
 } // namespace
 
 // The alias reproduces `fixed_function` exactly.
-static_assert(std::is_same_v<fixed_function<64, int()>,
-    flexi_function<invocable_policy{.inline_size = 64 - (2 * sizeof(void*)),
-                       .alloc = invocable_alloc::inline_only},
-        int()>>);
-static_assert(is_fixed_function_v<fixed_function<64, int()>>);
-static_assert(!is_fixed_function_v<flexi_function<dflt, int()>>);
-static_assert(is_flexi_function_v<fixed_function<64, int()>>);
-static_assert(sizeof(flexi_function<heap_only, int()>) == 3 * sizeof(void*));
-static_assert(flexi_function<heap_only, int()>::storage_size == 0);
-static_assert(flexi_function<dflt, int()>::storage_size == 2 * sizeof(void*));
+static_assert(std::is_same_v<fixed_function<int(), 64>,
+    flexi_function<int(),
+        invocable_policy{.inline_size = 64 - (2 * sizeof(void*)),
+            .alloc = invocable_alloc::inline_only}>>);
+static_assert(is_fixed_function_v<fixed_function<int(), 64>>);
+static_assert(!is_fixed_function_v<flexi_function<int(), dflt>>);
+static_assert(is_flexi_function_v<fixed_function<int(), 64>>);
+static_assert(sizeof(flexi_function<int(), heap_only>) == 3 * sizeof(void*));
+static_assert(flexi_function<int(), heap_only>::storage_size == 0);
+static_assert(flexi_function<int(), dflt>::storage_size == 2 * sizeof(void*));
 
 // An inline_only buffer may be aligned below the default: with no heap
 // pointer to hold, nothing forces the buffer up to the default geometry.
-constexpr invocable_policy lean{.inline_size = 2 * sizeof(void*),
-    .inline_align = alignof(void*),
-    .alloc = invocable_alloc::inline_only};
-static_assert(sizeof(flexi_function<lean, int()>) == 4 * sizeof(void*));
-static_assert(alignof(flexi_function<lean, int()>) == alignof(void*));
+constexpr auto lean = invocable_policy::fixed.with_alignment(alignof(void*));
+static_assert(lean.inline_size == 2 * sizeof(void*));
+static_assert(lean.size() == 4 * sizeof(void*));
+static_assert(sizeof(flexi_function<int(), lean>) == 4 * sizeof(void*));
+static_assert(alignof(flexi_function<int(), lean>) == alignof(void*));
 
 // Same-policy moves never throw; a move that may box or refuse does.
 static_assert(
-    std::is_nothrow_move_constructible_v<flexi_function<dflt, int()>>);
+    std::is_nothrow_move_constructible_v<flexi_function<int(), dflt>>);
 static_assert(std::is_nothrow_constructible_v<
-    flexi_function<big_inline, int()>, flexi_function<dflt, int()>&&>);
-static_assert(!std::is_nothrow_constructible_v<flexi_function<dflt, int()>,
-    flexi_function<big_inline, int()>&&>);
-static_assert(!std::is_nothrow_constructible_v<fixed_function<64, int()>,
-    flexi_function<dflt, int()>&&>);
+    flexi_function<int(), big_inline>, flexi_function<int(), dflt>&&>);
+static_assert(!std::is_nothrow_constructible_v<flexi_function<int(), dflt>,
+    flexi_function<int(), big_inline>&&>);
+static_assert(!std::is_nothrow_constructible_v<fixed_function<int(), 64>,
+    flexi_function<int(), dflt>&&>);
 
 // Storing a callable is noexcept exactly when it stays inline.
 static_assert(
-    std::is_nothrow_constructible_v<flexi_function<dflt, int()>, int (*)()>);
+    std::is_nothrow_constructible_v<flexi_function<int(), dflt>, int (*)()>);
 static_assert(
-    !std::is_nothrow_constructible_v<flexi_function<dflt, int()>, fat_fn>);
+    !std::is_nothrow_constructible_v<flexi_function<int(), dflt>, fat_fn>);
 static_assert(!std::is_nothrow_constructible_v<
-    flexi_function<heap_only, int()>, int (*)()>);
+    flexi_function<int(), heap_only>, int (*)()>);
 
 #pragma region Storage
 
@@ -133,30 +150,30 @@ TEST_CASE("Heap fallback", "[flexi_function]") {
   int live{};
   {
     // Too big for the buffer: heap.
-    flexi_function<dflt, int()> fat{fat_fn{}};
+    flexi_function<int(), dflt> fat{fat_fn{}};
     CHECK(fat);
     CHECK(fat() == 7);
     CHECK(fat.size() == sizeof(fat_fn));
     CHECK(fat.capacity() == dflt.inline_size);
 
     // Throwing move: heap, even though it would fit.
-    flexi_function<dflt, int()> tm{throwing_mover{3}};
+    flexi_function<int(), dflt> tm{throwing_mover{3}};
     CHECK(tm() == 3);
 
     // Small and nothrow: inline.
-    flexi_function<dflt, int()> small{counted{&live}};
+    flexi_function<int(), dflt> small{counted{&live}};
     CHECK(live == 1);
     CHECK(small() == 1);
 
     // heap_only: everything on the heap, destroyed on the way out.
-    flexi_function<heap_only, int()> h{counted{&live}};
+    flexi_function<int(), heap_only> h{counted{&live}};
     CHECK(live == 2);
     CHECK(h() == 1);
     CHECK(h.size() == sizeof(counted));
     CHECK(h.capacity() == 0);
 
     // Heap-to-heap move hands over the block without touching the callable.
-    flexi_function<heap_only, int()> h2{std::move(h)};
+    flexi_function<int(), heap_only> h2{std::move(h)};
     CHECK(live == 2);
     CHECK(!h);
     CHECK(h2() == 1);
@@ -168,47 +185,47 @@ TEST_CASE("Cross-policy transplant", "[flexi_function]") {
   int live{};
 
   // Inline into a bigger buffer stays inline.
-  flexi_function<dflt, int()> a{counted{&live}};
-  flexi_function<big_inline, int()> b{std::move(a)};
+  flexi_function<int(), dflt> a{counted{&live}};
+  flexi_function<int(), big_inline> b{std::move(a)};
   CHECK(live == 1);
   CHECK(!a);
   CHECK(b() == 1);
 
   // A heap arrival into a heap-admitting policy stays boxed: the block is
   // handed over as is, even though the bigger buffer could hold it.
-  flexi_function<dflt, int()> fat{fat_fn{}};
-  flexi_function<big_inline, int()> roomy{std::move(fat)};
+  flexi_function<int(), dflt> fat{fat_fn{}};
+  flexi_function<int(), big_inline> roomy{std::move(fat)};
   CHECK(roomy() == 7);
   CHECK(roomy.size() == sizeof(fat_fn));
 
   // Inline arrival into a buffer too small for it is boxed onto the heap.
-  flexi_function<dflt, int()> back{std::move(roomy)};
+  flexi_function<int(), dflt> back{std::move(roomy)};
   CHECK(!roomy);
   CHECK(back() == 7);
 
   // Into heap_only, an inline arrival is boxed; back out, the block is
   // handed over, un-boxing only when the destination is inline_only (below).
-  flexi_function<heap_only, int()> boxed{std::move(b)};
+  flexi_function<int(), heap_only> boxed{std::move(b)};
   CHECK(live == 1);
   CHECK(boxed() == 1);
-  flexi_function<dflt, int()> unboxed{std::move(boxed)};
+  flexi_function<int(), dflt> unboxed{std::move(boxed)};
   CHECK(live == 1);
   CHECK(!boxed);
   CHECK(unboxed() == 1);
 
-  // An inline_only destination refuses what it cannot hold, leaving the source
-  // intact, in both the constructor and the pre-flight assignment.
-  CHECK_THROWS_AS((fixed_function<64, int()>{std::move(back)}),
+  // An inline_only destination refuses what it cannot hold, leaving the
+  // source intact, in both the constructor and the pre-flight assignment.
+  CHECK_THROWS_AS((fixed_function<int(), 64>{std::move(back)}),
       std::length_error);
   CHECK(back);
   CHECK(back() == 7);
-  fixed_function<64, int()> target{[] { return 0; }};
+  fixed_function<int(), 64> target{[] { return 0; }};
   CHECK_THROWS_AS(target = std::move(back), std::length_error);
   CHECK(target() == 0);
   CHECK(back() == 7);
 
   // An inline_only destination accepts a heap arrival that fits.
-  fixed_function<64, int()> fits{std::move(unboxed)};
+  fixed_function<int(), 64> fits{std::move(unboxed)};
   CHECK(live == 1);
   CHECK(fits() == 1);
   fits = nullptr;
@@ -227,7 +244,7 @@ static_assert(!policy_details::direct_eligible<int (*)()>());
 
 // Storing a direct callable is noexcept under every policy, heap_only
 // included, because nothing is stored.
-static_assert(std::is_nothrow_constructible_v<flexi_function<heap_only, int()>,
+static_assert(std::is_nothrow_constructible_v<flexi_function<int(), heap_only>,
     nine_fn>);
 
 TEST_CASE("constant_fn calls a compile-time target directly",
@@ -236,66 +253,66 @@ TEST_CASE("constant_fn calls a compile-time target directly",
 
   // A function, named with or without its address; not stored under any
   // policy.
-  flexi_function<dflt, int()> a{constant_fn<plain_seven>{}};
+  flexi_function<int(), dflt> a{constant_fn<plain_seven>{}};
   CHECK(a() == 7);
   CHECK(a.size() == 0);
-  flexi_function<heap_only, int()> b{constant_fn<&plain_seven>{}};
+  flexi_function<int(), heap_only> b{constant_fn<&plain_seven>{}};
   CHECK(b() == 7);
   CHECK(b.size() == 0);
 
   // A member function, with the object as the first argument.
   gadget w;
-  flexi_function<dflt, int(gadget&)> m{constant_fn<&gadget::tick>{}};
+  flexi_function<int(gadget&), dflt> m{constant_fn<&gadget::tick>{}};
   CHECK(m(w) == 1);
   CHECK(m(w) == 2);
-  flexi_function<terminating, int(const gadget&, int) noexcept> mc{
-      constant_fn<&gadget::twice>{}};
+  flexi_function<int(const gadget&, int) noexcept, terminating> mc{
+      constant_fn<&gadget::scaled>{}};
   CHECK(mc(w, 4) == 8);
 
   // A captureless lambda as the constant.
-  flexi_function<dflt, int(int)> l{constant_fn<[](int x) { return x * 3; }>{}};
+  flexi_function<int(int), dflt> l{constant_fn<[](int x) { return x * 3; }>{}};
   CHECK(l(2) == 6);
 
   // noexcept follows the target, so only a nothrow target satisfies a
   // noexcept signature.
   static_assert(noexcept(constant_fn<add_one>{}(1)));
   static_assert(!noexcept(constant_fn<plain_seven>{}()));
-  flexi_function<terminating, int(int) noexcept> ne{constant_fn<add_one>{}};
+  flexi_function<int(int) noexcept, terminating> ne{constant_fn<add_one>{}};
   CHECK(ne(1) == 2);
   static_assert(!std::is_constructible_v<
-      flexi_function<terminating, int() noexcept>, constant_fn<plain_seven>>);
+      flexi_function<int() noexcept, terminating>, constant_fn<plain_seven>>);
 }
 
 TEST_CASE("Direct callables are not stored", "[flexi_function]") {
   // A captureless lambda and a data-free functor occupy no storage under any
   // policy, so heap_only allocates nothing for them.
-  flexi_function<dflt, int()> lam{[] { return 5; }};
+  flexi_function<int(), dflt> lam{[] { return 5; }};
   CHECK(lam);
   CHECK(lam() == 5);
   CHECK(lam.size() == 0);
 
-  flexi_function<heap_only, int()> h{nine_fn{}};
+  flexi_function<int(), heap_only> h{nine_fn{}};
   CHECK(h);
   CHECK(h() == 9);
   CHECK(h.size() == 0);
 
   // A stateful callable is stored and reports its size as before.
   int live{};
-  flexi_function<dflt, int()> stateful{counted{&live}};
+  flexi_function<int(), dflt> stateful{counted{&live}};
   CHECK(stateful.size() == sizeof(counted));
 
   // Transplants go anywhere: into the leanest inline_only buffer, into
   // heap_only, and back, without touching either side's storage.
-  CHECK(flexi_function<lean, int()>::can_adopt(lam));
-  flexi_function<lean, int()> tiny{std::move(lam)};
+  CHECK(flexi_function<int(), lean>::can_adopt(lam));
+  flexi_function<int(), lean> tiny{std::move(lam)};
   CHECK(!lam);
   CHECK(tiny() == 5);
   CHECK(tiny.size() == 0);
-  flexi_function<heap_only, int()> boxed{std::move(tiny)};
+  flexi_function<int(), heap_only> boxed{std::move(tiny)};
   CHECK(!tiny);
   CHECK(boxed() == 5);
   CHECK(boxed.size() == 0);
-  fixed_function<64, int()> back{std::move(boxed)};
+  fixed_function<int(), 64> back{std::move(boxed)};
   CHECK(!boxed);
   CHECK(back() == 5);
 
@@ -311,10 +328,10 @@ TEST_CASE("Direct callables are not stored", "[flexi_function]") {
 #pragma region Empty-call policy
 
 TEST_CASE("Can adopt", "[flexi_function]") {
-  using small_ff = fixed_function<64, int()>;
+  using small_ff = fixed_function<int(), 64>;
 
   // A callable too large for an inline_only buffer is refused up front.
-  flexi_function<big_inline, int()> fat{fat_fn{}};
+  flexi_function<int(), big_inline> fat{fat_fn{}};
   CHECK(!small_ff::can_adopt(fat));
   small_ff target{[] { return 0; }};
   CHECK(!target.can_adopt(fat));
@@ -323,22 +340,22 @@ TEST_CASE("Can adopt", "[flexi_function]") {
   CHECK(fat() == 7);
 
   // A callable that fits, and an empty source, are adoptable.
-  flexi_function<big_inline, int()> thin{[] { return 1; }};
+  flexi_function<int(), big_inline> thin{[] { return 1; }};
   CHECK(small_ff::can_adopt(thin));
   target = std::move(thin);
   CHECK(target() == 1);
-  flexi_function<big_inline, int()> hollow;
+  flexi_function<int(), big_inline> hollow;
   CHECK(small_ff::can_adopt(hollow));
 
   // A destination with heap fallback always accommodates.
-  CHECK((flexi_function<dflt, int()>::can_adopt(fat)));
+  CHECK((flexi_function<int(), dflt>::can_adopt(fat)));
 }
 
 TEST_CASE("Null callables are empty", "[flexi_function]") {
-  using fn_t = flexi_function<dflt, int()>;
+  using fn_t = flexi_function<int(), dflt>;
 
-  // A null function pointer yields an empty wrapper, as with `std::function`,
-  // rather than one that calls through null.
+  // A null function pointer yields an empty wrapper, as with
+  // `std::function`, rather than one that calls through null.
   using fn_ptr = int (*)();
   fn_t f{fn_ptr{nullptr}};
   CHECK(!f);
@@ -355,12 +372,12 @@ TEST_CASE("Null callables are empty", "[flexi_function]") {
 
   // Null member pointers likewise, for both member functions and members.
   using mf_ptr = int (widget::*)() const;
-  flexi_function<dflt, int(const widget&)> g{mf_ptr{nullptr}};
+  flexi_function<int(const widget&), dflt> g{mf_ptr{nullptr}};
   CHECK(!g);
   g = &widget::value;
   CHECK(g(widget{3}) == 3);
   using mp_ptr = int widget::*;
-  flexi_function<dflt, int(widget&)> h{mp_ptr{nullptr}};
+  flexi_function<int(widget&), dflt> h{mp_ptr{nullptr}};
   CHECK(!h);
   h = &widget::n;
   widget w{5};
@@ -368,7 +385,7 @@ TEST_CASE("Null callables are empty", "[flexi_function]") {
 }
 
 TEST_CASE("Trivially copyable lvalues are copied in", "[flexi_function]") {
-  using fn_t = flexi_function<dflt, int()>;
+  using fn_t = flexi_function<int(), dflt>;
 
   // A named function pointer, a captureless lambda, and a lambda with only
   // trivially copyable captures all store from an lvalue by copy.
@@ -395,26 +412,26 @@ TEST_CASE("Trivially copyable lvalues are copied in", "[flexi_function]") {
 }
 
 TEST_CASE("Silent returns a default", "[flexi_function]") {
-  flexi_function<silent, int()> i;
+  flexi_function<int(), silent> i;
   CHECK(!i);
   CHECK(i() == 0);
 
-  flexi_function<silent, std::string(int)> s;
+  flexi_function<std::string(int), silent> s;
   CHECK(s(5).empty());
 
-  flexi_function<silent, void()> v;
+  flexi_function<void(), silent> v;
   CHECK_NOTHROW(v());
 
-  // A result that cannot be value-initialized (`int&()`, `no_default()`) is a
-  // static_assert under `silent`, so it cannot be exercised here; the
+  // A result that cannot be value-initialized (`int&()`, `no_default()`) is
+  // a static_assert under `silent`, so it cannot be exercised here; the
   // alternatives are `raise` and `terminate`. Both accept any result.
-  flexi_function<terminating, int&()> tr;
+  flexi_function<int&(), terminating> tr;
   CHECK(!tr);
-  flexi_function<terminating, no_default()> tnd;
+  flexi_function<no_default(), terminating> tnd;
   CHECK(!tnd);
 
   // The compile-time default is raise.
-  flexi_function<dflt, int()> d;
+  flexi_function<int(), dflt> d;
   CHECK_THROWS_AS(d(), std::bad_function_call);
 }
 
@@ -422,7 +439,7 @@ TEST_CASE("Terminate policy invokes normally when not empty",
     "[flexi_function]") {
   // Invoking an empty `terminating` wrapper calls `std::terminate`, which a
   // unit test cannot observe; only the non-empty path is exercised.
-  flexi_function<terminating, int(int)> t{[](int x) { return x * 2; }};
+  flexi_function<int(int), terminating> t{[](int x) { return x * 2; }};
   CHECK(t);
   CHECK(t(21) == 42);
   t.reset();
@@ -430,8 +447,8 @@ TEST_CASE("Terminate policy invokes normally when not empty",
 }
 
 TEST_CASE("Reset", "[flexi_function]") {
-  using raiser = flexi_function<dflt, int()>;
-  using silencer = flexi_function<silent, int()>;
+  using raiser = flexi_function<int(), dflt>;
+  using silencer = flexi_function<int(), silent>;
 
   // `reset()` empties; the empty-call behavior is the type's own.
   raiser f{[] { return 1; }};
@@ -458,8 +475,8 @@ TEST_CASE("Reset", "[flexi_function]") {
 }
 
 TEST_CASE("Empty behavior is fixed per type", "[flexi_function]") {
-  using raiser = flexi_function<dflt, int()>;
-  using silencer = flexi_function<silent, int()>;
+  using raiser = flexi_function<int(), dflt>;
+  using silencer = flexi_function<int(), silent>;
 
   // `a = std::move(b)`: each side keeps the behavior baked into its type,
   // regardless of what arrived or left.
@@ -487,11 +504,11 @@ TEST_CASE("Empty behavior is fixed per type", "[flexi_function]") {
   CHECK(g() == 3);
   CHECK_THROWS_AS(e(), std::bad_function_call);
 
-  // Across policies, through the converting constructor: the `fixed_function`
-  // raises on empty because that is its type's behavior, while the drained
-  // `silent` source stays silent.
+  // Across policies, through the converting constructor: the
+  // `fixed_function` raises on empty because that is its type's behavior,
+  // while the drained `silent` source stays silent.
   silencer h{[] { return 4; }};
-  fixed_function<64, int()> k{std::move(h)};
+  fixed_function<int(), 64> k{std::move(h)};
   CHECK(k() == 4);
   k.reset();
   CHECK_THROWS_AS(k(), std::bad_function_call);
@@ -523,52 +540,52 @@ TEST_CASE("Signature qualifiers select how the target is invoked",
   // a non-const lvalue, so an `&`-only callable is admitted and an `&&`-only
   // one is not.
   static_assert(
-      std::is_constructible_v<flexi_function<dflt, int()>, lvalue_only>);
+      std::is_constructible_v<flexi_function<int(), dflt>, lvalue_only>);
   static_assert(
-      std::is_constructible_v<flexi_function<dflt, int() &>, lvalue_only>);
+      std::is_constructible_v<flexi_function<int() &, dflt>, lvalue_only>);
   static_assert(
-      !std::is_constructible_v<flexi_function<dflt, int()>, rvalue_only>);
+      !std::is_constructible_v<flexi_function<int(), dflt>, rvalue_only>);
   static_assert(
-      !std::is_constructible_v<flexi_function<dflt, int() &>, rvalue_only>);
+      !std::is_constructible_v<flexi_function<int() &, dflt>, rvalue_only>);
 
   // An `&&`-qualified signature invokes the target as an rvalue.
   static_assert(
-      std::is_constructible_v<flexi_function<dflt, int() &&>, rvalue_only>);
+      std::is_constructible_v<flexi_function<int() &&, dflt>, rvalue_only>);
   static_assert(
-      !std::is_constructible_v<flexi_function<dflt, int() &&>, lvalue_only>);
+      !std::is_constructible_v<flexi_function<int() &&, dflt>, lvalue_only>);
 
   // A `const` signature invokes the target as const, so a callable whose
   // `operator()` is not const is refused, and a const-only one is admitted
   // under both.
-  static_assert(!std::is_constructible_v<flexi_function<dflt, int() const>,
+  static_assert(!std::is_constructible_v<flexi_function<int() const, dflt>,
       lvalue_only>);
   static_assert(
-      std::is_constructible_v<flexi_function<dflt, int() const>, const_only>);
+      std::is_constructible_v<flexi_function<int() const, dflt>, const_only>);
   static_assert(
-      std::is_constructible_v<flexi_function<dflt, int()>, const_only>);
+      std::is_constructible_v<flexi_function<int(), dflt>, const_only>);
 
   // The lvalue invocation reaches the same stored object every call.
-  flexi_function<dflt, int() &> counting{lvalue_only{}};
+  flexi_function<int() &, dflt> counting{lvalue_only{}};
   CHECK(counting() == 1);
   CHECK(counting() == 2);
 
   // An rvalue call invokes the target as an rvalue but does not consume the
   // wrapper.
-  flexi_function<dflt, int() &&> moving{rvalue_only{}};
+  flexi_function<int() &&, dflt> moving{rvalue_only{}};
   CHECK(std::move(moving)() == 7);
   CHECK(moving);
 
   // A const call reaches the target as const.
-  const flexi_function<dflt, int() const> constant{const_only{}};
+  const flexi_function<int() const, dflt> constant{const_only{}};
   CHECK(constant() == 9);
 
-  // A `noexcept` signature admits only nothrow-invocable callables, and needs
-  // an empty-call policy that cannot throw.
+  // A `noexcept` signature admits only nothrow-invocable callables, and
+  // needs an empty-call policy that cannot throw.
   static_assert(
-      std::is_constructible_v<flexi_function<terminating, int() noexcept>,
+      std::is_constructible_v<flexi_function<int() noexcept, terminating>,
           decltype([]() noexcept { return 1; })>);
   static_assert(
-      !std::is_constructible_v<flexi_function<terminating, int() noexcept>,
+      !std::is_constructible_v<flexi_function<int() noexcept, terminating>,
           decltype([] { return 1; })>);
 }
 
@@ -577,7 +594,7 @@ TEST_CASE("Signature qualifiers select how the target is invoked",
 template<invocable_policy P, class Sig>
 constexpr bool
 calls_through(bool lvalue, bool const_lvalue, bool rvalue) noexcept {
-  using wrapper = flexi_function<P, Sig>;
+  using wrapper = flexi_function<Sig, P>;
   return (std::is_invocable_v<wrapper&> == lvalue) &&
          (std::is_invocable_v<const wrapper&> == const_lvalue) &&
          (std::is_invocable_v<wrapper&&> == rvalue);
@@ -610,10 +627,10 @@ TEST_CASE("Signature qualifiers select which wrappers may call",
       calls_through<terminating, const_rref_noex_sig>(false, false, true));
 
   // The call is `noexcept` exactly when the signature is.
-  flexi_function<terminating, noex_sig> n{[]() noexcept { return 1; }};
+  flexi_function<noex_sig, terminating> n{[]() noexcept { return 1; }};
   static_assert(noexcept(n()));
   CHECK(n() == 1);
-  flexi_function<dflt, int()> p{[] { return 2; }};
+  flexi_function<int(), dflt> p{[] { return 2; }};
   static_assert(!noexcept(p()));
   CHECK(p() == 2);
 }
@@ -624,7 +641,7 @@ TEST_CASE("Qualified signatures wrap and adopt like plain ones",
   // A wrapped std wrapper is invoked as the signature invokes any target, so
   // an `&&` signature takes an `&&`-qualified `std::move_only_function` and
   // refuses an `&`-qualified one, the reverse of the unqualified case.
-  using rref = flexi_function<dflt, int() &&>;
+  using rref = flexi_function<int() &&, dflt>;
   static_assert(
       std::is_constructible_v<rref, std::move_only_function<int() &&>&&>);
   static_assert(
@@ -635,17 +652,18 @@ TEST_CASE("Qualified signatures wrap and adopt like plain ones",
 
   // Thunks are keyed by the whole signature, so siblings that share one
   // transplant the target across policies as before.
-  flexi_function<dflt, int() const> a{const_only{}};
-  CHECK(fixed_function<64, int() const>::can_adopt(a));
-  fixed_function<64, int() const> b{std::move(a)};
+  flexi_function<int() const, dflt> a{const_only{}};
+  CHECK(fixed_function<int() const, 64>::can_adopt(a));
+  fixed_function<int() const, 64> b{std::move(a)};
   CHECK(!a);
   const auto& cb = b;
   CHECK(cb() == 9);
 
-  // `const_only` and `rvalue_only` are direct, so they are not stored, and the
-  // signature's qualifiers apply to the instance the thunk names per call.
+  // `const_only` and `rvalue_only` are direct, so they are not stored, and
+  // the signature's qualifiers apply to the instance the thunk names per
+  // call.
   CHECK(b.size() == 0);
-  flexi_function<dflt, int() &&> rv{rvalue_only{}};
+  flexi_function<int() &&, dflt> rv{rvalue_only{}};
   CHECK(rv.size() == 0);
   CHECK(std::move(rv)() == 7);
 }

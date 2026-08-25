@@ -127,7 +127,7 @@ private:
   // deactivated, signaling that receiving should stop, does the `posted_fn`
   // returned become non-empty.
   using resume_fn =
-      fixed_function<default_fixed_function::capacity, posted_fn(buffer&&)>;
+      fixed_function<posted_fn(buffer&&), default_fixed_function::capacity>;
 
   iou_recv_view(buffer buf, resume_fn resume) noexcept
       : buf_{std::move(buf)}, resume_{std::move(resume)} {}

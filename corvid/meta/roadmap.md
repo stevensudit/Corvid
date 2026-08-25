@@ -6,7 +6,7 @@ and `flexi_function`.
 
 ## In progress: flexi_function
 
-`flexi_function<Policy, Sig>` generalizes `fixed_function` over
+`flexi_function<Sig, Policy>` generalizes `fixed_function` over
 `invocable_policy` (inline-only, inline-or-heap, heap-only storage, plus the
 empty-call behavior), with `fixed_function` reduced to the `inline_only`
 alias. The wrapper itself is landed and green; what remains is bringing
@@ -134,7 +134,7 @@ legal policy is a 64-byte buffer, an 80-byte object, and `sizeof` rounded to
 
 If that shape is ever wanted, the rule would change to "the object size is a
 multiple of `inline_align`" (`header + inline_size` padded), which is what
-`fixed_function`'s `SZ` already means. `heap_only` has no such need: its
+`fixed_function`'s `Size` already means. `heap_only` has no such need: its
 three-word layout is padding-free, and line isolation for any wrapper is the
 container's job (`alignas` on the element or enclosing struct), not the
 policy's.

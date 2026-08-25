@@ -1039,9 +1039,9 @@ TEST_CASE("ForwardedAddressBoundFunction", "[AddressForwarder]") {
 #pragma endregion
 
 // fixed_function compile-time size checks
-static_assert(sizeof(fixed_function<64, int()>) == 64);
-static_assert(sizeof(fixed_function<32, void(int, double)>) == 32);
-static_assert(sizeof(fixed_function<128, int(int, int)>) == 128);
+static_assert(sizeof(fixed_function<int(), 64>) == 64);
+static_assert(sizeof(fixed_function<void(int, double), 32>) == 32);
+static_assert(sizeof(fixed_function<int(int, int), 128>) == 128);
 
 // `padded_size` rounds a size up to its alignment, turning would-be padding
 // into usable storage.
@@ -1054,29 +1054,27 @@ static_assert(
 static_assert(padded_size(17, 8) == 24);
 static_assert(padded_size(24, 8) == 24);
 
-// `fixed_function` requires a conforming `SZ` outright: a lesser one would
-// occupy the padded size anyway and waste the difference. `padded_size`
-// output is always accepted, and `sizeof` then matches `SZ` exactly.
+// `fixed_function` rounds `Size` up to the storage alignment, since a lesser
+// instance would occupy the padded size anyway; `sizeof` reports the result,
+// and a `padded_size` output is taken as is.
 static_assert(
-    sizeof(fixed_function<padded_size(17), int()>) == padded_size(17));
-#ifdef NOT_SUPPOSED_TO_COMPILE
-static_assert(sizeof(fixed_function<17, int()>) > 0);
-#endif
+    sizeof(fixed_function<int(), padded_size(17)>) == padded_size(17));
+static_assert(sizeof(fixed_function<int(), 17>) == padded_size(17));
 
 #pragma region FixedFunction_Basic
 
 // The `nullptr` constructor is explicit, unlike the std wrappers'.
 static_assert(
-    std::is_constructible_v<fixed_function<64, int()>, std::nullptr_t>);
+    std::is_constructible_v<fixed_function<int(), 64>, std::nullptr_t>);
 static_assert(
-    !std::is_convertible_v<std::nullptr_t, fixed_function<64, int()>>);
+    !std::is_convertible_v<std::nullptr_t, fixed_function<int(), 64>>);
 
 TEST_CASE("Basic", "[FixedFunction]") {
-  fixed_function<64, int()> f{[] { return 42; }};
+  fixed_function<int(), 64> f{[] { return 42; }};
   CHECK(f() == 42);
 
   // Constructing from `nullptr` yields an empty function, like assigning it.
-  fixed_function<64, int()> fnull{nullptr};
+  fixed_function<int(), 64> fnull{nullptr};
   CHECK_FALSE(static_cast<bool>(fnull));
 }
 
@@ -1084,7 +1082,7 @@ TEST_CASE("Basic", "[FixedFunction]") {
 #pragma region FixedFunction_Args
 
 TEST_CASE("Args", "[FixedFunction]") {
-  fixed_function<64, int(int, int)> add{[](int x, int y) { return x + y; }};
+  fixed_function<int(int, int), 64> add{[](int x, int y) { return x + y; }};
   CHECK(add(3, 4) == 7);
   CHECK(add(10, -3) == 7);
 }
@@ -1096,7 +1094,7 @@ TEST_CASE("DiscardedReturn", "[FixedFunction]") {
   // A value-returning callable stored under a void signature has its result
   // discarded, matching `std::function`.
   int calls{};
-  fixed_function<64, void(int)> f{[&calls](int n) { return calls += n; }};
+  fixed_function<void(int), 64> f{[&calls](int n) { return calls += n; }};
   f(2);
   f(3);
   CHECK(calls == 5);
@@ -1115,12 +1113,12 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
     mover(mover&& o) noexcept : cnt{o.cnt} { ++*cnt; }
     int operator()() const { return 42; }
   };
-  fixed_function<64, int()> small{mover{&moves}};
+  fixed_function<int(), 64> small{mover{&moves}};
   CHECK(small.size() == sizeof(mover));
-  CHECK(small.capacity() == fixed_function<64, int()>::storage_size);
+  CHECK(small.capacity() == fixed_function<int(), 64>::storage_size);
   CHECK(small.size() <= small.capacity());
   const int base = moves;
-  fixed_function<96, int()> big{std::move(small)};
+  fixed_function<int(), 96> big{std::move(small)};
   CHECK(moves == base + 1);
   CHECK(big() == 42);
   // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
@@ -1129,22 +1127,22 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   CHECK(big.size() == sizeof(mover));
 
   // Moving an empty sibling yields empty.
-  fixed_function<64, int()> empty_small;
-  fixed_function<96, int()> empty_big{std::move(empty_small)};
+  fixed_function<int(), 64> empty_small;
+  fixed_function<int(), 96> empty_big{std::move(empty_small)};
   CHECK_FALSE(static_cast<bool>(empty_big));
 
   // Downsizing checks the payload at runtime: this one fits.
-  fixed_function<96, int()> roomy{mover{&moves}};
-  fixed_function<64, int()> back{std::move(roomy)};
+  fixed_function<int(), 96> roomy{mover{&moves}};
+  fixed_function<int(), 64> back{std::move(roomy)};
   CHECK(back() == 42);
 
   // A payload too large for the destination throws, leaving the source
   // whole.
-  fixed_function<96, int()> fat{[pad = std::array<std::byte, 64>{}] {
+  fixed_function<int(), 96> fat{[pad = std::array<std::byte, 64>{}] {
     return static_cast<int>(pad.size());
   }};
-  CHECK(fat.size() > fixed_function<64, int()>::storage_size);
-  CHECK_THROWS_AS((fixed_function<64, int()>{std::move(fat)}),
+  CHECK(fat.size() > fixed_function<int(), 64>::storage_size);
+  CHECK_THROWS_AS((fixed_function<int(), 64>{std::move(fat)}),
       std::length_error);
   // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
   REQUIRE(static_cast<bool>(fat));
@@ -1152,7 +1150,7 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
 
   // A refused downsizing assignment leaves both sides whole. Checking
   // `size` against `capacity` up front predicts the refusal.
-  fixed_function<64, int()> keeper{[] { return 3; }};
+  fixed_function<int(), 64> keeper{[] { return 3; }};
   // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
   CHECK(fat.size() > keeper.capacity());
   // NOLINTNEXTLINE(bugprone-use-after-move): the failed move kept it whole.
@@ -1162,14 +1160,14 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   CHECK(fat() == 64);
 
   // Converting move assignment follows the same rules.
-  fixed_function<96, int()> target{[] { return 0; }};
-  fixed_function<64, int()> donor{[] { return 5; }};
+  fixed_function<int(), 96> target{[] { return 0; }};
+  fixed_function<int(), 64> donor{[] { return 5; }};
   target = std::move(donor);
   CHECK(target() == 5);
 
   // The assignment transplants the payload directly, relocating it exactly
   // once rather than staging it through a temporary.
-  fixed_function<64, int()> counted{mover{&moves}};
+  fixed_function<int(), 64> counted{mover{&moves}};
   const int before = moves;
   target = std::move(counted);
   CHECK(moves == before + 1);
@@ -1183,13 +1181,13 @@ TEST_CASE("WrapAcrossSignatures", "[FixedFunction]") {
   // A different-signature fixed_function stores as an ordinary callable,
   // but, matching `std::function`, wrapping an empty one produces an empty
   // function rather than a truthy shell that throws when called.
-  fixed_function<64, int(int)> inner{[](int n) { return n * 2; }};
-  fixed_function<96, int(short)> outer{std::move(inner)};
+  fixed_function<int(int), 64> inner{[](int n) { return n * 2; }};
+  fixed_function<int(short), 96> outer{std::move(inner)};
   CHECK(static_cast<bool>(outer));
   CHECK(outer(short{4}) == 8);
 
-  fixed_function<64, int(int)> empty_inner;
-  fixed_function<96, int(short)> empty_outer{std::move(empty_inner)};
+  fixed_function<int(int), 64> empty_inner;
+  fixed_function<int(short), 96> empty_outer{std::move(empty_inner)};
   CHECK_FALSE(static_cast<bool>(empty_outer));
   CHECK_THROWS_AS(empty_outer(short{1}), std::bad_function_call);
 }
@@ -1198,7 +1196,7 @@ TEST_CASE("WrapAcrossSignatures", "[FixedFunction]") {
 #pragma region FixedFunction_WrapStdFunction
 
 TEST_CASE("WrapStdFunction", "[FixedFunction]") {
-  using ff = fixed_function<128, int()>;
+  using ff = fixed_function<int(), 128>;
 
   // The wrapper-detection trait lives in traits.h and sees through neither
   // cvref nor inheritance: it matches the std wrappers themselves.
@@ -1232,7 +1230,7 @@ TEST_CASE("WrapStdFunction", "[FixedFunction]") {
 
   // A compatible cross-signature `std::function` goes through the same
   // explicit door.
-  fixed_function<128, int(short)> h{
+  fixed_function<int(short), 128> h{
       std::function<int(int)>{[](int n) { return n * 3; }}};
   CHECK(h(short{7}) == 21);
 
@@ -1272,9 +1270,9 @@ TEST_CASE("WrapStdFunction", "[FixedFunction]") {
 #pragma region FixedFunction_Bool
 
 TEST_CASE("Bool", "[FixedFunction]") {
-  fixed_function<64, int()> a{[] { return 1; }};
+  fixed_function<int(), 64> a{[] { return 1; }};
   CHECK(static_cast<bool>(a));
-  fixed_function<64, int()> b{std::move(a)};
+  fixed_function<int(), 64> b{std::move(a)};
   // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
   CHECK_FALSE(static_cast<bool>(a));
   CHECK(static_cast<bool>(b));
@@ -1284,9 +1282,9 @@ TEST_CASE("Bool", "[FixedFunction]") {
 #pragma region FixedFunction_Move
 
 TEST_CASE("Move", "[FixedFunction]") {
-  fixed_function<64, int()> a{[] { return 7; }};
+  fixed_function<int(), 64> a{[] { return 7; }};
   CHECK(static_cast<bool>(a));
-  fixed_function<64, int()> b{std::move(a)};
+  fixed_function<int(), 64> b{std::move(a)};
   // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
   CHECK_FALSE(static_cast<bool>(a));
   CHECK(static_cast<bool>(b));
@@ -1297,8 +1295,8 @@ TEST_CASE("Move", "[FixedFunction]") {
 #pragma region FixedFunction_MoveAssign
 
 TEST_CASE("MoveAssign", "[FixedFunction]") {
-  fixed_function<64, int()> a{[] { return 99; }};
-  fixed_function<64, int()> b{[] { return 0; }};
+  fixed_function<int(), 64> a{[] { return 99; }};
+  fixed_function<int(), 64> b{[] { return 0; }};
   b = std::move(a);
   // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
   CHECK_FALSE(static_cast<bool>(a));
@@ -1326,10 +1324,10 @@ TEST_CASE("Destructor", "[FixedFunction]") {
   };
   int n{};
   {
-    fixed_function<64, void()> f{Counted{&n}};
+    fixed_function<void(), 64> f{Counted{&n}};
     CHECK(n == 1); // temporary destroyed after move into storage
     {
-      fixed_function<64, void()> g{std::move(f)};
+      fixed_function<void(), 64> g{std::move(f)};
       CHECK(n == 2); // move ctor immediately destructs f's storage
     } // g destroyed: Counted in g.storage_ destructed
     CHECK(n == 3);
@@ -1369,45 +1367,45 @@ TEST_CASE("CppRef", "[FixedFunction]") {
   };
 
   // store a free function
-  fixed_function<64, int(int)> f_display{&cpref_num};
+  fixed_function<int(int), 64> f_display{&cpref_num};
   CHECK(f_display(-9) == -9);
 
   // store a lambda
-  fixed_function<64, int()> f_display_42{[] { return cpref_num(42); }};
+  fixed_function<int(), 64> f_display_42{[] { return cpref_num(42); }};
   CHECK(f_display_42() == 42);
 
   // store the result of a call to std::bind
-  fixed_function<64, int()> f_display_31337{std::bind(cpref_num, 31337)};
+  fixed_function<int(), 64> f_display_31337{std::bind(cpref_num, 31337)};
   CHECK(f_display_31337() == 31337);
 
   // store a call to a member function
-  fixed_function<64, int(const Foo&, int)> f_add_display{&Foo::add};
+  fixed_function<int(const Foo&, int), 64> f_add_display{&Foo::add};
   const Foo foo{314159};
   CHECK(f_add_display(foo, 1) == 314160);
   CHECK(f_add_display(314159, 1) == 314160); // implicit Foo from int
 
   // store a call to a data member accessor
-  fixed_function<64, int(const Foo&)> f_num{&Foo::num_};
+  fixed_function<int(const Foo&), 64> f_num{&Foo::num_};
   CHECK(f_num(foo) == 314159);
 
   // store a call to a member function and object
   using std::placeholders::_1;
-  fixed_function<64, int(int)> f_add_display2{std::bind(&Foo::add, foo, _1)};
+  fixed_function<int(int), 64> f_add_display2{std::bind(&Foo::add, foo, _1)};
   CHECK(f_add_display2(2) == 314161);
 
   // store a call to a member function and object ptr
-  fixed_function<64, int(int)> f_add_display3{std::bind(&Foo::add, &foo, _1)};
+  fixed_function<int(int), 64> f_add_display3{std::bind(&Foo::add, &foo, _1)};
   CHECK(f_add_display3(3) == 314162);
 
   // store a call to a function object
-  fixed_function<64, int(int)> f_display_obj{PrintNum{}};
+  fixed_function<int(int), 64> f_display_obj{PrintNum{}};
   CHECK(f_display_obj(18) == 18);
 
   // recursive lambda: same self-referential pattern as the cppreference
   // factorial example, using fixed_function instead of std::function
   auto factorial = [](int n) {
-    fixed_function<64, int(int)> fac;
-    fac = fixed_function<64, int(int)>{[&fac](int k) -> int {
+    fixed_function<int(int), 64> fac;
+    fac = fixed_function<int(int), 64>{[&fac](int k) -> int {
       return (k < 2) ? 1 : k * fac(k - 1);
     }};
     return fac(n);
@@ -1424,18 +1422,18 @@ TEST_CASE("CppRef", "[FixedFunction]") {
 
 TEST_CASE("RefReturn", "[FixedFunction]") {
   // Callables that return an actual reference are safe.
-  fixed_function<64, int&()> f{[&]() -> int& { return g_ref_val; }};
+  fixed_function<int&(), 64> f{[&]() -> int& { return g_ref_val; }};
   CHECK(f() == 42);
   f() = 99;
   CHECK(g_ref_val == 99);
   g_ref_val = 42; // restore
 
-  fixed_function<64, const int&()> g{[&]() -> const int& {
+  fixed_function<const int&(), 64> g{[&]() -> const int& {
     return g_ref_val;
   }};
   CHECK(g() == 42);
 
-  fixed_function<64, int&&()> h{[]() -> int&& {
+  fixed_function<int&&(), 64> h{[]() -> int&& {
     return static_cast<int&&>(g_ref_val);
   }};
   CHECK(h() == 42);
@@ -1443,8 +1441,8 @@ TEST_CASE("RefReturn", "[FixedFunction]") {
 #ifdef NOT_SUPPOSED_TO_COMPILE
   // Both of these trigger the static_assert: callable returns a prvalue `int`
   // but the declared return type is a reference, so every call would dangle.
-  fixed_function<64, int&()> bad1{[] { return 42; }};
-  fixed_function<64, const int&()> bad2{[] { return 42; }};
+  fixed_function<int&(), 64> bad1{[] { return 42; }};
+  fixed_function<const int&(), 64> bad2{[] { return 42; }};
 #endif
 }
 
@@ -1453,13 +1451,13 @@ TEST_CASE("RefReturn", "[FixedFunction]") {
 
 TEST_CASE("EmptyThrows", "[FixedFunction]") {
   // Default-constructed instance is empty and throws on call.
-  fixed_function<64, int()> empty{};
+  fixed_function<int(), 64> empty{};
   CHECK(!empty);
   CHECK_THROWS_AS(empty(), std::bad_function_call);
 
   // Moved-from instance is also empty and throws on call.
-  fixed_function<64, int()> f{[] { return 1; }};
-  fixed_function<64, int()> g{std::move(f)};
+  fixed_function<int(), 64> f{[] { return 1; }};
+  fixed_function<int(), 64> g{std::move(f)};
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(!f);
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move): same moved-from check.
@@ -1475,7 +1473,7 @@ TEST_CASE("EmptyThrows", "[FixedFunction]") {
 
 TEST_CASE("FreeFn", "[FixedFunction]") {
   // A plain function pointer satisfies MoveConsumable (it is a prvalue).
-  fixed_function<64, int(int)> f{&double_it};
+  fixed_function<int(int), 64> f{&double_it};
   CHECK(static_cast<bool>(f));
   CHECK(f(21) == 42);
 }
@@ -1488,7 +1486,7 @@ TEST_CASE("Functor", "[FixedFunction]") {
     int n;
     int operator()(int x) const { return x + n; }
   };
-  fixed_function<64, int(int)> f{Adder{10}};
+  fixed_function<int(int), 64> f{Adder{10}};
   CHECK(f(32) == 42);
 }
 
@@ -1496,7 +1494,7 @@ TEST_CASE("Functor", "[FixedFunction]") {
 #pragma region FixedFunction_Swap
 
 TEST_CASE("Swap", "[FixedFunction]") {
-  using ff = fixed_function<64, int()>;
+  using ff = fixed_function<int(), 64>;
   ff a{[] { return 1; }};
   ff b{[] { return 2; }};
 

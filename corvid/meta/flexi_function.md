@@ -5,7 +5,7 @@ function wrapper whose storage behavior is a compile-time policy: inline,
 heap, or either, with a configurable buffer size, a chosen empty-call behavior,
 and full support for cv-, ref-, and `noexcept`-qualified signatures.
 Wrappers that differ only in policy transplant their stored callable
-between each other instead of nesting. `fixed_function<SZ, Sig>` in
+between each other instead of nesting. `fixed_function<Sig, Size>` in
 [fixed_function.h](fixed_function.h) is the `inline_only` special case,
 sized to a total instance size.
 
@@ -58,10 +58,18 @@ The policy type is shared with `proxy` and documented in
 ## The shape at a glance
 
 ```cpp
-template<invocable_policy Policy, class Sig,
+template<class Sig, invocable_policy Policy = invocable_policy::basic,
     class FunctionT = signature_function_t<Sig>>
 class flexi_function;
 ```
+
+`flexi_function<int()>` is the `std::function`-shaped default: a
+two-pointer buffer with heap fallback. A policy is usually spelled
+fluently from one of the three starting points in
+[invocable_policy.h](invocable_policy.h), `basic`, `heap`, and `fixed`,
+as `invocable_policy::heap.with(on_empty::silent)` or
+`invocable_policy::fixed.with_size(64)`; `fixed_function<Sig, Size>` is the
+alias for the latter, with `Size` the instance size.
 
 The third parameter is derived from the signature and never passed. It is
 the pattern-matching hook that gives the class body `ResultT` and
@@ -116,7 +124,7 @@ offset 16 +----------+
 offset 24 +----------+
 ```
 
-`fixed_function<64, Sig>` is `inline_only` with `inline_size = 48`, so
+`fixed_function<Sig, 64>` is `inline_only` with `inline_size = 48`, so
 the whole instance is the 64 bytes its name promises:
 
 ```

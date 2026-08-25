@@ -123,7 +123,7 @@ protected:
 //
 // NOLINTBEGIN(bugprone-move-forwarding-reference)
 template<typename CB =
-             fixed_function<default_fixed_function::capacity, bool()>>
+             fixed_function<bool(), default_fixed_function::capacity>>
 class owner_thread_dispatcher: public owner_thread_claim {
 public:
 #pragma region Infrastructure

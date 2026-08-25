@@ -500,7 +500,7 @@ TEST_CASE("PausedExpirationClip", "[TimeoutSweeper]") {
 TEST_CASE("FixedFunctionSpecialization", "[TimeoutSweeper]") {
   // The class template must accept a `fixed_function` specialization with
   // a small capacity sized to a `weak_ptr` capture.
-  using small_cb = corvid::meta::fixed_function<32, tp(tp)>;
+  using small_cb = corvid::meta::fixed_function<tp(tp), 32>;
   using small_sw = timeout_sweeper<small_cb>;
   static_assert(std::is_same_v<small_sw::time_point_t, tp>);
   static_assert(small_sw::paused_expiration == sweeper::paused_expiration);

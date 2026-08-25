@@ -92,9 +92,8 @@ using namespace std::chrono_literals;
 // fit their captures (typically just a `weak_ptr`, so a capacity in the
 // low tens of bytes is enough). Example:
 //
-//   using my_sweeper = timeout_sweeper<fixed_function<32,
-//       steady_now_clock::time_point_t(
-//           steady_now_clock::time_point_t)>>;
+//   using my_sweeper = timeout_sweeper<fixed_function<
+//       steady_now_clock::time_point_t(steady_now_clock::time_point_t), 32>>;
 template<typename CB = std::function<steady_now_clock::time_point_t(
              steady_now_clock::time_point_t)>>
 class timeout_sweeper: public timeouts {

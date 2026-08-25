@@ -30,7 +30,7 @@ namespace corvid { inline namespace meta {
 // Round an inline-storage size up to its alignment, claiming as usable
 // capacity what the compiler would otherwise waste as padding.
 //
-// A size-parameterized buffer, such as `fixed_function`'s `SZ` or a proxy
+// A size-parameterized buffer, such as `fixed_function`'s `Size` or a proxy
 // policy's `inline_size`, occupies a multiple of its alignment regardless of
 // the size requested, so a request between multiples would pay for the padding
 // without getting to use it. Those classes therefore reject such sizes, and
