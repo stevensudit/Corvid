@@ -279,10 +279,16 @@ The `static_assert`s in `do_store` rule out, with named diagnostics: an
 destructor may throw, and a callable returning a prvalue under a
 reference-returning signature (every call would dangle).
 
-Nothrow-move-constructibility gates inline storage because a wrapper move
-relocates an inline target, and wrapper moves are unconditionally
-`noexcept`. A throwing-move type goes to the heap, where a move is a
-pointer copy.
+Nothrow-move-constructibility gates inline storage because the same-type
+move (and `swap`) is unconditionally `noexcept`, and it relocates an
+inline target by moving it. `noexcept` on an erased wrapper is one answer
+for every target the type could hold, so it can only be promised if
+nothing that can ever sit in the buffer throws on move. Converting moves
+across policies are `noexcept` only when `adopt_may_throw` says nothing
+can go wrong, but that does not loosen the gate: a throwing mover let in
+through a throwing path would still face the destination's next
+same-type move. So a throwing-move type goes to the heap, where a move is
+a pointer copy, and can never be adopted into an `inline_only` wrapper.
 
 ## The lifespan protocol
 
@@ -350,10 +356,9 @@ is already paid for and un-boxing would cost a move for nothing.
 
 What can throw, and what it leaves behind:
 
-- Boxing allocates, and for a throwing-move type the move itself can
-  throw. Either way the destination is untouched, and the source is intact
-  if the throw came from the allocation or from a move that offers that
-  guarantee.
+- Boxing allocates, and the allocation can throw. The move into the block
+  cannot, since an inline source is nothrow-move by the gate. The
+  destination is untouched and the source intact.
 - A refusal is a `std::length_error` from `do_adopt`, with both sides
   intact. The converting assignment pre-flights with `can_adopt` so it
   throws before touching either side.

@@ -250,10 +250,9 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // moved into the destination's buffer.
   //
   // -- Otherwise, when the destination allows heap storage, the source is
-  // boxed onto the heap. This operation can throw in the allocation, and
-  // possibly in the move. In that case, the destination is left intact, and
-  // the source is intact if the throw was from the allocation, or if the throw
-  // from its move offers this guarantee.
+  // boxed onto the heap. The allocation can throw, and the move into the
+  // block cannot (an inline source is nothrow-move), so a throw leaves both
+  // sides intact.
   //
   // -- When the destination allows only inline storage but the source doesn't
   // fit (or, to be more specific, is ineligible due to size, alignment, or
@@ -377,8 +376,9 @@ private:
   // the dynamic thunks.
   //
   // Only an inline source ever moves to dynamic; a dynamic block is handed
-  // over or un-boxed instead. The allocation--and, for a throwing-move `F`,
-  // the move itself--can throw. The destination is untouched on a throw.
+  // over or un-boxed instead. The allocation can throw, and the move cannot
+  // (because an inline source is nothrow-move), so both sides are untouched on
+  // a throw.
   template<class F, allocation_mode SourceAlloc>
   static size_t move_dynamic(F* f, destination_spec* dest) {
     static_assert(SourceAlloc == allocation_mode::inlined,
