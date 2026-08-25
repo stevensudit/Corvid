@@ -38,7 +38,7 @@ The policy type is shared with `proxy` and documented in
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | wrapper                     | A `flexi_function` instance.                                                                                                                   |
 | target, callable            | The thing the wrapper calls. "Target" is the stored object; "callable" is the same thing before it is stored.                                  |
-| policy                      | The `invocable_policy` NTTP: buffer size and alignment, `alloc`, and `empty`.                                                                  |
+| policy                      | The `invocable_policy` NTTP: buffer size and alignment, `alloc`, `empty`, and `runtime_fn`.                                                    |
 | sibling                     | A `flexi_function` with the same signature and a different policy. Siblings are friends and can adopt from each other.                         |
 | signature, `Sig`            | The `R(Args...)` type, possibly with `const`, `&`/`&&`, and `noexcept`.                                                                        |
 | thunk                       | A static function generated per stored type that does one erased job: invoke, or manage lifespan.                                              |
@@ -55,7 +55,7 @@ The policy type is shared with `proxy` and documented in
 | direct-eligible             | A type that can be `direct`: `policy_details::direct_eligible<T>()`.                                                                           |
 | `constant_fn<Fn>`           | A direct-eligible callable whose target is the compile-time constant `Fn`: a function, a member pointer, or a captureless lambda.              |
 | `runtime_fn{p}`             | A callable holding a function or member pointer known only at runtime; a bare pointer target, made explicit. Nullable.                         |
-| `runtime_fn_policy`         | Whether a bare pointer is accepted as a target (`optional`) or must be spelled as `constant_fn` or `runtime_fn` (`required`). Border only.      |
+| `runtime_fn_policy`         | Whether a bare pointer is accepted as a target (`optional`) or must be spelled as `constant_fn` or `runtime_fn` (`required`). Border only.     |
 
 ## The shape at a glance
 
@@ -71,7 +71,8 @@ fluently from one of the three starting points in
 [invocable_policy.h](invocable_policy.h), `basic`, `heap`, and `fixed`,
 as `invocable_policy::heap.with(on_empty::silent)` or
 `invocable_policy::fixed.with_size(64)`; `fixed_function<Sig, Size>` is the
-alias for the latter, with `Size` the instance size.
+alias for the latter, with `Size` the instance size, rounded up to the
+storage alignment.
 
 The third parameter is derived from the signature and never passed. It is
 the pattern-matching hook that gives the class body `ResultT` and
@@ -80,13 +81,13 @@ twelve qualifier combinations.
 
 Construction paths, all landing in one of two private workers:
 
-| Spelling                           | Goes to    | Notes                                                                                                                                     |
-| ---------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `fn_t f = callable;`               | `do_store` | Implicit. Any callable that the signature can invoke, except the std wrappers. A null function or member pointer yields an empty wrapper. |
-| `fn_t f{std::function<...>{...}};` | `do_store` | Explicit. Wraps a `std::function` or `std::move_only_function`, nesting it at a cost.                                                     |
-| `fn_t f{std::move(sibling)};`      | `do_adopt` | Transplants the target across policies.                                                                                                   |
-| `fn_t f{std::move(same)};`         | `do_adopt` | Same type. Always `noexcept`.                                                                                                             |
-| `fn_t f;` or `fn_t f{nullptr};`    | neither    | Empty.                                                                                                                                    |
+| Spelling                           | Goes to    | Notes                                                                                                                                                                                                                                                                                      |
+| ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `fn_t f = callable;`               | `do_store` | Implicit. Any callable that the signature can invoke, except the std wrappers. A null function or member pointer, or a null `runtime_fn`, yields an empty wrapper. A function name, or a bare pointer under `runtime_fn_policy::required` is a compile error (see "Indirection, counted"). |
+| `fn_t f{std::function<...>{...}};` | `do_store` | Explicit. Wraps a `std::function` or `std::move_only_function`, nesting it at a cost.                                                                                                                                                                                                      |
+| `fn_t f{std::move(sibling)};`      | `do_adopt` | Transplants the target across policies.                                                                                                                                                                                                                                                    |
+| `fn_t f{std::move(same)};`         | `do_adopt` | Same type. Always `noexcept`.                                                                                                                                                                                                                                                              |
+| `fn_t f;` or `fn_t f{nullptr};`    | neither    | Empty.                                                                                                                                                                                                                                                                                     |
 
 Assignment mirrors construction, with `reset()` first. `swap` is three
 moves.
@@ -308,10 +309,12 @@ nothrow-move-constructible, and the policy is not `heap_only`), else
 `dynamic`. `can_store_nothrow<T>(p)` is "not `dynamic`", and it is the
 `noexcept` specification of every storing constructor and assignment.
 
-The `static_assert`s in `do_store` rule out, with named diagnostics: an
-`inline_only` policy over a target that cannot live inline, a target whose
-destructor may throw, and a callable returning a prvalue under a
-reference-returning signature (every call would dangle).
+The `static_assert`s in `do_store` rule out, with named diagnostics: a
+function lvalue as the callable, a bare function or member pointer under
+`runtime_fn_policy::required`, an `inline_only` policy over a target that
+cannot live inline, a target whose destructor may throw, and a callable
+returning a prvalue under a reference-returning signature (every call
+would dangle).
 
 Nothrow-move-constructibility gates inline storage because the same-type
 move (and `swap`) is unconditionally `noexcept`, and it relocates an
@@ -326,8 +329,9 @@ a pointer copy, and can never be adopted into an `inline_only` wrapper.
 
 ## The lifespan protocol
 
-One function per stored type, `lifespan_impl<F, M>(from, dest)`, serves
-four requests, distinguished by which arguments are null:
+One entry point per stored type and mode, `lifespan_impl<F, M>(from,
+dest)` (two constrained overloads, one of them the trivial `direct` case),
+serves four requests, distinguished by which arguments are null:
 
 | `from` | `dest` | `dest->to` | Request                                            | Returns                                     |
 | ------ | ------ | ---------- | -------------------------------------------------- | ------------------------------------------- |
@@ -411,13 +415,13 @@ a boxing adoption may need.
 What a move costs, in `lifespan` calls, each an indirect call through the
 thunk pointer:
 
-| Operation | Destination's `lifespan` | Source's `lifespan` |
-| --- | --- | --- |
-| move construction, same type or converting | none | 1 (relocate) |
-| same-type move assignment | 1 (destroy, when non-empty) | 1 (relocate) |
-| converting move assignment, destination not `inline_only` | 1 (destroy, when non-empty) | 1 (relocate) |
-| converting move assignment, destination `inline_only` | 1 (destroy, when non-empty) | 2 (probe, then relocate) |
-| `swap` | three moves' worth | |
+| Operation                                                 | Destination's `lifespan`    | Source's `lifespan`      |
+| --------------------------------------------------------- | --------------------------- | ------------------------ |
+| move construction, same type or converting                | none                        | 1 (relocate)             |
+| same-type move assignment                                 | 1 (destroy, when non-empty) | 1 (relocate)             |
+| converting move assignment, destination not `inline_only` | 1 (destroy, when non-empty) | 1 (relocate)             |
+| converting move assignment, destination `inline_only`     | 1 (destroy, when non-empty) | 2 (probe, then relocate) |
+| `swap`                                                    | three moves' worth          |                          |
 
 The extra probe is the price of leaving the destination's target intact
 on a refusal: the alternative, relocating into a temporary and then

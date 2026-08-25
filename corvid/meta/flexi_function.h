@@ -440,8 +440,18 @@ private:
 // invoked, and `noexcept` constrains construction to nothrow-invocable
 // callables in exchange for a `noexcept` call operator.
 //
-// - It is inflexibly move-only, because copying wrappers have limited uses,
-// and at a high cost to design choices. A copyable wrapper would need to be a
+// - A target that is a function known at compile time is called directly,
+// with nothing stored, when it is spelled as such: `constant_fn<f>{}`, or a
+// captureless lambda that names it. A bare function or member pointer is
+// stored, and called through one more indirect call per invocation, because
+// its value is runtime data; `runtime_fn{p}` is the same thing spelled out.
+// A function name itself (`f = foo;`) is refused at compile time, since it is
+// the one spelling that cannot be a runtime value, and a policy with
+// `runtime_fn_policy::required` refuses bare pointers too, so that the caller
+// chooses. See `invocable_policy.h`.
+//
+// - It is inflexibly move-only, because copying wrappers has limited uses, and
+// at a high cost to design choices. A copyable wrapper would need to be a
 // different class, like `std::copyable_function`.
 //
 // A few odds and ends:

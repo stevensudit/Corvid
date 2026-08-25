@@ -44,6 +44,10 @@ The pending `proxy` changes, in the order to land them:
   implies the target was boxed before. The shared policy vocabulary has
   already moved to inline_size / inline_align / inline_only / inline_or_heap
   and the wrapper says "boxed"; the internals should follow.
+- Honor, or explicitly document as ignored, the two policy members that
+  landed with the direct-call work below and that `proxy` does not yet use:
+  `runtime_fn` (the bare-pointer refusal at the border) and
+  `allocation_mode::direct` (a direct-eligible target stored nowhere).
 - Once the above lands, both types share the same empty-call, handover, and
   vocabulary contracts, and the proxy.md storage-policy section can point at
   `invocable_policy.h` as the single description.
@@ -98,24 +102,48 @@ Proxy's method descriptors already carry their own `Const`/`Noexcept` flags
 qualifiers, so `method_key` adopts the `signature_traits` vocabulary when
 the proxy work lands rather than having it retrofitted.
 
-## Deferred: direct-call thunks for compile-time-known targets
+## Landed: direct calls for flexi_function
 
-Wanted, after the storage generalization. A stored function pointer costs
-two indirections per call: the erased invoke thunk, then the call through
-the pointer it loads from the buffer. That second level is removable
-whenever the target is known at compile time: take the function as an NTTP
-(a `template<auto Fn>` factory or constructor tag) and install a thunk
-whose body calls `Fn(args...)` directly. No load, no second indirection,
-the callee visible to the inliner, and nothing stored in the buffer at
-all. One indirect call is the floor for any type-erased wrapper; this
-reaches it.
+A stored function pointer costs two indirect calls per invocation: the
+erased invoke thunk, then the call through the pointer it loads from the
+buffer. The second is removable only when the target is in the type rather
+than in the data, and a captureless lambda that names the function already
+put it there; the thunk generated for that closure type calls the function
+outright. So the landed design is not a new construction path but a
+storage mode plus two spellings, with the mechanism in
+[flexi_function.md](flexi_function.md):
 
-C++26's `std::function_ref` standardizes exactly this shape via its
-`std::nontype` constructors, which serves as precedent for the interface,
-not as a dependency: we are on C++23 (and clang's library has not fully
-caught up even to that), so the mechanism is built here. Additive: a new
-construction path; the existing runtime paths are untouched. Composes with
-the qualified-signature work above, so sequence it with or after that.
+- `allocation_mode::direct`, beside `inlined` and `dynamic`. A target whose
+  type is `direct_eligible` (no data members, trivial default construction
+  and destruction) is stored nowhere: the invoke thunk names an instance
+  the object model requires and the optimizer erases, the lifespan thunk
+  has nothing to size, destroy, or move, and every policy, `heap_only`
+  included, allocates nothing for it. `size()` reports 0. The lifespan
+  refusal sentinel moved off 0 (`flexi_thunks::refused`) to make that
+  honest.
+- `constant_fn<Fn>`, a direct-eligible functor over a compile-time
+  constant: a function, a member pointer (object as the first argument),
+  or a captureless lambda. It is the C++23 stand-in for what C++26's
+  `std::function_ref` takes as `std::constant_wrapper` (P3740 retired
+  `std::nontype`), and `flexi_function` knows nothing about it; it is just
+  a stateless callable. `runtime_fn{p}` is its counterpart for a pointer
+  that really is a runtime value, nullable, stored and called through like
+  a bare pointer.
+- Two border refusals, both `static_assert`s in `do_store`. A function
+  lvalue (`f = foo;`) is always refused, since it is the one spelling the
+  type system can tell from a runtime pointer; `&foo` cannot be told from
+  `get_handler()`. A policy with `runtime_fn = runtime_fn_policy::required`
+  refuses bare function and member pointers too, so the caller must pick
+  `constant_fn` or `runtime_fn`. Moves and sibling adoption never re-check.
+  Flipping the field's default and rebuilding is a one-edit audit.
+
+Landed alongside, from the same conversation: the template order is now
+`flexi_function<Sig, Policy = invocable_policy::basic>` and
+`fixed_function<Sig, Size = invocable_policy::fixed.size()>`; and
+`invocable_policy` is spelled fluently from `basic`, `heap`, and `fixed`
+through `with(on_empty)`, `with(runtime_fn_policy)`, `with_alignment`,
+`with_size` (instance bytes, rounded up at the buffer alignment),
+`with_storage_size`, and `size()`.
 
 ## Speculative: cache-line-sized wrappers
 
