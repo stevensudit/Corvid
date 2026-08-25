@@ -93,13 +93,13 @@ enum class on_empty : std::uint8_t { silent, raise, terminate };
 // direct call to the target's code, and the buffer is never read. This is
 // possible only for a type that carries nothing per instance: no data
 // members, and trivial default construction and destruction (see
-// `direct_eligible`), such as a captureless lambda or a `std::plus<>`. Such
-// a target occupies no storage under any policy, `heap_only` included, and
-// reports a size of 0.
+// `direct_eligible`), such as a captureless lambda or a stateless functor like
+// `std::plus<>`. Such a target occupies no storage under any policy,
+// `heap_only` included, and reports a size of 0.
 //
 // Unlike `invocable_alloc`, which is a policy choice, this is the outcome for
 // one target, and it is what the owner's thunks are keyed on.
-enum class allocation_mode : std::uint8_t { inlined, dynamic, direct };
+enum class allocation_mode : std::uint8_t { direct, inlined, dynamic };
 
 #pragma endregion
 #pragma region invocable_policy
