@@ -15,12 +15,6 @@ contract.
 
 The pending `proxy` changes, in the order to land them:
 
-- Prefer the heap handover in adoption. A heap-stored target moving to a
-  heap-admitting destination is handed over as a pointer, never un-boxed,
-  even when it would fit inline; the allocation is already paid for. The
-  shared policy doc already promises this, and `adoption_of` now states it
-  for both owners (a heap arrival is handed over whenever the destination
-  admits the heap); a test that pins it remains to be added.
 - `reset()` and `nullptr` assignment, for parity with `flexi_function`.
   Both empty the proxy and reinstall its type's empty table.
 - Vocabulary sweep in `proxy.h` / `proxy.md`. The internal table identifiers
@@ -38,7 +32,14 @@ The pending `proxy` changes, in the order to land them:
   refuses one with a `static_assert`.
 - Once the above lands, both types share the same empty-call, handover, and
   vocabulary contracts, and the proxy.md storage-policy section can point at
-  `invocable_policy.h` as the single description.
+  `invocable_policy.h` as the single description. The heap handover is
+  landed: `adoption_of` hands a heap arrival over whenever the destination
+  admits the heap, never un-boxing it even when it would fit inline, and
+  "Storage policies" in proxy_test.cpp pins it, including that the block
+  itself travels (after a round trip through the default policy, the target
+  extracts at the address it went in at). `extract` prunes the home its
+  policy never uses, as `do_adopt` does, which is also what keeps the
+  analyzer off the never-written buffer on that path.
 
 ## In progress: shared code between proxy and flexi_function
 

@@ -2717,10 +2717,22 @@ TEST_CASE("Storage policies", "[proxy]") {
     CHECK(heap_stats.moves == 0);
     CHECK(heap_stats.constructed == 1);
 
-    // Converting to the default policy hands the heap target over intact.
+    // Converting to the default policy hands the heap target over intact,
+    // even though it would fit the destination's buffer: the allocation is
+    // already paid for, so it is never un-boxed.
     proxy<lockbox> r = std::move(q);
     CHECK(heap_stats.moves == 0);
     CHECK(r.call<"gold">() == 4);
+
+    // It is the block itself that travels: after a round trip through the
+    // default policy, the target comes back out at the address it went in at.
+    auto owned = std::make_unique<small_box>(heap_stats);
+    const auto* address = owned.get();
+    auto h = make_proxy<lockbox, policies::heap_only>(std::move(owned));
+    proxy<lockbox> handed = std::move(h);
+    proxy<lockbox, policies::heap_only> back = std::move(handed);
+    CHECK(heap_stats.moves == 0);
+    CHECK(back.extract<small_box>().get() == address);
   }
   CHECK(heap_stats.destroyed == heap_stats.constructed);
 

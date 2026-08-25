@@ -2920,7 +2920,7 @@ public:
   // proxy empty.
   //
   // The inverse of the adopting constructor, and the only way ownership leaves
-  // a proxy other than destruction; a raw pointer is never exposed.
+  // a proxy other than destruction: a raw pointer is never exposed.
   //
   // `T` must be the target's exact type, verified at runtime through the
   // table's type tag: on a mismatch, or an empty proxy, the result is null
@@ -2931,18 +2931,21 @@ public:
   template<typename T>
   [[nodiscard]] std::unique_ptr<T> extract() {
     if (vtable_->type_tag != &details::type_tag_v<T>) return nullptr;
-    if (!vtable_->relocate) {
-      auto* ptr = static_cast<T*>(storage_area_.ptr);
-      vtable_ = empty_vtable;
-      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete): see target
-      return std::unique_ptr<T>{ptr};
+    if constexpr (Policy.admits_heap()) {
+      if (!vtable_->relocate) {
+        auto* ptr = static_cast<T*>(storage_area_.ptr);
+        vtable_ = empty_vtable;
+        // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete): see target
+        return std::unique_ptr<T>{ptr};
+      }
     }
-    if constexpr (std::is_move_constructible_v<T>) {
+    if constexpr (Policy.admits_inline() && std::is_move_constructible_v<T>) {
       std::unique_ptr<T> result{new T(std::move(*static_cast<T*>(target())))};
       do_reset();
       return result;
     } else {
-      // Unreachable: an immovable target is never stored inline.
+      // Unreachable: an immovable target is never stored inline, and a
+      // `heap_only` proxy stores nothing inline.
       return nullptr;
     }
   }
