@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <exception>
 #include <functional>
+#include <limits>
 #include <new>
 #include <stdexcept>
 #include <type_traits>
@@ -120,6 +121,13 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // See `destination_spec` and `lifespan_impl` for details.
   using lifespan_fn_t = size_t (*)(void*, destination_spec*);
 
+  // The lifespan thunk's answer to a probe or relocation it does not accept.
+  //
+  // In contrast, a 0 is a legitimate answer when the invocation points
+  // directly at the function and there's no storage, or further indirection,
+  // needed.
+  static constexpr size_t refused = std::numeric_limits<size_t>::max();
+
   // The pair of thunk pointers a wrapper keeps ahead of its storage, which
   // is what a relocation transfers.
   //
@@ -211,7 +219,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   //
   // - When `from` and `dest` are set, but `dest->to` is null, it is a probe
   // that returns `sizeof(F)` when a relocation into `dest` would be accepted
-  // and 0 otherwise.
+  // and `refused` otherwise.
   //
   // - When `from` (and `dest`) and `dest->to` are set, it relocates the
   // callable into `dest->to`, filling `dest->dispatch`.
@@ -236,7 +244,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   //
   // -- When the destination allows only inline storage but the source doesn't
   // fit (or, to be more specific, is ineligible due to size, alignment, or
-  // a throwing move) it refuses with 0, leaving both sides intact.
+  // a throwing move) it refuses with `refused`, leaving both sides intact.
   //
   // -- On success, the destination's thunk pair is written for the mode the
   // callable landed in. The source's own pair is the caller's
@@ -253,7 +261,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     // First decide whether a relocation is allowed.
     const bool fits_inline = policy_details::can_store_inline<F>(dest->policy);
     const bool may_heap = (dest->policy.alloc != invocable_alloc::inline_only);
-    if (!fits_inline && !may_heap) return 0;
+    if (!fits_inline && !may_heap) return refused;
     if (!dest->to) return sizeof(F);
 
     if constexpr (SourceAlloc == allocation_mode::dynamic) {
@@ -275,7 +283,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
         // compile), and it returns the refusal value so that a future logic
         // error fails safe instead of reporting a successful relocation.
         assert(false);
-        return 0;
+        return refused;
       }
     } else {
       // An inline source stays inline when the destination is eligible, and
@@ -406,8 +414,8 @@ private:
 // callables in exchange for a `noexcept` call operator.
 //
 // - It is inflexibly move-only, because copying wrappers have limited uses,
-// and at a high cost to design choices. Essentially, a copiable wrapper would
-// be a different class.
+// and at a high cost to design choices. A copyable wrapper would need to be a
+// different class, like `std::copyable_function`.
 //
 // A few odds and ends:
 //
@@ -720,7 +728,7 @@ public:
           .to = nullptr};
       // The probe only reads, but the erased signature is mutable.
       return source.dispatch_.lifespan(const_cast<std::byte*>(source.storage_),
-                 &probe) != 0;
+                 &probe) != thunks::refused;
     }
   }
 
@@ -790,13 +798,13 @@ private:
     destination_spec dest{.policy = Policy,
         .dispatch = &dispatch_,
         .to = storage_};
-    [[maybe_unused]] const bool refused =
-        (other.dispatch_.lifespan(other.storage_, &dest) == 0);
+    [[maybe_unused]] const bool is_refused =
+        (other.dispatch_.lifespan(other.storage_, &dest) == thunks::refused);
     if constexpr (policy_details::adopt_may_throw(Policy, P)) {
-      if (refused)
+      if (is_refused)
         throw std::length_error{"flexi_function: callable too large"};
     } else {
-      assert(!refused);
+      assert(!is_refused);
     }
     other.dispatch_ = other_t::empty_dispatch;
   }
