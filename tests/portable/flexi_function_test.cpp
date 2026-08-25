@@ -178,6 +178,10 @@ TEST_CASE("Heap fallback", "[flexi_function]") {
     CHECK(!h);
     CHECK(h2() == 1);
   }
+  // The heap blocks were freed through the erased lifespan thunk, which
+  // reads the pointer back through the storage address; the analyzer
+  // cannot connect that read to the `storage_area_.ptr` it saw written.
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   CHECK(live == 0);
 }
 
@@ -467,6 +471,8 @@ TEST_CASE("Trivially copyable lvalues are copied in", "[flexi_function]") {
   static_assert(std::is_constructible_v<fn_t, decltype(heavy)&&>);
   fn_t d{std::move(heavy)};
   CHECK(d() == 1);
+  // The analyzer loses the heap block here as in "Heap fallback".
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
 TEST_CASE("Silent returns a default", "[flexi_function]") {

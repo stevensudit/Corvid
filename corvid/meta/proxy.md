@@ -959,7 +959,7 @@ classDiagram
         +try_downcast() to const views only
     }
     class proxy~F,Policy~ {
-        -storage_ : inline buffer or heap pointer
+        -storage_area_ : inline buffer or heap pointer
         -vtable_ : owning table pointer
         +call()
         +clone()
@@ -1073,13 +1073,16 @@ downcasting, below.)
 Proxies of different facades and policies interconvert as rvalues through
 one converting constructor. The source's policy never forecloses a
 conversion: what matters is whether the destination can accommodate the
-target that actually arrives, decided per target at adoption time. An
-inline arrival relocates into the buffer when it fits, and otherwise
-re-boxes onto the heap. (The fit check is purely compile-time when the
-destination's buffer dominates the source's, which covers every
-same-policy move.) A heap arrival moves by pointer steal, or un-boxes into
-an `inline_only` proxy's buffer, with the erased target's size and alignment
-checked against the buffer through the owning table.
+target that actually arrives, decided per target at adoption time. The
+rule is `invocables::details::adoption_of`, one statement shared with
+`flexi_function`, which answers with an `adoption` route: an inline
+arrival relocates into the buffer when it fits, and otherwise re-boxes
+onto the heap; a heap arrival moves by pointer steal, or un-boxes into an
+`inline_only` proxy's buffer; an arrival with no home is refused. The
+owning table is the erased arrival's witness, supplying its size and
+alignment and whether it could live inline. (The fit check is purely
+compile-time when the destination's buffer dominates the source's, which
+covers every same-policy move.)
 
 Exactly the conversions that might change the storage mode can throw: the
 re-boxing allocation, or `std::length_error` when an erased target cannot
@@ -1095,7 +1098,8 @@ destination type against the source's runtime target, so it needs no
 destination instance. Only an `inline_only` destination can ever answer no.
 
 The mode-changing thunks and the other-mode table cross-links live in the
-owning tables (`sbo_to_heap`/`heap_to_sbo`), whose two modes reference
+owning tables (`to_heap`/`to_sbo`, pointing at the shared `box`/`unbox`
+in invocable_common.h), whose two modes reference
 each other by address.
 
 ### Empty handles
@@ -1573,7 +1577,7 @@ buffer; see "Empty handles".
 ```mermaid
 flowchart LR
     subgraph P["proxy of marshal"]
-        SB["storage_: inline buffer or heap pointer"]
+        SB["storage_area_: inline buffer or heap pointer"]
         VP2["vtable_: owning table pointer"]
     end
     subgraph OS["inline-mode owning table"]

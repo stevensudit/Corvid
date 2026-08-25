@@ -83,7 +83,7 @@ enum class storage_policy : std::uint8_t {
 enum class on_empty : std::uint8_t { silent, raise, terminate };
 
 #pragma endregion
-#pragma region Allocation mode
+#pragma region Storage mode
 
 // `storage_mode` is where an owner keeps its target, which is also how the
 // owner's invoke thunk reaches it.
@@ -105,6 +105,19 @@ enum class on_empty : std::uint8_t { silent, raise, terminate };
 // Unlike `storage_policy`, which is a policy choice, this is the outcome for
 // one target, and it is what the owner's thunks are keyed on.
 enum class storage_mode : std::uint8_t { direct, inlined, dynamic };
+
+#pragma endregion
+#pragma region Adoption
+
+// `adoption` is what becomes of a target arriving from a sibling owner: the
+// route it takes into the destination's storage, or a refusal.
+//
+// `relocate` moves an inline arrival into the destination's buffer, and `box`
+// moves one onto the heap. `hand_over` passes a heap arrival's block to the
+// destination as is, and `unbox` moves one into the destination's buffer and
+// frees the block. `refuse` is the answer when the destination admits no home
+// the arrival can take. The rule that picks the route is `adoption_of`.
+enum class adoption : std::uint8_t { relocate, box, hand_over, unbox, refuse };
 
 #pragma endregion
 #pragma region invocable_policy
@@ -210,7 +223,7 @@ struct invocable_policy {
   // time.
   [[nodiscard]] consteval invocable_policy with_alignment(
       size_t align) const noexcept {
-    if (storage == storage_policy::heap_only) needs_a_buffer();
+    if (!admits_inline()) needs_a_buffer();
     if (!std::has_single_bit(align)) must_be_a_power_of_two();
     auto p = *this;
     p.inline_align = align;
@@ -225,7 +238,7 @@ struct invocable_policy {
   // buffer, both enforced at compile time.
   [[nodiscard]] consteval invocable_policy with_size(
       size_t sz) const noexcept {
-    if (storage == storage_policy::heap_only) needs_a_buffer();
+    if (!admits_inline()) needs_a_buffer();
     const auto total = padded_size(sz, inline_align);
     const auto header = padded_size(dispatch_size, inline_align);
     if (total <= header) must_exceed_two_pointers();
@@ -240,12 +253,38 @@ struct invocable_policy {
     return with_size(sz + padded_size(dispatch_size, inline_align));
   }
 
+  // `admits_inline`, `admits_heap`: whether the policy permits storing a
+  // target inline, or on the heap.
+  //
+  // The two questions every owner asks of its policy, in place of comparing
+  // `storage` against the value that forbids each. `storage_policy`'s bit
+  // layout says the same thing: `inline_only` and `heap_only` are the two
+  // bits, and `inline_or_heap` is both.
+  //
+  // `constexpr` rather than `consteval`: `flexi_function`'s lifespan thunk
+  // asks a type-erased destination's policy at runtime.
+  [[nodiscard]] constexpr bool admits_inline() const noexcept {
+    return (storage != storage_policy::heap_only);
+  }
+  [[nodiscard]] constexpr bool admits_heap() const noexcept {
+    return (storage != storage_policy::inline_only);
+  }
+
+  // `buffer_size`, `buffer_align`: the geometry of the buffer an owner
+  // actually keeps: the policy's inline buffer, or, under `heap_only`, just
+  // the pointer to the heap block, so that the whole owner is as small as a
+  // view.
+  [[nodiscard]] consteval size_t buffer_size() const noexcept {
+    return admits_inline() ? inline_size : sizeof(void*);
+  }
+  [[nodiscard]] consteval size_t buffer_align() const noexcept {
+    return admits_inline() ? inline_align : alignof(void*);
+  }
+
   // The instance size of an owner with this policy: the two thunk pointers
   // and the buffer, or the heap pointer under `heap_only`.
   [[nodiscard]] consteval size_t size() const noexcept {
-    if (storage == storage_policy::heap_only)
-      return dispatch_size + sizeof(void*);
-    return padded_size(dispatch_size, inline_align) + inline_size;
+    return padded_size(dispatch_size, buffer_align()) + buffer_size();
   }
 
 private:
@@ -266,15 +305,28 @@ inline constexpr invocable_policy invocable_policy::fixed{
 
 namespace details {
 
-// `is_inline_eligible`: whether `T` is eligible for policy `P`'s inline
+// `fits_inline`: whether a target of the given size and alignment, whose move
+// cannot throw when `is_nothrow_move`, is eligible for policy `p`'s inline
 // buffer.
+//
+// The three conditions of inline eligibility, over values, so that the same
+// test serves a type (`is_inline_eligible`) and an erased arrival whose table
+// reports its footprint (`adoption_of`).
 //
 // `constexpr` rather than `consteval`: `flexi_function`'s lifespan thunk
 // evaluates a type-erased destination's policy at runtime.
+constexpr bool fits_inline(invocable_policy p, size_t size, size_t align,
+    bool is_nothrow_move) noexcept {
+  return (size <= p.inline_size) && (align <= p.inline_align) &&
+         is_nothrow_move;
+}
+
+// `is_inline_eligible`: whether `T` is eligible for policy `P`'s inline
+// buffer; see `fits_inline`.
 template<typename T>
 constexpr bool is_inline_eligible(invocable_policy p) noexcept {
-  return (sizeof(T) <= p.inline_size) && (alignof(T) <= p.inline_align) &&
-         std::is_nothrow_move_constructible_v<T>;
+  return fits_inline(p, sizeof(T), alignof(T),
+      std::is_nothrow_move_constructible_v<T>);
 }
 
 // `can_store_inline`: whether policy `P` can store `T` inline.
@@ -283,7 +335,7 @@ constexpr bool is_inline_eligible(invocable_policy p) noexcept {
 // with its own diagnostic.
 template<typename T>
 constexpr bool can_store_inline(invocable_policy p) noexcept {
-  return (p.storage != storage_policy::heap_only) && is_inline_eligible<T>(p);
+  return p.admits_inline() && is_inline_eligible<T>(p);
 }
 
 // `is_direct_eligible`: whether a `T` can be called without storing one, so
@@ -328,8 +380,7 @@ consteval bool can_store_nothrow(invocable_policy p) noexcept {
 // arrivals).
 consteval bool
 inline_fit_guaranteed(invocable_policy to, invocable_policy from) noexcept {
-  return (to.storage != storage_policy::heap_only) &&
-         (to.inline_size >= from.inline_size) &&
+  return to.admits_inline() && (to.inline_size >= from.inline_size) &&
          (to.inline_align >= from.inline_align);
 }
 
@@ -341,10 +392,37 @@ inline_fit_guaranteed(invocable_policy to, invocable_policy from) noexcept {
 // arrival that must un-box into an `inline_only` buffer it might not fit.
 consteval bool
 adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
-  const auto from_inline = (from.storage != storage_policy::heap_only);
-  const auto from_heap = (from.storage != storage_policy::inline_only);
-  return (from_inline && !inline_fit_guaranteed(to, from)) ||
-         (from_heap && (to.storage == storage_policy::inline_only));
+  return (from.admits_inline() && !inline_fit_guaranteed(to, from)) ||
+         (from.admits_heap() && !to.admits_heap());
+}
+
+// `adoption_of`: the route a target of the given size and alignment, whose
+// move cannot throw when `is_nothrow_move`, takes into policy `to`, arriving
+// from storage mode `from`.
+//
+// The one statement of the adoption rule, which both owners follow. A heap
+// arrival is handed over whenever `to` admits the heap, never un-boxed, since
+// the allocation is already paid for; it is un-boxed only into an
+// `inline_only` buffer it fits. An inline arrival stays inline when it fits
+// and is boxed otherwise. When no home is open, the arrival is refused.
+// "Fits" is `fits_inline`.
+//
+// A `direct` arrival is not routed here: it has no storage to move, and every
+// destination accepts it.
+//
+// `constexpr` rather than `consteval`: `flexi_function`'s lifespan thunk asks
+// with a type-erased destination's policy, and `proxy` with an erased
+// arrival's footprint, both at runtime.
+constexpr adoption adoption_of(invocable_policy to, storage_mode from,
+    size_t size, size_t align, bool is_nothrow_move) noexcept {
+  const bool fits =
+      to.admits_inline() && fits_inline(to, size, align, is_nothrow_move);
+  if (from == storage_mode::dynamic) {
+    if (to.admits_heap()) return adoption::hand_over;
+    return fits ? adoption::unbox : adoption::refuse;
+  }
+  if (fits) return adoption::relocate;
+  return to.admits_heap() ? adoption::box : adoption::refuse;
 }
 
 } // namespace details

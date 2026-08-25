@@ -15,8 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstddef>
 #include <exception>
 #include <functional>
+#include <new>
 #include <type_traits>
 #include <utility>
 
@@ -27,12 +29,17 @@ namespace corvid { inline namespace meta {
 namespace invocables {
 
 // What the invocable owners, `flexi_function` and `proxy`, share beyond the
-// `invocable_policy`: the rules for a call on an empty owner, and the
-// spellings for a function target.
+// `invocable_policy`: the rules for a call on an empty owner, the housekeeping
+// on a stored target, and the spellings for a function target.
 //
 // `empty_call_traits<R>` answers, for a result type, which `on_empty`
 // behaviors a call can take, and performs the empty call itself, so that both
 // owners' empty invokers follow one rule in one place.
+//
+// The `details` storage, `storage_area`, is the raw storage an owner keeps,
+// and the housekeeping (`destroy_inline`, `destroy_heap`, `relocate_inline`,
+// `box`, `unbox`) is what an owner does to a target in either of its homes,
+// over the erased address of that storage.
 //
 // `constant_fn<f>{}` names a compile-time target, called directly with nothing
 // stored, and `runtime_fn{p}` names a pointer that really is a runtime value;
@@ -105,6 +112,96 @@ struct empty_call_traits {
     }
   }
 };
+
+#pragma endregion
+#pragma region Storage
+
+namespace details {
+
+// `storage_area`: the raw storage an owner keeps behind its dispatch state: a
+// buffer for an inline target, overlaid by the pointer to a heap target's
+// block.
+//
+// A union rather than a byte array, so that the heap pointer is read and
+// written as the pointer it is, with no reinterpretation, and so that both
+// homes share the one address an owner hands its thunks erased. Which member
+// is live, and whether either is, is keyed by the owner's dispatch state
+// (`flexi_function`'s `lifespan` thunk, `proxy`'s table), so an owner leaves
+// it uninitialized rather than zeroing the buffer on every construction.
+template<size_t Size, size_t Align>
+union storage_area {
+  alignas(Align) std::byte buf[Size];
+  void* ptr;
+};
+
+} // namespace details
+
+#pragma endregion
+#pragma region Housekeeping
+
+namespace details {
+
+// The housekeeping an owner performs on a stored target: destruction in
+// either home, and the three moves `adoption_of` can route (the analog of
+// Rust's drop glue, plus relocation). Each is over `T` itself, reached through
+// the erased address the owner keeps. `proxy` stores their addresses in its
+// owning table, and `flexi_function`'s lifespan thunk calls them directly.
+//
+// Nothing here throws except `box`'s allocation: a target lives inline only
+// when its move cannot throw, so every move below is nothrow, and `box`
+// allocates before it touches the source.
+
+// `destroy_inline`: destroy the target in the buffer at `target`.
+template<typename T>
+void destroy_inline(void* target) noexcept {
+  static_cast<T*>(target)->~T();
+}
+
+// `destroy_heap`: destroy the target in the heap block at `target`, freeing
+// the block.
+template<typename T>
+void destroy_heap(void* target) noexcept {
+  delete static_cast<T*>(target);
+}
+
+// `relocate_inline`: move the target from the buffer at `from` into the
+// buffer at `to`, destroying the source.
+template<typename T>
+void relocate_inline(void* from, void* to) noexcept {
+  auto* source = static_cast<T*>(from);
+  // The analyzer cannot see that the caller's fit check ties `sizeof(T)` to
+  // the true capacity of the buffer behind `to`.
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.PlacementNew)
+  ::new (to) T(std::move(*source));
+  source->~T();
+}
+
+// `box`: move the target from the buffer at `from` into a fresh heap block,
+// destroying the source, and return the block.
+//
+// The allocation can throw, and it throws before the source is touched.
+template<typename T>
+void* box(void* from) {
+  auto* source = static_cast<T*>(from);
+  auto* target = new T(std::move(*source));
+  source->~T();
+  return static_cast<void*>(target);
+}
+
+// `unbox`: move the target from the heap block at `from` into the buffer at
+// `to`, freeing the block.
+//
+// The caller has already established the fit and the nothrow move (see
+// `adoption_of`).
+template<typename T>
+void unbox(void* from, void* to) noexcept {
+  auto* source = static_cast<T*>(from);
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.PlacementNew): see relocate_inline
+  ::new (to) T(std::move(*source));
+  delete source;
+}
+
+} // namespace details
 
 #pragma endregion
 #pragma region Function targets

@@ -133,9 +133,16 @@ namespace details {
 // `flexi_function`; pull them in so unqualified `details::` calls below find
 // them.
 using invocables::details::adopt_may_throw;
+using invocables::details::adoption_of;
+using invocables::details::box;
 using invocables::details::can_store_inline;
+using invocables::details::destroy_heap;
+using invocables::details::destroy_inline;
 using invocables::details::inline_fit_guaranteed;
 using invocables::details::is_inline_eligible;
+using invocables::details::relocate_inline;
+using invocables::details::storage_area;
+using invocables::details::unbox;
 
 // `storage_mode_of`: where a `proxy` under policy `p` keeps a `T`: `inlined`
 // when the policy can store it inline, else `dynamic`.
@@ -772,27 +779,10 @@ struct method_traits<M, R(Args...)> {
   }
 };
 
-// `sbo_destroy`, `heap_destroy`, `sbo_relocate`: housekeeping thunks for the
-// owning `proxy`, the analog of Rust's drop glue.
-//
-// `sbo_relocate` move-constructs `*from` into `to` and destroys the source.
-// The heap path has none because a heap target moves by pointer steal.
-template<typename T>
-void sbo_destroy(void* target) noexcept {
-  static_cast<T*>(target)->~T();
-}
-
-template<typename T>
-void heap_destroy(void* target) noexcept {
-  delete static_cast<T*>(target);
-}
-
-template<typename T>
-void sbo_relocate(void* from, void* to) noexcept {
-  auto* source = static_cast<T*>(from);
-  ::new (to) T(std::move(*source));
-  source->~T();
-}
+// The housekeeping thunks an owning table carries (`destroy_inline`,
+// `destroy_heap`, `relocate_inline`, `box`, `unbox`) are the shared ones in
+// invocable_common.h, pulled in above. The heap mode has no relocate slot,
+// because a heap target moves by pointer steal.
 
 // `empty_relocate`: the empty table's relocate slot, with nothing to move.
 //
@@ -817,32 +807,6 @@ void* sbo_copy(const void* from, void* to) {
 template<typename T>
 void* heap_copy(const void* from, void* /*to*/) {
   return new T(*static_cast<const T*>(from));
-}
-
-// `sbo_to_heap`, `heap_to_sbo`: mode-changing thunks, for adopting a target
-// into a proxy whose policy demands the other storage mode.
-//
-// `sbo_to_heap` re-boxes: it moves an inline target into a fresh heap
-// allocation and destroys the inline source. Inline eligibility guarantees
-// a nothrow move, so only the allocation can throw, and it throws before
-// the source is touched.
-//
-// `heap_to_sbo` un-boxes: it moves a heap target into the buffer at `to` and
-// frees the allocation; nothing can throw, but the caller must first verify
-// the fit through the table's `size` and `align`.
-template<typename T>
-void* sbo_to_heap(void* from) {
-  auto* source = static_cast<T*>(from);
-  auto* target = new T(std::move(*source));
-  source->~T();
-  return target;
-}
-
-template<typename T>
-void heap_to_sbo(void* from, void* to) noexcept {
-  auto* source = static_cast<T*>(from);
-  ::new (to) T(std::move(*source));
-  delete source;
 }
 
 // `type_tag_v`: type identity tag: the address of `type_tag_v<T>` identifies
@@ -1810,9 +1774,9 @@ struct vtable_builder<facade<Es...>>
   // proxy can check the fit of an erased arrival against its own buffer.
   //
   // The mode-changing pairs point across to the table's other-mode sibling:
-  // an inline-mode table carries `to_heap` (see `sbo_to_heap`) plus
-  // `heap_table`, which is how a `heap_only` proxy adopts an erased inline
-  // arrival, and a heap-mode table carries `to_sbo` plus `sbo_table` (null
+  // an inline-mode table carries `to_heap` (see `box`) plus `heap_table`,
+  // which is how a `heap_only` proxy adopts an erased inline arrival, and a
+  // heap-mode table carries `to_sbo` (see `unbox`) plus `sbo_table` (null
   // when the target is not nothrow-move-constructible and so can never live
   // inline), the un-boxing inverse for an `inline_only` proxy.
   //
@@ -1876,15 +1840,15 @@ struct vtable_builder<facade<Es...>>
     static_assert(StorageMode != storage_mode::direct,
         "a proxy table is inlined or dynamic; see storage_mode_of");
     if constexpr (StorageMode == storage_mode::inlined) {
-      ovt.destroy = &sbo_destroy<T>;
-      ovt.relocate = &sbo_relocate<T>;
-      ovt.to_heap = &sbo_to_heap<T>;
+      ovt.destroy = &destroy_inline<T>;
+      ovt.relocate = &relocate_inline<T>;
+      ovt.to_heap = &box<T>;
       ovt.heap_table = &owning_vtable_for<F, Born, T, storage_mode::dynamic>;
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &sbo_copy<T>;
     } else {
-      ovt.destroy = &heap_destroy<T>;
+      ovt.destroy = &destroy_heap<T>;
       if constexpr (std::is_nothrow_move_constructible_v<T>) {
-        ovt.to_sbo = &heap_to_sbo<T>;
+        ovt.to_sbo = &unbox<T>;
         ovt.sbo_table = &owning_vtable_for<F, Born, T, storage_mode::inlined>;
       }
       if constexpr (std::is_copy_constructible_v<T>) ovt.copy = &heap_copy<T>;
@@ -2734,14 +2698,14 @@ class proxy: public details::api_base_t<F> {
   // the default buffer stays eligible for every buffer; a `heap_only` proxy
   // has no buffer for the knobs to apply to.
   static_assert(
-      Policy.storage == storage_policy::heap_only ||
+      !Policy.admits_inline() ||
           (Policy.inline_size >= invocable_policy{}.inline_size &&
               Policy.inline_align >= invocable_policy{}.inline_align),
       "inline_size and inline_align may not shrink below their defaults");
   static_assert(std::has_single_bit(Policy.inline_align),
       "inline_align must be a power of two");
   static_assert(
-      Policy.storage == storage_policy::heap_only ||
+      !Policy.admits_inline() ||
           Policy.inline_size ==
               padded_size(Policy.inline_size, Policy.inline_align),
       "inline_size that is not a multiple of inline_align would waste the "
@@ -2780,13 +2744,14 @@ public:
   explicit proxy(std::in_place_type_t<T>, Args&&... args)
       : vtable_{&details::owning_vtable_for<F, F, T,
             details::storage_mode_of<T>(Policy)>} {
-    static_assert(Policy.storage != storage_policy::inline_only ||
-                      details::is_inline_eligible<T>(Policy),
+    static_assert(
+        Policy.admits_heap() || details::is_inline_eligible<T>(Policy),
         "the target is not eligible for an inline_only proxy's inline buffer");
     if constexpr (details::can_store_inline<T>(Policy))
-      ::new (static_cast<void*>(storage_.buf)) T(std::forward<Args>(args)...);
+      ::new (static_cast<void*>(storage_area_.buf))
+          T(std::forward<Args>(args)...);
     else
-      storage_.ptr = new T(std::forward<Args>(args)...);
+      storage_area_.ptr = new T(std::forward<Args>(args)...);
   }
 
   // `proxy`: construct an owning proxy adopting a heap target already owned by
@@ -2810,14 +2775,14 @@ public:
   requires Proxiable<T, F>
   explicit proxy(std::unique_ptr<T> target) noexcept {
     if (!target) return;
-    if constexpr (Policy.storage == storage_policy::inline_only) {
+    if constexpr (!Policy.admits_heap()) {
       static_assert(details::is_inline_eligible<T>(Policy),
           "the target is not eligible for an inline_only proxy's inline "
           "buffer");
-      ::new (static_cast<void*>(storage_.buf)) T(std::move(*target));
+      ::new (static_cast<void*>(storage_area_.buf)) T(std::move(*target));
       vtable_ = &details::owning_vtable_for<F, F, T, storage_mode::inlined>;
     } else {
-      storage_.ptr = target.release();
+      storage_area_.ptr = target.release();
       vtable_ = &details::owning_vtable_for<F, F, T, storage_mode::dynamic>;
     }
   }
@@ -2919,13 +2884,12 @@ public:
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   [[nodiscard]] static bool can_adopt(const proxy<D, P>& source) noexcept {
-    if constexpr (Policy.storage != storage_policy::inline_only) {
+    if constexpr (Policy.admits_heap()) {
       return true;
     } else {
       if (!source) return true;
-      const auto* src = source.vtable_;
-      return src->size <= buf_size && src->align <= buf_align &&
-             (src->relocate || src->to_sbo);
+      const auto* vt = details::upcast_owning_vtable<F, D>(source.vtable_);
+      return (adoption_for<P>(vt) != adoption::refuse);
     }
   }
 
@@ -2946,9 +2910,9 @@ public:
     proxy result;
     if (!vtable_->copy) return result;
     if (vtable_->relocate)
-      (void)vtable_->copy(target(), result.storage_.buf);
+      (void)vtable_->copy(target(), result.storage_area_.buf);
     else
-      result.storage_.ptr = vtable_->copy(target(), nullptr);
+      result.storage_area_.ptr = vtable_->copy(target(), nullptr);
     result.vtable_ = vtable_;
     return result;
   }
@@ -2969,7 +2933,7 @@ public:
   [[nodiscard]] std::unique_ptr<T> extract() {
     if (vtable_->type_tag != &details::type_tag_v<T>) return nullptr;
     if (!vtable_->relocate) {
-      auto* ptr = static_cast<T*>(storage_.ptr);
+      auto* ptr = static_cast<T*>(storage_area_.ptr);
       vtable_ = empty_vtable;
       // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete): see target
       return std::unique_ptr<T>{ptr};
@@ -3012,10 +2976,10 @@ public:
     result.vtable_ =
         static_cast<const details::vtbuild_t<D>::owning_vtable_t*>(table);
     if (vtable_->relocate)
-      vtable_->relocate(storage_.buf, result.storage_.buf);
+      vtable_->relocate(storage_area_.buf, result.storage_area_.buf);
     else
       // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
-      result.storage_.ptr = storage_.ptr;
+      result.storage_area_.ptr = storage_area_.ptr;
     vtable_ = empty_vtable;
     return result;
   }
@@ -3023,19 +2987,10 @@ public:
 private:
   // `buf_size`, `buf_align`: a `heap_only` proxy shrinks the buffer to the
   // pointer it overlays, so the whole handle is two words, like a view.
-  static constexpr size_t buf_size =
-      (Policy.storage == storage_policy::heap_only)
-          ? sizeof(void*)
-          : Policy.inline_size;
-  static constexpr size_t buf_align =
-      (Policy.storage == storage_policy::heap_only)
-          ? alignof(void*)
-          : Policy.inline_align;
+  static constexpr size_t buf_size = Policy.buffer_size();
+  static constexpr size_t buf_align = Policy.buffer_align();
 
-  union storage_t {
-    alignas(buf_align) std::byte buf[buf_size];
-    void* ptr;
-  };
+  using storage_area_t = details::storage_area<buf_size, buf_align>;
 
   // `target`: the target address, inline or heap, or the buffer's address
   // when empty (whose contents the empty thunks never read).
@@ -3043,21 +2998,23 @@ private:
   // The active union member, and emptiness itself, are keyed by the table
   // (`relocate` null means heap; the empty table's is `empty_relocate`), an
   // invariant every write site maintains but the static analyzer cannot see,
-  // so the union reads here and in `do_take_heap`, `try_downcast`, `extract`,
-  // and the `shared_proxy` adoption suppress its uninitialized-value and
+  // so the union reads here and in `do_adopt`, `try_downcast`, `extract`, and
+  // the `shared_proxy` adoption suppress its uninitialized-value and
   // use-after-release checks.
   [[nodiscard]] void* target() noexcept {
     // NOLINTBEGIN(clang-analyzer-core.uninitialized.UndefReturn)
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-    return vtable_->relocate ? static_cast<void*>(storage_.buf) : storage_.ptr;
+    return vtable_->relocate
+               ? static_cast<void*>(storage_area_.buf)
+               : storage_area_.ptr;
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
     // NOLINTEND(clang-analyzer-core.uninitialized.UndefReturn)
   }
   [[nodiscard]] const void* target() const noexcept {
     // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.UndefReturn)
     return vtable_->relocate
-               ? static_cast<const void*>(storage_.buf)
-               : storage_.ptr;
+               ? static_cast<const void*>(storage_area_.buf)
+               : storage_area_.ptr;
   }
 
   // `do_reset`: destroy the target, if any, leaving the proxy empty.
@@ -3072,87 +3029,72 @@ private:
   // table, so no empty behavior travels with a target.
   //
   // Assumes `*this` holds no target (freshly constructed or just reset). Note
-  // that we don't need to clear `buf` or `ptr` on `other.storage_` because
-  // `other.vtable_` defines whether it's empty.
+  // that we don't need to clear `buf` or `ptr` on `other.storage_area_`
+  // because `other.vtable_` defines whether it's empty.
   //
   // The source's policy does not matter here: this proxy accommodates
-  // whatever target actually arrives, per target, at runtime.
+  // whatever target actually arrives, per target, at runtime, on the route
+  // `adoption_for` picks. A mode change (boxing or un-boxing) switches to the
+  // table's other-mode sibling, which carries its own mode's birth ancestry.
   //
-  // An inline arrival relocates into the buffer when it fits (guaranteed, and
-  // checked only at compile time, when this buffer dominates the source's) and
-  // otherwise re-boxes onto the heap. A heap arrival moves by pointer
-  // steal, or un-boxes into an `inline_only` proxy's buffer.
-  //
-  // A mode change switches to the table's other-mode sibling, which carries
-  // its own mode's birth ancestry. Only the mode-changing paths can throw (the
-  // re-boxing allocation, or `std::length_error` when an erased target
-  // cannot be stored inline and the policy forbids the heap), and a throw
-  // happens before anything moves, leaving `other` intact and `*this`
-  // empty.
+  // Only the mode-changing routes can throw (the boxing allocation, or
+  // `std::length_error` on a refusal, when an erased target cannot be stored
+  // inline and the policy forbids the heap), and a throw happens before
+  // anything moves, leaving `other` intact and `*this` empty. The throw is
+  // pruned rather than left dynamically unreachable, so that a `noexcept`
+  // adoption contains no throw at all.
   template<Facade D, invocable_policy P>
   void
   do_adopt(proxy<D, P>& other) noexcept(!details::adopt_may_throw(Policy, P)) {
     if (!other) return;
-    const auto* src = other.vtable_;
-    const auto* vt = details::upcast_owning_vtable<F, D>(src);
-    if (src->relocate)
-      do_take_inline(other, vt);
-    else
-      do_take_heap(other, vt);
+    const auto* vt = details::upcast_owning_vtable<F, D>(other.vtable_);
+    switch (adoption_for<P>(vt)) {
+    case adoption::relocate:
+      vt->relocate(other.storage_area_.buf, storage_area_.buf);
+      vtable_ = vt;
+      break;
+    case adoption::box:
+      storage_area_.ptr = vt->to_heap(other.storage_area_.buf);
+      vtable_ = vt->heap_table;
+      break;
+    case adoption::hand_over:
+      // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
+      storage_area_.ptr = other.storage_area_.ptr;
+      vtable_ = vt;
+      break;
+    case adoption::unbox:
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage): see target
+      vt->to_sbo(other.storage_area_.ptr, storage_area_.buf);
+      vtable_ = vt->sbo_table;
+      break;
+    case adoption::refuse:
+      if constexpr (details::adopt_may_throw(Policy, P))
+        throw std::length_error{
+            "the target cannot be stored in an inline_only proxy's buffer"};
+      break;
+    }
     other.vtable_ = other.empty_vtable;
   }
 
-  // `do_take_inline`: the inline-arrival half of `do_adopt`, which relocates
-  // into the buffer when the target fits, else re-boxes onto the heap (or
-  // throws, under `inline_only`).
+  // `adoption_for`: the route the erased target behind `vt` takes into this
+  // proxy, arriving from a proxy of policy `P`; see `adoption_of`, the rule
+  // shared with `flexi_function`.
   //
-  // Statically impossible paths are pruned rather than left dynamically
-  // unreachable, so a `noexcept` adoption contains no throw at all.
-  template<Facade D, invocable_policy P>
-  void do_take_inline(proxy<D, P>& other, const owning_vtable_t* vt) {
-    if constexpr (P.storage == storage_policy::heap_only) {
-      // Unreachable: a heap_only source never carries an inline target.
-    } else if constexpr (details::inline_fit_guaranteed(Policy, P)) {
-      vt->relocate(other.storage_.buf, storage_.buf);
-      vtable_ = vt;
-    } else {
-      const auto inline_ok =
-          (Policy.storage != storage_policy::heap_only) &&
-          (vt->size <= buf_size) && (vt->align <= buf_align);
-      if (inline_ok) {
-        vt->relocate(other.storage_.buf, storage_.buf);
-        vtable_ = vt;
-        return;
-      }
-      if constexpr (Policy.storage != storage_policy::inline_only) {
-        storage_.ptr = vt->to_heap(other.storage_.buf);
-        vtable_ = vt->heap_table;
-      } else {
-        throw std::length_error{
-            "the target cannot be stored in an inline_only proxy's buffer"};
-      }
+  // The table is the arrival's witness: `relocate` marks an inline target,
+  // nothrow-move by eligibility, and `to_sbo` a heap target that could live
+  // inline; `size` and `align` are its footprint. When every inline target
+  // the source policy admits is guaranteed to fit this buffer, which covers
+  // every same-policy move, an inline arrival skips the runtime fit check.
+  template<invocable_policy P>
+  static adoption adoption_for(const owning_vtable_t* vt) noexcept {
+    if (vt->relocate) {
+      if constexpr (details::inline_fit_guaranteed(Policy, P))
+        return adoption::relocate;
+      return details::adoption_of(Policy, storage_mode::inlined, vt->size,
+          vt->align, true);
     }
-  }
-
-  // `do_take_heap`: the heap-arrival half of `do_adopt`, which steals the
-  // pointer, or un-boxes into an `inline_only` `proxy`'s buffer (or throws,
-  // when the erased target does not fit it or cannot move).
-  template<Facade D, invocable_policy P>
-  void do_take_heap(proxy<D, P>& other, const owning_vtable_t* vt) {
-    if constexpr (P.storage == storage_policy::inline_only) {
-      // Unreachable: an inline_only source never carries a heap target.
-    } else if constexpr (Policy.storage != storage_policy::inline_only) {
-      // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
-      storage_.ptr = other.storage_.ptr;
-      vtable_ = vt;
-    } else {
-      if (!vt->to_sbo || vt->size > buf_size || vt->align > buf_align)
-        throw std::length_error{
-            "the target cannot be stored in an inline_only proxy's buffer"};
-      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage): see target
-      vt->to_sbo(other.storage_.ptr, storage_.buf);
-      vtable_ = vt->sbo_table;
-    }
+    return details::adoption_of(Policy, storage_mode::dynamic, vt->size,
+        vt->align, static_cast<bool>(vt->to_sbo));
   }
 
   // `empty_vtable`: the table of an empty proxy of this type; see
@@ -3163,7 +3105,7 @@ private:
   // Deliberately no initializer: emptiness and the active member are keyed by
   // `vtable_` (see `target`), and zeroing the buffer on every construction
   // would be pure waste.
-  storage_t storage_;
+  storage_area_t storage_area_;
   const owning_vtable_t* vtable_ = empty_vtable;
 
   template<Facade G, invocable_policy P>
@@ -3332,11 +3274,11 @@ public:
     void* ptr{};
     void (*destroy)(void*) noexcept {};
     if (src->relocate) {
-      ptr = ovt->to_heap(source.storage_.buf);
+      ptr = ovt->to_heap(source.storage_area_.buf);
       destroy = ovt->heap_table->destroy;
     } else {
       // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
-      ptr = source.storage_.ptr;
+      ptr = source.storage_area_.ptr;
       destroy = ovt->destroy;
     }
     source.vtable_ = source.empty_vtable;

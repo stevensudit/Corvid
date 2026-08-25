@@ -45,12 +45,12 @@ into `corvid::meta`; the shared vocabulary lives in
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | wrapper                     | A `flexi_function` instance.                                                                                                                   |
 | target, callable            | The thing the wrapper calls. "Target" is the stored object; "callable" is the same thing before it is stored.                                  |
-| policy                      | The `invocable_policy` NTTP: buffer size and alignment, `alloc`, `empty`, and `enforcement`.                                                   |
+| policy                      | The `invocable_policy` NTTP: buffer size and alignment, `storage`, `empty`, and `enforcement`.                                                   |
 | sibling                     | A `flexi_function` with the same signature and a different policy. Siblings are friends and can adopt from each other.                         |
 | signature, `Sig`            | The `R(Args...)` type, possibly with `const`, `&`/`&&`, and `noexcept`.                                                                        |
 | thunk                       | A static function generated per stored type that does one erased job: invoke, or manage lifespan.                                              |
 | thunk pair, `dispatch_`     | The two thunk pointers every wrapper keeps ahead of its buffer: `invoke` and `lifespan`.                                                       |
-| storage, buffer, `storage_blob_` | The byte array after the pair. Holds the target, a pointer to it, or nothing.                                                                  |
+| storage, buffer, `storage_area_` | The union after the pair (`storage_area`): a buffer for an inline target, overlaid by the pointer to a heap one. Holds the target, a pointer to it, or nothing. |
 | mode, `storage_mode`     | Where one stored target lives, and so which thunks serve it: `inlined`, `dynamic`, or `direct`. Baked into the thunks at store time.           |
 | `inlined`                   | The target is constructed in the buffer.                                                                                                       |
 | `dynamic`                   | The target is in a heap block, and the buffer holds the pointer to it.                                                                         |
@@ -114,9 +114,9 @@ offset  0 +---------------------------------------------------+
 offset  8 +---------------------------------------------------+
           | lifespan   size_t (*)(void*, destination_spec*)   |
 offset 16 +---------------------------------------------------+
-          | storage_blob_[16]                                      |
-          |   inlined:  the target itself                     |
-          |   dynamic:  F* in the first 8 bytes               |
+          | storage_area_ (16 bytes)                          |
+          |   inlined:  the target itself, in buf             |
+          |   dynamic:  ptr, the heap block's address         |
           |   direct or empty:  never read                    |
 offset 32 +---------------------------------------------------+
 ```
@@ -143,7 +143,7 @@ offset  0 +--------------+
 offset  8 +--------------+
           | lifespan     |
 offset 16 +--------------+
-          | storage_blob_[48] |  inlined only; a target that does not fit is a
+          | storage_area_ (48) |  inlined only; a target that does not fit is a
           |              |  compile error, or a refused adoption
 offset 64 +--------------+
 ```
@@ -194,10 +194,10 @@ protocol](#the-lifespan-protocol).
 
 ```mermaid
 flowchart LR
-    op["wrapper(args...)"] --> inv["dispatch_.invoke(storage_blob_, args...)"]
+    op["wrapper(args...)"] --> inv["dispatch_.invoke(&storage_area_, args...)"]
     inv --> mode{thunk's mode}
-    mode -->|inlined| a["target = storage_blob_ as F"]
-    mode -->|dynamic| b["target = the F that storage_blob_ points at"]
+    mode -->|inlined| a["target = storage_area_.buf as F"]
+    mode -->|dynamic| b["target = the F that storage_area_.ptr points at"]
     mode -->|direct| c["target = F{} (buffer never read)"]
     mode -->|empty| e["empty_invoke_impl: silent, raise, or terminate"]
     a --> q["cast to qualified_target_t, then std::invoke_r"]
@@ -302,8 +302,8 @@ on an empty instance.
 flowchart TD
     s["storage_mode_of&lt;FD&gt;(Policy)"] --> m{mode}
     m -->|direct| d["store nothing"]
-    m -->|inlined| i["placement-new FD into storage_blob_"]
-    m -->|dynamic| h["storage_blob_[0] = new FD(...)"]
+    m -->|inlined| i["placement-new FD into storage_area_.buf"]
+    m -->|dynamic| h["storage_area_.ptr = new FD(...)"]
     d --> p["dispatch_ = dispatch_for&lt;FD, mode&gt;()"]
     i --> p
     h --> p
@@ -364,16 +364,16 @@ flowchart TD
     d -->|yes| destroy["destroy target, free block if dynamic; return stored size"]
     d -->|no| dir{source direct?}
     dir -->|yes| pair["relocate: write dest.dispatch; probe: nothing. return 0"]
-    dir -->|no| fit["fits_inline: can_store_inline under dest.policy. may_heap: dest.policy is not inline_only"]
-    fit --> ref{neither fits_inline nor may_heap?}
+    dir -->|no| fit["route: adoption_of(dest.policy, source mode, sizeof F, alignof F, nothrow move)"]
+    fit --> ref{route is refuse?}
     ref -->|yes| r["return refusal"]
     ref -->|no| probe{dest.to null?}
     probe -->|yes| ok["return sizeof(F)"]
-    probe -->|no| src{source mode}
-    src -->|dynamic and may_heap| hand["hand_over: dest takes the block pointer; dynamic thunks"]
-    src -->|dynamic into inline_only| unbox["move_inlined: move out of the block into dest buffer, delete block; inlined thunks"]
-    src -->|inlined and fits_inline| stay["move_inlined: move into dest buffer, destroy source; inlined thunks"]
-    src -->|inlined, otherwise| box["move_dynamic: new F from source, destroy source; dynamic thunks"]
+    probe -->|no| src{route}
+    src -->|hand_over| hand["hand_over: dest takes the block pointer; dynamic thunks"]
+    src -->|unbox| unbox["move_inlined: move out of the block into dest buffer, delete block; inlined thunks"]
+    src -->|relocate| stay["move_inlined: move into dest buffer, destroy source; inlined thunks"]
+    src -->|box| box["move_dynamic: new F from source, destroy source; dynamic thunks"]
 ```
 
 The destination calls the source's `lifespan` with a spec describing
@@ -394,10 +394,13 @@ The outcome by source mode and destination policy:
 | `dynamic`                       | un-boxed if it fits, else refused | handed over           | handed over      |
 | `direct`                        | pair only                         | pair only             | pair only        |
 
-"Fits" is `can_store_inline<F>(dest.policy)`: size, alignment, and a
-nothrow move. A `dynamic` source into a heap-admitting destination is
-always handed over, even when it would fit inline, because the allocation
-is already paid for and un-boxing would cost a move for nothing.
+The rule is `invocables::details::adoption_of`, one statement shared with
+`proxy`, which answers with an `adoption` route (`relocate`, `box`,
+`hand_over`, `unbox`, or `refuse`). "Fits" is `fits_inline`: size,
+alignment, and a nothrow move. A `dynamic` source into a heap-admitting
+destination is always handed over, even when it would fit inline, because
+the allocation is already paid for and un-boxing would cost a move for
+nothing.
 
 What can throw, and what it leaves behind:
 

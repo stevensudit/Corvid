@@ -18,12 +18,13 @@ The pending `proxy` changes, in the order to land them:
 - Prefer the heap handover in adoption. A heap-stored target moving to a
   heap-admitting destination is handed over as a pointer, never un-boxed,
   even when it would fit inline; the allocation is already paid for. The
-  shared policy doc already promises this; verify `do_adopt` matches and add
-  a test that pins it.
+  shared policy doc already promises this, and `adoption_of` now states it
+  for both owners (a heap arrival is handed over whenever the destination
+  admits the heap); a test that pins it remains to be added.
 - `reset()` and `nullptr` assignment, for parity with `flexi_function`.
   Both empty the proxy and reinstall its type's empty table.
 - Vocabulary sweep in `proxy.h` / `proxy.md`. The internal table identifiers
-  (`to_sbo`, `sbo_table`, `sbo_to_heap`, `heap_to_sbo`) still say "sbo", and
+  (`to_sbo`, `sbo_table`, `sbo_copy`) still say "sbo", and
   the prose still says "re-boxed" for an inline-to-heap move, which falsely
   implies the target was boxed before. The shared policy vocabulary has
   already moved to inline_size / inline_align / inline_only / inline_or_heap
@@ -99,17 +100,41 @@ answers had been written twice. The shared parts now live in
   `is_nothrow_args_v`, `is_legal_overload_pair`, `is_entry_listed_once`,
   `are_base_boilerplates_visible`, `has_exact_args`,
   `have_same_chain_owners`, `is_declared_in`, `is_direct_eligible`,
-  `is_inline_eligible`). The non-bool `_v` class members (`count_v`,
-  `name_v`, `none_v`, `ambiguous_v`, `base_count_v`) are pending a ruling:
-  `fixed_bitset` and the ECS use the same suffix on their count constants,
-  so dropping it is a repo-wide convention change, and `name_v` cannot
-  become `name` inside `prox::name` (a member may not share its class's
-  name).
-
-Next is a pass over `proxy.h` and `flexi_function.h` for further overlap,
-factoring only where the two coincide. The proxy handles also vary among
-themselves, so not everything that looks alike is the same thing; the aim
-is to find the actual borders.
+  `is_inline_eligible`). The non-bool `_v` class constants (`count_v`,
+  `name_v`, `none_v`, `ambiguous_v`, `base_count_v`) keep the suffix, as
+  ruled: `fixed_bitset` and the ECS use it on their count constants too, so
+  it is the repo's convention for a class-scope constant, and the `is_`
+  prefix was what carried the meaning for the bools. The two owners' raw
+  storage members are both `storage_area_`, distinct from
+  `invocable_policy::storage` (see the next bullet).
+- The pass over `proxy.h` and `flexi_function.h` for further overlap,
+  factoring only where the two coincide (the proxy handles also vary among
+  themselves, so not everything that looks alike is the same thing), found
+  four borders and landed them. `invocable_policy` answers
+  `admits_inline()`, `admits_heap()`, `buffer_size()`, and `buffer_align()`,
+  replacing the `storage` comparisons spelled at every site and the buffer
+  geometry each owner derived for itself. The adoption rule is one
+  statement, `details::adoption_of` (over `fits_inline`, the value-level
+  eligibility test `is_inline_eligible` now calls), answering with an
+  `adoption` route: `flexi_thunks::lifespan_impl` and `proxy::do_adopt`
+  (one switch, replacing `do_take_inline`/`do_take_heap`, its
+  `adoption_for` reading the table's `relocate`/`to_sbo`/`size`/`align` as
+  the erased arrival's witnesses) act on the route, and both `can_adopt`s
+  are `!= refuse`. The housekeeping primitives live in invocable_common.h
+  as `destroy_inline`, `destroy_heap`, `relocate_inline`, `box`, and
+  `unbox`: proxy's owning tables point at them (in place of `sbo_destroy`,
+  `heap_destroy`, `sbo_relocate`, `sbo_to_heap`, `heap_to_sbo`), and
+  flexi's `move_inlined`/`move_dynamic`/`do_destroy` call them. Both owners
+  keep a `details::storage_area<Size, Align>` union named `storage_area_`
+  (the byte-array/union distinction that separated the names is gone, as
+  ruled), and flexi's thunks work over the erased `void*` throughout, so
+  the heap pointer is read and written as the pointer it is instead of
+  through a `reinterpret_cast` of the byte array. Left alone, as different
+  things or bare one-liners with their own messages: the empty-state
+  reinstall after a move, the policy-validity and store-time asserts, and
+  the accessors flexi has and proxy lacks. One inconsistency surfaced for
+  a ruling: `flexi_function::storage_size` reports 0 under `heap_only`,
+  where `proxy::inline_size` reports the policy's number.
 
 ## Landed: empty calls for proxy
 
