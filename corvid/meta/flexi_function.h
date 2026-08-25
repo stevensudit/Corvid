@@ -38,11 +38,11 @@ namespace flexi {
 // kin) is spelled unqualified throughout.
 using namespace invocables;
 
-//  `flexi_function<Sig, Policy>` is a wrapper for an invocable target.
+// `flexi_function<Sig, Policy>` is a wrapper for an invocable target.
 //
-//  It is a move-only type-erased callable, like `std::move_only_function` or
-//  `stdext::inplace_function`, whose storage and empty-call behavior follow a
-//  configurable `invocable_policy`.
+// It is a move-only type-erased callable, like `std::move_only_function` or
+// `stdext::inplace_function`, whose storage and empty-call behavior follow a
+// configurable `invocable_policy`.
 
 #pragma region Traits
 
@@ -51,7 +51,7 @@ template<class Sig, invocable_policy Policy = invocable_policy::basic,
     class FunctionT = signature_function_t<Sig>>
 class flexi_function;
 
-// Trait to determine whether `T` is a `flexi_function` (of any policy).
+// `is_flexi_function_v` is whether `T` is a `flexi_function` (of any policy).
 template<typename T>
 constexpr inline bool is_flexi_function_v = false;
 
@@ -80,10 +80,10 @@ using namespace invocables::implementation;
 // parameter in each thunk selects how the `storage` is interpreted.
 //
 // The thunks see that storage only as the erased address a wrapper hands
-// them. They are per signature, shared by every policy so that siblings can
-// transplant a callable, while a wrapper's `storage_area` is sized by its
-// policy, so no thunk can name the storage type; `stored_fn` is where the
-// address becomes the callable's type again, and nothing past it is erased.
+// them, because a wrapper's `storage_area` is sized by its policy and the
+// thunks serve every policy, so no thunk can name the storage type.
+// `stored_fn` is where the address becomes the callable's type again, and
+// nothing past it is erased.
 //
 // The second parameter mirrors `flexi_function`'s third: it is the
 // pattern-matching hook, not a choice.
@@ -103,8 +103,9 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   using cv_qualified_target_t =
       std::conditional_t<traits::is_const, const F, F>;
 
-  // `F` with the signature's qualifiers applied, which is how the stored
-  // target is invoked: `F cv&`, or `F cv&&` under an `&&` signature.
+  // `qualified_target_t` is `F` with the signature's qualifiers applied,
+  // which is how the stored target is invoked: `F cv&`, or `F cv&&` under an
+  // `&&` signature.
   //
   // As with `std::move_only_function`, an unqualified and an `&`-qualified
   // signature both invoke the target as an lvalue; the difference between them
@@ -136,15 +137,16 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // See `destination_spec` and `lifespan_impl` for details.
   using lifespan_fn_t = size_t (*)(void*, destination_spec*);
 
-  // The lifespan thunk's answer to a probe or relocation it does not accept.
+  // `refusal` is the lifespan thunk's answer to a probe or relocation it does
+  // not accept.
   //
   // In contrast, a 0 is a legitimate answer when the invocation points
   // directly at the function and there's no storage, or further indirection,
   // needed.
   static constexpr size_t refusal = std::numeric_limits<size_t>::max();
 
-  // The pair of thunk pointers a wrapper keeps ahead of its storage, which
-  // is what a relocation transfers.
+  // `thunk_pair` is the pair of thunk pointers a wrapper keeps ahead of its
+  // storage, which is what a relocation transfers.
   //
   // This structure is the heart of what makes a `flexi_function` work. The
   // `invoke` is directly called by `operator()`, while `lifespan` handles all
@@ -159,10 +161,8 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     lifespan_fn_t lifespan;
   };
 
-  // Lifespan destination spec.
-  //
-  // Describes where a stored callable relocates to, based on the
-  // characteristics of the receiving wrapper.
+  // `destination_spec` describes where a stored callable relocates to, based
+  // on the characteristics of the receiving wrapper.
   //
   // The `policy` is the receiving wrapper's `invocable_policy`, whose storage
   // members decide whether the callable lands inline or on the heap or at all.
@@ -180,8 +180,8 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     void* to;
   };
 
-  // Invoke the stored callable, where `storage` is the wrapper's type-erased
-  // buffer.
+  // `invoke_impl` to invoke the stored callable, where `storage` is the
+  // wrapper's type-erased buffer.
   //
   // An `storage_mode::direct` callable is not in the buffer at all. The
   // `target` named here is what the object model requires to call a member
@@ -218,8 +218,9 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     return empty_traits::template invoke<Behavior>();
   }
 
-  // Manage the lifespan of a stored callable through a single function that
-  // can size, destroy, probe, or relocate, depending on the arguments.
+  // `lifespan_impl` to manage the lifespan of a stored callable through a
+  // single function that can size, destroy, probe, or relocate, depending on
+  // the arguments.
   //
   // - When `from` is null, it is a pure size query that returns the stored
   // size: `sizeof(F)`, or 0 for an `storage_mode::direct` source.
@@ -319,7 +320,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   }
 
 private:
-  // The stored callable inside `storage`, typed.
+  // `stored_fn` is the stored callable inside `storage`, typed.
   //
   // The storage arrives erased, and this is where the type comes back, as
   // early as the thunk can know it. An inline callable is constructed in the
@@ -340,9 +341,9 @@ private:
   // The one place a block's address is erased into the storage.
   template<class F>
   static void store_block(F* block, destination_spec* dest) noexcept {
-    //  The cast is spelled out because `F` may itself be a pointer type, and
-    //  clang-tidy flags an implicit pointer-to-pointer conversion to `void*`
-    //  as a lost level.
+    // The cast is spelled out because `F` may itself be a pointer type, and
+    // clang-tidy flags an implicit pointer-to-pointer conversion to `void*`
+    // as a lost level.
     *static_cast<void**>(dest->to) = static_cast<void*>(block);
     *dest->dispatch = dispatch_for<F, storage_mode::dynamic>();
   }
@@ -406,9 +407,9 @@ private:
 #pragma endregion
 #pragma region flexi_function
 
-// The core goals of this invocation wrapper are control and flexibility (hence
-// the name, `controlo_flecto_functo`... oh, wait, that's not the name, though
-// it really should be, since it's so much fun to say).
+// `flexi_function` is an invocation wrapper whose core goalsare control and
+// flexibility (hence the name, `controlo_flecto_functo`... oh, wait, that's
+// not the name, though it really should be, since it's so much fun to say).
 //
 // - The storage policy is configurable, and types specialized on different
 // policies can interoperate. Instances that differ only in policy can be
@@ -529,7 +530,7 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
   // Actual buffer geometry: a `heap_only` instance keeps just the pointer.
   static constexpr size_t buf_size = Policy.buffer_size();
   static constexpr size_t buf_align = Policy.buffer_align();
-  using storage_t = details::storage_area<buf_size, buf_align>;
+  using storage_area_t = details::storage_area<buf_size, buf_align>;
 
 #pragma region Creation
 public:
@@ -547,13 +548,13 @@ public:
   flexi_function(const flexi_function&) = delete;
   flexi_function& operator=(const flexi_function&) = delete;
 
-  // Implicitly construct from any callable that the signature can invoke:
+  // Converting constructor from any callable that the signature can invoke:
   // one that, invoked as `qualified_target_t`, yields `ResultT` (and for a
   // `noexcept` signature, without throwing).
   //
-  // The callable is consumed (moved, or copied when that is trivial, see
-  // `Consumable`) into internal storage, or onto the heap when the policy
-  // sends it there.
+  // Intentionally implicit. The callable is consumed (moved, or copied when
+  // that is trivial, see `Consumable`) into internal storage, or onto the heap
+  // when the policy sends it there.
   //
   // The inline path can't throw, but the heap path can throw on allocation,
   // and so can the move itself (which is precisely why a callable whose move
@@ -572,9 +573,9 @@ public:
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
   }
 
-  // Explicitly wrap a std polymorphic function wrapper, `std::function` or
-  // `std::move_only_function`, whose signature is compatible with
-  // `ResultT(Args...)`.
+  // Explicit constructor wrapping a std polymorphic function wrapper,
+  // `std::function` or `std::move_only_function`, whose signature is
+  // compatible with `ResultT(Args...)`.
   //
   // Besides providing compatibility (at a cost), this is the escape hatch for
   // a payload too large for an `inline_only` buffer, in which the wrapper
@@ -596,11 +597,10 @@ public:
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
   }
 
-  // Move from same type.
   flexi_function(flexi_function&& other) noexcept { do_adopt(other); }
 
-  // Move from a same-signature sibling of another policy, transplanting the
-  // stored callable rather than nesting the wrapper.
+  // Converting move constructor from a same-signature sibling of another
+  // policy, transplanting the stored callable rather than nesting the wrapper.
   //
   // The callable lands inline when it fits this buffer and on the heap when
   // this policy admits one. A callable that can do neither throws
@@ -649,7 +649,7 @@ public:
     return *this;
   }
 
-  // Replace the stored callable with `fn`.
+  // `operator=` to replace the stored callable with `fn`.
   //
   // This stores `fn` directly, avoiding a transplant through a temporary
   // sibling. The std wrappers are excluded here as they are for construction;
@@ -709,7 +709,7 @@ public:
           ((thunks::traits::ref_qualifier == ref_qual::lvalue) ==
               std::is_lvalue_reference_v<Self>));
 
-  // Invoke through the type-erased invoke thunk.
+  // Call operator to invoke through the type-erased invoke thunk.
   //
   // One member covers every cv/ref qualification because `Self` deduces the
   // calling wrapper's constness and value category, and the constraint admits
@@ -725,7 +725,8 @@ public:
   requires(is_callable_through<Self>)
   ResultT
   operator()(this Self&& self, Args... args) noexcept(thunks::is_noexcept) {
-    return self.dispatch_.invoke(const_cast<storage_t*>(&self.storage_area_),
+    return self.dispatch_.invoke(
+        const_cast<storage_area_t*>(&self.storage_area_),
         std::forward<Args>(args)...);
   }
 
@@ -745,7 +746,7 @@ public:
   // Capacity of the inline storage in bytes, 0 for a `heap_only` policy.
   [[nodiscard]] size_t capacity() const noexcept { return inline_size; }
 
-  // `can_adopt`: whether this `flexi_function` type can accommodate
+  // `can_adopt` is whether this `flexi_function` type can accommodate
   // `source`'s current callable, so that converting (or assigning) from it
   // will not throw `std::length_error`.
   //
@@ -787,7 +788,7 @@ private:
       return false;
   }
 
-  // Consume `fn` into storage and publish its thunks.
+  // `do_store` to consume `fn` into storage and publish its thunks.
   //
   // `FD` is the stored type, already decayed and always passed explicitly;
   // `fn` is forwarded into it, so an rvalue is moved and a (trivially
@@ -859,7 +860,7 @@ private:
     other.dispatch_ = other_t::empty_dispatch;
   }
 
-  // The empty state: this type's compile-time empty invoker, and no
+  // The empty state, which is this type's compile-time empty invoker, and no
   // lifespan thunk.
   static constexpr thunk_pair empty_dispatch{
       &thunks::template empty_invoke_impl<Policy.empty>, nullptr};
