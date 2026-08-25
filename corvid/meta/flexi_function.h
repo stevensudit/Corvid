@@ -64,9 +64,10 @@ constexpr inline bool
 
 namespace details {
 
-// The shared helpers live with `invocable_policy` and in invocable_common.h;
-// bring their `details` in whole, so unqualified `details::` calls find them.
-using namespace invocables::details;
+// The shared working parts live with `invocable_policy` and in
+// invocable_common.h; bring them in whole, so unqualified `details::` calls
+// find them.
+using namespace invocables::implementation;
 
 // `flexi_thunks` are the type-erased thunks for one signature, shared by every
 // `flexi_function` of that signature, regardless of policy.
@@ -77,6 +78,12 @@ using namespace invocables::details;
 // A stored callable lives either inline in the wrapper's buffer or on the
 // heap, owned by the pointer kept in that buffer. The `SourceStorage`
 // parameter in each thunk selects how the `storage` is interpreted.
+//
+// The thunks see that storage only as the erased address a wrapper hands
+// them. They are per signature, shared by every policy so that siblings can
+// transplant a callable, while a wrapper's `storage_area` is sized by its
+// policy, so no thunk can name the storage type; `stored_fn` is where the
+// address becomes the callable's type again, and nothing past it is erased.
 //
 // The second parameter mirrors `flexi_function`'s third: it is the
 // pattern-matching hook, not a choice.
@@ -333,7 +340,10 @@ private:
   // The one place a block's address is erased into the storage.
   template<class F>
   static void store_block(F* block, destination_spec* dest) noexcept {
-    *static_cast<void**>(dest->to) = block;
+    //  The cast is spelled out because `F` may itself be a pointer type, and
+    //  clang-tidy flags an implicit pointer-to-pointer conversion to `void*`
+    //  as a lost level.
+    *static_cast<void**>(dest->to) = static_cast<void*>(block);
     *dest->dispatch = dispatch_for<F, storage_mode::dynamic>();
   }
 
@@ -526,7 +536,7 @@ public:
   static constexpr invocable_policy policy = Policy;
 
   // Inline storage capacity in bytes, 0 for a `heap_only` policy.
-  static constexpr size_t storage_size =
+  static constexpr size_t inline_size =
       Policy.admits_inline() ? Policy.inline_size : 0;
 
 #pragma region Constructors
@@ -733,7 +743,7 @@ public:
   }
 
   // Capacity of the inline storage in bytes, 0 for a `heap_only` policy.
-  [[nodiscard]] size_t capacity() const noexcept { return storage_size; }
+  [[nodiscard]] size_t capacity() const noexcept { return inline_size; }
 
   // `can_adopt`: whether this `flexi_function` type can accommodate
   // `source`'s current callable, so that converting (or assigning) from it

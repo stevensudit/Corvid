@@ -59,7 +59,7 @@ into `corvid::meta`; the shared vocabulary lives in
 | adopt, transplant           | Moving the target out of a sibling into this wrapper, by asking the sibling's `lifespan` thunk to relocate it.                                 |
 | box, un-box, hand over      | The three ways a relocation can change or keep a target's home: onto the heap, out of the heap into a buffer, or passing the heap block as is. |
 | `refusal`                   | The `lifespan` return value for a relocation the destination cannot accept.                                                                    |
-| direct-eligible             | A type that can be `direct`: `invocables::details::is_direct_eligible<T>()`.                                                                           |
+| direct-eligible             | A type that can be `direct`: `invocables::implementation::is_direct_eligible<T>()`.                                                                           |
 | `constant_fn<Fn>`           | A direct-eligible callable whose target is the compile-time constant `Fn`: a function, a member pointer, or a captureless lambda.              |
 | `runtime_fn{p}`             | A callable holding a function or member pointer known only at runtime; a bare pointer target, made explicit. Nullable.                         |
 | `policy_enforcement`        | Whether a bare pointer is accepted as a target (`lenient`) or must be spelled as `constant_fn` or `runtime_fn` (`strict`). Border only.        |
@@ -161,12 +161,12 @@ What the two accessors report:
 
 |         | `size()`    | `capacity()`   |
 | ------- | ----------- | -------------- |
-| empty   | 0           | `storage_size` |
-| inlined | `sizeof(F)` | `storage_size` |
-| dynamic | `sizeof(F)` | `storage_size` |
-| direct  | 0           | `storage_size` |
+| empty   | 0           | `inline_size`  |
+| inlined | `sizeof(F)` | `inline_size`  |
+| dynamic | `sizeof(F)` | `inline_size`  |
+| direct  | 0           | `inline_size`  |
 
-`storage_size` is the policy's `inline_size`, or 0 under `heap_only`.
+`inline_size` is the policy's `inline_size`, or 0 under `heap_only`.
 
 ## The thunk pair
 
@@ -309,7 +309,7 @@ flowchart TD
     h --> p
 ```
 
-`invocables::details::storage_mode_of<T>(p)` is the one routing decision:
+`invocables::implementation::storage_mode_of<T>(p)` is the one routing decision:
 `direct` when `is_direct_eligible<T>()`, else `inlined` when
 `can_store_inline<T>(p)` (fits the buffer's size and alignment, is
 nothrow-move-constructible, and the policy is not `heap_only`), else
@@ -394,7 +394,7 @@ The outcome by source mode and destination policy:
 | `dynamic`                       | un-boxed if it fits, else refused | handed over           | handed over      |
 | `direct`                        | pair only                         | pair only             | pair only        |
 
-The rule is `invocables::details::adoption_of`, one statement shared with
+The rule is `invocables::implementation::adoption_of`, one statement shared with
 `proxy`, which answers with an `adoption` route (`relocate`, `box`,
 `hand_over`, `unbox`, or `refuse`). "Fits" is `fits_inline`: size,
 alignment, and a nothrow move. A `dynamic` source into a heap-admitting
@@ -410,7 +410,7 @@ What can throw, and what it leaves behind:
 - A refusal is a `std::length_error` from `do_adopt`, with both sides
   intact. The converting assignment pre-flights with `can_adopt` so it
   throws before touching either side.
-- `invocables::details::adopt_may_throw(to, from)` computes at compile time
+- `invocables::implementation::adopt_may_throw(to, from)` computes at compile time
   whether any of that is reachable for a pair of policies, and the
   converting constructor and assignment are `noexcept` exactly when it is
   not. `inline_fit_guaranteed(to, from)` is the inline half of that: a

@@ -117,7 +117,7 @@ struct empty_call_traits {
 #pragma endregion
 #pragma region Storage
 
-namespace details {
+namespace implementation {
 
 // `storage_area`: the raw storage an owner keeps behind its dispatch state: a
 // buffer for an inline target, overlaid by the pointer to a heap target's
@@ -139,12 +139,8 @@ union storage_area {
   void* ptr;
 };
 
-} // namespace details
-
 #pragma endregion
 #pragma region Housekeeping
-
-namespace details {
 
 // The housekeeping an owner performs on a stored target: destruction in
 // either home, and the three moves `adoption_of` can route (the analog of
@@ -203,12 +199,8 @@ void unbox(T* from, void* to) noexcept {
   delete from;
 }
 
-} // namespace details
-
 #pragma endregion
 #pragma region Function targets
-
-namespace details {
 
 // Whether `Fn` is a null function or member pointer, which is the one kind of
 // constant that is not a target.
@@ -221,7 +213,7 @@ consteval bool is_null_constant() noexcept {
     return false;
 }
 
-} // namespace details
+} // namespace implementation
 
 // `constant_fn<Fn>` is a callable whose target is the compile-time constant
 // `Fn`, so that the target is part of the type rather than a value the
@@ -237,7 +229,7 @@ consteval bool is_null_constant() noexcept {
 // reaches `Fn` directly.
 template<auto Fn>
 struct constant_fn {
-  static_assert(!details::is_null_constant<Fn>(),
+  static_assert(!implementation::is_null_constant<Fn>(),
       "constant_fn: a null function or member pointer is not a target");
 
   template<class... Args>

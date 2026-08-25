@@ -1202,7 +1202,8 @@ static_assert(prox::method<"jams", bool() const noexcept>::is_noexcept);
 namespace {
 struct stateless_target {};
 } // namespace
-static_assert(invocables::details::is_direct_eligible<stateless_target>());
+static_assert(
+    invocables::implementation::is_direct_eligible<stateless_target>());
 static_assert(
     prox::details::storage_mode_of<stateless_target>(
         invocable_policy::basic) == invocables::storage_mode::inlined);

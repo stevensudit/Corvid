@@ -1074,7 +1074,7 @@ Proxies of different facades and policies interconvert as rvalues through
 one converting constructor. The source's policy never forecloses a
 conversion: what matters is whether the destination can accommodate the
 target that actually arrives, decided per target at adoption time. The
-rule is `invocables::details::adoption_of`, one statement shared with
+rule is `invocables::implementation::adoption_of`, one statement shared with
 `flexi_function`, which answers with an `adoption` route: an inline
 arrival relocates into the buffer when it fits, and otherwise re-boxes
 onto the heap; a heap arrival moves by pointer steal, or un-boxes into an

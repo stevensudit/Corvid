@@ -129,10 +129,10 @@ consteval auto operator""_method() noexcept {
 
 namespace details {
 
-// The shared helpers live with `invocable_policy` and in invocable_common.h;
-// bring their `details` in whole, so unqualified `details::` calls below find
-// them.
-using namespace invocables::details;
+// The shared working parts live with `invocable_policy` and in
+// "invocable_common.h". They are brought in whole so that unqualified
+// `details::` calls below find them.
+using namespace invocables::implementation;
 
 // `storage_mode_of`: where a `proxy` under policy `p` keeps a `T`: `inlined`
 // when the policy can store it inline, else `dynamic`.

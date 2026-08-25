@@ -1116,7 +1116,7 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   };
   fixed_function<int(), 64> small{mover{&moves}};
   CHECK(small.size() == sizeof(mover));
-  CHECK(small.capacity() == fixed_function<int(), 64>::storage_size);
+  CHECK(small.capacity() == fixed_function<int(), 64>::inline_size);
   CHECK(small.size() <= small.capacity());
   const int base = moves;
   fixed_function<int(), 96> big{std::move(small)};
@@ -1142,7 +1142,7 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   fixed_function<int(), 96> fat{[pad = std::array<std::byte, 64>{}] {
     return static_cast<int>(pad.size());
   }};
-  CHECK(fat.size() > fixed_function<int(), 64>::storage_size);
+  CHECK(fat.size() > fixed_function<int(), 64>::inline_size);
   CHECK_THROWS_AS((fixed_function<int(), 64>{std::move(fat)}),
       std::length_error);
   // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
@@ -1225,7 +1225,7 @@ TEST_CASE("WrapStdFunction", "[FixedFunction]") {
   auto big = [pad = std::array<std::byte, 256>{}] {
     return static_cast<int>(pad.size());
   };
-  static_assert(sizeof(big) > ff::storage_size);
+  static_assert(sizeof(big) > ff::inline_size);
   ff g{std::function<int()>{std::move(big)}};
   CHECK(g() == 256);
 

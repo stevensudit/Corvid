@@ -115,8 +115,8 @@ static_assert(is_fixed_function_v<fixed_function<int(), 64>>);
 static_assert(!is_fixed_function_v<flexi_function<int(), dflt>>);
 static_assert(is_flexi_function_v<fixed_function<int(), 64>>);
 static_assert(sizeof(flexi_function<int(), heap_only>) == 3 * sizeof(void*));
-static_assert(flexi_function<int(), heap_only>::storage_size == 0);
-static_assert(flexi_function<int(), dflt>::storage_size == 2 * sizeof(void*));
+static_assert(flexi_function<int(), heap_only>::inline_size == 0);
+static_assert(flexi_function<int(), dflt>::inline_size == 2 * sizeof(void*));
 
 // An inline_only buffer may be aligned below the default: with no heap
 // pointer to hold, nothing forces the buffer up to the default geometry.
@@ -242,9 +242,9 @@ struct nine_fn {
   int operator()() const noexcept { return 9; }
 };
 
-static_assert(invocables::details::is_direct_eligible<nine_fn>());
-static_assert(!invocables::details::is_direct_eligible<counted>());
-static_assert(!invocables::details::is_direct_eligible<int (*)()>());
+static_assert(invocables::implementation::is_direct_eligible<nine_fn>());
+static_assert(!invocables::implementation::is_direct_eligible<counted>());
+static_assert(!invocables::implementation::is_direct_eligible<int (*)()>());
 
 // Storing a direct callable is noexcept under every policy, heap_only
 // included, because nothing is stored.
@@ -253,8 +253,8 @@ static_assert(std::is_nothrow_constructible_v<flexi_function<int(), heap_only>,
 
 TEST_CASE("constant_fn calls a compile-time target directly",
     "[flexi_function]") {
-  static_assert(
-      invocables::details::is_direct_eligible<constant_fn<plain_seven>>());
+  static_assert(invocables::implementation::is_direct_eligible<
+      constant_fn<plain_seven>>());
 
   // A function, named with or without its address; not stored under any
   // policy.

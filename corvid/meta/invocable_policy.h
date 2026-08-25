@@ -303,7 +303,10 @@ inline constexpr invocable_policy invocable_policy::heap{
 inline constexpr invocable_policy invocable_policy::fixed{
     .storage = storage_policy::inline_only};
 
-namespace details {
+// This is called `implementation`, not `details` because these are not
+// private to this file. Rather, they are working parts an owner builds on, and
+// are imported into the owner's own `details` wholesale.
+namespace implementation {
 
 // `fits_inline`: whether a target of the given size and alignment, whose move
 // cannot throw when `is_nothrow_move`, is eligible for policy `p`'s inline
@@ -424,7 +427,7 @@ constexpr adoption adoption_of(invocable_policy to, storage_mode from,
   return to.admits_heap() ? adoption::box : adoption::refuse;
 }
 
-} // namespace details
+} // namespace implementation
 
 #pragma endregion
 } // namespace invocables

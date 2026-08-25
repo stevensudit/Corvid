@@ -149,9 +149,13 @@ answers had been written twice. The shared parts now live in
   pointer-slot `static_assert` covers every policy with a buffer, since
   the union would otherwise silently grow to a pointer's size. Both owners
   report inline capacity as 0 under `heap_only` (`proxy::inline_size` now
-  agrees with `flexi_function::storage_size`): the pointer kept in the
-  buffer's place is not capacity, and `invocable_policy::buffer_size()` is
-  the byte count for anyone who wants that instead.
+  agrees with `flexi_function::inline_size`, renamed from `storage_size`
+  for the same reason): the pointer kept in the buffer's place is not
+  capacity, and `invocable_policy::buffer_size()` is the byte count for
+  anyone who wants that instead. The shared `invocables::details` is now
+  `invocables::implementation`: a `details` namespace is private to its
+  file, so importing from one is a smell, while working parts an owner
+  builds on are semi-private and may be imported whole.
 
 ## Landed: empty calls for proxy
 
