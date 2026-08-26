@@ -293,7 +293,7 @@ struct proxy_impl<F, proxy_view<D>> {
 // its class comment).
 //
 // A default-constructed view is empty. It is testable via `operator bool` and
-// rebindable by assignment..
+// rebindable by assignment.
 //
 // When the facade defines a nested `api`, the view inherits it. Only the const
 // forwarders are callable; a mutable forwarder fails inside its `call` if
@@ -309,15 +309,20 @@ public:
   // an object whose type is registered for `F`, thus erasing the type behind
   // the facade and viewing it as const.
   //
-  // Intentionally implicit. Rvalues do not bind. Handles of `F`, or of a
-  // facade extending it, take the dedicated constructors below instead of
-  // being wrapped as targets.
+  // Intentionally implicit. A temporary is refused by the deleted rvalue
+  // overload below, since the const reference would otherwise bind it and
+  // dangle.
+  //
+  // Handles of `F`, or of a facade extending it, take the dedicated
+  // constructors below instead of being wrapped as targets.
   template<typename T>
-  requires(Proxiable<std::remove_const_t<T>, F> &&
-           !details::is_handle_for<std::remove_const_t<T>, F>())
-  constexpr explicit(false) const_proxy_view(T& target) noexcept
-      : base{std::addressof(target),
-            &details::vtable_for<F, std::remove_const_t<T>>} {}
+  requires(Proxiable<T, F> && !details::is_handle_for<T, F>())
+  constexpr explicit(false) const_proxy_view(const T& target) noexcept
+      : base{std::addressof(target), &details::vtable_for<F, T>} {}
+
+  template<typename T>
+  requires(Proxiable<T, F> && !details::is_handle_for<T, F>())
+  const_proxy_view(const T&&) = delete;
 
   // Converting constructor from the mutable view.
   //
@@ -447,11 +452,11 @@ requires Proxiable<T, F>
 // Make a `const_proxy_view` over `target`.
 //
 // The const counterpart of `make_proxy_view`, accepting what that refuses (a
-// const target, or a const owning proxy) along with everything the const
-// view's constructors take, so a view of either constness is copied or upcast
-// rather than wrapped. The gate is those constructors rather than `Proxiable`
-// because a const view is not itself a full target of a facade with
-// non-const methods.
+// const target) along with everything the const view's constructors take, so a
+// view of either constness is copied or upcast rather than wrapped.
+//
+// The gate is those constructors rather than `Proxiable` because a const view
+// is not itself a full target of a facade with non-const methods.
 template<Facade F, typename T>
 requires std::constructible_from<const_proxy_view<F>, const T&>
 [[nodiscard]] constexpr const_proxy_view<F>
