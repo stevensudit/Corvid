@@ -150,12 +150,6 @@ public:
   }
 
   // Constructor for an owning proxy adopting a heap target already
-  // owned by a `std::unique_ptr` with the default deleter (), which the
-  // signature enforces: a `unique_ptr` with any other deleter does not deduce
-  // `T`. The proxy destroys through `delete`.
-  //
-
-  // Constructor for an owning proxy adopting a heap target already
   // owned by a `std::unique_ptr`. (The signature ensures that it is
   // specialized on the default deleter, since proxy eventually destroys the
   // target using `delete`.)

@@ -521,9 +521,9 @@ public:
   // Conversion constructor from a `shared_proxy` of `F`, or of a facade that
   // extends it (the upcast happens here, so `lock` is cheap).
   //
-  // Intentionally implicit. It takes a `const_weak_proxy`, but a
-  // `const_shared_proxy` is not accepted because `lock` would reopen
-  // mutability
+  // Intentionally implicit. A `const_shared_proxy` is not accepted, because
+  // `lock` would reopen mutability. That handle is observed by a
+  // `const_weak_proxy` instead.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) weak_proxy(const shared_proxy<D>& p) noexcept

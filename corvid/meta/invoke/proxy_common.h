@@ -815,8 +815,9 @@ void* heap_copy(const void* from, void* /*to*/) {
 // `type_tag_v` is the type identity tag, such that the address of
 // `type_tag_v<T>` identifies `T` uniquely across the program, without RTTI.
 //
-// The owning table carries it, so typed operations on an erased target can
-// verify the type at runtime.
+// The view table carries it, and the owning table embeds that, so a typed
+// operation on an erased target can verify the type at runtime through
+// any handle.
 //
 // Deliberately non-const: the address is the identity, and identical
 // read-only data is fair game for linker identical-COMDAT folding (MSVC

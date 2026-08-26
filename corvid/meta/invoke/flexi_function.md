@@ -21,7 +21,7 @@ The policy type is shared with `proxy` and documented in
 [invocable_common.h](invocable_common.h). The header's namespace is
 `corvid::meta::flexi`, deliberately not inline, with `flexi_function`,
 `fixed_function`, `fixed_function_of`, and the two `is_` traits exported
-into `corvid::meta`; the shared vocabulary lives in
+into `corvid::meta`. The shared vocabulary lives in
 `corvid::meta::invocables` under the same rule. Planned work is in
 [roadmap.md](../roadmap.md).
 
@@ -77,9 +77,9 @@ two-pointer buffer with heap fallback. A policy is usually spelled
 fluently from one of the three starting points in
 [invocable_policy.h](invocable_policy.h), `basic`, `heap`, and `fixed`,
 as `invocable_policy::heap.with(on_empty::silent)` or
-`invocable_policy::fixed.with_size(64)`; `fixed_function<Sig, Size>` is the
-alias for the latter, with `Size` the instance size, rounded up to the
-storage alignment.
+`invocable_policy::fixed.with_size(64)`, and `fixed_function<Sig, Size>`
+is the alias for the latter, with `Size` the instance size, rounded up to
+the storage alignment.
 
 The third parameter is derived from the signature and never passed. It is
 the pattern-matching hook that gives the class body `ResultT` and
@@ -130,7 +130,7 @@ offset  0 +----------+
 offset  8 +----------+
           | lifespan |
 offset 16 +----------+
-          | F*       |  dynamic; never read when direct or empty
+          | ptr      |  dynamic; never read when direct or empty
 offset 24 +----------+
 ```
 
@@ -149,10 +149,11 @@ offset 64 +--------------+
 ```
 
 Under `inline_or_heap` the buffer does double duty, holding either the
-target or the pointer to its block, which is why `inline_size` must be at
-least a pointer and `inline_align` at least a pointer's alignment. Under
-`inline_only` there is no such floor, so a buffer may be aligned below
-`max_align_t` (the tests' `lean` policy: 16 bytes at alignment 8).
+target or the pointer to its block. That is why every policy with a
+buffer, `inline_only` included, floors `inline_size` at a pointer and
+`inline_align` at a pointer's alignment. Above that floor the alignment is
+free, so a buffer may sit below `max_align_t` (the tests' `lean` policy:
+16 bytes at alignment 8).
 
 The buffer has no initializer. Occupancy is keyed by `dispatch_.lifespan`,
 and zeroing the buffer on every construction would be waste.
@@ -216,7 +217,7 @@ reached as `const F&`.
 
 `qualified_target_t<F>` is `F cv&`, or `F cv&&` under an `&&` signature,
 with `cv` from the signature. An unqualified and an `&` signature both
-invoke the target as an lvalue; they differ only in which wrappers may
+invoke the target as an lvalue, and differ only in which wrappers may
 call, as with `std::move_only_function`.
 
 Under `direct`, the `F target{}` the thunk names is what the object model
@@ -235,7 +236,7 @@ Three things a call site can compile to, in ascending cost:
 - A direct call. `call foo`, with the target fixed in the instruction by
   the linker. No load, and nothing for the branch predictor to guess.
   (Calling into a shared library goes through the PLT, an indirect jump
-  through the GOT, so that one configuration reintroduces a hop; within
+  through the GOT, so that one configuration reintroduces a hop. Within
   one executable, or under LTO, the call is direct.)
 - An indirect call. The target is a pointer loaded at runtime, `call
 *reg`.
@@ -252,7 +253,7 @@ inside the thunk depends on the stored type, not on the mode:
 | functor or capturing lambda                              | `dynamic`                          | load `F*` from the buffer, then the same with the block as `this`              |
 | direct-eligible type (captureless lambda, `std::plus<>`) | `direct`                           | direct call to `F::operator()`, inlined when visible, and no load at all       |
 | `constant_fn<foo>`                                       | `direct`                           | direct call to `foo`, inlined when visible; the address is in the type         |
-| `runtime_fn{p}`                                          | `inlined`                          | as a function pointer: load, indirect call                                     |
+| `runtime_fn{p}`                                          | `inlined` (`dynamic` under `heap_only`) | as a function pointer: load, indirect call                                |
 
 The `static_cast<F*>(storage)` in the thunk is not an instruction. It is
 the compiler agreeing to treat those bytes as an `F`, and the call to
@@ -271,7 +272,7 @@ outright, and makes the wrapper `direct` as well. `constant_fn<foo>{}` is
 the same thing with a name and no body to write, and it also takes a
 member pointer (object as the first argument) or a captureless lambda.
 Whether `foo`'s body then inlines into the thunk follows the visibility
-rule above; even when it does not, the call to it is direct, not indirect.
+rule above. Even when it does not, the call to it is direct, not indirect.
 
 Storing a function by name, `fn_t f = foo;`, is refused at compile time,
 with a message pointing at `constant_fn`. The reference form is the one
@@ -286,7 +287,7 @@ A policy with `enforcement = policy_enforcement::strict` closes the `&foo`
 hole by refusing every bare function or member pointer at the border,
 so the caller has to say which kind of target it is: `constant_fn<foo>{}`
 for a compile-time one, `runtime_fn{p}` for a runtime one. The check is
-only at the border (construction and assignment from a callable); a
+only at the border (construction and assignment from a callable). A
 converting move from a sibling transplants whatever it held, unchecked.
 Flipping the field's default in [invocable_policy.h](invocable_policy.h)
 and rebuilding is a one-edit audit of a codebase for pointer targets that
@@ -316,8 +317,8 @@ nothrow-move-constructible, and the policy is not `heap_only`), else
 `dynamic`. `can_store_nothrow<T>(p)` is "not `dynamic`", and it is the
 `noexcept` specification of every storing constructor and assignment.
 
-The `static_assert`s in `do_store` rule out, with named diagnostics: a
-function lvalue as the callable, a bare function or member pointer under
+The user-facing `static_assert`s in `do_store` rule out, with named
+diagnostics: a function lvalue as the callable, a bare function or member pointer under
 `policy_enforcement::strict`, an `inline_only` policy over a target that
 cannot live inline, a target whose destructor may throw, and a callable
 returning a prvalue under a reference-returning signature (every call
@@ -353,8 +354,8 @@ pair (`dispatch`, a passive output), and its buffer (`to`, null for a
 probe).
 
 `refusal` is `size_t(-1)`, kept off 0 so that a size of 0 remains a
-legitimate answer. Only `inline_only` destinations can refuse; every other
-policy has the heap to fall back on.
+legitimate answer. Only `inline_only` destinations can refuse, because
+every other policy has the heap to fall back on.
 
 ```mermaid
 flowchart TD
@@ -436,10 +437,13 @@ thunk pointer:
 The extra probe is the price of leaving the destination's target intact
 on a refusal: the alternative, relocating into a temporary and then
 moving that in, would cost a second relocation instead of a probe, which
-reads nothing. Relocation itself destroys the source's target (or hands
+reads nothing. The probe runs only when the adoption can be refused at
+all (`adopt_may_throw`), so an `inline_only` destination fed from an
+`inline_only` sibling whose buffer it dominates skips it and costs the
+same as the row above. Relocation itself destroys the source's target (or hands
 its block over), so there is no separate destroy call on the source;
 `do_adopt` just reinstalls the source's `empty_dispatch`. These are
-assignment costs; the wrapper is optimized for the call, which pays one
+assignment costs. The wrapper is optimized for the call, which pays one
 indirect call and nothing else.
 
 ## The empty state
@@ -465,9 +469,11 @@ must be asked for by name.
 ## Qualified signatures
 
 `signature_traits<Sig>` (in [traits.h](../traits.h)) decomposes a signature
-into `result_t`, `args_t`, `function_t` (all qualifiers stripped), and the
-three qualifier enums `const_qualifier`, `ref_qualifier`, and
-`noexcept_specifier`. `flexi_thunks` turns those into:
+into `result_t`, `args_t`, `function_t` (all qualifiers stripped), and
+three enum-typed constants, `const_qualifier`, `ref_qualifier`, and
+`noexcept_specifier` (of types `const_qual`, `ref_qual`, and
+`noexcept_spec`), restated as the bools `is_const` and `is_noexcept`.
+`flexi_thunks` turns those into:
 
 - `qualified_target_t<F>`: how the target is invoked (`F cv&`, or
   `F cv&&` under `&&`).
