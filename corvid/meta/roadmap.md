@@ -361,29 +361,3 @@ its derivation, so it cannot be spelled otherwise, and the traits match on
   three set, and that is relocation's encoding. The alternatives are a
   second thunk pointer in `thunk_pair`, or an operation enum in
   `destination_spec`.
-
-## Speculative: cache-line-sized wrappers
-
-Not ruled on; recorded so the constraint is understood before anyone
-trips over it.
-
-The `inline_size` rule ("a multiple of `inline_align`", in
-`is_well_formed`) reasons about the buffer in isolation, but an owner keeps
-a header ahead of the buffer (two pointers for `flexi_function`, one for
-`proxy`), so "buffer is a multiple of the alignment" and "object is a
-multiple of the alignment" are different constraints. The difference only
-shows at alignments above the default: a `flexi_function` meant to occupy
-exactly one 64-byte cache line (a per-core callback slot, say) wants a
-48-byte buffer at 64-byte alignment, which the rule rejects; the nearest
-legal policy is a 64-byte buffer, and the object is then 128 bytes outright
-(16 of header, 48 of padding ahead of the buffer, 64 of buffer). The
-rounding never lands at the tail, since the buffer is last and sets the
-object's alignment; it lands in the middle.
-
-If that shape is ever wanted, the rule would change to "the object size is
-a multiple of `inline_align`" (`header + inline_size` padded), which is the
-arithmetic `fixed_function`'s `Size` does on the flexi side, and it would
-have to be stated per owner, since the policy does not know the header.
-`heap_only` has no such need: its layout is padding-free, and line
-isolation for any wrapper is the container's job (`alignas` on the element
-or enclosing struct), not the policy's.
