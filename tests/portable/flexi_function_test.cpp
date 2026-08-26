@@ -515,6 +515,13 @@ TEST_CASE("Null callables are empty", "[flexi_function]") {
   h = &widget::n;
   widget w{5};
   CHECK(h(w) == 5);
+
+  // An empty std wrapper yields an empty wrapper too, by the same rule; a
+  // live one is stored.
+  fn_t std_empty{std::function<int()>{}};
+  CHECK(!std_empty);
+  fn_t std_live{std::function<int()>{[] { return 3; }}};
+  CHECK(std_live() == 3);
 }
 
 TEST_CASE("Trivially copyable lvalues are copied in", "[flexi_function]") {

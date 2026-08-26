@@ -594,7 +594,7 @@ public:
            thunks::template is_invocable<std::decay_t<FN>>)
   explicit flexi_function(FN&& fn) noexcept(
       details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
-    if (!fn) return;
+    if (is_null_callable(fn)) return;
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
   }
 
@@ -782,10 +782,14 @@ private:
   // Whether `fn` is a null callable, which yields an empty wrapper rather
   // than a truthy shell that is undefined (or throws) when called, matching
   // `std::function`.
+  //
+  // The one list of nullable kinds: pointers, member pointers, this family's
+  // wrappers, `runtime_fn`, and the std polymorphic wrappers.
   template<class FD>
   static bool is_null_callable(const FD& fn) noexcept {
     if constexpr (std::is_pointer_v<FD> || std::is_member_pointer_v<FD> ||
-                  is_flexi_function_v<FD> || is_runtime_fn_v<FD>)
+                  is_flexi_function_v<FD> || is_runtime_fn_v<FD> ||
+                  is_std_function_wrapper_v<FD>)
       return !fn;
     else
       return false;
