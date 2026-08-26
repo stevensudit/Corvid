@@ -983,6 +983,7 @@ classDiagram
         +clone()
         +can_clone()
         +can_adopt() static, before a conversion
+        +operator=(sibling&&) transplant, pre-flighted
         +extract() heap allocation out
         +try_downcast() rvalue, consumes on success
     }
@@ -1115,7 +1116,8 @@ union at runtime through the `relocate` slot. (The birth key serves
 downcasting, below.)
 
 Proxies of different facades and policies interconvert as rvalues through
-one converting constructor. The source's policy never forecloses a
+one converting constructor and its matching move assignment. The source's
+policy never forecloses a
 conversion: what matters is whether the destination can accommodate the
 target that actually arrives, decided per target at adoption time. The
 rule is `invocables::implementation::adoption_of`, one statement shared with
@@ -1140,6 +1142,10 @@ would be accommodated, advertising that adoption is not always possible
 and letting a caller sidestep the throw. It is a property of the
 destination type against the source's runtime target, so it needs no
 destination instance. Only an `inline_only` destination can ever answer no.
+The converting move assignment runs it as a pre-flight, so a refused
+assignment throws before either side is touched and the destination keeps
+its own target; the converting constructor has nothing to protect and
+skips it.
 
 The mode-changing thunks and the other-mode table cross-links live in the
 owning tables (`to_heap`/`to_inline`, pointing at the shared `box`/`unbox`

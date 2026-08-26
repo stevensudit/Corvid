@@ -201,8 +201,8 @@ public:
   // (see `do_adopt`), and a conversion that might have to change the storage
   // mode is exactly as `noexcept` as that allows.
   //
-  // A throw leaves the source intact and this proxy empty, since `can_adopt`
-  // checks accommodation up front.
+  // A throw leaves the source intact and this proxy empty, because
+  // `do_adopt` settles the route before anything moves.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy(proxy<D, P>&& other) noexcept(
@@ -215,6 +215,28 @@ public:
       do_reset();
       do_adopt(other);
     }
+    return *this;
+  }
+
+  // Move assignment from a proxy of a facade that is `F` or extends it, of
+  // any policy, under the same transplant rules as the converting move
+  // constructor.
+  //
+  // A refusal is detected by a pre-flight `can_adopt`, throwing before either
+  // side is touched. A boxing allocation can still throw, after this proxy
+  // has released its own target, leaving it empty and the source intact.
+  template<Facade D, invocable_policy P>
+  requires((std::same_as<D, F> || Extends<D, F>) &&
+           !(std::same_as<D, F> && P == Policy))
+  proxy& operator=(proxy<D, P>&& other) noexcept(
+      !details::adopt_may_throw(Policy, P)) {
+    if constexpr (details::adopt_may_throw(Policy, P)) {
+      if (!can_adopt(other))
+        throw std::length_error{
+            "the target cannot be stored in an inline_only proxy's buffer"};
+    }
+    do_reset();
+    do_adopt(other);
     return *this;
   }
 

@@ -2861,6 +2861,23 @@ TEST_CASE("Storage policies", "[proxy]") {
     CHECK_THROWS_AS(inline_proxy{std::move(big)}, std::length_error);
     REQUIRE(big); // NOLINT(bugprone-use-after-move): kept whole on failure.
     CHECK(big.call<"gold">() == 6);
+
+    // Assignment from a sibling is direct, with the same pre-flight: a
+    // refusal throws before either side is touched, so the destination keeps
+    // its own target too.
+    CHECK_THROWS_AS(s2 = std::move(big), std::length_error);
+    REQUIRE(big); // NOLINT(bugprone-use-after-move): kept whole on failure.
+    CHECK(big.call<"gold">() == 6);
+    CHECK(s2.call<"gold">() == 4);
+
+    // An accepted assignment transplants, replacing the destination's target
+    // and leaving the source empty.
+    auto p2 = make_proxy<lockbox, small_box, policies::heap_only>(unbox_stats);
+    p2.call<"add">(9);
+    s2 = std::move(p2);
+    CHECK(!p2); // NOLINT(bugprone-use-after-move): emptied by the transplant.
+    CHECK(unbox_stats.moves == 3);
+    CHECK(s2.call<"gold">() == 9);
   }
   CHECK(unbox_stats.destroyed == unbox_stats.constructed);
 }
