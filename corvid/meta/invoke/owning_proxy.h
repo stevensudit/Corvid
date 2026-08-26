@@ -41,7 +41,7 @@ namespace prox {
 // Rust's `Box<dyn Trait>` or ngcpp's `proxy`.
 //
 // Move-only. Storage follows `Policy` (see `invocable_policy`). By default,
-// eligible targets are stored inline and anything else lives in a
+// eligible targets are stored inline, and anything else lives in a
 // unique-owned heap allocation. The owning dispatch table carries destroy
 // and relocate slots alongside the facade methods, so destruction and moves
 // work without knowing the target type.
@@ -56,23 +56,23 @@ namespace prox {
 //
 // The proxy is deep-const, so only const-qualified facade methods dispatch
 // through a const proxy. Being move-only, it cannot be copied out of that
-// constness the way a view can.
+// constness the way a view can: no const reference to a proxy can ever be
+// moved from.
 //
 // A default-constructed, moved-from, or reset proxy is empty. It is
 // destructible, assignable, and testable via `operator bool`, and calling
 // through it runs the policy's `on_empty` behavior, taken per method as a
 // floor (see `invocable_policy::empty`); strict enforcement rejects a facade
-// any of whose methods cannot take the floor exactly.
+// when it has any methods that cannot take the floor exactly.
 //
-// A non-empty lvalue proxy converts implicitly to `proxy_view` (mutable
-// proxies only) and `const_proxy_view`, of its own facade or of any facade it
-// extends; the view re-points at the stored target, and the proxy must
-// outlive it. See the view constructors.
+// A non-empty lvalue to a proxy converts implicitly to a `proxy_view` (when
+// not const) or `const_proxy_view` of its own facade, or of any facade it
+// extends. The view re-points at the stored target, and the proxy must outlive
+// it. See the view constructors for details.
 //
-// An rvalue proxy also upcasts: it converts implicitly to a proxy of any
-// facade its facade extends (Rust: `Box<dyn Derived>` to `Box<dyn Base>`).
-// The conversion is a move, transferring ownership of the target and leaving
-// the source empty. The owning tables remember the facade the target was
+// An rvalue proxy also upcasts, converting implicitly to a proxy of any facade
+// its own extends (like Rust: `Box<dyn Derived>` to `Box<dyn Base>`). The
+// conversion is a move. The owning tables remember the facade the target was
 // born as, so an upcast is undoable: `try_downcast` recovers a proxy of any
 // facade in the birth ancestry.
 //
@@ -84,7 +84,7 @@ class proxy: public details::api_base_t<F> {
   using owning_vtable_t = vtbuild_t::owning_vtable_t;
 
   // The buffer may only grow from its defaults, so any target eligible for
-  // the default buffer stays eligible for every buffer; a `heap_only` proxy
+  // the default buffer stays eligible for every buffer. A `heap_only` proxy
   // has no buffer for the knobs to apply to.
   static_assert(
       !Policy.admits_inline() ||
@@ -108,9 +108,10 @@ class proxy: public details::api_base_t<F> {
 public:
   using facade_t = F;
 
-  // Inline storage capacity in bytes, 0 for a `heap_only` policy, which stores
-  // nothing inline (the pointer it keeps in the buffer's place is not
-  // capacity).
+  // Inline storage capacity in bytes.
+  //
+  // For `heap_only` policy, this is always 0, as the pointer it keeps instead
+  // of the buffer does not count as inline capacity.
   //
   // See `invocable_policy` for the inline-eligibility conditions.
   static constexpr size_t inline_size =
@@ -165,8 +166,7 @@ public:
     if (!target) return;
     if constexpr (!Policy.admits_heap()) {
       static_assert(details::is_inline_eligible<T>(Policy),
-          "the target is not eligible for an inline_only proxy's inline "
-          "buffer");
+          "the target is not eligible for an inline_only proxy's buffer.");
       ::new (storage_area_.buf) T(std::move(*target));
       vtable_ = &details::owning_vtable_for<F, F, T, storage_mode::inlined>;
     } else {
@@ -175,7 +175,7 @@ public:
     }
   }
 
-  // Move constructor, leaving the source empty.
+  // Move constructor.
   //
   // Inline targets relocate through the table's move slot, while heap targets
   // move by pointer steal.
@@ -184,17 +184,17 @@ public:
   // Converting move constructor from an owning proxy of any facade that
   // extends `F` (an upcast), of any other policy, or both at once.
   //
-  // Intentionally implicit, like the view upcasts, but consuming: the target
+  // Intentionally implicit, like the view upcasts, but consuming. The target
   // moves into this proxy and the source is left empty, so an upcast is
   // one-way as a conversion (`try_downcast` is the way back).
   //
   // An empty source yields an empty proxy. The source's policy never
-  // constrains the conversion; storage is accommodated per target at runtime
+  // constrains the conversion. Storage is accommodated per target at runtime
   // (see `do_adopt`), and a conversion that might have to change the storage
   // mode is exactly as `noexcept` as that allows.
   //
-  // A throw leaves the source intact and this proxy empty; `can_adopt` checks
-  // accommodation up front.
+  // A throw leaves the source intact and this proxy empty, since `can_adopt`
+  // checks accommodation up front.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy(proxy<D, P>&& other) noexcept(
@@ -212,8 +212,6 @@ public:
 
   ~proxy() { do_reset(); }
 
-  // Destroy the target, if any, leaving the proxy empty on its own type's
-  // empty table.
   void reset() noexcept { do_reset(); }
 
   proxy& operator=(std::nullptr_t) noexcept {
@@ -221,16 +219,17 @@ public:
     return *this;
   }
 
-  // `Call the facade method named `Key`, forwarding `args` through the erased
+  // Call the facade method named `Key`, forwarding `args` through the erased
   // signature.
   //
   // The call is `noexcept` when the method is and the argument conversions
-  // cannot throw (they are the caller's, as with the `api` forwarders). The
-  // const overload is constrained to const-qualified methods, enforcing deep
-  // const at overload resolution so the rejection is visible to `requires`
-  // probes as well. It is not `[[nodiscard]]`, because discardability belongs
-  // to the facade method rather than the dispatcher (the `std::invoke`
-  // precedent).
+  // cannot throw (they are the caller's, as with the `api` forwarders).
+  //
+  // The const overload is constrained to const-qualified methods, enforcing
+  // deep const at overload resolution so the rejection is visible to
+  // `requires` probes as well. It is not `[[nodiscard]]`, because
+  // discardability belongs to the facade method rather than the dispatcher
+  // (which is the `std::invoke` precedent).
   template<fixed_string Key, typename... Args>
   decltype(auto)
   call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<Key,
@@ -248,7 +247,6 @@ public:
         target(), std::forward<Args>(args)...);
   }
 
-  // Whether this proxy is non-empty.
   [[nodiscard]] explicit operator bool() const noexcept {
     return (vtable_ != empty_vtable);
   }
@@ -258,7 +256,7 @@ public:
   // an empty proxy).
   //
   // The answer is a runtime property of the erased target, not of the proxy
-  // type; a container of proxies can mix cloneable and uncloneable targets.
+  // type, so a container of proxies can mix cloneable and uncloneable targets.
   [[nodiscard]] bool can_clone() const noexcept {
     return (!*this || vtable_->copy);
   }
@@ -271,11 +269,13 @@ public:
   // availability.
   //
   // Static, because the answer is a property of this proxy TYPE against the
-  // source's runtime target; it works before any destination instance
-  // exists, and is equally callable through one. Only an `inline_only`
-  // destination can ever answer no (everything else has the heap to fall
-  // back on), and an empty source is always adoptable, to empty. It does
-  // not promise the allocation a mode-changing adoption may need.
+  // source's runtime target. It works before any destination instance exists,
+  // and is equally callable through one.
+  //
+  // Only an `inline_only` destination can ever answer no (since everything
+  // else has the heap to fall back on), and an empty source is always
+  // adoptable, to empty. It does not promise the allocation a mode-changing
+  // adoption may need.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   [[nodiscard]] static bool can_adopt(const proxy<D, P>& source) noexcept {
@@ -288,8 +288,8 @@ public:
     }
   }
 
-  // Clone the `proxy`, creating a new instance with the same
-  // policy, owning a copy of the target made through the table's copy slot.
+  // Clone the `proxy`, creating a new instance with the same policy, owning a
+  // copy of the target made through the table's copy slot.
   //
   // Cloning an empty proxy yields an empty one, and so does cloning a proxy
   // whose target is not copy-constructible; `can_clone` is the up-front check
@@ -316,14 +316,15 @@ public:
   // empty.
   //
   // The inverse of the adopting constructor, and the only way ownership leaves
-  // a proxy other than destruction: a raw pointer is never exposed.
+  // a proxy other than destruction, since a raw pointer is never exposed.
   //
   // `T` must be the target's exact type, verified at runtime through the
-  // table's type tag: on a mismatch, or an empty proxy, the result is null
-  // and the proxy is untouched. A heap-stored target hands over its
-  // allocation as-is; an inline target moves onto the heap first (the one
-  // case with target activity, and the one case that can throw, again
-  // leaving the proxy untouched).
+  // table's type tag. On a mismatch, or an empty proxy, the result is null
+  // and the proxy is untouched.
+  //
+  // A heap-stored target hands over its allocation as-is, while an inline
+  // target moves onto the heap first (the one case with target activity, and
+  // the one case that can throw, again leaving the proxy untouched).
   template<typename T>
   [[nodiscard]] std::unique_ptr<T> extract() {
     if (vtable_->type_tag != &details::type_tag_v<T>) return nullptr;
@@ -355,7 +356,7 @@ public:
   // texas_ranger>` downcasts to `marshal` but never to `ranger`.
   //
   // Its birth ancestry, the born facade plus every facade that one
-  // extends, is searched at runtime for `D` itself; a target born as a
+  // extends, is searched at runtime for `D` itself. A target born as a
   // facade that extends `D` therefore matches, and through a diamond, the
   // common base can sidecast to either sibling.
   //
@@ -396,11 +397,11 @@ private:
   // (whose contents the empty thunks never read).
   //
   // The active union member, and emptiness itself, are keyed by the table
-  // (`relocate` null means heap; the empty table's is `empty_relocate`), an
-  // invariant every write site maintains but the static analyzer cannot see,
-  // so the union reads here and in `do_adopt`, `try_downcast`, `extract`, and
-  // the `shared_proxy` adoption suppress its uninitialized-value and
-  // use-after-release checks.
+  // (`relocate` null means heap while the empty table's is `empty_relocate`).
+  // This is an invariant every write site maintains but the static analyzer
+  // cannot see, so the union reads here and in `do_adopt`, `try_downcast`,
+  // `extract`, and the `shared_proxy` adoption suppress its
+  // uninitialized-value and use-after-release checks.
   [[nodiscard]] void* target() noexcept {
     // NOLINTBEGIN(clang-analyzer-core.uninitialized.UndefReturn)
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
@@ -417,7 +418,6 @@ private:
                : storage_area_.ptr;
   }
 
-  // `do_reset` is to destroy the target, if any, leaving the proxy empty.
   void do_reset() noexcept {
     if (!*this) return;
     vtable_->destroy(target());
@@ -432,10 +432,10 @@ private:
   // that we don't need to clear `buf` or `ptr` on `other.storage_area_`
   // because `other.vtable_` defines whether it's empty.
   //
-  // The source's policy does not matter here: this proxy accommodates
-  // whatever target actually arrives, per target, at runtime, on the route
-  // `adoption_for` picks. A mode change (boxing or un-boxing) switches to the
-  // table's other-mode sibling, which carries its own mode's birth ancestry.
+  // The source's policy does not matter here because this proxy accommodates
+  // whatever target actually arrives at runtime, on the route `adoption_for`
+  // picks. A mode change (boxing or un-boxing) switches to the table's
+  // other-mode sibling, which carries its own mode's birth ancestry.
   //
   // Only the mode-changing routes can throw (the boxing allocation, or
   // `std::length_error` on a refusal, when an erased target cannot be stored
@@ -477,8 +477,7 @@ private:
   }
 
   // `adoption_for` is the route the erased target behind `vt` takes into this
-  // proxy, arriving from a proxy of policy `P`; see `adoption_of`, the rule
-  // shared with `flexi_function`.
+  // proxy, arriving from a proxy of policy `P`; see `adoption_of`.
   //
   // The table is the arrival's witness: `relocate` marks an inline target,
   // nothrow-move by eligibility, and `to_inline` a heap target that could live
@@ -547,9 +546,9 @@ struct proxy_impl<F, proxy<D, P>> {
 // Make an owning `proxy` of facade `F` holding a `T` constructed in place from
 // `args`.
 //
-// To move an existing object in, pass it as the constructor argument:
-// `make_proxy<F, T>(std::move(obj))`. A non-default storage policy is the
-// optional third argument: `make_proxy<F, T, invocable_policy{...}>(...)`.
+// To move an existing object in, pass it as the rvalue constructor argument,
+// as in `make_proxy<F, T>(std::move(obj))`. A non-default storage policy is
+// the optional third argument: `make_proxy<F, T, invocable_policy{...}>(...)`.
 template<Facade F, typename T, invocable_policy Policy = invocable_policy{},
     typename... Args>
 requires Proxiable<T, F>
