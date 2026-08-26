@@ -1462,15 +1462,9 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   }
 
   // Name that qualifies slot `S`.
-  //
-  // The declaring facade's name for an inherited slot, this facade's own name
-  // otherwise.
   template<typename S>
   static consteval auto owner_name() noexcept {
-    if constexpr (std::is_void_v<typename S::owner_t>)
-      return OwnName;
-    else
-      return vtbuild_t<typename S::owner_t>::name_v;
+    return slot_owner_name<OwnName, S>();
   }
 
   // Whether slot `S` answers to `Key`.
