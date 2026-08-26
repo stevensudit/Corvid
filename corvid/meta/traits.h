@@ -240,12 +240,12 @@ struct signature_traits_base {
 
 } // namespace details
 
-// `signature_traits`: the decomposition of a function signature into its
+// `signature_traits` is the decomposition of a function signature into its
 // result, parameters, and qualifiers.
 //
-// A signature here is what `std::move_only_function` accepts as `Sig`: a
-// function type `R(Args...)`, optionally qualified by `const`, by a reference
-// (`&` or `&&`), and by `noexcept`, for twelve variants in all.
+// A signature here is what `std::move_only_function` accepts as `Sig`. These
+// are function type `R(Args...)`, optionally qualified by `const`, by a
+// reference (`&` or `&&`), and by `noexcept`, for twelve variants in all.
 //
 // The trait provides `result_t`, `args_t` (the parameter types, as a
 // `std::tuple`), `function_t` (the signature with every qualifier stripped,
@@ -320,7 +320,8 @@ struct signature_traits<R(Args...) const && noexcept>
     : details::signature_traits_base<R, const_qual::present, ref_qual::rvalue,
           noexcept_spec::present, Args...> {};
 
-// The `function_t` of `Sig`: the signature with every qualifier stripped.
+// The `function_t` of `Sig`, which is the signature with every qualifier
+// stripped.
 //
 // An alias template, so no dependent `typename` is needed at the use site.
 template<typename Sig>

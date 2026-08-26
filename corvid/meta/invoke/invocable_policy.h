@@ -236,16 +236,15 @@ struct invocable_policy {
     return p;
   }
 
-  // `admits_inline`, `admits_heap`: whether the policy permits storing a
-  // target inline, or on the heap.
+  // Whether the policy permits storing a target inline, or on the heap.
   //
   // The two questions every owner asks of its policy, in place of comparing
   // `storage` against the value that forbids each. `storage_policy`'s bit
   // layout says the same thing: `inline_only` and `heap_only` are the two
   // bits, and `inline_or_heap` is both.
   //
-  // `constexpr` rather than `consteval`: `flexi_function`'s lifespan thunk
-  // asks a type-erased destination's policy at runtime.
+  // `constexpr` rather than `consteval` because `flexi_function`'s lifespan
+  // thunk asks a type-erased destination's policy at runtime.
   [[nodiscard]] constexpr bool admits_inline() const noexcept {
     return (storage != storage_policy::heap_only);
   }
@@ -253,10 +252,9 @@ struct invocable_policy {
     return (storage != storage_policy::inline_only);
   }
 
-  // `buffer_size`, `buffer_align`: the geometry of the buffer an owner
-  // actually keeps: the policy's inline buffer, or, under `heap_only`, just
-  // the pointer to the heap block, so that the whole owner is as small as a
-  // view.
+  // The geometry of the buffer an owner actually keeps. This is the policy's
+  // inline buffer, or, under `heap_only`, just the pointer to the heap block,
+  // so that the whole owner is as small as a view.
   [[nodiscard]] consteval size_t buffer_size() const noexcept {
     return admits_inline() ? inline_size : sizeof(void*);
   }
