@@ -1813,9 +1813,9 @@ concatenation instead of multiple inheritance. Facade upcasting is a table
 view instead of a cross-cast. Inline relocation is a table slot instead of
 virtual clone/move on a polymorphic buffer. `proxy_view` stays two plain
 pointers with no embedded polymorphic object. And the `method<"...">` list
-keeps the facade enumerable, which `prox::codegen` already leans on and
-the future-work items (member-pointer specs, formatter bridge,
-reflection-derived boilerplate) will.
+keeps the facade enumerable, which `prox::codegen` and `members` already
+lean on and the future-work items (formatter bridge, reflection-derived
+boilerplate) will.
 
 A facade-holding-`T*` variant without the hidden ABC (handle templates
 deriving from a forwarding facade) was also sketched. It spells each
@@ -2168,9 +2168,22 @@ and views, and identity is handled by the two tags.
   additive rather than a rewrite. Until then, `prox::codegen` generates
   the same artifacts as source to paste, and reflection deletes the paste
   step.
-- `std::formatter` bridge once the formatter forwarding helper exists (see
-  [../../strings/roadmap.md](../../strings/roadmap.md) stage 2). The ngcpp
-  analog is `skills::format`.
+- `std::formatter` bridge: `std::formatter` on the handles, so a proxy
+  formats as its target does. Intended, with two prerequisites. The
+  type-erasure move is `format_with_spec` (the synthetic parse-context
+  technique: the erased formatter keeps the spec tail as text, and at format
+  time a per-(facade, type) thunk runs the target's own formatter under it),
+  which lives in `strings/enable_format.h`, above `meta`; it moves down to
+  `meta/formatting.h` first (stage 5 in
+  [../../strings/roadmap.md](../../strings/roadmap.md)). Then the proxy
+  side: formatting is opt-in per facade (the shape of ngcpp's
+  `skills::format`), a marker that adds a format slot to the dispatch table
+  and constrains registration to formattable targets, so tables of facades
+  that never format carry nothing and instantiate no `std::formatter<T>`.
+  The bridge itself is one `handle_impl`-style formatter base serving every
+  handle flavor. Known limit, shared with `enable_format`: compile-time spec
+  checking stops at the erased grammar, since the target's formatter is only
+  reached at run time.
 - A guaranteed-copyable proxy flavor: a policy whose construction
   constrains targets to copyable types, making the handle itself satisfy
   `std::copyable` with no runtime condition (the shape of ngcpp's
