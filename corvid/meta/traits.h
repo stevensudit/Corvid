@@ -212,15 +212,34 @@ constexpr bool is_initializer_list_v =
 #pragma endregion
 #pragma region Const qualification
 
-// The type `T`, const-qualified when `Access` is `as_const` and unchanged
-// when it is `as_mutable`.
+// `conditional_const` is the type `T`, const-qualified when `Access` is
+// `as_const` and unchanged when it is `as_mutable`, as its `type` member.
 //
 // The one spelling for the const-or-mutable choice a handle, iterator, or
-// thunk makes over its target from an access mode. For a pointer, qualify
-// the pointee: `conditional_const_t<Access, void>*`.
+// thunk makes over its target from an access mode.
+//
+// The qualifier applies to `T` itself, as `std::add_const` would. When `T` is
+// a pointer, that qualifies the pointer, which is right when the pointer is
+// the object in question (a stored function pointer under a const
+// signature) and wrong when the pointee is. For the latter, qualify the
+// pointee with `conditional_const_t<Access, void>*` instead of
+// `conditional_const_t<Access, void*>`.
+//
+// A reference or a function type is rejected because the qualifier would be
+// silently dropped. An already const `T` stays const under either access mode:
+// the choice can add the qualifier but never removes it, so a const target is
+// const to a mutable probe, as it should be.
 template<access_mode Access, typename T>
-using conditional_const_t =
-    std::conditional_t<(Access == access_mode::as_const), const T, T>;
+struct conditional_const {
+  static_assert(!std::is_reference_v<T> && !std::is_function_v<T>,
+      "const on a reference or a function type is silently dropped, so the "
+      "choice would be no choice; qualify the referent or the target instead");
+  using type =
+      std::conditional_t<(Access == access_mode::as_const), const T, T>;
+};
+
+template<access_mode Access, typename T>
+using conditional_const_t = conditional_const<Access, T>::type;
 
 #pragma endregion
 #pragma region Signatures

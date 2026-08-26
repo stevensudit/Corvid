@@ -1631,6 +1631,14 @@ TEST_CASE("SignatureTraits", "[MetaTest]") {
       int>);
   static_assert(std::is_same_v<
       conditional_const_t<access_mode::as_const, void>*, const void*>);
+  // An already const `T` stays const under either mode, and a pointer `T` is
+  // qualified as the object it is (the pointee idiom above is the caller's).
+  static_assert(std::is_same_v<
+      conditional_const_t<access_mode::as_mutable, const int>, const int>);
+  static_assert(std::is_same_v<
+      conditional_const_t<access_mode::as_const, int (*)()>, int (*const)()>);
+  // A reference or function type is rejected by `static_assert`, since the
+  // qualifier would be dropped; not pinnable here.
 
   // Only the twelve variants qualify: not a non-function, a pointer to one,
   // a `volatile`-qualified one, or a C-variadic one.
