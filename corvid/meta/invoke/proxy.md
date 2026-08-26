@@ -27,7 +27,7 @@ shared, and weak flavors with explicit conversion rules.
 This document is the completed system's reference and retrospective. It is
 a tutorial tour of the user-facing surface, the decisions made along the
 way and what they cost, and the lessons from the build. Every feature is
-pinned by [proxy_test.cpp](../../tests/portable/proxy_test.cpp) (the
+pinned by [proxy_test.cpp](../../../tests/portable/proxy_test.cpp) (the
 fixture hierarchy the tests share is diagrammed under "Test fixture map"
 below).
 
@@ -329,7 +329,7 @@ a `method_key` alias, letting the bindings spell the key unqualified. It is
 optional, although recommended both for convenience and self-documentation.
 A binding class that inherits a boilerplate already has it through that base.
 
-The string NTTP rides on the existing [fixed_string.h](fixed_string.h).
+The string NTTP rides on the existing [fixed_string.h](../fixed_string.h).
 `call<"fire">` resolves at compile time to an index into the facade's
 method list; no runtime name lookup exists anywhere.
 
@@ -1796,7 +1796,7 @@ Smaller lessons:
 
 ## Placement
 
-The header is `corvid/meta/proxy.h`, namespace `corvid::meta::prox`,
+The header is `corvid/meta/invoke/proxy.h`, namespace `corvid::meta::prox`,
 deliberately NOT inline: `facade`, `method`, and `key` are too generic to
 dump into `corvid`.
 
@@ -1813,16 +1813,16 @@ stay home, reached through `invocable_policy`'s fluent starting points
 (`basic`, `heap`, `fixed`) or qualified.
 
 The header stays out of the `meta.h` umbrella to limit include weight (the
-formatting.h precedent); include `corvid/meta/proxy.h` directly. Promote
-to a `corvid/proxy/` family only if it sprawls. Tests:
-`tests/portable/proxy_test.cpp`.
+formatting.h precedent); include `corvid/meta/invoke/proxy.h` directly. It
+lives in the `corvid/meta/invoke/` family with `flexi_function.h` and the
+shared invocable headers. Tests: `tests/portable/proxy_test.cpp`.
 
 One structural note: `method` derives from its `key`, so a method tag is
 usable anywhere its key is (subsumption).
 
 ## Test fixture map
 
-The fixtures in [proxy_test.cpp](../../tests/portable/proxy_test.cpp) form
+The fixtures in [proxy_test.cpp](../../../tests/portable/proxy_test.cpp) form
 one western-themed world, reused across the feature tiers. The
 `gunslinger` family carries composition (the `posse_leader` diamond and
 the `war_correspondent` sibling collision). The `arsenal` chain carries
@@ -1963,7 +1963,7 @@ and views, and identity is handled by the two tags.
   the same artifacts as source to paste; reflection deletes the paste
   step.
 - `std::formatter` bridge once the formatter forwarding helper exists (see
-  [../strings/roadmap.md](../strings/roadmap.md) stage 2); the ngcpp
+  [../strings/roadmap.md](../../strings/roadmap.md) stage 2); the ngcpp
   analog is `skills::format`.
 - Spec-carried member-pointer binding: a `corvid_proxy_spec` returning a
   spec that holds `&robber::shoot, &robber::rearm`, bound positionally to

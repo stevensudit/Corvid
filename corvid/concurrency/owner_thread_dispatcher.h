@@ -27,7 +27,7 @@
 #include <vector>
 
 #include "../meta/concepts.h"
-#include "../meta/fixed_function.h"
+#include "../meta/invoke/fixed_function.h"
 #include "../infra/exception_firewalls.h"
 #include "../infra/scope_exit.h"
 #include "../filesys/os_event.h"

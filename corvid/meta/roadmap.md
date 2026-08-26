@@ -44,15 +44,28 @@ The pending `proxy` changes, in the order to land them:
   "Empty proxies honor on_empty" (inline target, both spellings, both
   behaviors) and "Owning proxy, heap target" (destruction counted).
 
-## Planned: meta/invoke
+## In progress: meta/invoke
 
-These headers have grown large. Once the catch-up list above is done, move
-`invocable_policy.h`, `invocable_common.h`, `proxy.h`, `flexi_function.h`,
-and `fixed_function.h` into `corvid/meta/invoke/`, then break up the big
-ones. `proxy.h` splits naturally into a `proxy_common.h` (the facade,
-registration, and dispatch machinery), one header for `proxy`, one for the
-two views, and one for `shared_proxy` and `weak_proxy`. The docs, tests,
-and umbrella header follow the move.
+These headers had grown large. The move is landed: `invocable_policy.h`,
+`invocable_common.h`, `proxy.h`, `proxy_codegen.h`, `flexi_function.h`,
+and `fixed_function.h` live in `corvid/meta/invoke/`, with `proxy.md` and
+`flexi_function.md` beside them; the includers, tests, and the `meta.h`
+umbrella followed. The subdirectory has no umbrella of its own, and
+`proxy.h` stays out of `meta.h` as before.
+
+What remains is breaking up `proxy.h`, along its existing regions:
+`proxy_common.h` (method and key, facade, registration and binding,
+dispatch, `Proxiable`, API validation, which includes the owning-table
+machinery since it is built inside the same table builder as the view
+table), `proxy_view.h` (the two views and `make_proxy_view`), `proxy.h`
+(`proxy` and `make_proxy`), and `shared_proxy.h` (`shared_proxy`,
+`weak_proxy`, `make_shared_proxy`), each including the one below it. A
+`proxies.h` umbrella includes the whole family. The division gives one (or
+sometimes two) classes per header with the mechanics in their own, which
+is what makes the code manageable to maintain and to read; the handles
+still work as a unit, so a user includes `proxies.h` rather than picking
+and choosing. Each header exports to `corvid::meta` the names it defines,
+and `proxy_codegen.h` needs only `proxy_common.h`.
 
 ## In progress: shared code between proxy and flexi_function
 

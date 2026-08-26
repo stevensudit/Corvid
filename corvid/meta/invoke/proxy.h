@@ -28,13 +28,13 @@
 #include <type_traits>
 #include <utility>
 
-#include "bool_enums.h"
-#include "crossplatform.h"
-#include "fixed_string.h"
+#include "../bool_enums.h"
+#include "../crossplatform.h"
+#include "../fixed_string.h"
 #include "invocable_common.h"
 #include "invocable_policy.h"
-#include "padding.h"
-#include "traits.h"
+#include "../padding.h"
+#include "../traits.h"
 
 // Registration-based runtime polymorphism ("proxy") system.
 //

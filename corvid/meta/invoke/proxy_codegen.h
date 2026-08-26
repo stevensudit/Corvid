@@ -26,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-#include "naming.h"
+#include "../naming.h"
 #include "proxy.h"
 
 // Source generation for facade authors.

@@ -24,7 +24,7 @@
 #include <thread>
 
 #include "corvid/concurrency.h"
-#include "corvid/meta/fixed_function.h"
+#include "corvid/meta/invoke/fixed_function.h"
 #include "catch2_main.h"
 
 using namespace corvid;

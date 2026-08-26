@@ -14,8 +14,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "corvid/meta/fixed_function.h"
-#include "corvid/meta/flexi_function.h"
+#include "corvid/meta/invoke/fixed_function.h"
+#include "corvid/meta/invoke/flexi_function.h"
 
 #include "catch2_main.h"
 

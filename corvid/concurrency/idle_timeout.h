@@ -19,7 +19,7 @@
 #include <memory>
 #include <utility>
 
-#include "../meta/fixed_function.h"
+#include "../meta/invoke/fixed_function.h"
 #include "../infra/relaxed_atomic.h"
 #include "../infra/scope_exit.h"
 #include "timeout_sweeper.h"

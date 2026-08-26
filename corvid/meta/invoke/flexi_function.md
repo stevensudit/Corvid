@@ -13,7 +13,7 @@ This document is the mechanism reference: what an instance looks like in
 memory, what the two thunk pointers do, how a call reaches the target, and
 how a callable moves between wrappers. The header's class comment states
 the contract, and every claim here is pinned by
-[flexi_function_test.cpp](../../tests/portable/flexi_function_test.cpp).
+[flexi_function_test.cpp](../../../tests/portable/flexi_function_test.cpp).
 The policy type is shared with `proxy` and documented in
 [invocable_policy.h](invocable_policy.h). The target spellings
 (`constant_fn`, `runtime_fn`) and the empty-call rules
@@ -23,7 +23,7 @@ The policy type is shared with `proxy` and documented in
 `fixed_function`, `fixed_function_of`, and the two `is_` traits exported
 into `corvid::meta`; the shared vocabulary lives in
 `corvid::meta::invocables` under the same rule. Planned work is in
-[roadmap.md](roadmap.md).
+[roadmap.md](../roadmap.md).
 
 ## Contents
 
@@ -464,7 +464,7 @@ must be asked for by name.
 
 ## Qualified signatures
 
-`signature_traits<Sig>` (in [traits.h](traits.h)) decomposes a signature
+`signature_traits<Sig>` (in [traits.h](../traits.h)) decomposes a signature
 into `result_t`, `args_t`, `function_t` (all qualifiers stripped), and the
 three qualifier enums `const_qualifier`, `ref_qualifier`, and
 `noexcept_specifier`. `flexi_thunks` turns those into:

@@ -32,7 +32,7 @@
 #include <vector>
 
 #include "../../meta/forwarding_address.h"
-#include "../../meta/fixed_function.h"
+#include "../../meta/invoke/fixed_function.h"
 #include "../net_endpoint.h"
 #include "../../meta/concepts.h"
 #include "../../filesys/os_file.h"

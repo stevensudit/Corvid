@@ -26,8 +26,8 @@
 #include <vector>
 
 #include "corvid/meta/crossplatform.h"
-#include "corvid/meta/proxy.h"
-#include "corvid/meta/proxy_codegen.h"
+#include "corvid/meta/invoke/proxy.h"
+#include "corvid/meta/invoke/proxy_codegen.h"
 #include "catch2_main.h"
 
 // cl C4702: instantiation-specific unreachable-code noise in facade dispatch.
@@ -40,8 +40,8 @@ using namespace corvid::meta::prox::literals;
 // The fixtures below form one western-themed world, reused across the feature
 // tiers.
 //
-// The "Test fixture map" section of corvid/meta/proxy.md diagrams the whole
-// hierarchy: every facade with its `extends` edges, plus the facade each
+// The "Test fixture map" section of corvid/meta/invoke/proxy.md diagrams the
+// whole hierarchy: every facade with its `extends` edges, plus the facade each
 // conforming type registers under and the registration route it takes.
 
 // The facade under test: mixes value returns, a const method, a void

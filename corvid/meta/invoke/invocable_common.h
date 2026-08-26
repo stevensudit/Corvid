@@ -23,7 +23,7 @@
 #include <utility>
 
 #include "invocable_policy.h"
-#include "traits.h"
+#include "../traits.h"
 
 namespace corvid { inline namespace meta {
 namespace invocables {

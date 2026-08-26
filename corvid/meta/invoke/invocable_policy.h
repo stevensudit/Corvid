@@ -20,8 +20,8 @@
 #include <cstdint>
 #include <type_traits>
 
-#include "bool_enums.h"
-#include "padding.h"
+#include "../bool_enums.h"
+#include "../padding.h"
 
 namespace corvid { inline namespace meta {
 namespace invocables {

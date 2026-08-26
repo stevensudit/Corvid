@@ -25,7 +25,7 @@
 
 #include "../../concurrency/owner_thread_dispatcher.h"
 #include "../../infra/relaxed_atomic.h"
-#include "../../meta/fixed_function.h"
+#include "../../meta/invoke/fixed_function.h"
 
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
