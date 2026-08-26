@@ -20,7 +20,7 @@
 #include <memory>
 #include <utility>
 
-#include "proxy.h"
+#include "owning_proxy.h"
 
 // The shared-owning erased handle, `shared_proxy`, its observer
 // `weak_proxy`, and `make_shared_proxy`.

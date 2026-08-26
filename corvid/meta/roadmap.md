@@ -57,13 +57,13 @@ before.
 facade, registration and binding, dispatch, `Proxiable`, API validation;
 the owning-table machinery stays here because it is built inside the same
 table builder as the view table), `proxy_view.h` (the two views and
-`make_proxy_view`), `proxy.h` (`proxy` and `make_proxy`), and
+`make_proxy_view`), `owning_proxy.h` (`proxy` and `make_proxy`), and
 `shared_proxy.h` (`shared_proxy`, `weak_proxy`, `make_shared_proxy`), each
-including the one before it, plus the `proxies.h` umbrella over the whole
+including the one before it, plus the `proxy.h` umbrella over the whole
 family. The division gives one (or sometimes two) classes per header with
 the mechanics in their own, which is what makes the code manageable to
 maintain and to read; the handles still work as a unit, so a user includes
-`proxies.h` rather than picking and choosing. Each header exports to
+`proxy.h` rather than picking and choosing. Each header exports to
 `corvid::meta` the names it defines, and `proxy_codegen.h` needs only
 `proxy_common.h`.
 

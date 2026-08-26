@@ -1,6 +1,6 @@
 # Proxy
 
-The proxy family ([proxies.h](proxies.h)) implements registration-based
+The proxy family ([proxy.h](proxy.h)) implements registration-based
 runtime polymorphism through proxies, which are type-erased handles over an interface definition.
 They work without inheritance, vtable pointers in the target type, or macros.
 
@@ -128,7 +128,8 @@ buffer plus dispatch pointer).
 | `"name"_method` UDL           | (none)                   | (none)               |
 | `Proxiable<T, F>`             | `proxiable<P, F>`        | `T: Trait` bound     |
 | `make_proxy<F, T>(...)`       | `make_proxy`             | `Box::new`           |
-| `make_proxy_view<F>(t)`       | `make_proxy_view`        | `&x as &dyn T`       |
+| `make_proxy_view<F>(t)`       | `make_proxy_view`        | `&mut x as &mut dyn T` |
+| `make_const_proxy_view<F>(t)` | (none)                   | `&x as &dyn T`       |
 | `extends<Base>`               | `add_facade`             | supertrait           |
 | `invocable_policy`            | facade-level constraints | (none)               |
 | `clone()` / `can_clone()`     | copyability constraint   | (dyn-clone idiom)    |
@@ -1800,15 +1801,16 @@ The headers live in `corvid/meta/invoke/`, namespace `corvid::meta::prox`,
 deliberately NOT inline: `facade`, `method`, and `key` are too generic to
 dump into `corvid`. The family splits by handle, with the machinery in its
 own header: `proxy_common.h` (facades, registration, and dispatch),
-`proxy_view.h` (`proxy_view` and `const_proxy_view`), `proxy.h` (`proxy`),
+`proxy_view.h` (`proxy_view` and `const_proxy_view`), `owning_proxy.h` (`proxy`),
 and `shared_proxy.h` (`shared_proxy` and `weak_proxy`), each including the
-one before it. The handles work as a unit, so the `proxies.h` umbrella is
+one before it. The handles work as a unit, so the `proxy.h` umbrella is
 the header to include; the split exists to keep each header to one or two
 classes, for maintenance and for reading, not for picking and choosing.
 
 The call-site vocabulary (`proxy`, `proxy_view`, `const_proxy_view`,
 `shared_proxy`, `weak_proxy`, `make_proxy`, `make_proxy_view`,
-`make_shared_proxy`, `Proxiable`, `proxy_impl_base`) is exported into
+`make_const_proxy_view`, `make_shared_proxy`, `Proxiable`,
+`proxy_impl_base`) is exported into
 `corvid::meta` by using-declarations, so consuming code spells
 `proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
 registration) needs `prox::`, the domain those authors already work in. The
@@ -1819,7 +1821,7 @@ stay home, reached through `invocable_policy`'s fluent starting points
 (`basic`, `heap`, `fixed`) or qualified.
 
 The family stays out of the `meta.h` umbrella to limit include weight
-(the formatting.h precedent); include `corvid/meta/invoke/proxies.h`
+(the formatting.h precedent); include `corvid/meta/invoke/proxy.h`
 directly. It shares `corvid/meta/invoke/` with `flexi_function.h` and the
 invocable headers. Tests: `tests/portable/proxy_test.cpp`.
 

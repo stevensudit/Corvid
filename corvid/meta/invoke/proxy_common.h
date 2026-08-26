@@ -56,7 +56,7 @@
 //
 // This header holds the facade, registration, and dispatch machinery the
 // handles are built on. The handles live in the sibling headers, and
-// `proxies.h` includes the whole family. See "proxy.md" for the design.
+// `proxy.h` includes the whole family. See "proxy.md" for the design.
 
 // Template parameter conventions, used consistently throughout the proxy
 // headers:

@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "corvid/meta/crossplatform.h"
-#include "corvid/meta/invoke/proxies.h"
+#include "corvid/meta/invoke/proxy.h"
 #include "corvid/meta/invoke/proxy_codegen.h"
 #include "catch2_main.h"
 
@@ -2609,6 +2609,19 @@ TEST_CASE("Viewing an owning proxy", "[proxy]") {
   };
   CHECK(fire_once(p) == 1);
   CHECK(fire_once(rv) == 2);
+
+  // `make_const_proxy_view` is the const counterpart, accepting what
+  // `make_proxy_view` refuses (a const target, a const proxy), and copying
+  // rather than wrapping a view of either constness.
+  const texas_ranger ctr{};
+  auto cv_target = make_const_proxy_view<gunslinger>(ctr);
+  static_assert(
+      std::same_as<decltype(cv_target), const_proxy_view<gunslinger>>);
+  CHECK(cv_target.describe() == "texas_ranger"s);
+  CHECK(make_const_proxy_view<gunslinger>(cp).describe() == "texas_ranger"s);
+  CHECK(make_const_proxy_view<gunslinger>(gv).describe() == "texas_ranger"s);
+  CHECK(make_const_proxy_view<gunslinger>(rv).describe() == "texas_ranger"s);
+  CHECK(make_const_proxy_view<gunslinger>(cgv).describe() == "texas_ranger"s);
 }
 
 TEST_CASE("Heterogeneous ownership", "[proxy]") {

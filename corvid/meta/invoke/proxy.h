@@ -25,7 +25,7 @@
 // The family splits by handle, with the machinery in its own header:
 //
 // - proxy_common.h: facades, registration, and dispatch.
-// - proxy.h: `proxy`.
+// - owning_proxy.h: `proxy`.
 // - proxy_view.h: `proxy_view` and `const_proxy_view`.
 // - shared_proxy.h: `shared_proxy` and `weak_proxy`.
 //
@@ -34,6 +34,6 @@
 // See "proxy.md" for the design.
 
 #include "proxy_common.h"
-#include "proxy.h"
+#include "owning_proxy.h"
 #include "proxy_view.h"
 #include "shared_proxy.h"

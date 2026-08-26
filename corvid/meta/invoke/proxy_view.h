@@ -139,8 +139,8 @@ class proxy_view: public details::view_base<F, access_mode::as_mutable> {
 public:
   proxy_view() = default;
 
-  //  Converting constructor from an lvalue `target`, which is an object whose
-  //  type is registered for `F`, thus erasing the type behind the facade.
+  // Converting constructor from an lvalue `target`, which is an object whose
+  // type is registered for `F`, thus erasing the type behind the facade.
   //
   // Intentionally implicit, like `string_view` from `string`. Rvalues do not
   // bind, so construction from a temporary is rejected at compile time.
@@ -305,8 +305,9 @@ class const_proxy_view: public details::view_base<F, access_mode::as_const> {
 public:
   const_proxy_view() = default;
 
-  // Converting constructor from a const lvalue `target`, which is an object
-  // whose type is registered for `F`, thus erasing the type behind the facade.
+  // Converting constructor from an lvalue `target`, const or not, which is
+  // an object whose type is registered for `F`, thus erasing the type behind
+  // the facade and viewing it as const.
   //
   // Intentionally implicit. Rvalues do not bind. Handles of `F`, or of a
   // facade extending it, take the dedicated constructors below instead of
@@ -427,7 +428,7 @@ struct proxy_impl<F, const_proxy_view<D>> {
   }
 };
 
-// Make a view over `target`.
+// Make a `proxy_view` over `target`.
 //
 // When `target` is already a view of `F` it is copied rather than wrapped, so
 // generic facade-constrained code can erase its argument without stacking
@@ -443,6 +444,21 @@ requires Proxiable<T, F>
     return proxy_view<F>{target};
 }
 
+// Make a `const_proxy_view` over `target`.
+//
+// The const counterpart of `make_proxy_view`, accepting what that refuses (a
+// const target, or a const owning proxy) along with everything the const
+// view's constructors take, so a view of either constness is copied or upcast
+// rather than wrapped. The gate is those constructors rather than `Proxiable`
+// because a const view is not itself a full target of a facade with
+// non-const methods.
+template<Facade F, typename T>
+requires std::constructible_from<const_proxy_view<F>, const T&>
+[[nodiscard]] constexpr const_proxy_view<F>
+make_const_proxy_view(const T& target) noexcept {
+  return const_proxy_view<F>{target};
+}
+
 #pragma endregion
 
 } // namespace prox
@@ -451,6 +467,7 @@ requires Proxiable<T, F>
 
 // Call-site vocabulary, exported to `corvid::meta`; see proxy_common.h.
 using prox::const_proxy_view;
+using prox::make_const_proxy_view;
 using prox::make_proxy_view;
 using prox::proxy_view;
 
