@@ -15,7 +15,6 @@
 // implied. See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <functional>
@@ -26,9 +25,9 @@
 #include <utility>
 
 #include "../concepts.h"
+#include "../crossplatform.h"
 #include "invocable_common.h"
 #include "invocable_policy.h"
-#include "../padding.h"
 #include "../traits.h"
 
 namespace corvid { inline namespace meta {
@@ -503,19 +502,10 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
   using destination_spec = thunks::destination_spec;
   using thunk_pair = thunks::thunk_pair;
 
-  // The buffer overlays the pointer slot for a heap-stored callable (see
-  // `storage_area`), so it must be able to hold a pointer, whether or not the
-  // policy ever stores one: a smaller buffer would silently grow to the
-  // pointer's size and alignment.
-  static_assert(
-      !Policy.admits_inline() ||
-          ((Policy.inline_size >= sizeof(void*)) &&
-              (Policy.inline_align >= alignof(void*))),
-      "flexi_function: the buffer overlays the pointer slot for a heap-stored "
-      "callable, so inline_size and inline_align may not shrink below a "
-      "pointer's");
-  static_assert(std::has_single_bit(Policy.inline_align),
-      "flexi_function: inline_align must be a power of two");
+  // The buffer rules (a pointer's worth at least, or empty under
+  // `inline_only`; a power-of-two alignment; no padding) are the policy's own,
+  // each broken rule named in the error.
+  static_assert(Policy.is_well_formed());
   static_assert((Policy.empty != on_empty::silent) ||
                     thunks::empty_traits::is_silenceable,
       "flexi_function: on_empty::silent needs a result that can be "
@@ -529,12 +519,6 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
                     thunks::empty_traits::is_nothrow_silenceable,
       "flexi_function: on_empty::silent under a noexcept signature needs a "
       "result whose value-initialization cannot throw; choose terminate");
-  static_assert(
-      !Policy.admits_inline() ||
-          Policy.inline_size ==
-              padded_size(Policy.inline_size, Policy.inline_align),
-      "flexi_function: inline_size that is not a multiple of inline_align "
-      "would waste the difference as padding; pass it through padded_size");
 
   // Siblings are friends.
   template<class, invocable_policy, class>
@@ -828,11 +812,11 @@ private:
         "pointer must be wrapped: constant_fn<f>{} when the target is known "
         "at compile time (a direct call, nothing stored), or runtime_fn{p} to "
         "store the pointer and call through it");
-    static_assert(
-        Policy.admits_heap() || details::is_inline_eligible<FD>(Policy),
+    static_assert(Policy.admits_heap() || details::is_direct_eligible<FD>() ||
+                      details::is_inline_eligible<FD>(Policy),
         "flexi_function: the callable is not eligible for an inline_only "
         "instance's inline buffer: too large, over-aligned, or its move "
-        "constructor may throw");
+        "constructor may throw (a direct target needs no buffer)");
     static_assert(std::is_nothrow_destructible_v<FD>,
         "flexi_function: callable destructor may throw; the instance destroys "
         "the callable, so its destructor must be noexcept");
@@ -889,8 +873,9 @@ private:
 
   // Deliberately no initializer: occupancy and the live member are keyed by
   // `dispatch_.lifespan`, and zeroing the buffer on every construction would
-  // be pure waste.
-  storage_area_t storage_area_;
+  // be pure waste. Under an empty `inline_only` buffer (a direct-only
+  // wrapper) the area is an empty type and takes no space.
+  CORVID_NO_UNIQUE_ADDRESS storage_area_t storage_area_;
 
 #pragma endregion
 };

@@ -173,18 +173,19 @@ enum class adoption : uint8_t { relocate, box, hand_over, unbox, refuse };
 // `basic` (the default, `inline_or_heap`), `heap` (`heap_only`), and `fixed`
 // (`inline_only`), each with the default buffer. `with` replaces one member
 // by its value's type, `with_alignment` sets the buffer alignment, and
-// `with_size` and `with_storage_size` resize the buffer by the instance size
-// or the buffer size, rounding up to the buffer alignment so no padding is
-// wasted (which means you must set the alignment before the size):
+// `with_storage_size` resizes the buffer, rounding up to the buffer alignment
+// so no padding is wasted (which means you must set the alignment before the
+// size):
 //
 //   flexi_function<int(), invocable_policy::heap.with(on_empty::silent)>
 //   proxy<F, invocable_policy::basic.with(policy_enforcement::strict)>
-//   flexi_function<int(), invocable_policy::fixed.with_size(64)>
+//   flexi_function<int(), invocable_policy::fixed.with_storage_size(48)>
 //   flexi_function<int(), invocable_policy::fixed.with_alignment(8)>
 //
-// The sizes assume `flexi_function`'s layout, two thunk pointers ahead of the
-// buffer, which `size` reports for any policy. Designated initializers remain
-// available for anything the fluent forms do not cover.
+// The policy describes the buffer alone. What an owner keeps ahead of it is
+// the owner's business, so `sizeof` the owner is the only instance size.
+// Designated initializers remain available for anything the fluent forms do
+// not cover; `is_well_formed` is what every owner checks either way.
 struct invocable_policy {
   size_t inline_size = 2 * sizeof(void*);
   size_t inline_align = alignof(std::max_align_t);
@@ -218,7 +219,7 @@ struct invocable_policy {
   // A copy whose buffer is aligned to `align`, a power of two, with the
   // buffer size rounded up to it so the instance stays padding-free.
   //
-  // Set the alignment before the size: `with_size` pads to whatever
+  // Set the alignment before the size: `with_storage_size` pads to whatever
   // alignment is in force. The policy must have a buffer, enforced at compile
   // time.
   [[nodiscard]] consteval invocable_policy with_alignment(
@@ -231,26 +232,17 @@ struct invocable_policy {
     return p;
   }
 
-  // A copy whose buffer fills out an instance of `sz` bytes, rounded up to
-  // the buffer alignment.
-  //
-  // `sz` must exceed the two thunk pointers, and the policy must have a
-  // buffer, both enforced at compile time.
-  [[nodiscard]] consteval invocable_policy with_size(
-      size_t sz) const noexcept {
-    if (!admits_inline()) needs_a_buffer();
-    const auto total = padded_size(sz, inline_align);
-    const auto header = padded_size(dispatch_size, inline_align);
-    if (total <= header) must_exceed_two_pointers();
-    auto p = *this;
-    p.inline_size = total - header;
-    return p;
-  }
-
-  // A copy whose buffer holds `sz` bytes, rounded up as `with_size` rounds.
+  // A copy whose buffer holds `sz` bytes, rounded up to the buffer alignment
+  // so no padding is wasted. The policy must have a buffer, enforced at
+  // compile time. Zero is allowed: an `inline_only` policy with an empty
+  // buffer serves only `direct` targets, which store nothing (see
+  // `is_well_formed`).
   [[nodiscard]] consteval invocable_policy with_storage_size(
       size_t sz) const noexcept {
-    return with_size(sz + padded_size(dispatch_size, inline_align));
+    if (!admits_inline()) needs_a_buffer();
+    auto p = *this;
+    p.inline_size = padded_size(sz, inline_align);
+    return p;
   }
 
   // `admits_inline`, `admits_heap`: whether the policy permits storing a
@@ -281,20 +273,39 @@ struct invocable_policy {
     return admits_inline() ? inline_align : alignof(void*);
   }
 
-  // The instance size of an owner with this policy: the two thunk pointers
-  // and the buffer, or the heap pointer under `heap_only`.
-  [[nodiscard]] consteval size_t size() const noexcept {
-    return padded_size(dispatch_size, buffer_align()) + buffer_size();
+  // Whether an owner can honor the buffer this policy describes, which every
+  // owner asserts.
+  //
+  // True, or not a constant expression at all: a broken rule is reported by
+  // naming it, on the pattern of the fluent setters. The rules: the alignment
+  // is a power of two; the size is a multiple of it, since the difference
+  // would be wasted as padding; and, because the buffer overlays the pointer
+  // to a heap block (see `storage_area`), a buffer that can be asked to hold
+  // one is at least a pointer's size and alignment. Only an `inline_only`
+  // buffer may be empty; a smaller one would silently grow to the pointer it
+  // overlays.
+  [[nodiscard]] consteval bool is_well_formed() const noexcept {
+    if (!admits_inline()) return true;
+    if (!std::has_single_bit(inline_align)) must_be_a_power_of_two();
+    if (inline_size != padded_size(inline_size, inline_align))
+      must_be_a_multiple_of_the_alignment();
+    if (inline_size == 0) {
+      if (admits_heap()) must_hold_a_pointer();
+      return true;
+    }
+    if (inline_size < sizeof(void*) || inline_align < alignof(void*))
+      must_be_pointer_sized_or_empty();
+    return true;
   }
 
 private:
-  static constexpr size_t dispatch_size = 2 * sizeof(void*);
-
   // Not defined: naming one in a constant expression is how the buffer
-  // members reject their arguments.
+  // members and `is_well_formed` reject what they are given.
   static void needs_a_buffer();
-  static void must_exceed_two_pointers();
   static void must_be_a_power_of_two();
+  static void must_be_a_multiple_of_the_alignment();
+  static void must_hold_a_pointer();
+  static void must_be_pointer_sized_or_empty();
 };
 
 inline constexpr invocable_policy invocable_policy::basic{};

@@ -19,9 +19,35 @@
 
 #include "flexi_function.h"
 #include "invocable_policy.h"
+#include "../padding.h"
 
 namespace corvid { inline namespace meta {
 namespace flexi {
+
+namespace details {
+
+// The thunk pair every `flexi_function` keeps ahead of its buffer: two
+// pointers.
+inline constexpr size_t thunk_pair_size = 2 * sizeof(void*);
+
+// Not defined: naming it in a constant expression is how
+// `fixed_storage_size` rejects its argument.
+void must_hold_the_thunk_pair();
+
+// The buffer that leaves a `fixed_function` instance of `size` bytes after
+// the thunk pair, at the `fixed` policy's alignment, with `size` first rounded
+// up to that alignment. A `size` that cannot hold the pair is rejected at
+// compile time; one that holds nothing more yields an empty buffer, so the
+// wrapper serves only `direct` targets.
+consteval size_t fixed_storage_size(size_t size) noexcept {
+  constexpr auto align = invocable_policy::fixed.inline_align;
+  const auto total = padded_size(size, align);
+  const auto header = padded_size(thunk_pair_size, align);
+  if (total < header) must_hold_the_thunk_pair();
+  return total - header;
+}
+
+} // namespace details
 
 #pragma region fixed_function
 
@@ -35,9 +61,12 @@ namespace flexi {
 //
 // `Size` is the total instance size in bytes, rounded up to the storage
 // alignment, `alignof(std::max_align_t)`, since a smaller instance would
-// occupy the padded size anyway; `sizeof` reports the result. The stored
-// callable must fit within `Size - 2*sizeof(void*)` bytes and have alignment
-// <= `alignof(std::max_align_t)`. If it doesn't fit, a `static_assert` fires.
+// occupy the padded size anyway; `sizeof` reports the result. The buffer is
+// what remains after the two thunk pointers, so the stored callable must fit
+// within `Size - 2*sizeof(void*)` bytes and have alignment <=
+// `alignof(std::max_align_t)`; if it doesn't fit, a `static_assert` fires. A
+// `Size` of exactly the two pointers leaves no buffer, and such a wrapper
+// stores only `direct` targets (a `constant_fn`, a captureless lambda).
 // Without `Size`, the instance is the default policy's size, which matches
 // `std::function`'s small buffer.
 //
@@ -46,9 +75,13 @@ namespace flexi {
 // that would not fit throws `std::length_error` and leaves both sides intact.
 // A same-size or upsizing assignment always succeeds, transplanting the stored
 // callable rather than nesting the wrapper.
-template<class Sig, size_t Size = invocable_policy::fixed.size()>
+template<class Sig,
+    size_t Size = padded_size(details::thunk_pair_size,
+                      invocable_policy::fixed.inline_align) +
+                  invocable_policy::fixed.inline_size>
 using fixed_function =
-    flexi_function<Sig, invocable_policy::fixed.with_size(Size)>;
+    flexi_function<Sig, invocable_policy::fixed.with_storage_size(
+                            details::fixed_storage_size(Size))>;
 
 // Determine whether `T` is a `fixed_function`, that is, a `flexi_function`
 // whose policy is `inline_only`.

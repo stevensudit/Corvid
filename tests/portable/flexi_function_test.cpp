@@ -44,18 +44,26 @@ constexpr auto big_inline = dflt.with_storage_size(96);
 // The starting points and the size arithmetic, on a 64-bit platform.
 static_assert(dflt == invocable_policy{});
 static_assert(big_inline.inline_size == 96);
-static_assert(invocable_policy::fixed.size() == 4 * sizeof(void*));
-static_assert(invocable_policy::heap.size() == 3 * sizeof(void*));
-static_assert(invocable_policy::fixed.with_size(64).inline_size == 48);
-static_assert(invocable_policy::fixed.with_size(64).size() == 64);
-static_assert(invocable_policy::fixed.with_storage_size(48).size() == 64);
-static_assert(invocable_policy::fixed.with_size(17).size() == padded_size(17));
-static_assert(invocable_policy::fixed.with_alignment(32).size() == 64);
+static_assert(invocable_policy::fixed.with_storage_size(48).inline_size == 48);
 static_assert(
-    invocable_policy::fixed.with_alignment(32).with_size(64).inline_size ==
-    32);
-static_assert(sizeof(flexi_function<int()>) == invocable_policy::basic.size());
-static_assert(sizeof(flexi_function<int(), heap_only>) == heap_only.size());
+    invocable_policy::fixed.with_storage_size(17).inline_size ==
+    padded_size(17));
+static_assert(invocable_policy::fixed.with_alignment(32).inline_size == 32);
+static_assert(
+    invocable_policy::fixed.with_alignment(32)
+        .with_storage_size(40)
+        .inline_size == 64);
+static_assert(sizeof(flexi_function<int()>) == 4 * sizeof(void*));
+static_assert(sizeof(flexi_function<int(), heap_only>) == 3 * sizeof(void*));
+static_assert(sizeof(fixed_function<int(), 64>) == 64);
+
+// An empty inline_only buffer is legal and takes no space: the wrapper is the
+// two thunk pointers, and serves only direct targets.
+constexpr auto direct_only = invocable_policy::fixed.with_storage_size(0);
+static_assert(direct_only.inline_size == 0);
+static_assert(sizeof(flexi_function<int(), direct_only>) == 2 * sizeof(void*));
+static_assert(
+    sizeof(fixed_function<int(), 2 * sizeof(void*)>) == 2 * sizeof(void*));
 
 // A callable whose payload exceeds the default buffer.
 struct fat_fn {
@@ -133,7 +141,6 @@ static_assert(flexi_function<int(), dflt>::inline_size == 2 * sizeof(void*));
 // pointer to hold, nothing forces the buffer up to the default geometry.
 constexpr auto lean = invocable_policy::fixed.with_alignment(alignof(void*));
 static_assert(lean.inline_size == 2 * sizeof(void*));
-static_assert(lean.size() == 4 * sizeof(void*));
 static_assert(sizeof(flexi_function<int(), lean>) == 4 * sizeof(void*));
 static_assert(alignof(flexi_function<int(), lean>) == alignof(void*));
 
@@ -277,6 +284,38 @@ static_assert(!invocables::implementation::is_direct_eligible<int (*)()>());
 // included, because nothing is stored.
 static_assert(std::is_nothrow_constructible_v<flexi_function<int(), heap_only>,
     nine_fn>);
+
+TEST_CASE("Direct-only wrapper", "[flexi_function]") {
+  using direct_fn = fixed_function<int(), 2 * sizeof(void*)>;
+
+  // A compile-time target and a captureless lambda store nothing, so they
+  // need no buffer at all.
+  direct_fn a{constant_fn<plain_seven>{}};
+  CHECK(a() == 7);
+  CHECK(a.size() == 0);
+  CHECK(a.capacity() == 0);
+  direct_fn b{[] { return 9; }};
+  CHECK(b() == 9);
+
+  // Direct pairs travel in both directions between siblings.
+  flexi_function<int(), dflt> roomy{std::move(a)};
+  CHECK(!a);
+  CHECK(roomy() == 7);
+  direct_fn back{std::move(roomy)};
+  CHECK(!roomy);
+  CHECK(back() == 7);
+
+  // A stored target has nowhere to go: refused, with both sides intact.
+  int live{};
+  flexi_function<int(), dflt> stored{counted{&live}};
+  CHECK(!direct_fn::can_adopt(stored));
+  CHECK_THROWS_AS((direct_fn{std::move(stored)}), std::length_error);
+  CHECK(stored);
+  CHECK(live == 1);
+  CHECK_THROWS_AS(back = std::move(stored), std::length_error);
+  CHECK(back() == 7);
+  CHECK(stored() == 1);
+}
 
 TEST_CASE("constant_fn calls a compile-time target directly",
     "[flexi_function]") {

@@ -15,7 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <bit>
 #include <cassert>
 #include <concepts>
 #include <cstddef>
@@ -25,7 +24,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "../padding.h"
 #include "proxy_view.h"
 
 // The owning erased handle, `proxy`, along with `make_proxy`.
@@ -88,23 +86,14 @@ class proxy: public details::api_base_t<F> {
   using vtbuild_t = details::vtbuild_t<F>;
   using owning_vtable_t = vtbuild_t::owning_vtable_t;
 
-  // The buffer may only grow from its defaults, so any target eligible for
-  // the default buffer stays eligible for every buffer. A `heap_only` proxy
-  // keeps only the heap pointer in its storage area, so the knobs are not
-  // consulted (and `with_size` and `with_alignment` refuse to set them).
-  static_assert(
-      !Policy.admits_inline() ||
-          (Policy.inline_size >= invocable_policy{}.inline_size &&
-              Policy.inline_align >= invocable_policy{}.inline_align),
-      "inline_size and inline_align may not shrink below their defaults");
-  static_assert(std::has_single_bit(Policy.inline_align),
-      "inline_align must be a power of two");
-  static_assert(
-      !Policy.admits_inline() ||
-          Policy.inline_size ==
-              padded_size(Policy.inline_size, Policy.inline_align),
-      "inline_size that is not a multiple of inline_align would waste the "
-      "difference as padding; pass it through padded_size");
+  // The buffer rules are the policy's own, each broken rule named in the
+  // error. On top of them, a proxy stores every target (it has no `direct`
+  // mode; see `proxy_storage_mode_of`), so its inline buffer cannot be empty.
+  // A `heap_only` proxy keeps only the heap pointer in its storage area, so
+  // the knobs are not consulted.
+  static_assert(Policy.is_well_formed());
+  static_assert(!Policy.admits_inline() || (Policy.inline_size > 0),
+      "a proxy stores every target, so its inline buffer cannot be empty");
   // Strict enforcement detonates per method (see `empty_fit_check`), each
   // error naming its method, so this assert carries no message of its own. A
   // failed detonation is no longer a constant expression, and the error

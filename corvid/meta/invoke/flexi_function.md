@@ -77,9 +77,11 @@ two-pointer buffer with heap fallback. A policy is usually spelled
 fluently from one of the three starting points in
 [invocable_policy.h](invocable_policy.h), `basic`, `heap`, and `fixed`,
 as `invocable_policy::heap.with(on_empty::silent)` or
-`invocable_policy::fixed.with_size(64)`, and `fixed_function<Sig, Size>`
-is the alias for the latter, with `Size` the instance size, rounded up to
-the storage alignment.
+`invocable_policy::fixed.with_storage_size(48)`, and
+`fixed_function<Sig, Size>` is the alias for the latter, with `Size` the
+instance size, rounded up to the storage alignment, less the thunk pair.
+The policy describes only the buffer; the pair ahead of it is
+`flexi_function`'s own, which is why the alias does that subtraction.
 
 The third parameter is derived from the signature and never passed. It is
 the pattern-matching hook that gives the class body `ResultT` and
@@ -150,10 +152,29 @@ offset 64 +--------------+
 
 Under `inline_or_heap` the buffer does double duty, holding either the
 target or the pointer to its block. That is why every policy with a
-buffer, `inline_only` included, floors `inline_size` at a pointer and
-`inline_align` at a pointer's alignment. Above that floor the alignment is
-free, so a buffer may sit below `max_align_t` (the tests' `lean` policy:
-16 bytes at alignment 8).
+buffer floors `inline_size` at a pointer and `inline_align` at a pointer's
+alignment (`invocable_policy::is_well_formed`, which both owners assert).
+Above that floor the alignment is free, so a buffer may sit below
+`max_align_t` (the tests' `lean` policy: 16 bytes at alignment 8).
+
+The one exception is an empty `inline_only` buffer,
+`invocable_policy::fixed.with_storage_size(0)` or `fixed_function<Sig,
+16>`: a direct-only wrapper. It holds nothing but the pair, 16 bytes,
+since `storage_area<0, Align>` is an empty type and the member is hidden
+with `CORVID_NO_UNIQUE_ADDRESS`. It stores only `direct` targets (a
+`constant_fn`, a captureless lambda); a stored target is a compile error
+at construction and a refused adoption from a sibling, while direct
+pairs travel to and from it freely. A buffer of one to seven bytes is
+refused rather than silently grown, since the union would grow it to the
+pointer it overlays.
+
+```
+offset  0 +----------+
+          | invoke   |
+offset  8 +----------+
+          | lifespan |
+offset 16 +----------+   storage_area_: empty, no bytes
+```
 
 The buffer has no initializer. Occupancy is keyed by `dispatch_.lifespan`,
 and zeroing the buffer on every construction would be waste.

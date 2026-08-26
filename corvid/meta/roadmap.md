@@ -326,11 +326,23 @@ storage mode plus two spellings, with the mechanism in
 
 Landed alongside, from the same conversation: the template order is now
 `flexi_function<Sig, Policy = invocable_policy::basic>` and
-`fixed_function<Sig, Size = invocable_policy::fixed.size()>`; and
-`invocable_policy` is spelled fluently from `basic`, `heap`, and `fixed`
-through `with(on_empty)`, `with(policy_enforcement)`, `with_alignment`,
-`with_size` (instance bytes, rounded up at the buffer alignment),
-`with_storage_size`, and `size()`.
+`fixed_function<Sig, Size>` with the default `Size` the two-pointer pair
+plus the default buffer; and `invocable_policy` is spelled fluently from
+`basic`, `heap`, and `fixed` through `with(on_empty)`,
+`with(policy_enforcement)`, `with_alignment`, and `with_storage_size`.
+
+Landed 2026-08-26: the policy no longer knows any owner's layout.
+`with_size` and `size()` assumed `flexi_function`'s two-pointer header,
+which `proxy` does not have, so both are gone; `fixed_function` does the
+header subtraction itself. The buffer rules moved into
+`invocable_policy::is_well_formed`, a detonating predicate both owners
+assert, so the two floors cannot drift (proxy had floored at the
+defaults, 16/16, with nothing depending on it; the real floor is a
+pointer). With that, an empty `inline_only` buffer became legal: a
+direct-only `flexi_function`, two pointers and an empty
+`storage_area<0, Align>` under `CORVID_NO_UNIQUE_ADDRESS`, holding only
+`direct` targets. A proxy still refuses an empty buffer, having no
+`direct` mode.
 
 ## Speculative: cache-line-sized wrappers
 
