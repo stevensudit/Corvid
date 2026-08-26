@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <bit>
+#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <functional>
@@ -480,6 +481,7 @@ private:
       if constexpr (details::adopt_may_throw(Policy, P))
         throw std::length_error{
             "the target cannot be stored in an inline_only proxy's buffer"};
+      assert(false); // unreachable: adopt_may_throw ruled refusal out
       break;
     }
     other.vtable_ = other.empty_vtable;
