@@ -204,11 +204,13 @@ public:
   // the owning proxy (see `proxy::try_downcast`), including a birth adopted
   // from a consumed `proxy`.
   //
-  // Because shared ownership is copyable, the lvalue flavor shares. On
-  // success, the result is another owner of the one target and the source
-  // keeps its own share. The rvalue flavor transfers instead, consuming the
-  // source only on success. On failure, including an empty source, the result
-  // is empty and the source is untouched.
+  // There are two overloads. Called on an lvalue, the result is another owner
+  // of the one target and the source keeps its own share, because shared
+  // ownership is copyable. Called on an rvalue, the source's share transfers
+  // to the result, so the source is consumed, but only on success.
+  //
+  // On failure, including an empty source, the result is empty and the source
+  // is untouched.
   template<Facade D>
   requires Extends<D, F>
   [[nodiscard]] shared_proxy<D> try_downcast() const& noexcept {
