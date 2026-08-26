@@ -83,6 +83,17 @@ struct counted {
   int operator()() const noexcept { return 1; }
 };
 
+// A callable too big for the default buffer that counts its moves, so a test
+// can tell a boxing arrival (one move, into the new block) from a hand-over
+// (none).
+struct fat_counted {
+  int* moves;
+  std::array<std::byte, 64> pad{};
+  explicit fat_counted(int* m) noexcept : moves{m} {}
+  fat_counted(fat_counted&& o) noexcept : moves{o.moves} { ++*moves; }
+  int operator()() const noexcept { return 7; }
+};
+
 struct no_default {
   explicit no_default(int) {}
 };
@@ -202,10 +213,26 @@ TEST_CASE("Cross-policy transplant", "[flexi_function]") {
   CHECK(roomy() == 7);
   CHECK(roomy.size() == sizeof(fat_fn));
 
-  // Inline arrival into a buffer too small for it is boxed onto the heap.
+  // The same block is handed over again into a smaller heap-admitting
+  // buffer; a heap arrival is never re-boxed.
   flexi_function<int(), dflt> back{std::move(roomy)};
   CHECK(!roomy);
   CHECK(back() == 7);
+
+  // An inline arrival into a buffer too small for it is boxed onto the heap,
+  // which costs one move (into the block). Handing that block back to a
+  // buffer that could hold it costs none.
+  int fat_moves{};
+  flexi_function<int(), big_inline> wide{fat_counted{&fat_moves}};
+  CHECK(fat_moves == 1);
+  flexi_function<int(), dflt> narrow{std::move(wide)};
+  CHECK(!wide);
+  CHECK(fat_moves == 2);
+  CHECK(narrow() == 7);
+  flexi_function<int(), big_inline> handed{std::move(narrow)};
+  CHECK(!narrow);
+  CHECK(fat_moves == 2);
+  CHECK(handed() == 7);
 
   // Into heap_only, an inline arrival is boxed; back out, the block is
   // handed over, un-boxing only when the destination is inline_only (below).
