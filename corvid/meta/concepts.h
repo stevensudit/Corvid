@@ -353,6 +353,15 @@ concept MoveConsumable =
     !std::is_lvalue_reference_v<FN> &&
     !std::is_const_v<std::remove_reference_t<FN>>;
 
+// Concept for a parameter that can be consumed by moving it, or by copying
+// it when its decayed type is trivially copyable (a function pointer, a
+// member pointer, a lambda whose captures are all trivially copyable). Such a
+// copy costs what the move would, and cannot be the accidental deep copy
+// that `MoveConsumable` refuses to bind to.
+template<class FN>
+concept Consumable =
+    MoveConsumable<FN> || std::is_trivially_copyable_v<std::decay_t<FN>>;
+
 #pragma endregion
 
 }}} // namespace corvid::meta::concepts

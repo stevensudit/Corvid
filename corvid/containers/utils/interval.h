@@ -84,7 +84,7 @@ public:
   class interval_iterator {
   public:
     using value_type = V;
-    using difference_type = std::ptrdiff_t;
+    using difference_type = ptrdiff_t;
     // `operator*` returns a prvalue, so this models the C++20 bidirectional
     // concept via `iterator_concept`, while the Cpp17 category honestly caps
     // at input (the classic requirements demand a true reference beyond
@@ -136,7 +136,7 @@ public:
   using value_type = V;
   using representation_type = U;
   using size_type = size_t;
-  using difference_type = std::ptrdiff_t;
+  using difference_type = ptrdiff_t;
   using reference = U&;
   using const_reference = const U&;
   using iterator = interval_iterator;

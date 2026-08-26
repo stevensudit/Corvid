@@ -22,7 +22,6 @@
 #include "enums/bitmask_enum.h"
 #include "enums/sequence_enum.h"
 #include "enums/enum_formatter.h"
-#include "enums/bool_enums.h"
 #include "enums/enum_conversion.h"
 
 // Importing the `corvid::enums::bitmask` and `corvid::enums::sequence`

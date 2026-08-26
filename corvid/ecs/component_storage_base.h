@@ -23,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../infra/exception_firewalls.h"
 #include "component_index_policies.h"
 #include "entity_registry.h"

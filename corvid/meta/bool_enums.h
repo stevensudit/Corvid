@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 
-namespace corvid { inline namespace enums { namespace bool_enums {
+namespace corvid { inline namespace meta { inline namespace bool_enums {
 
 // Strongly typed two-value enums intended to replace plain `bool` parameters.
 // All have `bool` as their underlying type, enabling explicit conversion via
@@ -28,7 +28,7 @@ namespace corvid { inline namespace enums { namespace bool_enums {
 #pragma region Boolean enums
 
 // Whether to access values as const or as mutable.
-enum class access : bool { as_const = false, as_mutable = true };
+enum class access_mode : bool { as_const = false, as_mutable = true };
 
 // Whether to enable generation counters for stale-reference detection or save
 // memory by avoiding any versioning.
@@ -93,5 +93,9 @@ enum class shot_type : bool { single = false, multi = true };
 // Whether the data is generated in advance or on demand.
 enum class production_policy : bool { complete = false, streaming = true };
 
+// Whether a policy is enforced leniently (best effort) or strictly (any
+// departure from what the policy names is a compile error).
+enum class policy_enforcement : bool { lenient = false, strict = true };
+
 #pragma endregion
-}}} // namespace corvid::enums::bool_enums
+}}} // namespace corvid::meta::bool_enums

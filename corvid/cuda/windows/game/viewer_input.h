@@ -53,7 +53,7 @@ namespace corvid::cuda {
 // The player's active tool, selected by the number keys. `none` is value 0
 // (no tool: no reticle, the dig brush disabled). More beams (fill, drag) will
 // take the next values as they are built.
-enum class active_tool : std::uint8_t { none, dig };
+enum class active_tool : uint8_t { none, dig };
 
 // Fold the tool-select number keys into `tool`: 1 toggles the dig projection
 // (press to equip, press again to put it away). Auto-repeat is ignored so a

@@ -40,7 +40,7 @@ public:
   using value_type = T;
   using allocator_type = Allocator;
   using size_type = size_t;
-  using difference_type = std::ptrdiff_t;
+  using difference_type = ptrdiff_t;
   using reference = value_type&;
   using const_reference = const value_type&;
   using pointer = std::allocator_traits<Allocator>::pointer;

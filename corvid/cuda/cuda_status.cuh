@@ -22,7 +22,7 @@
 
 #include <cuda_runtime.h>
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../enums/sequence_enum.h"
 #include "../enums/enum_conversion.h"
 #include "../strings/cstring_view.h"
@@ -33,7 +33,7 @@
 // runtime for asynchronous errors.
 
 namespace corvid::cuda {
-using corvid::enums::bool_enums::read_mode;
+using corvid::meta::bool_enums::read_mode;
 
 #pragma region cuda_status
 

@@ -156,7 +156,7 @@ classDiagram
 | [entity_registry&lt;T, EID, SID, GEN, ...&gt;](entity_registry.h#L95) | entity_registry.h | The shared foundation of both models. Owns the per-ID records (via `id_container`), assigns `store_id`s, recycles dead IDs through a free list, and issues handles. `GEN` selects `generation_scheme::versioned` vs `unversioned`. |
 | [id_container&lt;T, ID, A&gt;](id_container.h#L51) | id_container.h | ID-keyed flat vector wrapping `enum_vector` plus an exclusive ID limit. No free list or sentinel of its own; the registry composes it as its record store (`id_container_t`). Independently reusable, but here it is a building block, not an outlier. |
 | [entity_ids.h](entity_ids.h) | entity_ids.h | Default ID enum types (`id_t`, `store_id_t`, ...) and their sequential-enum registrations, shared by everything. |
-| `handle_t` / `id_t` | (in entity_registry / entity_ids) | A raw `id_t` is a plain integer; a `handle_t` pairs an id with a generation snapshot so `is_valid` can detect a reused ID. `generation_scheme` lives in [../enums/bool_enums.h#L34](../enums/bool_enums.h#L34). |
+| `handle_t` / `id_t` | (in entity_registry / entity_ids) | A raw `id_t` is a plain integer; a `handle_t` pairs an id with a generation snapshot so `is_valid` can detect a reused ID. `generation_scheme` lives in [../meta/bool_enums.h](../meta/bool_enums.h). |
 
 ### Archetype family
 

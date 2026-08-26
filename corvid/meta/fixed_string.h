@@ -59,15 +59,14 @@ struct basic_fixed_string {
   using const_iterator = const char_t*;
   using iterator = const_iterator;
   using size_type = size_t;
-  using difference_type = std::ptrdiff_t;
+  using difference_type = ptrdiff_t;
 
 #pragma endregion
 #pragma region Construction
 
   // Construct from a string literal. The deduction guide supplies `N` as the
   // literal length, less the terminator.
-  constexpr explicit(false)
-      basic_fixed_string(const char_t (&txt)[N + 1]) noexcept {
+  constexpr basic_fixed_string(const char_t (&txt)[N + 1]) noexcept {
     for (auto ndx = 0UZ; ndx != N; ++ndx) do_not_use[ndx] = txt[ndx];
   }
 

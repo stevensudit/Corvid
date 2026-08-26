@@ -27,14 +27,13 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../concurrency/idle_timeout.h"
-#include "../../enums/bool_enums.h"
+#include "../../meta/bool_enums.h"
 #include "../net_endpoint.h"
 #include "iou_buf_pool.h"
 #include "iou_loop.h"
 #include "iou_wrap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
-using namespace bool_enums;
 
 // Fwd.
 template<typename ConnPlugin>
@@ -128,7 +127,7 @@ private:
   // deactivated, signaling that receiving should stop, does the `posted_fn`
   // returned become non-empty.
   using resume_fn =
-      fixed_function<default_fixed_function::capacity, posted_fn(buffer&&)>;
+      fixed_function<posted_fn(buffer&&), default_fixed_function::capacity>;
 
   iou_recv_view(buffer buf, resume_fn resume) noexcept
       : buf_{std::move(buf)}, resume_{std::move(resume)} {}

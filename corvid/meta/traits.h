@@ -18,6 +18,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <optional>
@@ -206,6 +207,126 @@ constexpr bool is_initializer_list_v =
     is_specialization_of_v<T, std::initializer_list>;
 
 #pragma endregion
+#pragma endregion
+#pragma region Signatures
+
+// The const qualifier of a function signature, or of a type.
+enum class const_qual : bool { none = false, present = true };
+
+// The reference qualifier of a function signature: `none`, `lvalue` (`&`), or
+// `rvalue` (`&&`).
+enum class ref_qual : uint8_t { none, lvalue, rvalue };
+
+// The noexcept specifier of a function signature. Note that `none` matches
+// both `noexcept(false)` and no specifier at all.
+enum class noexcept_spec : bool { none = false, present = true };
+
+namespace details {
+
+// Common base supplying the members for the `signature_traits`
+// specializations.
+template<typename R, const_qual Const, ref_qual Ref, noexcept_spec Noex,
+    typename... Args>
+struct signature_traits_base {
+  using result_t = R;
+  using args_t = std::tuple<Args...>;
+  using function_t = R(Args...);
+  static constexpr const_qual const_qualifier = Const;
+  static constexpr ref_qual ref_qualifier = Ref;
+  static constexpr noexcept_spec noexcept_specifier = Noex;
+  static constexpr bool is_const = (Const == const_qual::present);
+  static constexpr bool is_noexcept = (Noex == noexcept_spec::present);
+};
+
+} // namespace details
+
+// `signature_traits` is the decomposition of a function signature into its
+// result, parameters, and qualifiers.
+//
+// A signature here is what `std::move_only_function` accepts as `Sig`. This is
+// a function type `R(Args...)`, optionally qualified by `const`, by a
+// reference (`&` or `&&`), and by `noexcept`, for twelve variants in all.
+//
+// The trait provides `result_t`, `args_t` (the parameter types, as a
+// `std::tuple`), `function_t` (the signature with every qualifier stripped,
+// `noexcept` included), and one constant per axis: `const_qualifier`,
+// `ref_qualifier`, and `noexcept_specifier`, each typed by its own enum. The
+// two-valued axes are restated as the bools `is_const` and `is_noexcept`, for
+// boolean expressions and `noexcept` clauses.
+//
+// Only the twelve variants are specialized, so the trait doubles as the gate
+// for what counts as a signature: anything else, `volatile` qualification and
+// C-style variadics included, leaves the primary undefined.
+template<typename Sig>
+struct signature_traits;
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...)>
+    : details::signature_traits_base<R, const_qual::none, ref_qual::none,
+          noexcept_spec::none, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) noexcept>
+    : details::signature_traits_base<R, const_qual::none, ref_qual::none,
+          noexcept_spec::present, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const>
+    : details::signature_traits_base<R, const_qual::present, ref_qual::none,
+          noexcept_spec::none, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const noexcept>
+    : details::signature_traits_base<R, const_qual::present, ref_qual::none,
+          noexcept_spec::present, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) &>
+    : details::signature_traits_base<R, const_qual::none, ref_qual::lvalue,
+          noexcept_spec::none, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) & noexcept>
+    : details::signature_traits_base<R, const_qual::none, ref_qual::lvalue,
+          noexcept_spec::present, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const&>
+    : details::signature_traits_base<R, const_qual::present, ref_qual::lvalue,
+          noexcept_spec::none, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const & noexcept>
+    : details::signature_traits_base<R, const_qual::present, ref_qual::lvalue,
+          noexcept_spec::present, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) &&>
+    : details::signature_traits_base<R, const_qual::none, ref_qual::rvalue,
+          noexcept_spec::none, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) && noexcept>
+    : details::signature_traits_base<R, const_qual::none, ref_qual::rvalue,
+          noexcept_spec::present, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const&&>
+    : details::signature_traits_base<R, const_qual::present, ref_qual::rvalue,
+          noexcept_spec::none, Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const && noexcept>
+    : details::signature_traits_base<R, const_qual::present, ref_qual::rvalue,
+          noexcept_spec::present, Args...> {};
+
+// The `function_t` of `Sig`, which is the signature with every qualifier
+// stripped.
+//
+// An alias template, so no dependent `typename` is needed at the use site.
+template<typename Sig>
+using signature_function_t = signature_traits<Sig>::function_t;
+
 #pragma endregion
 #pragma region pointers
 

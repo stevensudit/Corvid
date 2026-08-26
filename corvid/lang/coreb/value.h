@@ -127,7 +127,7 @@ struct primitive;
 class environment;
 
 // Discriminator for the alternatives a `value` can hold.
-enum class kind : std::uint8_t {
+enum class kind : uint8_t {
   nil,
   boolean,
   integer,

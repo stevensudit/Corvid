@@ -26,8 +26,8 @@
 #include <utility>
 #include <vector>
 
-#include "naming.h"
-#include "proxy.h"
+#include "../naming.h"
+#include "proxy_common.h"
 
 // Source generation for facade authors.
 //
@@ -40,8 +40,8 @@ namespace corvid { inline namespace meta { namespace prox {
 
 namespace details {
 
-// `codegen_starts`: facade-wide parameter numbering, one sequence spanning
-// every slot of the flattened list; entry `ndx` is slot ndx's first number.
+// Facade-wide parameter numbering, one sequence spanning every slot of the
+// flattened list; entry `ndx` is slot `ndx`'s first number.
 //
 // One shared sequence is what keeps a parameter's generated name identical
 // between the `api` forwarder and the `boilerplate` binding, so renaming it
@@ -60,14 +60,13 @@ codegen_starts(std::tuple<Ss...>*) noexcept {
   return starts;
 }
 
-// `declared_in`: whether the method `M`, declared by facade `Owner`, appears
-// in facade `P`'s flattened list, meaning an inherited `P::api` already
-// covers it.
+// Whether the method `M`, declared by facade `Owner`, appears in facade `P`'s
+// flattened list, meaning an inherited `P::api` already covers it.
 //
 // The tuple pointer parameter carries `P`'s flattened slots in deducible
 // position.
 template<typename Owner, typename M, Facade P, typename... Ps>
-consteval bool declared_in(std::tuple<Ps...>*) noexcept {
+consteval bool is_declared_in(std::tuple<Ps...>*) noexcept {
   return (
       (std::same_as<Owner,
            std::conditional_t<std::is_void_v<typename Ps::owner_t>, P,
@@ -76,24 +75,22 @@ consteval bool declared_in(std::tuple<Ps...>*) noexcept {
       ...);
 }
 
-// `name_declared_in`: whether any slot of the flattened list answers to
-// `name`.
+// Whether any slot of the flattened list answers to `name`.
 template<typename... Ps>
 consteval bool
 name_declared_in(std::string_view name, std::tuple<Ps...>*) noexcept {
   return ((Ps::name_v.view() == name) || ...);
 }
 
-// `has_const_twin`: whether the facade also declares a const method with
-// slot `S`'s name and arguments, making `S` the mutable member of a const
-// pair.
+// Whether the facade also declares a const method with slot `S`'s name and
+// arguments, making `S` the mutable member of a const pair.
 //
 // Its generated forwarder then carries the trailing requires-clause (see the
 // `api` caveats under "Member-call sugar").
 template<typename S, typename... Ss>
 consteval bool has_const_twin(std::tuple<Ss...>*) noexcept {
   return (
-      (!std::same_as<S, Ss> && Ss::const_v && !S::const_v &&
+      (!std::same_as<S, Ss> && Ss::is_const && !S::is_const &&
           Ss::name_v.view() == S::name_v.view() &&
           std::same_as<
               typename method_traits<typename S::method_t>::norm_args_t,
@@ -101,9 +98,8 @@ consteval bool has_const_twin(std::tuple<Ss...>*) noexcept {
       ...);
 }
 
-// `heaviest_base`: index of the direct base with the largest flattened
-// method list (ties to the first), the base whose `api` the generated one
-// inherits.
+// Index of the direct base with the largest flattened method list (ties to the
+// first), the base whose `api` the generated one inherits.
 //
 // This is the single-path diamond shape the `api` documentation recommends.
 template<Facade F>
@@ -119,12 +115,12 @@ consteval size_t heaviest_base() noexcept {
   }(std::make_index_sequence<vtbuild_t<F>::base_count_v>{});
 }
 
-// `codegen_path_t`: the base facade whose `api` the generated one inherits,
-// or `void` for a facade with no bases.
+// The base facade whose `api` the generated one inherits, or `void` for a
+// facade with no bases.
 //
 // A heaviest base that defines no `api` (supported, not recommended) also
-// yields `void`: there is nothing to inherit, so the generated `api` spells
-// every flattened forwarder itself.
+// yields `void` because there is nothing to inherit, so the generated `api`
+// spells every flattened forwarder itself.
 template<Facade F>
 consteval auto do_codegen_path() noexcept {
   if constexpr (vtbuild_t<F>::base_count_v == 0)
@@ -140,7 +136,7 @@ consteval auto do_codegen_path() noexcept {
 template<Facade F>
 using codegen_path_t = decltype(do_codegen_path<F>())::type;
 
-// `api_emits`: whether the generated `api` spells a forwarder for slot `S`:
+// Whether the generated `api` spells a forwarder for slot `S`. It does so for
 // every own method, plus every inherited method the path base `P` does not
 // cover.
 template<typename S, typename P>
@@ -148,25 +144,24 @@ consteval bool api_emits() noexcept {
   if constexpr (std::is_void_v<typename S::owner_t> || std::is_void_v<P>)
     return true;
   else
-    return !declared_in<typename S::owner_t, typename S::method_t, P>(
+    return !is_declared_in<typename S::owner_t, typename S::method_t, P>(
         static_cast<vtbuild_t<P>::flat_slots_t*>(nullptr));
 }
 
-// `emit_params`: emit `, T arg_N` for each declared parameter, numbering
-// from `next`.
+// Emit `, T arg_N` for each declared parameter, numbering from `next`.
 template<typename... Args>
 void emit_params(std::ostream& os, size_t next, std::tuple<Args...>*) {
   ((os << ", " << friendly_type_name<Args>() << " arg_" << next++), ...);
 }
 
-// `emit_args`: emit `arg_N, arg_N+1, ...`, numbering from `next`.
+// Emit `arg_N, arg_N+1, ...`, numbering from `next`.
 template<typename... Args>
 void emit_args(std::ostream& os, size_t next, std::tuple<Args...>*) {
   for (auto ndx = 0UZ; ndx != sizeof...(Args); ++ndx)
     os << (ndx ? ", " : "") << "arg_" << next + ndx;
 }
 
-// `emit_api_slot`: one `api` forwarder for slot `S` of facade `F`.
+// Emit one `api` forwarder for slot `S` of facade `F`.
 template<Facade F, typename S>
 void emit_api_slot(std::ostream& os, size_t next) {
   using result_t = S::result_t;
@@ -174,13 +169,13 @@ void emit_api_slot(std::ostream& os, size_t next) {
   const auto name = S::name_v.view();
   const auto result = friendly_type_name<result_t>();
   os << "    " << result << " " << name << "(this "
-     << (S::const_v ? "const auto&" : "auto&&") << " self";
+     << (S::is_const ? "const auto&" : "auto&&") << " self";
   emit_params(os, next, args);
   os << ")";
-  if constexpr (S::noexcept_v) os << " noexcept";
-  constexpr bool twin =
+  if constexpr (S::is_noexcept) os << " noexcept";
+  constexpr auto has_twin =
       has_const_twin<S>(static_cast<vtbuild_t<F>::flat_slots_t*>(nullptr));
-  if constexpr (twin) {
+  if constexpr (has_twin) {
     os << "\n    requires(requires {\n      { self.template call<\"" << name
        << "\">(";
     emit_args(os, next, args);
@@ -195,17 +190,17 @@ void emit_api_slot(std::ostream& os, size_t next) {
   os << ");\n    }\n";
 }
 
-// `emit_boilerplate_slot`: one `boilerplate` binding for slot `S`.
+// Emit one `boilerplate` binding for slot `S`.
 template<typename S>
 void emit_boilerplate_slot(std::ostream& os, size_t next) {
   using result_t = S::result_t;
   constexpr auto* args = static_cast<S::method_t::args_t*>(nullptr);
   const auto name = S::name_v.view();
   os << "    static " << friendly_type_name<result_t>() << " on(method_key<\""
-     << name << "\">, " << (S::const_v ? "const T& t" : "T& t");
+     << name << "\">, " << (S::is_const ? "const T& t" : "T& t");
   emit_params(os, next, args);
   os << ")";
-  if constexpr (S::noexcept_v) os << " noexcept";
+  if constexpr (S::is_noexcept) os << " noexcept";
   os << " {\n      ";
   if constexpr (!std::is_void_v<result_t>) os << "return ";
   os << "t." << name << "(";
@@ -215,7 +210,7 @@ void emit_boilerplate_slot(std::ostream& os, size_t next) {
 
 } // namespace details
 
-// `codegen`: write the canonical `api` and `boilerplate` for facade `F` to
+// `codegen` writes the canonical `api` and `boilerplate` for facade `F` to
 // `os`, ready to paste into the facade body.
 //
 // The generated `api` inherits the heaviest direct base's `api` (the

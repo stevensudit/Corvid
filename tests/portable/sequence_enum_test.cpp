@@ -32,13 +32,13 @@ using namespace corvid::enums::sequence;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
 
-enum class tiger_pick : std::int8_t { eeny, meany, miny, moe };
+enum class tiger_pick : int8_t { eeny, meany, miny, moe };
 consteval auto corvid_enum_spec(tiger_pick*) {
   return make_sequence_enum_spec<tiger_pick, "eeny,meany,miny,moe">();
 }
 
-enum old_enum : std::uint8_t { old_zero, old_one, old_two, old_three };
-enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
+enum old_enum : uint8_t { old_zero, old_one, old_two, old_three };
+enum class new_enum : uint8_t { new_zero, new_one, new_two, new_three };
 
 #pragma region Registry
 
@@ -510,7 +510,7 @@ TEST_CASE("NamedConcept", "[SequentialEnumTest]") {
 
 #pragma endregion
 
-enum class tiger_nochoice : std::uint8_t { tiger };
+enum class tiger_nochoice : uint8_t { tiger };
 consteval auto corvid_enum_spec(tiger_nochoice*) {
   return make_sequence_enum_spec<tiger_nochoice, tiger_nochoice{}>();
 }
@@ -566,13 +566,13 @@ TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
 #pragma endregion
 
 // NOLINTNEXTLINE(readability-enum-initial-value): the gap is the point.
-enum class tiger_missing : std::uint8_t { eeny, miny = 2, moe };
+enum class tiger_missing : uint8_t { eeny, miny = 2, moe };
 consteval auto corvid_enum_spec(tiger_missing*) {
   return make_sequence_enum_spec<tiger_missing, "eeny,,miny,moe">();
 }
 
 // Tests empty-string placeholder (whitespace-only element between commas).
-enum class tiger_gapped : std::uint8_t { ga, gb, gc, gd };
+enum class tiger_gapped : uint8_t { ga, gb, gc, gd };
 
 consteval auto corvid_enum_spec(tiger_gapped*) {
   return make_sequence_enum_spec<tiger_gapped, "ga,,gc,gd">();
@@ -1285,7 +1285,7 @@ consteval auto corvid_enum_spec(seg_inner*) {
 }
 
 // Segmented enum with a negative start, exercising signed underlying math.
-enum class seg_neg : std::int8_t { lo = -5, lo2 = -4, hi = 7, hi2 = 8 };
+enum class seg_neg : int8_t { lo = -5, lo2 = -4, hi = 7, hi2 = 8 };
 consteval auto corvid_enum_spec(seg_neg*) {
   return make_sequence_enum_spec<seg_neg, "-5,lo,lo2|7,hi,hi2">();
 }

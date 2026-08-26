@@ -66,16 +66,16 @@ struct single_component_row_view {
 // `size_type` aliases and grants this class access to its `components_` and
 // `ids_` vectors via friendship; the storage itself is befriended so its
 // `begin`/`end` can call the private constructor.
-template<typename STORAGE, access ACCESS>
+template<typename STORAGE, access_mode ACCESS>
 class contiguous_storage_iterator {
 public:
-  static constexpr auto mutable_v = (ACCESS == access::as_mutable);
+  static constexpr auto mutable_v = (ACCESS == access_mode::as_mutable);
   using iterator_category = std::contiguous_iterator_tag;
   using iterator_concept = std::contiguous_iterator_tag;
   using value_type = STORAGE::component_t;
   using id_t = STORAGE::id_t;
   using size_type = STORAGE::size_type;
-  using difference_type = std::ptrdiff_t;
+  using difference_type = ptrdiff_t;
   using reference =
       std::conditional_t<mutable_v, value_type&, const value_type&>;
   using pointer =
@@ -91,10 +91,10 @@ public:
       contiguous_storage_iterator&&) = default;
 
   // Converting constructor: `iterator` to `const_iterator`.
-  template<access OTHER>
+  template<access_mode OTHER>
   contiguous_storage_iterator(
       const contiguous_storage_iterator<STORAGE, OTHER>& other)
-  requires(!mutable_v && (OTHER == access::as_mutable))
+  requires(!mutable_v && (OTHER == access_mode::as_mutable))
       : storage_{other.storage_}, ndx_{other.ndx_} {}
 
   [[nodiscard]] reference operator*() const {
@@ -177,7 +177,7 @@ private:
   contiguous_storage_iterator(storage_ptr s, size_type ndx)
       : storage_{s}, ndx_{ndx} {}
   friend STORAGE;
-  template<typename, access>
+  template<typename, access_mode>
   friend class contiguous_storage_iterator;
 };
 

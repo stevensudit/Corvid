@@ -405,7 +405,7 @@ public:
   // Erase the field at `ndx`. Returns false if `ndx` is out of range.
   bool erase(size_t ndx) noexcept {
     if (ndx >= fields_.size()) return false;
-    fields_.erase(fields_.begin() + static_cast<std::ptrdiff_t>(ndx));
+    fields_.erase(fields_.begin() + static_cast<ptrdiff_t>(ndx));
     return true;
   }
 

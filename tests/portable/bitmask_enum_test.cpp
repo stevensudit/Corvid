@@ -32,7 +32,7 @@ using namespace corvid::enums::bitmask;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-enum class rgb : std::int8_t {
+enum class rgb : int8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -47,7 +47,7 @@ consteval auto corvid_enum_spec(rgb*) {
 }
 
 // Same thing, but safe due to clipping.
-enum class safe_rgb : std::uint8_t {
+enum class safe_rgb : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -63,7 +63,7 @@ consteval auto corvid_enum_spec(safe_rgb*) {
 }
 
 // This is not a bitmask class, so it shouldn't work as a bitmap.
-enum class tires : std::uint8_t { none, one, two, three, four, five, six };
+enum class tires : uint8_t { none, one, two, three, four, five, six };
 
 #pragma region Ops
 
@@ -274,7 +274,7 @@ TEST_CASE("SafeNamedFunctions", "[BitMaskTest]") {
 
 #pragma endregion
 
-enum class rgb_unnamed : std::uint8_t {
+enum class rgb_unnamed : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -289,7 +289,7 @@ consteval auto corvid_enum_spec(rgb_unnamed*) {
       wrapclip::limit>();
 }
 
-enum class patchy_rgb : std::uint8_t {
+enum class patchy_rgb : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -367,7 +367,7 @@ TEST_CASE("StreamingOut", "[BitMaskTest]") {
 #pragma endregion
 
 // RGB, but without the G.
-enum class rb : std::uint8_t {
+enum class rb : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   blue = 1,   // --b
@@ -404,7 +404,7 @@ TEST_CASE("NoGreen", "[BitMaskTest]") {
 #pragma endregion
 
 // RGB, but without the B.
-enum class rg : std::uint8_t {
+enum class rg : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -441,7 +441,7 @@ TEST_CASE("NoBlue", "[BitMaskTest]") {
 #pragma endregion
 
 // RGB, but without the R.
-enum class gb : std::uint8_t {
+enum class gb : uint8_t {
   black = 0,  // ---
   green = 2,  // -g-
   blue = 1,   // --b
@@ -482,7 +482,7 @@ TEST_CASE("NoRed", "[BitMaskTest]") {
 #pragma endregion
 
 // Same thing, but safe due to clipping.
-enum class safe_rb : std::uint8_t {
+enum class safe_rb : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   blue = 1,   // --b
@@ -520,7 +520,7 @@ TEST_CASE("SafeNoGreen", "[BitMaskTest]") {
 #pragma endregion
 
 // Same thing, but safe due to clipping.
-enum class safe_rg : std::uint8_t {
+enum class safe_rg : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -558,7 +558,7 @@ TEST_CASE("SafeNoBlue", "[BitMaskTest]") {
 #pragma endregion
 
 // Same thing, but safe due to clipping.
-enum class safe_gb : std::uint8_t {
+enum class safe_gb : uint8_t {
   black = 0, // ---
   green = 2, // -g-
   blue = 1,  // --b
@@ -598,7 +598,7 @@ TEST_CASE("SafeNoRed", "[BitMaskTest]") {
 // All three bits are valid, but we have no name for green, so we use a
 // placeholder space. Contrast it with rb, which has no space and therefore
 // considers green invalid.
-enum class rskipb : std::uint8_t {
+enum class rskipb : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -615,7 +615,7 @@ consteval auto corvid_enum_spec(rskipb*) {
 
 // All three bits are valid, but we have no names for colors with green.
 // Contrast this with safe_rb, which considers the green bit invalid.
-enum class safe_rskipb : std::uint8_t {
+enum class safe_rskipb : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -633,7 +633,7 @@ consteval auto corvid_enum_spec(safe_rskipb*) {
 // Like rskipb but uses question-mark placeholder, confirming identical
 // behavior to asterisk: green bit is valid but unnamed, so it appears in hex
 // residual.
-enum class rqb : std::uint8_t {
+enum class rqb : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -649,7 +649,7 @@ consteval auto corvid_enum_spec(rqb*) {
 
 // Like safe_rb but uses hyphen for invalid values instead of empty element,
 // confirming identical behavior: invalid values appear in hex residual.
-enum class safe_rb_h : std::uint8_t {
+enum class safe_rb_h : uint8_t {
   black = 0,  // ---
   blue = 1,   // --b
   red = 4,    // r--
@@ -739,7 +739,7 @@ TEST_CASE("SkipBlue", "[BitMaskTest]") {
 // Note: safe_b is impossible because we need at least one valid bit.
 
 // Same thing, but safe due to clipping.
-enum class safe_bw : std::uint8_t { black, white };
+enum class safe_bw : uint8_t { black, white };
 consteval auto corvid_enum_spec(safe_bw*) {
   return make_bitmask_enum_values_spec<safe_bw, "color::black,color::white",
       wrapclip::limit>();
@@ -772,7 +772,7 @@ TEST_CASE("SafeBlackWhite", "[BitMaskTest]") {
 #pragma endregion
 
 // Same thing, but safe due to clipping.
-enum class safe_w : std::uint8_t { white = 1 };
+enum class safe_w : uint8_t { white = 1 };
 consteval auto corvid_enum_spec(safe_w*) {
   return make_bitmask_enum_values_spec<safe_w, ",color::white",
       wrapclip::limit>();
@@ -951,7 +951,7 @@ TEST_CASE("ExtractEnum", "[BitMaskTest]") {
 
 // Valid bits with a hole (0b101): legal to register and use, but
 // `range_length` rejects it at compile time.
-enum class holey : std::uint8_t {};
+enum class holey : uint8_t {};
 consteval auto corvid_enum_spec(holey*) {
   return make_bitmask_enum_spec<holey, "red,-,blue">();
 }
@@ -959,13 +959,13 @@ consteval auto corvid_enum_spec(holey*) {
 // Signed underlying type with the high bit valid. The mask is zero-extended
 // through the unsigned underlying type at registration, so it stays clean even
 // though `max_value` is negative.
-enum class i8_bits : std::int8_t {};
+enum class i8_bits : int8_t {};
 consteval auto corvid_enum_spec(i8_bits*) {
   return make_bitmask_enum_spec<i8_bits, "a,b,c,d,e,f,g,h">();
 }
 
 // Same, registered by value with a negative maximum.
-enum class i8_all : std::int8_t { all = -1 };
+enum class i8_all : int8_t { all = -1 };
 consteval auto corvid_enum_spec(i8_all*) {
   return make_bitmask_enum_spec<i8_all, i8_all::all>();
 }

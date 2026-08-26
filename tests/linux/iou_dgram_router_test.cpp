@@ -319,13 +319,13 @@ public:
   class session_plugin;
 
   struct state {
-    std::function<bool(std::uint32_t, iou_loop::buffer&&)> on_recv;
+    std::function<bool(uint32_t, iou_loop::buffer&&)> on_recv;
   };
 
   class router_plugin {
   public:
     using session_t = iou_dgram_session<session_plugin>;
-    using key_t = std::uint32_t;
+    using key_t = uint32_t;
 
     explicit router_plugin(state* state = nullptr) noexcept : state_{state} {}
 
@@ -354,7 +354,7 @@ public:
     using session_t = iou_dgram_session<session_plugin>;
 
     session_plugin(router_t& router, session_t& session, state* state,
-        std::uint32_t key) noexcept
+        uint32_t key) noexcept
         : router_{router}, session_{session}, state_{state}, key_{key} {}
 
     bool register_self(const iou_loop::buffer&) {
@@ -375,7 +375,7 @@ public:
     router_t& router_;
     session_t& session_;
     state* state_;
-    std::uint32_t key_;
+    uint32_t key_;
   };
 };
 
@@ -388,13 +388,13 @@ TEST_CASE("CustomKey", "[IouDgramRouter]") {
   // independent of peer_addr.
   if (true) {
     using my_router = iou_dgram_router<id_protocol::router_plugin>;
-    static_assert(std::same_as<my_router::key_t, std::uint32_t>);
+    static_assert(std::same_as<my_router::key_t, uint32_t>);
 
     std::atomic_int sess1_data{0};
     std::atomic_int sess2_data{0};
 
     id_protocol::state stateA;
-    stateA.on_recv = [&](std::uint32_t key, iou_loop::buffer&&) {
+    stateA.on_recv = [&](uint32_t key, iou_loop::buffer&&) {
       if (key == 1U) ++sess1_data;
       if (key == 2U) ++sess2_data;
       return true;
@@ -418,7 +418,7 @@ TEST_CASE("CustomKey", "[IouDgramRouter]") {
         &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
-    auto send_id = [&](std::uint32_t id, std::string_view tail) {
+    auto send_id = [&](uint32_t id, std::string_view tail) {
       std::string p(4 + tail.size(), '\0');
       std::memcpy(p.data(), &id, 4);
       std::memcpy(p.data() + 4, tail.data(), tail.size());

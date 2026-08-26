@@ -111,7 +111,7 @@ struct spec_parser: parsed_spec<CharT> {
   using base = parsed_spec<CharT>;
   using aligned = base::aligned;
 
-  enum class arg_kind : std::uint8_t { none, fixed, automatic, manual };
+  enum class arg_kind : uint8_t { none, fixed, automatic, manual };
 
   // An argument value containing a width or precision field. This can be a
   // fixed value `10`, an auto `{}`, a manual `{n}`, or absent. `value` carries

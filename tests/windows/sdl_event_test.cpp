@@ -154,7 +154,7 @@ TEST_CASE("sdl_event::poll drains the queue through the wrapper",
 TEST_CASE("sdl_keycode string round-trip", "[sdl][event][enums]") {
   struct keycode_case {
     sdl_keycode value;
-    std::uint32_t code;
+    uint32_t code;
     std::string_view name;
   };
   // Exhaustive: every registered keycode round-trips value, code, and name.

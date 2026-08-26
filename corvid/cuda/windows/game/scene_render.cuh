@@ -54,7 +54,7 @@ constexpr auto denom_floor = 1.0e-4F;
 // never nests another mirror), so the shared kinds stay contiguous. Packs into
 // aa_texel's low bits below `aa_reticle_edge_bit`. Registered as a sequence
 // enum for `operator*` value access.
-enum class hit_kind : std::uint8_t { sky, terrain, ball, head, mirror };
+enum class hit_kind : uint8_t { sky, terrain, ball, head, mirror };
 
 consteval auto corvid_enum_spec(hit_kind*) {
   return corvid::enums::sequence::make_sequence_enum_spec<hit_kind,

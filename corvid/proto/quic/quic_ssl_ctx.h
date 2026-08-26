@@ -27,12 +27,12 @@
 #include <openssl/x509.h>
 
 #include "../../infra/exception_firewalls.h"
-#include "../../enums/bool_enums.h"
+#include "../../meta/bool_enums.h"
 #include "../../strings/conversion.h"
 
 namespace corvid { inline namespace proto { namespace quic {
 
-using connection_role = enums::bool_enums::connection_role;
+using connection_role = meta::bool_enums::connection_role;
 
 #pragma region ssl_identity
 

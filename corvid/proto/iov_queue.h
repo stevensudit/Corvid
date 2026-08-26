@@ -29,11 +29,10 @@
 
 #include "../meta/crossplatform.h"
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../meta/maybe.h"
 
 namespace corvid { inline namespace proto {
-using namespace bool_enums;
 
 #pragma region iov_queue
 
@@ -256,7 +255,7 @@ public:
   // they can't overflow.
   bool tidy(deallocation_policy policy = deallocation_policy::preserve) {
     chunks_.erase(chunks_.begin(),
-        chunks_.begin() + static_cast<std::ptrdiff_t>(retained_index_));
+        chunks_.begin() + static_cast<ptrdiff_t>(retained_index_));
     unused_index_ -= retained_index_;
     retained_index_ = 0;
     if (policy == deallocation_policy::release) {
@@ -282,7 +281,7 @@ public:
   // they are dropped instead of moved.
   bool recycle() noexcept {
     const auto retained =
-        chunks_.begin() + static_cast<std::ptrdiff_t>(retained_index_);
+        chunks_.begin() + static_cast<ptrdiff_t>(retained_index_);
     const auto live = std::remove_if(chunks_.begin(), retained,
         [](const chunk_t& chunk) noexcept { return chunk.empty(); });
     const auto dropped = static_cast<size_t>(retained - live);
@@ -294,7 +293,7 @@ public:
     for (auto ndx = 0UZ; ndx < retained_index_; ++ndx)
       recycled += chunks_[ndx].size();
     std::rotate(chunks_.begin(),
-        chunks_.begin() + static_cast<std::ptrdiff_t>(retained_index_),
+        chunks_.begin() + static_cast<ptrdiff_t>(retained_index_),
         chunks_.end());
     appended_ += recycled;
     unused_index_ -= retained_index_;

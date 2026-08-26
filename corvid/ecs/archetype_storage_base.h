@@ -27,7 +27,7 @@
 #include <utility>
 #include <vector>
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../meta/forward_like.h"
 #include "../infra/exception_firewalls.h"
 #include "entity_registry.h"
@@ -214,8 +214,8 @@ public:
 #pragma region row_wrapper
 
   // Lightweight, non-owning handle to a single entity's row. When
-  // `ACCESS=access::as_mutable`, `row_lens` (mutable);
-  // `ACCESS=access::as_const`, `row_view` (read-only).
+  // `ACCESS=access_mode::as_mutable`, `row_lens` (mutable);
+  // `ACCESS=access_mode::as_const`, `row_view` (read-only).
   //
   // Stores a pointer to the owning base and a flat logical index. Component
   // access is dispatched through the CRTP derived class's customization
@@ -225,10 +225,10 @@ public:
   // In terms of usage, this should not be seen as a standalone type, but
   // rather as the reference type yielded by iterators and row accessors. You
   // should not be retaining or copying these around.
-  template<access ACCESS = access::as_mutable>
+  template<access_mode ACCESS = access_mode::as_mutable>
   class row_wrapper {
   public:
-    static constexpr bool mutable_v = (ACCESS == access::as_mutable);
+    static constexpr bool mutable_v = (ACCESS == access_mode::as_mutable);
     using base_owner_t = std::conditional_t<mutable_v, archetype_storage_base,
         const archetype_storage_base>;
     using derived_owner_t =
@@ -283,10 +283,10 @@ public:
   };
 
   // Read-only row view.
-  using row_view = row_wrapper<access::as_const>;
+  using row_view = row_wrapper<access_mode::as_const>;
 
   // Mutable row lens.
-  using row_lens = row_wrapper<access::as_mutable>;
+  using row_lens = row_wrapper<access_mode::as_mutable>;
 
 #pragma endregion
 #pragma region row_iterator
@@ -295,17 +295,17 @@ public:
   //
   // Dereferencing yields a `row_lens` or `row_view` by value, depending on
   // constness. Invalidated by any structural mutation (add/remove/erase).
-  template<access ACCESS = access::as_mutable>
+  template<access_mode ACCESS = access_mode::as_mutable>
   class row_iterator {
   public:
-    static constexpr bool mutable_v = (ACCESS == access::as_mutable);
+    static constexpr bool mutable_v = (ACCESS == access_mode::as_mutable);
     // `operator*` returns a prvalue row, so this models the C++20
     // bidirectional concept via `iterator_concept`, while the Cpp17 category
     // honestly caps at input.
     using iterator_concept = std::bidirectional_iterator_tag;
     using iterator_category = std::input_iterator_tag;
     using value_type = std::conditional_t<mutable_v, row_lens, row_view>;
-    using difference_type = std::ptrdiff_t;
+    using difference_type = ptrdiff_t;
     using reference = value_type;
     using pointer = value_type*;
     using base_owner_t = std::conditional_t<mutable_v, archetype_storage_base,
@@ -354,8 +354,8 @@ public:
     friend class archetype_storage_base;
   };
 
-  using iterator = row_iterator<access::as_mutable>;
-  using const_iterator = row_iterator<access::as_const>;
+  using iterator = row_iterator<access_mode::as_mutable>;
+  using const_iterator = row_iterator<access_mode::as_const>;
 
 #pragma endregion
 #pragma region Insertion

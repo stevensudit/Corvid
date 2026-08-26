@@ -19,7 +19,7 @@ namespace {
 
 struct event_case {
   sdl_event_type value;
-  std::uint32_t code;
+  uint32_t code;
   std::string_view name;
 };
 

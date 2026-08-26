@@ -45,7 +45,7 @@ namespace details {
 
 // Which scope-exit policy a `scope_guard` implements: run always, only on an
 // exceptional exit, or only on a normal exit.
-enum class scope_kind : std::uint8_t { exit, fail, success };
+enum class scope_kind : uint8_t { exit, fail, success };
 
 #pragma endregion
 #pragma region scope_guard

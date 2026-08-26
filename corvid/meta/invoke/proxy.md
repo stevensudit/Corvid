@@ -1,8 +1,9 @@
 # Proxy
 
-[proxy.h](proxy.h) implements registration-based runtime polymorphism
-through proxies, which are type-erased handles over an interface definition.
-They work without inheritance, vtable pointers in the target type, or macros.
+The proxy family ([proxy.h](proxy.h)) implements registration-based
+runtime polymorphism through proxies, which are type-erased handles over
+an interface definition. They work without inheritance, vtable pointers in
+the target type, or macros.
 
 The contrast with the traditional mechanism, an abstract base class with
 virtual methods, is one of coupling. A virtual interface is intrusive: a
@@ -12,7 +13,7 @@ and cannot be a type you do not own, a plain aggregate, or an `int`.
 
 A facade points the other way. The interface is declared on the consumer's
 side, and any type whose methods line up conforms through one
-registration line, after the fact and without modification; one type can
+registration line, after the fact and without modification. One type can
 serve any number of facades, and the dispatch machinery lives in the
 handle, so targets stay plain.
 
@@ -27,7 +28,7 @@ shared, and weak flavors with explicit conversion rules.
 This document is the completed system's reference and retrospective. It is
 a tutorial tour of the user-facing surface, the decisions made along the
 way and what they cost, and the lessons from the build. Every feature is
-pinned by [proxy_test.cpp](../../tests/portable/proxy_test.cpp) (the
+pinned by [proxy_test.cpp](../../../tests/portable/proxy_test.cpp) (the
 fixture hierarchy the tests share is diagrammed under "Test fixture map"
 below).
 
@@ -70,6 +71,7 @@ using-declaration merges, and diamonds.
 - [The handle family](#the-handle-family)
 - [Ownership and storage](#ownership-and-storage)
   - [Storage policies](#storage-policies)
+  - [Empty handles](#empty-handles)
   - [Owning upcast](#owning-upcast)
   - [Cloning](#cloning)
   - [std smart-pointer interop](#std-smart-pointer-interop)
@@ -98,7 +100,7 @@ microsoft/proxy, on the standards track as P3086) and Rust trait objects
 We lean toward ngcpp naming because this is C++, but diverge on one
 deliberate axis: conformance is nominal (registered), not structural
 (duck-typed). ngcpp accepts any type whose members happen to match the
-facade; we require an explicit registration, the same philosophy as the
+facade. We require an explicit registration, the same philosophy as the
 Corvid registered-enum system (registration, not reflection).
 
 Registration also dissolves ngcpp's need for macros. Their
@@ -109,32 +111,36 @@ no name to mint.
 The one-method ancestor within Corvid is
 [fixed_function.h](fixed_function.h). A `proxy` is a `fixed_function`
 generalized from a single anonymous `operator()` to a named suite of
-methods, and the owning flavor reuses the same storage ideas (inline SBO
+methods, and the owning flavor reuses the same storage ideas (inline storage
 buffer plus dispatch pointer).
 
 ## Naming map
 
-| Corvid                        | ngcpp/proxy              | Rust                 |
-| ----------------------------- | ------------------------ | -------------------- |
-| `proxy<F>`                    | `pro::proxy<F>`          | `Box<dyn T>`         |
-| `proxy_view<F>`               | `pro::proxy_view<F>`     | `&mut dyn T`         |
-| `const_proxy_view<F>`         | (none)                   | `&dyn T`             |
-| `facade`                      | facade (`facade_builder`)| `trait`              |
-| `method<"fire", void(int)>`   | dispatch + convention    | trait method         |
-| `proxy_impl<F, T>`            | (none; structural)       | `impl Trait for Type`|
-| `corvid_proxy_spec(F*, T*)`   | (none)                   | empty `impl` block   |
-| `make_proxy_spec<F, T>()`     | (none)                   | (spec payload)       |
-| `"name"_method` UDL           | (none)                   | (none)               |
-| `Proxiable<T, F>`             | `proxiable<P, F>`        | `T: Trait` bound     |
-| `make_proxy<F, T>(...)`       | `make_proxy`             | `Box::new`           |
-| `make_proxy_view<F>(t)`       | `make_proxy_view`        | `&x as &dyn T`       |
-| `extends<Base>`               | `add_facade`             | supertrait           |
-| `proxy_policy`                | facade-level constraints | (none)               |
-| `clone()` / `can_clone()`     | copyability constraint   | (dyn-clone idiom)    |
-| `try_downcast<D>()`           | (none)                   | (`dyn Any` adjacent) |
-| `shared_proxy<F>`             | `make_proxy_shared`      | `Rc<dyn T>`          |
-| `weak_proxy<F>`               | (its weak counterpart)   | `Weak<dyn T>`        |
-| (internal) dispatch table     | meta                     | vtable + drop glue   |
+| Corvid                        | ngcpp/proxy                        | Rust                     |
+| ----------------------------- | ---------------------------------- | ------------------------ |
+| `proxy<F>`                    | `pro::proxy<F>`                    | `Box<dyn T>`             |
+| `proxy_view<F>`               | `pro::proxy_view<F>`               | `&mut dyn T`             |
+| `const_proxy_view<F>`         | (none)                             | `&dyn T`                 |
+| `facade`                      | facade (`facade_builder`)          | `trait`                  |
+| `method<"fire", void(int)>`   | dispatch + convention              | trait method             |
+| `proxy_impl<F, T>`            | (none; structural)                 | `impl Trait for Type`    |
+| `corvid_proxy_spec(F*, T*)`   | (none)                             | empty `impl` block       |
+| `make_proxy_spec<F, T>()`     | (none)                             | (spec payload)           |
+| `"name"_method` UDL           | (none)                             | (none)                   |
+| `Proxiable<T, F>`             | `proxiable<P, F>`                  | `T: Trait` bound         |
+| `make_proxy<F, T>(...)`       | `make_proxy`                       | `Box::new`               |
+| `make_proxy_view<F>(t)`       | `make_proxy_view`                  | `&mut x as &mut dyn T`   |
+| `make_const_proxy_view<F>(t)` | (none)                             | `&x as &dyn T`           |
+| `extends<Base>`               | `add_facade`                       | supertrait               |
+| `invocable_policy`            | facade-level constraints           | (none)                   |
+| `clone()` / `can_clone()`     | copyability constraint             | (dyn-clone idiom)        |
+| `try_downcast<D>()`           | (none)                             | (`dyn Any` adjacent)     |
+| `try_share<T>()`              | (none)                             | (`Rc<dyn Any>` downcast) |
+| `shared_proxy<F>`             | `proxy<F>` via `make_proxy_shared` | `Rc<RefCell<dyn T>>`     |
+| `weak_proxy<F>`               | `weak_proxy`                       | `Weak<RefCell<dyn T>>`   |
+| `const_shared_proxy<F>`       | (none)                             | `Rc<dyn T>`              |
+| `const_weak_proxy<F>`         | (none)                             | `Weak<dyn T>`            |
+| (internal) dispatch table     | meta                               | vtable + drop glue       |
 
 Naming notes:
 
@@ -143,7 +149,7 @@ Naming notes:
 - `facade` over `trait`: matches ngcpp, and "trait(s)" is irreversibly
   loaded in C++ (`std::char_traits`, type traits).
 - `method` collapses ngcpp's dispatch (the what) and convention (the
-  signature) into one entity; a per-name overload set is spelled by listing
+  signature) into one entity. A per-name overload set is spelled by listing
   each signature as a method (ngcpp instead lists several signatures in one
   convention).
 - Nominal identity lives at the facade level: `proxy_impl<F, T>` is keyed on
@@ -215,12 +221,13 @@ conforming such a type costs one registration line. The second tier covers
 types whose methods do not match what the boilerplate expects, say a
 `shoot` where the facade wants `fire`. Such a type's registration carries
 its own impl, which replaces the boilerplate binding for that type alone.
-The example below shows both tiers; the carried impl's mechanics follow
-it.
+The example below shows both tiers, and the carried impl's mechanics
+follow it.
 
 ```cpp
 // The facade: the interface definition, carrying its own api and boilerplate.
-// This particular facade does not happen to extend previous ones.
+// This particular facade does not happen to extend previous ones. (The
+// test's `gunslinger` has two more methods; this one is trimmed to the shape.)
 struct gunslinger : facade<name<"gunslinger">,
                        method<"fire", void(int)>,
                        method<"reload", bool()>> {
@@ -281,16 +288,16 @@ Registration is therefore the sole act of conformance. Every binding is
 either the facade's boilerplate or a carried impl, and both are opt-in.
 
 Two other spellings of `proxy_impl` exist at namespace scope, one
-deprecated and one dropped.
+supported but not recommended, and one dropped.
 
-The deprecated spelling is the namespace-scope boilerplate: a partial
+The supported spelling is the namespace-scope boilerplate: a partial
 specialization constrained on `ProxyRegistered`, serving every registered
 type exactly as the nested form does (`lockbox` in the test). It predates
 the nested form, and it still works: when a facade has both, the partial
 outranks the library's delegation by partial ordering, so the two cannot
 collide. It does need one extra term in its gate, `!SpecCarriesImpl<F, T>`,
-to keep a carried impl winning; raw partial ordering would prefer the
-partial, while the nested boilerplate gets this arbitration from the
+to keep a carried impl winning, because raw partial ordering would prefer
+the partial, while the nested boilerplate gets this arbitration from the
 library. The nested form made all of this unnecessary, which is why
 facades should nest their boilerplate, as shown in the examples.
 
@@ -304,7 +311,7 @@ hook, like `strongbox` in the test. What it uniquely enabled was
 conformance with no opt-in declaration, and that was an ODR footgun, since
 any TU could silently override another's binding. The language cannot
 forbid such specializations, and `proxy_impl` necessarily stays a public
-name for the deprecated boilerplate spelling, so the drop is a contract
+name for that boilerplate spelling, so the drop is a contract
 boundary rather than a mechanical one.
 
 The binding class (in other words, the impl) can live anywhere a type can.
@@ -316,8 +323,8 @@ and a consteval function is implicitly inline, so the local type is
 ODR-consistent across translation units. (Local classes do forgo static
 data members and member templates, which bindings do not need.)
 
-When instead nested in the type it serves, the impl additionally reaches the
-type's private members (`turncoat` in the test). Namespace scope works too,
+When instead nested in the type it serves, the impl can additionally reach
+the type's private members (`turncoat` in the test nests its impl). Namespace scope works too,
 and a namespace-scope binding class that the type forward-declares and befriends
 reaches private members without nesting. This hybrid approach can be a good
 compromise, reducing clutter in the class itself while preserving private access.
@@ -328,9 +335,9 @@ a `method_key` alias, letting the bindings spell the key unqualified. It is
 optional, although recommended both for convenience and self-documentation.
 A binding class that inherits a boilerplate already has it through that base.
 
-The string NTTP rides on the existing [fixed_string.h](fixed_string.h).
+The string NTTP rides on the existing [fixed_string.h](../fixed_string.h).
 `call<"fire">` resolves at compile time to an index into the facade's
-method list; no runtime name lookup exists anywhere.
+method list. No runtime name lookup exists anywhere.
 
 ### Partial override of the boilerplate
 
@@ -366,23 +373,23 @@ Before the boilerplate moved into the facade, this tier required the
 facade author to factor the bindings into a separately-named class for the
 namespace-scope partial to derive from. With the nested form, it is
 inherent. It overlaps in purpose with the spec-carried member-pointer
-binding sketched under "Future work"; the two can coexist. Exercised by
-`sheriff` in the test.
+binding sketched under "Future work", and the two can coexist. Exercised
+by `sheriff` in the test.
 
 ### Member-call sugar (the `api` mixin)
 
-`p->fire(3)` spelling cannot be minted by a C++23 library without macros.
+`p.fire(3)` spelling cannot be minted by a C++23 library without macros.
 The answer is the optional "hand-written" `api` mixin shown in the
 `gunslinger` example above. Each of its methods is a forwarder: a one-line
 method, taking `self` by deducing `this`, that passes its arguments
-through to `call<>` with the matching key. Every dispatching handle
-(`proxy<F>`, `proxy_view<F>`, `const_proxy_view<F>`, `shared_proxy<F>`)
-inherits `F::api` when present, which is what lets `p.fire(3)` dispatch.
+through to `call<>` with the matching key. Every dispatching handle (all
+but the two weak proxies) inherits `F::api` when present, which is what
+lets `p.fire(3)` dispatch.
 
 ("Mixin" in the deducing-this sense: a stateless class grafted into each
 handle's single-inheritance chain, not a second base sitting beside
 another. Multiple parents appear only among the `api` classes themselves,
-when a facade extends several facades; see "Composition".)
+when a facade extends several facades. See "Composition".)
 
 This is the "accept a limitation ngcpp will not" trade. They generate
 these accessors with macros. We write them by hand (for now), once per
@@ -408,11 +415,11 @@ selection is a lazy specialization rather than a `std::conditional_t`,
 because naming `F::api` when it does not exist is ill-formed.
 
 The views pick the base up through their shared `details::view_base`,
-keeping each view a single-inheritance chain; the owning `proxy`, which
-has no other base, inherits it directly. Deducing `this` sees the complete
-handle type regardless of where in the hierarchy the forwarders sit. The
-mixin is stateless, so empty-base optimization keeps the views at two
-pointers.
+and the shared handles through `details::shared_base`, keeping each
+handle a single-inheritance chain. The owning `proxy`, which has no other
+base, inherits it directly. Deducing `this` sees the complete handle type
+regardless of where in the hierarchy the forwarders sit. The mixin is
+stateless, so empty-base optimization keeps the views at two pointers.
 
 Caveats, all on the facade author's side of the contract:
 
@@ -428,8 +435,8 @@ Caveats, all on the facade author's side of the contract:
 - The `noexcept` qualifier does not propagate through an unmarked
   forwarder. The author marks the forwarders of noexcept methods
   `noexcept` themselves (see `hair_trigger` in the test). Nothing checks
-  the forwarders against the method flavors; the sugar is by-hand by
-  design.
+  the forwarders against the method flavors, since the sugar is by-hand
+  by design.
 
 The silent-drift half of the risk (a hand-written forwarder whose types
 are merely convertible to the facade's, which compiles and truncates) is
@@ -521,8 +528,8 @@ Not caught:
   shape check can see
 - a missing overload forwarder whose probe call a same-name sibling
   forwarder absorbs by conversion, landing exactly on the sibling's slot
-  (the overload analog of the wrong-key hole; the `assayer` fixture pins
-  it)
+  (the overload analog of the wrong-key hole, which the `assayer` fixture
+  pins)
 
 Closing that last hole would take a behavioral probe (record which key
 each forwarder dispatches and compare) or C++26 reflection, which deletes
@@ -545,8 +552,8 @@ the namespace-scope spelling can trip it.
 facade to a stream, ready to paste into the facade body. The workflow:
 define the facade's method list, add the one-liner to a scratch `main`,
 paste the output, delete the one-liner. It lives in its own header,
-[proxy_codegen.h](proxy_codegen.h), so `proxy.h` stays free of streams and
-RTTI.
+[proxy_codegen.h](proxy_codegen.h), so the proxy headers stay free of
+streams and RTTI.
 
 This is the closest thing to reflection available today. The real value is
 that it spells the conventions' edge cases correctly every time:
@@ -636,7 +643,7 @@ consteval auto corvid_proxy_spec(F*, texas_ranger*) {
 }
 ```
 
-The hook collapses only the opt-in ceremony; the bindings stay per facade.
+The hook collapses only the opt-in ceremony. The bindings stay per facade.
 Chain registration is always semantically safe, because conformance to the
 derived facade requires base conformance anyway.
 
@@ -677,8 +684,8 @@ than wrapping the handle.
 The proxy-to-view constructors are lvalue-only, so a temporary proxy
 cannot leave a dangling view, and a const proxy yields only the const
 view. Emptiness propagates: viewing an empty proxy yields an empty view,
-and upcasting an empty handle yields an empty one, so only calling through
-an empty handle is a contract violation.
+and upcasting an empty handle yields an empty one. A call through an empty
+handle runs its empty behavior (see "Empty handles").
 
 The generic target constructors exclude handles of the same or an
 extending facade (`details::is_handle_for`), so the re-pointing
@@ -717,7 +724,7 @@ type, so the language requires them to have distinct addresses that
 empty-base optimization cannot merge.
 
 The Itanium ABI satisfies that by hiding the second subobject inside the
-first pointer's bytes, so the handle stays two words on Linux; the MS ABI
+first pointer's bytes, so the handle stays two words on Linux. The MS ABI
 never overlaps empty bases with data members, so the handle grows to three
 words there (measured under this project's Windows build).
 
@@ -755,8 +762,11 @@ and uniqueness checking, and `qualified_key`'s fallback branch all went
 away.
 
 Facade names must be unique within a composition (a detonator enforces
-it). C++26 reflection is expected to supply the name from the facade type
-itself, retiring the entry.
+it), and a facade may not list the identical method or extends entry
+twice (another detonator: a literal duplicate is a copy-paste slip, unlike
+the legal diamond, where one base arrives by two paths). C++26 reflection
+is expected to supply the name from the facade type itself, retiring the
+entry.
 
 Names are what make sibling collisions legal outright: two unrelated bases
 declaring the same method name may always be composed, because the
@@ -772,8 +782,8 @@ the call site.
   ranking is the compiler's own (see "Per-name overload sets"), with a
   `static_assert` naming an ambiguity. The `api` convention is one
   using-declaration per base, because C++ member lookup finds sibling-base
-  names ambiguous before overload resolution ever runs; with the
-  using-declarations in place the forwarders form the same overload set.
+  names ambiguous before overload resolution ever runs. With the
+  using-declarations in place, the forwarders form the same overload set.
 - A same-signature collision is a lazy call-site error, through `call<>`
   (a `static_assert`) and through the sugar (an ambiguous overload set)
   alike. The slots stay reachable through their qualified keys and through
@@ -784,7 +794,7 @@ the call site.
 - A same-signature collision also blocks `validate_api` for the composed
   facade, because boilerplates drive the probe by natural name, exactly
   the spelling the collision makes ambiguous. Such a facade registers with
-  `api_check::off`; the base levels validate normally.
+  `api_check::off`. The base levels validate normally.
 
 The library's self-conformance bindings (`proxy_impl<B, handle<D>>`)
 forward through the qualified spelling of `B`'s method names, so a derived
@@ -808,7 +818,7 @@ redeclaration, and there is nothing to override.
 
 Sibling collisions keep their own rules above, including the legal
 same-signature collision. The asymmetry is deliberate. Sibling composers
-cannot coordinate names, and qualification bails them out; a chain author
+cannot coordinate names, and qualification bails them out. A chain author
 can see the base, so a chain duplicate is rejected eagerly.
 
 Unlike C++, where a derived class's `foo(int)` silently hides the base's
@@ -856,7 +866,7 @@ It was not always so. The first build shipped a two-tier approximation (a
 unique exact match wins, else a unique viable candidate, with constness
 as a tiebreak), because exactness and viability are the only predicates
 the language answers directly (type equality after stripping cv and
-references, and `std::is_invocable_v`); no trait orders one conversion
+references, and `std::is_invocable_v`). No trait orders one conversion
 sequence against another, and hand-rolling the standard's ordering would
 have been a replica that drifts silently from the compiler. The
 approximation's divergences were pinned by tests (a promotion did not
@@ -896,7 +906,7 @@ where the hidden forwarders fail to resolve.
 Agreement between the spellings is doubly assured on the `api` path. A
 conforming forwarder's parameters are its slot's exact declared types, so
 conversion ranking runs once, at forwarder selection, and the body
-forwards arguments that already have those types; the inner `call<>`
+forwards arguments that already have those types, so the inner `call<>`
 resolves them to precisely the slot the forwarder spells, an exact match
 no other candidate can outrank.
 
@@ -908,7 +918,7 @@ the drift `validate_api` catches, by anchoring the probe chain to the
 facade's declared types at both ends, so a merely-convertible parameter or
 result type in a forwarder fails at registration. The blind spot is a
 drift whose arguments and result both land exactly on a same-name sibling
-slot, where the strict probe matches the sibling and passes; that is the
+slot, where the strict probe matches the sibling and passes. That is the
 overload analog of the wrong-key-same-signature hole already on the
 not-caught list. The `assayer` fixture pins it live: an `api` missing its
 `weigh(int)` forwarder validates green, and an int-argument sugar call is
@@ -933,22 +943,34 @@ expressible, but same-name declarations subsume it.
 
 ## The handle family
 
-Five handles share one shape (a target plus a pointer to a static
-per-(facade, type) table) and differ in what they own. All of the
+Seven handles share one shape (a target plus a pointer to a static
+per-(facade, type, birth) table) and differ in what they own, and in whether
+constness is a property of the instance or of the type. All of the
 dispatching handles inherit the facade's `api` sugar when it exists,
 through `details::api_base_t<F>`. The two views additionally share their
-storage and const-method `call` through `details::view_base<F, Const>`:
+storage and const-method `call` through `details::view_base<F, Access>`,
+and the two shared-owning handles theirs, plus the moves, through
+`details::shared_base<F, Access>`:
 
 ```mermaid
 classDiagram
     class api_base_t~F~ {
         <<the facade's api if defined, else empty>>
     }
-    class view_base~F,Const~ {
-        #target_ : void pointer, const if Const
+    class view_base~F,Access~ {
         #vtable_ : view table pointer
+        #target_ : void pointer, const if Access is const
+        +facade_t
         +call() const methods only
         +operator bool()
+    }
+    class shared_base~F,Access~ {
+        #vtable_ : view table pointer
+        #target_ : shared_ptr of void, const if Access is const
+        +facade_t
+        +call() const methods only
+        +operator bool()
+        +try_share() typed shared_ptr, const through the const flavor
     }
     class proxy_view~F~ {
         +call() all methods
@@ -958,40 +980,57 @@ classDiagram
         +try_downcast() to const views only
     }
     class proxy~F,Policy~ {
-        -storage_ : SBO buffer or heap pointer
         -vtable_ : owning table pointer
+        -storage_area_ : inline buffer or heap pointer
+        +facade_t
+        +inline_size static, 0 under heap_only
         +call()
+        +operator bool()
+        +reset()
         +clone()
         +can_clone()
+        +can_adopt() static, before a conversion
+        +operator=(sibling&&) transplant, pre-flighted
         +extract() heap allocation out
         +try_downcast() rvalue, consumes on success
     }
     class shared_proxy~F~ {
-        -target_ : shared_ptr of void
-        -vtable_ : view table pointer
-        +call()
+        +call() all methods
         +try_downcast() sharing or transferring
     }
+    class const_shared_proxy~F~ {
+        +try_downcast() to const handles only
+    }
     class weak_proxy~F~ {
-        -target_ : weak_ptr of void
         -vtable_ : view table pointer
-        +lock()
+        -target_ : weak_ptr of void
+        +lock() a shared_proxy
+        +expired()
+    }
+    class const_weak_proxy~F~ {
+        -vtable_ : view table pointer
+        -target_ : weak_ptr of const void
+        +lock() a const_shared_proxy
         +expired()
     }
     api_base_t <|-- view_base
     view_base <|-- proxy_view
     view_base <|-- const_proxy_view
     api_base_t <|-- proxy
-    api_base_t <|-- shared_proxy
+    api_base_t <|-- shared_base
+    shared_base <|-- shared_proxy
+    shared_base <|-- const_shared_proxy
 ```
 
-`weak_proxy` deliberately inherits no `api` and exposes no `call`. It
-keeps its table pointer only to hand to the `shared_proxy` that `lock()`
-mints.
+The weak proxies deliberately inherit no `api` and expose no `call`. Each
+keeps its table pointer only to hand to the shared handle that `lock()`
+mints. They share nothing but shape, since the shape is two data members
+and `expired()`.
 
 How the handles and the std smart pointers convert into each other (in
 addition, every handle converts to its own counterpart for any facade the
-current one extends, and `try_downcast` walks the other way):
+current one extends, and the dispatching handles' `try_downcast` walks the
+other way):
 
 ```mermaid
 flowchart LR
@@ -1001,7 +1040,9 @@ flowchart LR
     PV["proxy_view"]
     CPV["const_proxy_view"]
     SP["shared_proxy"]
+    CSP["const_shared_proxy"]
     WP["weak_proxy"]
+    CWP["const_weak_proxy"]
 
     UP -->|adopt| P
     P -->|"extract&lt;T&gt;()"| UP
@@ -1013,11 +1054,21 @@ flowchart LR
     PV -->|one way| CPV
     SP -->|observe| WP
     WP -->|"lock()"| SP
+    SP -->|one way| CSP
+    P -->|"consume, one way"| CSP
+    UP -->|adopt| CSP
+    SPT -->|share| CSP
+    CSP -->|lends| CPV
+    CSP -->|observe| CWP
+    SP -->|observe| CWP
+    WP -->|one way| CWP
+    CWP -->|"lock()"| CSP
 ```
 
 Emptiness propagates along every handle-to-handle edge: an empty source
 produces an empty result, whether lending, upcasting, adopting, or
-downcasting. Only calling through an empty handle violates the contract.
+downcasting. A call through an empty handle runs its empty behavior, which
+a lend or adoption carries over from the source (see "Empty handles").
 
 Lent views carry the standard limitations of views. A view lent from an
 owning `proxy` is tied to the proxy's contents, not just its lifetime:
@@ -1039,29 +1090,42 @@ Every knob lives on the handle rather than the facade. Registration is per
 one facade serves proxies of every policy, shared proxies, and views
 simultaneously. The checks fire at proxy construction, the first moment
 the policy meets the concrete type. (No facade-level knob has yet
-justified itself; the spec's additive design means one can be added later
-without touching existing registrations.)
+justified itself, and the spec's additive design means one can be added
+later without touching existing registrations.)
 
 ### Storage policies
 
-`proxy<F, Policy>` takes a `proxy_policy` NTTP whose default reproduces
+`proxy<F, Policy>` takes an `invocable_policy` NTTP whose default reproduces
 the baseline handle: a two-pointer inline buffer at `std::max_align_t`
 alignment, with heap fallback. A target stores inline when it fits the
 buffer, is no more strictly aligned, and is nothrow-move-constructible.
-Anything else is a unique-owned heap allocation. A default-constructed or
-moved-from proxy is empty, testable via `operator bool`, and calling
-through one is undefined behavior.
+Anything else is a unique-owned heap allocation. A default-constructed,
+moved-from, or reset proxy (`reset()`, or assigning `nullptr`) is empty,
+testable via `operator bool`, and calling through one runs the policy's
+empty-call behavior (see "Empty handles").
 
-The policy has three knobs. The `fixed_function` lesson is that the
-default SBO is sometimes a little too small, so `sbo_size` and `sbo_align`
-are settable, growing only (a target eligible for the default buffer stays
-eligible for every buffer). The `sbo_size` must be a multiple of
-`sbo_align`, since anything less would occupy the padded size anyway and
-waste the difference; `padded_size` computes a conforming value from a
-byte budget. `alloc` picks the strategy: `sbo_or_heap` (the
-default), `sbo_only` (an ineligible target is a clean `static_assert` at
+The policy is shared with `flexi_function` and lives in
+`invocable_policy.h`. Its `empty` knob selects the empty-call behavior,
+and `enforcement` whether that behavior is applied best-effort or exactly
+(both under "Empty handles"). The other three are storage knobs. The
+`fixed_function` lesson is that the default inline buffer is sometimes a
+little too small, so `inline_size` and `inline_align` are settable,
+growing only (a target eligible for the default buffer stays eligible for
+every buffer). The `inline_size` must be a multiple of `inline_align`,
+since anything less would occupy the padded size anyway and waste the
+difference, and `padded_size` computes a conforming value from a byte
+budget. `storage` picks the strategy: `inline_or_heap` (the default),
+`inline_only` (an ineligible target is a clean `static_assert` at
 construction), or `heap_only` (every target's address is stable, and the
 handle drops its buffer to become two words, like a view).
+
+A proxy's mode is `inlined` or `dynamic`. The shared vocabulary has a
+third value, `direct` (a stateless target stored nowhere), which
+`proxy_storage_mode_of` declines: the proxy contract resolves a target
+address at every turn (views lend it, impls take a `T&`, `extract` and
+`shared_proxy` adopt the allocation), so a stateless target is stored like
+any other. `proxy::inline_size` reports the buffer's capacity, 0 under
+`heap_only`.
 
 The chosen mode is baked into the owning table's identity. Tables are per
 (facade, birth facade, type, mode), and the mode discriminates the storage
@@ -1069,18 +1133,22 @@ union at runtime through the `relocate` slot. (The birth key serves
 downcasting, below.)
 
 Proxies of different facades and policies interconvert as rvalues through
-one converting constructor. The source's policy never forecloses a
+one converting constructor and its matching move assignment. The source's
+policy never forecloses a
 conversion: what matters is whether the destination can accommodate the
-target that actually arrives, decided per target at adoption time. An
-inline arrival relocates into the buffer when it fits, and otherwise
-re-boxes onto the heap. (The fit check is purely compile-time when the
-destination's buffer dominates the source's, which covers every
-same-policy move.) A heap arrival moves by pointer steal, or un-boxes into
-an `sbo_only` proxy's buffer, with the erased target's size and alignment
-checked against the buffer through the owning table.
+target that actually arrives, decided per target at adoption time. The
+rule is `invocables::implementation::adoption_of`, one statement shared with
+`flexi_function`, which answers with an `adoption` route. An inline
+arrival relocates into the buffer when it fits, and otherwise is boxed
+onto the heap. A heap arrival moves by pointer steal, or un-boxes into an
+`inline_only` proxy's buffer. An arrival with no home is refused. The
+owning table is the erased arrival's witness, supplying its size and
+alignment and whether it could live inline. (The fit check is purely
+compile-time when the destination's buffer dominates the source's, which
+covers every same-policy move.)
 
 Exactly the conversions that might change the storage mode can throw: the
-re-boxing allocation, or `std::length_error` when an erased target cannot
+boxing allocation, or `std::length_error` when an erased target cannot
 be stored inline and the policy forbids the heap. The latter is a real
 error path rather than a precondition, since the caller cannot inspect an
 erased target's size. A throw happens before anything moves, leaving the
@@ -1090,11 +1158,69 @@ The static probe `can_adopt(source)` answers up front whether a conversion
 would be accommodated, advertising that adoption is not always possible
 and letting a caller sidestep the throw. It is a property of the
 destination type against the source's runtime target, so it needs no
-destination instance. Only an `sbo_only` destination can ever answer no.
+destination instance. Only an `inline_only` destination can ever answer no.
+The converting move assignment runs it as a pre-flight, so a refused
+assignment throws before either side is touched and the destination keeps
+its own target; the converting constructor has nothing to protect and
+skips it.
 
 The mode-changing thunks and the other-mode table cross-links live in the
-owning tables (`sbo_to_heap`/`heap_to_sbo`), whose two modes reference
-each other by address.
+owning tables (`to_heap`/`to_inline`, pointing at the shared `box`/`unbox`
+in invocable_common.h), whose two modes reference each other by address.
+
+### Empty handles
+
+Every empty handle has a defined call behavior, selected for a `proxy` by
+`invocable_policy::empty` (see `on_empty`). `raise` throws
+`std::bad_function_call`, the default, as with `std::function`. `silent`
+returns a value-initialized result, or nothing. `terminate` terminates.
+
+The value is a floor, applied per method. A facade mixes methods that
+vary in result type and `noexcept`, and composition multiplies them, so
+one behavior applied uniformly would asymptote toward `terminate` as the
+method count grows. Instead, each method takes the mildest behavior at or
+above the floor that its signature admits. `silent` needs a
+value-initializable result, nothrow under `noexcept`. `raise` needs a
+method that may throw. `terminate` needs nothing. A `silent` proxy
+therefore raises through a method returning a reference, and any proxy
+terminates through a `noexcept` method it cannot silence. This is where
+`proxy` departs from `flexi_function`, whose single signature is chosen
+deliberately and which refuses a behavior it cannot honor at compile time.
+`policy_enforcement::strict` restores that strictness for a proxy. Any
+method that would take a behavior other than the floor is then a compile
+error, one per offending method with the method named, so flipping the
+default and rebuilding audits a whole facade at once.
+
+The behavior is the proxy type's own and never travels with a target. A
+converting move puts the target under the destination's behavior and
+leaves the source empty under its own, exactly as `flexi_function` does.
+
+The views and the shared and weak handles carry no policy. A handle built
+empty, emptied by a move, or produced by an expired `lock()` raises. The
+`raise` table is the one that is neither harsh where an exception is
+possible, as `terminate` would be, nor able to hide an error, as `silent`
+would. Rust's `Option<Box<dyn Trait>>`, whose `unwrap` panics on `None`,
+is the precedent. A view lent from an empty `proxy`, and a `shared_proxy`
+adopted from one, mirror that proxy's behavior instead, and pass it along
+through further lends and upcasts. Two empty views of one type can
+therefore behave differently by provenance, the same fact the birth key
+already established for downcasts. A failed `try_downcast` of an empty
+handle yields a handle built empty, since an empty table has no ancestry
+to search.
+
+Mechanically, an empty handle's table pointer names an empty table for
+its facade and floor, `empty_vtable_for` for the views and the shared
+tier, and `empty_owning_vtable_for` for `proxy`. Its dispatch slots hold
+one empty thunk per method and its housekeeping slots are null.
+For `proxy`, emptiness is a pointer compare against that table. The views
+and the shared handles test their target pointer instead, and their empty
+table only supplies the behavior. Either way the call path has no branch. Because the owning table embeds the view table, and every
+handle conversion reads it through the same base-pointer walk (the empty
+tables' base pointers lead to the base facades' empty tables of the same
+floor), mirroring costs no code at the lend sites. The one wrinkle is
+`relocate`. An empty owning table's is a no-op rather than null, so that
+`target` resolves to the buffer, a valid address the empty thunk never
+reads, instead of a heap pointer the proxy never wrote.
 
 ### Owning upcast
 
@@ -1141,17 +1267,24 @@ pointers are never adopted and never exposed.
 `proxy<F>` constructs from a `std::unique_ptr<T>` (also spelled
 `make_proxy<F>(std::move(up))`), adopting the allocation as-is onto the
 heap path. Nothing is copied or moved, and the address stays stable. An
-`sbo_only` proxy instead un-boxes the target into its buffer, the fit
+`inline_only` proxy instead un-boxes the target into its buffer, the fit
 being a compile-time fact here since the type is concrete.
 
-`extract<T>()` is the inverse. It verifies `T` against the owning table's
-type tag at runtime (the address of a per-type static); on a mismatch or
-an empty proxy, the result is null and the proxy is untouched. It hands a
+`extract<T>()` is the inverse. It verifies `T` against the table's type
+tag at runtime (the address of a per-type static). On a mismatch or an
+empty proxy, the result is null and the proxy is untouched. It hands a
 heap allocation over as-is, and moves an inline target onto the heap
 first.
 
 A `unique_ptr` converts to `shared_ptr`, so this also buys the shared
-tier's interop.
+tier's interop. The shared tier's own inverse is `try_share<T>()`, verified
+the same way through the table's type tag. It hands out a typed
+`std::shared_ptr<T>` (`<const T>` through a const handle) that co-owns the
+target rather than removing it, because shared ownership can never be
+taken back but can always be shared further. The result outlives every
+handle if it is the last owner. This is the payoff of `std::shared_ptr` as
+the engine: the typed owner and the erased handles share one control
+block.
 
 ### Downcasting (vtable-carried RTTI)
 
@@ -1165,8 +1298,8 @@ Every pointer a table embeds (the direct-base tables, the other-mode
 sibling, the birth ancestry) stays within the same born family.
 Construction over a concrete target lands on the birth-keyed family, and
 every conversion stays in it, with no birth carried anywhere in the
-handles. The table type stays per facade; the birth key only selects which
-static object is pointed at, so handle layout is untouched.
+handles. The table type stays per facade, and the birth key only selects
+which static object is pointed at, so handle layout is untouched.
 
 (An earlier design carried the birth as an opt-in policy-gated pointer in
 the handle. The vtable-carried form replaced it, deleting the policy knob,
@@ -1195,12 +1328,11 @@ ancestry. This is the RTTI the library otherwise does without, reinvented
 on the reinvented vtable.
 
 Downcasting spans the views and the shared tier the same way. The view
-tables took the same born key, defaulting to the facade itself. That
+tables take the same born key, defaulting to the facade itself. That
 default is the birth of every directly built view, so the plain spellings
-were untouched. The view table grew exactly one slot: a pointer to a
-parallel view ancestry whose entries reference view tables rather than
-owning ones, so view-only code never instantiates destroy, relocate, or
-copy thunks.
+are untouched. The view table's `ancestry` points at a parallel view
+ancestry whose entries reference view tables rather than owning ones, so
+view-only code never instantiates destroy, relocate, or copy thunks.
 
 The owning table's embedded view table is built with the owner's birth,
 and a view lent from a `proxy` or `shared_proxy` points into that born
@@ -1214,17 +1346,18 @@ the instance-level deep-const guardrail exactly as copying does;
 tier stays closed.) `shared_proxy` has an lvalue flavor that shares,
 minting another owner of the one target, and an rvalue flavor that
 transfers, consuming the source only on success. A birth adopted from a
-consumed `proxy` carries over. `weak_proxy` deliberately has no downcast,
-as it has no dispatch: `lock()` first.
+consumed `proxy` carries over. The weak proxies deliberately have no
+downcast, because they have no dispatch: `lock()` first.
 
 ### Shared and weak ownership
 
-`shared_proxy<F>` is Rust's `Rc<dyn Trait>`: a `std::shared_ptr<void>`
-plus the same per-(facade, type) dispatch table the views use. The control
-block already type-erases destruction, so no owning table is needed. There
-is no inline mode, so the target's address is always stable. And the
-handle is copyable for free, a copy sharing the one target rather than
-cloning it.
+`shared_proxy<F>` is the shared-owning handle (Rust's `Rc<dyn Trait>` in
+shape, though see the const flavor below for which one it really matches):
+a `std::shared_ptr<void>` plus the same per-(facade, type, birth) dispatch
+table the views use. The control block already type-erases destruction, so no
+owning table is needed. There is no inline mode, so the target's address
+is always stable. And the handle is copyable for free, a copy sharing the
+one target rather than cloning it.
 
 It constructs from `std::shared_ptr<T>` (sharing with outside holders, who
 keep their typed view of the same object), from `std::unique_ptr<T>`, or
@@ -1234,6 +1367,20 @@ from a shared proxy exactly as from an owning one. Deep const is the same
 guardrail it is on the views: copying escapes it. Upcasts are undoable
 through `try_downcast`, in a sharing lvalue flavor and a transferring
 rvalue one (see "Downcasting").
+
+`const_shared_proxy<F>` is the guarantee tier, as `const_proxy_view` is
+for the views: constness is part of the type, so it survives copying, only
+the const-qualified methods dispatch, only `const_proxy_view` lends from
+it, and `try_downcast` yields another const handle. It converts from a
+`shared_proxy` by copy (sharing) or by move (transferring), the
+`shared_ptr<const T>` from `shared_ptr<T>` conversion, and adopts from a
+`std::shared_ptr` or `std::unique_ptr` of `const T` or of `T`, or an owning
+`proxy`, or is made by `make_const_shared_proxy`. There is no path back
+to mutability. This is what Rust's `Rc<dyn Trait>` actually is, since
+shared access is immutable access there, and `Rc<RefCell<dyn Trait>>` is
+the mutable spelling that `shared_proxy` matches. ngcpp expresses
+constness through its conventions and observers rather than through a
+separate shared handle.
 
 ngcpp built this tier bespoke (`make_proxy_shared`, compact internal
 refcounts) to beat `shared_ptr` overhead. This library reuses std, and
@@ -1249,8 +1396,8 @@ atomic whether or not the sharing crosses threads.
 
 Unique ownership converts into shared, consuming the proxy. A heap-stored
 target is adopted with its allocation intact, the owning table's destroy
-slot becoming the control block's deleter; an inline target moves onto the
-heap first. On a control-block allocation failure, the target is destroyed
+slot becoming the control block's deleter. An inline target moves onto
+the heap first. On a control-block allocation failure, the target is destroyed
 rather than leaked and the source is left empty. That is `shared_ptr`'s
 own contract for its deleter-taking constructors, and a weaker guarantee
 than proxy-to-proxy conversions.
@@ -1258,17 +1405,20 @@ than proxy-to-proxy conversions.
 The reverse conversion deliberately does not exist, statically. Unique
 ownership cannot be recovered from a shared target, even at a use count of
 one, without racing the other owners, which is also why `std::shared_ptr`
-has no `release`. Likewise, nothing but a `shared_proxy` converts to a
-`weak_proxy`, since there is no shared ownership to observe.
+has no `release`. Likewise, nothing but a shared handle converts to a
+weak one, since otherwise there is no shared ownership to observe.
 
-`weak_proxy<F>` observes without owning, via `std::weak_ptr<void>`. It
-deliberately carries no dispatch. Access always goes through `lock()`,
-which returns a `shared_proxy` (empty when every owner is gone), so there
-is no way to call through a target that might be dying. `expired()` is the
-usual advisory answer. Weak proxies upcast among themselves like every
-other handle, by copy or by move and without locking, so an expired
-observation upcasts as well as a live one. Expiry stays `lock()`'s
-business.
+`weak_proxy<F>` observes without owning, via `std::weak_ptr<void>`.
+`const_weak_proxy<F>` observes either shared flavor, or converts from a
+`weak_proxy`, and locks to the const flavor, so mutability never reopens
+through it. The mutable `weak_proxy` refuses the const handles for the
+same reason. Neither carries any dispatch, deliberately. Access always
+goes through `lock()`, which returns the shared handle of the same
+constness (empty when every owner is gone), so there is no way to call
+through a target that might be dying. `expired()` is the usual advisory
+answer. Weak proxies upcast among themselves like every other handle, by
+copy or by move and without locking, so an expired observation upcasts as
+well as a live one. Expiry stays `lock()`'s business.
 
 ## Mechanism
 
@@ -1276,8 +1426,8 @@ business.
   For every `method` of `F`,
   `proxy_impl<F, T>::on(method_key<...>, T&, ...)` must be invocable and
   return the right type. Concepts gate (the
-  converting constructor, static-dispatch template bounds); they cannot
-  generate, since C++ has no introspection over requires-expressions. The
+  converting constructor, static-dispatch template bounds), but they
+  cannot generate, since C++ has no introspection over requires-expressions. The
   facade is the source of truth and the concept is derived from it, never
   the reverse. Both binding routes are registration-gated, and the concept
   carries an explicit opt-in term besides: the pair must be registered, or
@@ -1289,10 +1439,10 @@ business.
 - The registration slot mirrors the enum registry idiom. An ADL-found
   `corvid_proxy_spec(F*, T*)` hook returns a spec object created by
   `make_proxy_spec<F, T>()` (as `make_sequence_enum_spec` is returned from
-  `corvid_enum_spec`), read through a central `auto` variable template
-  `proxy_spec_v<F, T>`, with `ProxyRegistered<F, T>` as the derived
-  predicate. The hook keeps the `corvid_` protocol prefix because it is
-  declared in user namespaces; the maker keeps the spec type's name out of
+  `corvid_enum_spec`), with `ProxyRegistered<F, T>` the predicate derived
+  from the hook and `proxy_spec_v<F, T>` the central `auto` variable
+  template that exposes the spec for capability probes. The hook keeps the `corvid_` protocol prefix because it is
+  declared in user namespaces. The maker keeps the spec type's name out of
   user code, resolving the hook-vs-type name confusion. Because either
   namespace can host the hook, a type you do not own can be conformed to a
   facade you do not own (the case Rust's orphan rule forbids). Each
@@ -1304,13 +1454,21 @@ business.
   is the carried impl (`SpecCarriesImpl`), described under "User-facing
   shape".
 - Conversion to a proxy instantiates one thunk per method
-  (`+[](void* p, args...) { return proxy_impl<F, T>::on(...); }`) and
-  stores a pointer to the resulting per-`(F, T)` `static constexpr` table.
+  (`[](void* p, args...) { return proxy_impl<F, T>::on(...); }`) and
+  stores a pointer to the resulting per-(F, T, birth) `constexpr inline`
+  table.
   Same cost model as a vtable call, and as Rust `dyn`: the table pointer
   moves out of the object and into the (fat) handle. The full walk of
   this machinery is under "Tables and thunks".
-- Method signatures come in four flavors, `const` crossed with `noexcept`.
-  For a `noexcept` method, conformance additionally requires the binding
+- Method signatures come in four flavors, `const` crossed with `noexcept`,
+  and those are the only shapes: a reference qualifier is a
+  `static_assert`, because the signature serves every handle in the family
+  and a handle's value category says nothing about the target's (a view is
+  a copyable pair of pointers, a shared handle has other owners, so an `&&`
+  method would let either move out of an object it does not own). This is
+  `std::function_ref`'s rule; a consuming operation belongs in the binding
+  or in `proxy::extract`. For a `noexcept` method, conformance
+  additionally requires the binding
   itself to be noexcept-invocable, the thunk pointer type carries
   `noexcept`, and `call` through either handle is itself conditionally
   noexcept. The condition covers the argument conversions as well as the
@@ -1324,12 +1482,14 @@ business.
   break.
 - The owning table carries housekeeping slots in addition to the facade
   methods, the analog of Rust's drop glue: destroy, relocate (null marking
-  the heap mode), copy (null marking an uncloneable target), a type
-  identity tag for typed extraction, the birth ancestry for
-  `try_downcast`, and the direct bases' owning tables for the owning
-  upcast. The view table carries none of the lifetime machinery, which is
-  why the view was built first; its one slot beyond dispatch is the
-  view-ancestry pointer for its own `try_downcast`.
+  the heap mode), copy (null marking an uncloneable target), the target's
+  footprint for adoption, the mode-changing pair and other-mode sibling
+  for boxing and un-boxing, the birth ancestry for `try_downcast`, and the
+  direct bases' owning tables for the owning upcast. The view table
+  carries none of the lifetime machinery, which is why the view was built
+  first. Its three slots beyond dispatch are the view-ancestry pointer for
+  its own `try_downcast`, the type tag that `extract` and `try_share`
+  verify against, and the direct bases' view tables for the view upcast.
 - Const is handled on two axes. Every handle is deep-const as an instance:
   only const-qualified methods dispatch through a const handle, enforced
   by a constraint on the const `call` overload. For the copyable views
@@ -1342,26 +1502,27 @@ business.
   view's per-(facade, type) dispatch table (the non-const slots are simply
   unreachable, so no const-sliced table or index remapping is needed). The
   two views share storage and the const-method `call` through
-  `details::view_base<F, Const>`. The mutable view layers the unrestricted
-  non-const overload on top and re-exposes the inherited one with a
-  using-declaration.
-- Invariant: `proxy<F>` and `proxy_view<F>` themselves satisfy
-  `Proxiable<_, F>`, so generic code constrained on the facade accepts
-  concrete and erased arguments interchangeably (Rust: `dyn Trait`
+  `details::view_base<F, Access>`, and the two shared handles do the same
+  through `details::shared_base<F, Access>`. The mutable flavor layers the
+  unrestricted non-const overload on top and re-exposes the inherited one
+  with a using-declaration.
+- Invariant: `proxy<F>`, `proxy_view<F>`, and `shared_proxy<F>` themselves
+  satisfy `Proxiable<_, F>`, so generic code constrained on the facade
+  accepts concrete and erased arguments interchangeably (Rust: `dyn Trait`
   implements `Trait`). Implemented as library-provided `proxy_impl`
   bindings whose `on` forwards through `call` with conditional `noexcept`
   (so the invariant survives noexcept methods). A single deduced-handle
   binding serves const and mutable handles alike, with deep const enforced
-  by the handle's own `call` overloads. For
-  `const_proxy_view` the invariant holds exactly for all-const facades (as
-  with Rust `&dyn`, whose `&mut self` methods are uncallable). Its
-  binding's `on` is constrained to const methods, so a mixed facade fails
+  by the handle's own `call` overloads. For `const_proxy_view` and
+  `const_shared_proxy` the invariant holds exactly for all-const facades
+  (as with Rust `&dyn`, whose `&mut self` methods are uncallable). Their
+  bindings' `on` is constrained to const methods, so a mixed facade fails
   conformance cleanly at overload resolution rather than erroring during
   return type deduction.
 
 ## Tables and thunks
 
-The bullets above say what the tables achieve; this section walks the
+The bullets above say what the tables achieve. This section walks the
 machinery itself. The examples use the `constable` fixture, a
 marshal-shaped type registered for `marshal` and the `gunslinger` it
 extends.
@@ -1404,20 +1565,23 @@ table of the same thunks.
 ### The dispatch table
 
 `vtable_t`, the table behind the views (and embedded in the owning
-table), has three parts:
+table), has four parts:
 
 - `thunks`: a `std::tuple` holding one thunk pointer per flattened slot,
   bases' methods first, then own. It is a tuple rather than an array
   because each signature (and `noexcept` flavor) is its own pointer type.
 - `ancestry`: a pointer to the born family's birth ancestry, the flat
   array `try_downcast` searches.
+- `type_tag`: the target's no-RTTI identity, the address of a per-type
+  static, which is how `extract<T>` and `try_share<T>` verify the exact
+  type they name.
 - `bases`: one pointer per direct base facade, to that base's table for
   the same target and birth. This is what makes upcasting a pointer read.
 
-Each table is a `static constexpr` variable, `vtable_for<F, T, Born>`,
-so it lives in read-only storage and is shared by every handle over that
-combination. The handle itself is two words, a target pointer and a
-table pointer: the fat-handle layout, with the table pointer moved out
+Each table is a `constexpr inline` variable template instance,
+`vtable_for<F, T, Born>`, so it lives in read-only storage and is shared
+by every handle over that combination. The handle itself is two words, a table pointer and a
+target pointer: the fat-handle layout, with the table pointer moved out
 of the object (where a virtual base would put it) and into the handle.
 
 For a `proxy_view<marshal>` over a `constable`:
@@ -1425,17 +1589,19 @@ For a `proxy_view<marshal>` over a `constable`:
 ```mermaid
 flowchart LR
     subgraph H["proxy_view of marshal (two words)"]
-        TP["target_: void* to the constable"]
         VP["vtable_: table pointer"]
+        TP["target_: void* to the constable"]
     end
     subgraph MT["marshal table for constable"]
         MK["thunks: fire, describe, reload, shots, arrest"]
         MB["bases: gunslinger's table"]
         MA["ancestry"]
+        MG["type_tag: constable"]
     end
     subgraph GT["gunslinger table for constable, born marshal"]
         GK["thunks: fire, describe, reload, shots"]
         GA["ancestry"]
+        GG["type_tag: constable"]
     end
     subgraph AN["view ancestry for (marshal, constable)"]
         A0["tag of marshal -> marshal's table"]
@@ -1451,10 +1617,10 @@ flowchart LR
 
 Upcasting `proxy_view<marshal>` to `proxy_view<gunslinger>` re-points the
 handle at the embedded base table (`upcast_vtable` resolves the route at
-compile time and follows one `bases` pointer per composition level); the
+compile time and follows one `bases` pointer per composition level). The
 target pointer does not change. The ancestry is the reverse map: an
 array of (facade tag, table) pairs covering the birth facade and every
-facade it extends, where a tag is the address of an empty per-facade
+facade it extends, where a tag is the address of a byte-sized per-facade
 static, the library's no-RTTI identity. `try_downcast` is a linear scan
 of that array comparing tag addresses, and the matched entry hands back
 the right table, already keyed to the same birth.
@@ -1497,36 +1663,41 @@ absent capability throughout:
   (null marks a heap-mode table, whose target moves by pointer steal),
   and cloning (null marks an uncopyable target, which is what
   `can_clone` reads).
-- `to_heap` + `heap_table`, `to_sbo` + `sbo_table`: the mode-changing
+- `to_heap` + `heap_table`, `to_inline` + `inline_table`: the mode-changing
   pairs. Each mode's table points across at its sibling of the other
-  mode, so an adopting proxy can re-box an inline arrival or un-box a
-  heap one and land on the right table (`sbo_table` is null for a target
+  mode, so an adopting proxy can box an inline arrival or un-box a
+  heap one and land on the right table (`inline_table` is null for a target
   that can never live inline, lacking a nothrow move).
-- `type_tag`, `size`, `align`: the target's no-RTTI identity (the
-  address of a per-type static) and footprint, which is how `extract<T>`
-  verifies its type and how `can_adopt` checks an erased arrival against
-  a buffer.
+- `size`, `align`: the target's footprint, which is how `can_adopt`
+  checks an erased arrival against a buffer (its identity is the embedded
+  table's `type_tag`).
 - `ancestry` and `bases`: as on the dispatch table, but over owning
   tables, and per storage mode, so a downcast or upcast lands on a table
   whose lifetime thunks match where the target actually lives.
 
+An empty `proxy` points at the empty table for its facade and floor
+(`empty_owning_vtable_for`), the same shape with every housekeeping slot
+null, except `relocate`, a no-op that keeps `target` resolving to the
+buffer (see "Empty handles").
+
 ```mermaid
 flowchart LR
     subgraph P["proxy of marshal"]
-        SB["storage_: inline buffer or heap pointer"]
         VP2["vtable_: owning table pointer"]
+        SB["storage_area_: inline buffer or heap pointer"]
     end
     subgraph OS["inline-mode owning table"]
         V1["vt: embedded dispatch table"]
         L1["destroy, relocate, copy"]
         X1["to_heap + heap sibling"]
-        I1["type_tag, size, align"]
+        I1["size, align"]
         N1["ancestry (inline), bases"]
     end
     subgraph OH["heap-mode owning table"]
         V2["vt: embedded dispatch table"]
         L2["destroy, copy (relocate null)"]
-        X2["to_sbo + inline sibling"]
+        X2["to_inline + inline sibling"]
+        I2["size, align"]
         N2["ancestry (heap), bases"]
     end
     VP2 --> OS
@@ -1555,13 +1726,13 @@ owning the model and forwarding through natural member names.
 
 It meets both hard requirements (no macros, natural `p.walk()` syntax).
 Its per-method typing cost ties the table design at three name-spellings
-(virtual declaration, model override, handle forwarder; versus `method<>`
-declaration, boilerplate `on`, `api` forwarder). Call cost also ties: a
+(virtual declaration, model override, and handle forwarder, against
+`method<>` declaration, boilerplate `on`, and `api` forwarder). Call cost also ties: a
 virtual call and a table thunk are the same shape.
 
 It was rejected on structural grounds. Composition (`extends`) is table
 concatenation instead of multiple inheritance. Facade upcasting is a table
-view instead of a cross-cast. SBO relocation is a table slot instead of
+view instead of a cross-cast. Inline relocation is a table slot instead of
 virtual clone/move on a polymorphic buffer. `proxy_view` stays two plain
 pointers with no embedded polymorphic object. And the `method<"...">` list
 keeps the facade enumerable, which `prox::codegen` already leans on and
@@ -1572,7 +1743,7 @@ A facade-holding-`T*` variant without the hidden ABC (handle templates
 deriving from a forwarding facade) was also sketched. It spells each
 method once, but erases nothing: handles templated on the concrete type
 cannot share a container or a non-template function signature. That is
-static dispatch, already free via `proxiable auto&`.
+static dispatch, already free via `Proxiable<F> auto&`.
 
 The general rule: once a call crosses an erasure boundary, the method name
 must be spelled on both sides of it, plus once for member-call sugar.
@@ -1625,10 +1796,10 @@ What it costs:
   most of what could drift, but the edges exist.
 - Failure surfaces are `static_assert` detonators, deliberately lazy at
   first use, so an error can appear far from the mistake (a bad facade
-  detonates at first machinery use; a forgotten using-declaration in an
-  `api` surfaces at some later validating registration). Some detonators
-  trail follow-on noise errors; the interesting diagnostics are kept on
-  record as comments in the test.
+  detonates at first machinery use, and a forgotten using-declaration in
+  an `api` surfaces at some later validating registration). Some
+  detonators trail follow-on noise errors. The interesting diagnostics are
+  kept on record as comments in the test.
 - The consteval table graph is fragile to extend. The identity rules it
   taught (see the retrospective) are documented, but nothing enforces
   them, and the failure mode is an inscrutable mid-instantiation error.
@@ -1652,7 +1823,7 @@ already pinned.
    dispatch-table synthesis is exercised in isolation: the conformance
    concepts, const methods, reference returns, heterogeneous containers,
    and the `"name"_method` UDL.
-2. Ownership basics. The owning `proxy` with SBO and heap fallback,
+2. Ownership basics. The owning `proxy` with inline storage and heap fallback,
    `noexcept` method flavors, deep const on every handle,
    `const_proxy_view`, and the self-conformance invariant.
 3. Sugar and composition. The `api` mixin, `validate_api` at registration,
@@ -1673,7 +1844,7 @@ already pinned.
 7. Per-name overload sets, first within a facade, then extended across
    extends levels once "different functions sharing a spelling" was
    accepted as the model. Resolution first shipped as a two-tier
-   approximation of overload ranking with pinned divergences; a later
+   approximation of overload ranking with pinned divergences. A later
    round replaced it with the conscripted-compiler probe (`rank_set`),
    deleting the divergences.
 8. Codegen and never-a-value facades: `facade`'s deleted default
@@ -1719,48 +1890,64 @@ mid-instantiation are unforgiving:
 
 Smaller lessons:
 
-- Compile-time-only machinery is `consteval`, not `constexpr`. Only
-  genuinely runtime-callable paths (`call`, the converting constructors,
-  the makers) are `constexpr`.
+- Compile-time-only machinery is `consteval`, not `constexpr`. Only the
+  views' genuinely runtime-callable paths (`call`, their constructors,
+  the view makers) are `constexpr`; the owning and shared handles allocate
+  or manage lifetimes, so theirs are not.
 - In template contexts, `call` needs the dependent-name `template` keyword
   (`pv.template call<"fire">(1)`), a real ergonomic wart that the `api`
   mixin hides and that helped pin the sugar decision.
 - `fixed_string.h` originally lived in the strings band, which inverted
-  the layering. It moved to `corvid/meta/` (2026-07-08) and joined the
-  `meta.h` umbrella.
+  the layering. It moved to `corvid/meta/` and joined the `meta.h` umbrella.
 
 ## Placement
 
-The header is `corvid/meta/proxy.h`, namespace `corvid::meta::prox`,
-deliberately NOT inline: `facade`, `method`, and `key` are too generic to
-dump into `corvid`.
+The headers live in `corvid/meta/invoke/`, namespace `corvid::meta::prox`,
+deliberately NOT inline: `facade`, `method`, and `name` are too generic to
+dump into `corvid`. The family splits by handle, with the machinery in its
+own header: `proxy_common.h` (facades, registration, and dispatch),
+`proxy_view.h` (`proxy_view` and `const_proxy_view`), `owning_proxy.h`
+(`proxy`), and `shared_proxy.h` (the shared and weak handles of both
+constness flavors), each including the one before it. The handles work as
+a unit, so the `proxy.h` umbrella is the header to include. The split
+exists to keep each header to one or two classes, for maintenance and for
+reading, not for picking and choosing.
 
 The call-site vocabulary (`proxy`, `proxy_view`, `const_proxy_view`,
-`shared_proxy`, `weak_proxy`, `proxy_policy`, `proxy_alloc`, `make_proxy`,
-`make_proxy_view`, `make_shared_proxy`, `Proxiable`, `proxy_impl_base`) is
-exported into `corvid::meta` by using-declarations, so consuming code
-spells `proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
-registration) needs `prox::`, the domain those authors already work in.
+`shared_proxy`, `const_shared_proxy`, `weak_proxy`, `const_weak_proxy`,
+`make_proxy`, `make_proxy_view`, `make_const_proxy_view`,
+`make_shared_proxy`, `make_const_shared_proxy`, `Proxiable`,
+`proxy_impl_base`) is exported into `corvid::meta` by using-declarations,
+so consuming code spells
+`proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
+registration) needs `prox::`, the domain those authors already work in. The
+shared policy vocabulary follows the same rule from its own non-inline
+namespace, `corvid::meta::invocables`: `invocable_policy`, `on_empty`,
+`constant_fn`, and `runtime_fn` are exported. `storage_policy` and the rest
+stay home, reached through `invocable_policy`'s fluent starting points
+(`basic`, `heap`, `fixed`) or qualified.
 
-The header stays out of the `meta.h` umbrella to limit include weight (the
-formatting.h precedent); include `corvid/meta/proxy.h` directly. Promote
-to a `corvid/proxy/` family only if it sprawls. Tests:
-`tests/portable/proxy_test.cpp`.
+The family stays out of the `meta.h` umbrella to limit include weight
+(the formatting.h precedent). Include `corvid/meta/invoke/proxy.h`
+directly. It shares `corvid/meta/invoke/` with `flexi_function.h` and the
+invocable headers. Tests: `tests/portable/proxy_test.cpp`.
 
 One structural note: `method` derives from its `key`, so a method tag is
 usable anywhere its key is (subsumption).
 
 ## Test fixture map
 
-The fixtures in [proxy_test.cpp](../../tests/portable/proxy_test.cpp) form
+The fixtures in [proxy_test.cpp](../../../tests/portable/proxy_test.cpp) form
 one western-themed world, reused across the feature tiers. The
 `gunslinger` family carries composition (the `posse_leader` diamond and
 the `war_correspondent` sibling collision). The `arsenal` chain carries
 the per-name overload sets. The `lockbox` chain carries the ownership and
 lifetime tests. The solo facades pin one feature each (`hair_trigger`:
-noexcept flavors; `mortar`: the `api_check::off` opt-out; `census`: the
+noexcept flavors; `town_crier`: the argument-conversion half of an erased
+`noexcept`; `mortar`: the `api_check::off` opt-out; `census`: the
 all-const invariant; `assayer`: the overload-absorption blind spot in
-`validate_api`; `till`: a non-class (`int`) target).
+`validate_api`; `till`: a non-class (`int`) target; `keepsake`: a
+name-only marker facade, whose conformance rides on registration alone).
 
 The facades, with extends edges pointing from the derived facade to its
 base:
@@ -1781,10 +1968,12 @@ flowchart BT
     lockbox["lockbox: add, gold<br>(no api, namespace-scope boilerplate)"]
     vault["vault (pure aggregation)"] --> lockbox
     hair_trigger["hair_trigger: fire, jams (noexcept)"]
+    town_crier["town_crier: cry (noexcept, by-value argument)"]
     mortar["mortar: lob (api deviates; api_check off)"]
     census["census: describe (all const)"]
     assayer["assayer: weigh x2 (api misses one forwarder)"]
     till["till: amount (non-class target)"]
+    keepsake["keepsake: (name only)"]
 ```
 
 The conforming types, each attached to the facade its registration anchors
@@ -1795,6 +1984,7 @@ the edge labels name the registration route):
 flowchart LR
     lawman -.->|boilerplate| gunslinger & hair_trigger
     lawman -.->|carried impl| census
+    crier -.->|boilerplate| town_crier
     deputy -->|C++ inheritance| lawman
     robber -.->|carried impl| gunslinger
     sheriff -.->|partial override| gunslinger
@@ -1810,12 +2000,18 @@ flowchart LR
     coffer -.->|chain hook| vault
     ingot -.->|boilerplate| lockbox
     cursed_coffer -.->|boilerplate| lockbox
+    tin -.->|boilerplate| lockbox
+    tin -.->|registration only| keepsake
     int -.->|carried impl| till
 ```
 
-Three fixtures are deliberately missing from the conformance edges.
+Four fixtures are deliberately missing from the conformance edges.
 `cowboy` has the right shape and no registration, so nominal conformance
-keeps it non-proxiable. `vigilante` registers for `marshal` alone through
+keeps it non-proxiable. `drifter` has the right shape and two hooks, but
+each hook returns a spec naming the wrong pair (the wrong target in one,
+the wrong facade in the other), and a spec counts as registration only for
+the pair its hook is keyed on, so a copy-paste slip blocks conformance
+instead of silently registering. `vigilante` registers for `marshal` alone through
 a plain hook, without the `gunslinger` level, so it is not proxiable at
 all (conformance is per facade, and the derived facade needs the whole
 chain). `robber`'s `hair_trigger` registration carries bindings that are
@@ -1833,7 +2029,7 @@ each would buy a spelling at the call site, not a capability, because
 the binding layer already reaches everything involved.
 
 Operator dispatch would let the handle spell the target's operators
-(`p(x)`, `p1 == p2`; ngcpp's `operator_dispatch`). Everything here is
+(`p(x)`, `p1 == p2`, as ngcpp's `operator_dispatch` does). Everything here is
 keyed by a `fixed_string` name, and operators have no identifier to key,
 but only the blessed convention is missing. A binding can reach a
 target's operator today (`on(method_key<"invoke">, T& t, int x)` may
@@ -1846,7 +2042,7 @@ have operators of their own, and `p1 == p2` should not have to choose
 between comparing handles and comparing targets.
 
 Conversion dispatch would let the handle convert to another type by
-delegating to the target (ngcpp's `conversion_dispatch`); here a facade
+delegating to the target (ngcpp's `conversion_dispatch`). Here a facade
 cannot declare `operator T()`, and the spelling is a named method
 (`to_string()`). This one was dodged rather than deferred. The handle
 family already carries a delicate web of converting constructors
@@ -1857,27 +2053,27 @@ site rather than merely equivalent.
 
 Allocator plumbing would thread a user allocator through the owning tier
 (ngcpp's `allocate_proxy`): allocate the target through it, remember it,
-free through it, use it for clones and re-boxing. The heap mode here is
+free through it, use it for clones and boxing. The heap mode here is
 plain `new`/`delete`, and an allocator would infect the whole
-owning-table ABI. `destroy`, `copy`, `to_heap`, and `to_sbo` would all
+owning-table ABI. `destroy`, `copy`, `to_heap`, and `to_inline` would all
 need to reach it, meaning per-instance storage or per-allocator table
 families, plus an allocator-compatibility axis on every adoption. The
 allocation story runs through policy instead: hot targets live inline
-under SBO, `sbo_only` outlaws the heap outright, `make_shared_proxy`
+when inline, `inline_only` outlaws the heap outright, `make_shared_proxy`
 already gets the one-allocation layout, and a target that must live in
 an arena can stay there and be viewed, since views do not own.
 
-RTTI is capped at two narrow identities, both address compares of empty
-statics: `type_tag_v<T>` lets `extract<T>` verify the exact concrete
-type it names, and `facade_tag_v` plus the birth ancestry lets
+RTTI is capped at two narrow identities, both address compares of
+byte-sized statics: `type_tag_v<T>` lets `extract<T>` and `try_share<T>` verify the
+exact concrete type they name, and `facade_tag_v` plus the birth ancestry lets
 `try_downcast` recover the born facade chain. Scoped out is everything
 open-ended: `typeid` access, type names, `dynamic_cast`-style queries
 against arbitrary types (ngcpp's `proxy_typeid`). The two probes cover
 the legitimate questions, and anything broader invites switch-on-type
 code, the anti-pattern erasure exists to remove. The cap also keeps
-`proxy.h` free of `<typeinfo>` (the RTTI demangling lives only in
-`proxy_codegen.h`, a dev-time tool in its own header for exactly this
-reason).
+the proxy headers free of `<typeinfo>` (the RTTI demangling lives in
+naming.h, which only `proxy_codegen.h` pulls in, a dev-time tool in its
+own header for exactly this reason).
 
 That the four were never missed is less about restraint than
 redundancy: operators and conversions were always reachable through
@@ -1890,10 +2086,10 @@ and views, and identity is handled by the two tags.
   boilerplate impl itself from the facade's method list, removing even the
   facade author's forwarding lines. Registration-first is what makes this
   additive rather than a rewrite. Until then, `prox::codegen` generates
-  the same artifacts as source to paste; reflection deletes the paste
+  the same artifacts as source to paste, and reflection deletes the paste
   step.
 - `std::formatter` bridge once the formatter forwarding helper exists (see
-  [../strings/roadmap.md](../strings/roadmap.md) stage 2); the ngcpp
+  [../../strings/roadmap.md](../../strings/roadmap.md) stage 2). The ngcpp
   analog is `skills::format`.
 - Spec-carried member-pointer binding: a `corvid_proxy_spec` returning a
   spec that holds `&robber::shoot, &robber::rearm`, bound positionally to
@@ -1907,3 +2103,36 @@ and views, and identity is handled by the two tags.
   `std::copyable` with no runtime condition (the shape of ngcpp's
   `support_copy`). `clone()`/`can_clone()` cover the need at runtime, so
   this waits for a use case that wants the compile-time guarantee.
+
+Consolidations deferred from the final review of the handle family, each
+mechanical and with no behavior change:
+
+- `try_downcast` is spelled seven times: once on `proxy` (an rvalue method,
+  since it consumes the target only on success), once each on `proxy_view`
+  and `const_proxy_view`, and a `const&`/`&&` pair on each of `shared_proxy`
+  and `const_shared_proxy`. The six view and shared bodies are the same
+  three lines over `details::find_downcast_table<D, F>`, differing only in
+  the result type and, for the two `&&` overloads, the reset of the source's
+  table to its empty table. The owning one walks the ancestry itself and
+  then relocates.
+- `weak_proxy` and `const_weak_proxy` are two whole classes with no shared
+  base, where `shared_proxy` and `const_shared_proxy` sit on
+  `details::shared_base<F, Access>` and the two views on `view_base`. Each
+  weak flavor carries its own table pointer, `std::weak_ptr` (to `void` or
+  to `const void`), `expired`, `lock`, and converting constructors, and only
+  the constness of the pointee and of the locked result differs.
+- Some two dozen converting constructors across the handle family (one on
+  `proxy`, three on `proxy_view`, five on `const_proxy_view` plus three
+  deleted rvalue overloads, three on `shared_proxy`, five on
+  `const_shared_proxy`, three on `weak_proxy`, and six on `const_weak_proxy`)
+  each pair a `requires Extends<D, F>` clause (or `same_as` or `Extends`)
+  with an initializer of `details::upcast_vtable<F, D>` over the source's
+  table and a hand-off of its target. The three that take an owning
+  `proxy<D, P>&&` are the exception, since they adopt storage rather than
+  re-pointing at it.
+- The five `proxy_impl` self-conformance bindings (for `proxy`, `proxy_view`,
+  `const_proxy_view`, `shared_proxy`, and `const_shared_proxy`) are two
+  shapes, copied: a deduced `Handle&` forwarding to
+  `call<details::qualified_key<F, Key>()>` for the three handles that may be
+  mutable, and the same body over a `const` handle behind an
+  `is_const<Key>` constraint for the two const flavors.

@@ -82,7 +82,7 @@ namespace corvid { inline namespace infra {
 // Note: This is a bitmask, but infra sits too low in the layering to register
 // it as one, so the combined value is spelled as a named enumerator and
 // membership is tested manually.
-enum class log_policy : std::uint8_t {
+enum class log_policy : uint8_t {
   never = 0,
   on_throw = 1 << 0,
   on_failure_value = 1 << 1,
