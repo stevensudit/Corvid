@@ -347,8 +347,8 @@ targets. A proxy still refuses an empty buffer, having no
 
 The review that closed out the sections above found duplication it chose
 not to chase, because each item is a mechanical consolidation with no
-behavior change. The proxy-side items (`try_downcast`, the weak pair, the
-converting constructors, and the self-conformance bindings) are under
+behavior change. The proxy-side items (the weak pair, the converting
+constructors, and the self-conformance bindings) are under
 "Future work" in [proxy.md](invoke/proxy.md); the `flexi_function` items
 are here.
 

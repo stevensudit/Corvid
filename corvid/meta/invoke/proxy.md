@@ -948,9 +948,9 @@ per-(facade, type, birth) table) and differ in what they own, and in whether
 constness is a property of the instance or of the type. All of the
 dispatching handles inherit the facade's `api` sugar when it exists,
 through `details::api_base_t<F>`. The two views additionally share their
-storage and const-method `call` through `details::view_base<F, Access>`,
-and the two shared-owning handles theirs, plus the moves, through
-`details::shared_base<F, Access>`:
+storage, const-method `call`, and `try_downcast` through
+`details::view_base<F, Access>`, and the two shared-owning handles theirs,
+plus the moves, through `details::shared_base<F, Access>`:
 
 ```mermaid
 classDiagram
@@ -963,6 +963,7 @@ classDiagram
         +facade_t
         +call() const methods only
         +operator bool()
+        +try_downcast() const and non-consuming, same flavor
     }
     class shared_base~F,Access~ {
         #vtable_ : view table pointer
@@ -971,13 +972,12 @@ classDiagram
         +call() const methods only
         +operator bool()
         +try_share() typed shared_ptr, const through the const flavor
+        +try_downcast() sharing or transferring, same flavor
     }
     class proxy_view~F~ {
         +call() all methods
-        +try_downcast() const and non-consuming
     }
     class const_proxy_view~F~ {
-        +try_downcast() to const views only
     }
     class proxy~F,Policy~ {
         -vtable_ : owning table pointer
@@ -996,10 +996,8 @@ classDiagram
     }
     class shared_proxy~F~ {
         +call() all methods
-        +try_downcast() sharing or transferring
     }
     class const_shared_proxy~F~ {
-        +try_downcast() to const handles only
     }
     class weak_proxy~F~ {
         -vtable_ : view table pointer
@@ -2107,14 +2105,6 @@ and views, and identity is handled by the two tags.
 Consolidations deferred from the final review of the handle family, each
 mechanical and with no behavior change:
 
-- `try_downcast` is spelled seven times: once on `proxy` (an rvalue method,
-  since it consumes the target only on success), once each on `proxy_view`
-  and `const_proxy_view`, and a `const&`/`&&` pair on each of `shared_proxy`
-  and `const_shared_proxy`. The six view and shared bodies are the same
-  three lines over `details::find_downcast_table<D, F>`, differing only in
-  the result type and, for the two `&&` overloads, the reset of the source's
-  table to its empty table. The owning one walks the ancestry itself and
-  then relocates.
 - `weak_proxy` and `const_weak_proxy` are two whole classes with no shared
   base, where `shared_proxy` and `const_shared_proxy` sit on
   `details::shared_base<F, Access>` and the two views on `view_base`. Each

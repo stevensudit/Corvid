@@ -34,8 +34,9 @@ namespace prox {
 
 namespace details {
 
-// Storage, moves, and const-method dispatch shared by the two shared-owning
-// flavors, which differ only in the constness of the erased target pointer.
+// Storage, moves, const-method dispatch, and downcasting shared by the two
+// shared-owning flavors, which differ only in the constness of the erased
+// target pointer.
 //
 // The `call` here serves const-qualified methods, the only dispatch a const
 // handle allows. The `shared_proxy` class layers the unrestricted non-const
@@ -54,6 +55,12 @@ protected:
   template<typename T>
   using typed_t =
       std::conditional_t<(Access == access_mode::as_const), const T, T>;
+
+  // The shared-owning flavor with this access mode over facade `D`, which is
+  // what `try_downcast` returns.
+  template<Facade D>
+  using shared_t = std::conditional_t<(Access == access_mode::as_const),
+      const_shared_proxy<D>, shared_proxy<D>>;
 
 public:
   using facade_t = F;
@@ -87,6 +94,39 @@ public:
   [[nodiscard]] std::shared_ptr<typed_t<T>> try_share() const noexcept {
     if (vtable_->type_tag != &type_tag_v<T>) return nullptr;
     return std::static_pointer_cast<typed_t<T>>(target_);
+  }
+
+  // Try to downcast this instance to recover a shared handle of `D`, which is
+  // a facade extending `F`, from a handle that may have been upcast away from
+  // it.
+  //
+  // The table remembers the facade the target was born as, exactly as with
+  // the owning proxy (see `proxy::try_downcast`), including a birth adopted
+  // from a consumed `proxy`.
+  //
+  // There are two overloads. Called on an lvalue, the result is another owner
+  // of the one target and the source keeps its own share, because shared
+  // ownership is copyable. Called on an rvalue, the source's share transfers
+  // to the result, so the source is consumed, but only on success.
+  //
+  // The result is a handle of the same flavor, so a const handle's downcast
+  // stays const. On failure, including an empty source, the result is empty
+  // and the source is untouched.
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] shared_t<D> try_downcast() const& noexcept {
+    const auto* table = find_downcast_table<D, F>(vtable_);
+    if (!table) return {};
+    return shared_t<D>{target_, table};
+  }
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] shared_t<D> try_downcast() && noexcept {
+    const auto* table = find_downcast_table<D, F>(vtable_);
+    if (!table) return {};
+    shared_t<D> result{std::move(target_), table};
+    vtable_ = empty_vtable;
+    return result;
   }
 
 protected:
@@ -267,38 +307,6 @@ public:
 
   using base::call;
 
-  // Try to downcast this instance to recover a `shared_proxy` of `D`, which is
-  // a facade extending `F`, from a handle that may have been upcast away from
-  // it.
-  //
-  // The table remembers the facade the target was born as, exactly as with
-  // the owning proxy (see `proxy::try_downcast`), including a birth adopted
-  // from a consumed `proxy`.
-  //
-  // There are two overloads. Called on an lvalue, the result is another owner
-  // of the one target and the source keeps its own share, because shared
-  // ownership is copyable. Called on an rvalue, the source's share transfers
-  // to the result, so the source is consumed, but only on success.
-  //
-  // On failure, including an empty source, the result is empty and the source
-  // is untouched.
-  template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] shared_proxy<D> try_downcast() const& noexcept {
-    const auto* table = details::find_downcast_table<D, F>(this->vtable_);
-    if (!table) return {};
-    return shared_proxy<D>{this->target_, table};
-  }
-  template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] shared_proxy<D> try_downcast() && noexcept {
-    const auto* table = details::find_downcast_table<D, F>(this->vtable_);
-    if (!table) return {};
-    shared_proxy<D> result{std::move(this->target_), table};
-    this->vtable_ = base::empty_vtable;
-    return result;
-  }
-
 private:
   // Construct over `target` with `vtable`, or empty (on the `raise` table)
   // when `target` is null, which is how a failed downcast and an expired lock
@@ -320,6 +328,8 @@ private:
   friend class proxy_view;
   template<Facade G>
   friend class const_proxy_view;
+  template<Facade G, access_mode A>
+  friend class details::shared_base;
 };
 
 // `proxy_impl` is the library-provided binding so that a shared proxy
@@ -447,29 +457,6 @@ public:
   // No need for a `using` because we do not declare a `call` here that shadows
   // the base's const-only `call`.
 
-  // Try to downcast this instance to recover a `const_shared_proxy` of `D`,
-  // which is a facade extending `F`; see `shared_proxy::try_downcast` for the
-  // two overloads.
-  //
-  // The result is another const handle, so downcasting never reopens
-  // mutability.
-  template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] const_shared_proxy<D> try_downcast() const& noexcept {
-    const auto* table = details::find_downcast_table<D, F>(this->vtable_);
-    if (!table) return {};
-    return const_shared_proxy<D>{this->target_, table};
-  }
-  template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] const_shared_proxy<D> try_downcast() && noexcept {
-    const auto* table = details::find_downcast_table<D, F>(this->vtable_);
-    if (!table) return {};
-    const_shared_proxy<D> result{std::move(this->target_), table};
-    this->vtable_ = base::empty_vtable;
-    return result;
-  }
-
 private:
   // Construct over `target` with `vtable`, or empty when `target` is null;
   // see `shared_proxy`'s.
@@ -485,6 +472,8 @@ private:
   friend class const_weak_proxy;
   template<Facade G>
   friend class const_proxy_view;
+  template<Facade G, access_mode A>
+  friend class details::shared_base;
 };
 
 // `proxy_impl` is the library-provided binding so that a `const_shared_proxy`

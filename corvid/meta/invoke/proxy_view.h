@@ -34,8 +34,8 @@ namespace prox {
 
 namespace details {
 
-// Storage and const-method dispatch shared by the two view flavors, which
-// differ only in the constness of the erased target pointer.
+// Storage, const-method dispatch, and downcasting shared by the two view
+// flavors, which differ only in the constness of the erased target pointer.
 //
 // The `call` here serves const-qualified methods, the only dispatch a const
 // handle allows. The `proxy_view` class layers the unrestricted non-const
@@ -45,6 +45,17 @@ namespace details {
 // view a single-inheritance chain.
 template<Facade F, access_mode Access>
 class view_base: public api_base_t<F> {
+protected:
+  using vtable_t = vtbuild_t<F>::vtable_t;
+  using target_ptr_t = std::conditional_t<(Access == access_mode::as_const),
+      const void*, void*>;
+
+  // The view flavor with this access mode over facade `D`, which is what
+  // `try_downcast` returns.
+  template<Facade D>
+  using view_t = std::conditional_t<(Access == access_mode::as_const),
+      const_proxy_view<D>, proxy_view<D>>;
+
 public:
   using facade_t = F;
 
@@ -74,11 +85,32 @@ public:
     return target_;
   }
 
-protected:
-  using vtable_t = vtbuild_t<F>::vtable_t;
-  using target_ptr_t = std::conditional_t<(Access == access_mode::as_const),
-      const void*, void*>;
+  // Try to downcast this instance to make a view of `D`, which is a facade
+  // extending `F`, over a target that may have been upcast away from it.
+  //
+  // The view table remembers the facade the target was born as. For a view
+  // built directly over a target, that is the view's own facade. For a view
+  // lent from a `proxy` or `shared_proxy`, it is the owner's birth facade,
+  // so a lent view recovers exactly what its owner could.
+  //
+  // On success, the result is a new view of the same flavor over the same
+  // target, so a const view's downcast stays const. The source is copied
+  // from, never consumed, which is why this is const (where the owning
+  // flavor of `try_downcast` in `proxy` is an rvalue method). On failure,
+  // including an empty source, the result is empty.
+  //
+  // Like copying any view, this escapes the instance-level deep-const
+  // guardrail. The guarantee tier is `const_proxy_view`, whose downcast
+  // yields another const view.
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] constexpr view_t<D> try_downcast() const noexcept {
+    const auto* table = find_downcast_table<D, F>(vtable_);
+    if (!table) return {};
+    return view_t<D>{target_, table};
+  }
 
+protected:
   constexpr view_base() noexcept = default;
   constexpr view_base(target_ptr_t target, const vtable_t* vtable) noexcept
       : vtable_{vtable}, target_{target} {}
@@ -221,30 +253,6 @@ public:
 
   using base::call;
 
-  // Try to downcast this instance to make a view of `D`, which is a facade
-  // extending `F`, over a target that may have been upcast away from it.
-  //
-  // The view table remembers the facade the target was born as. For a view
-  // built directly over a target, that is the view's own facade; for a view
-  // lent from a `proxy` or `shared_proxy`, it is the owner's birth facade,
-  // so a lent view recovers exactly what its owner could.
-  //
-  // On success, the result is a new view over the same target. The source is
-  // copied from, never consumed, which is why this is const (where the owning
-  // flavor of `try_downcast` in `proxy` is an rvalue method). On failure,
-  // including an empty source, the result is empty.
-  //
-  // Like copying any view, this escapes the instance-level deep-const
-  // guardrail. The guarantee tier is `const_proxy_view`, whose downcast stays
-  // const.
-  template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] constexpr proxy_view<D> try_downcast() const noexcept {
-    const auto* table = details::find_downcast_table<D, F>(this->vtable_);
-    if (!table) return {};
-    return proxy_view<D>{this->target_, table};
-  }
-
 private:
   constexpr proxy_view(void* target, const base::vtable_t* vtable) noexcept
       : base{target, vtable} {}
@@ -253,6 +261,8 @@ private:
   friend class proxy_view;
   template<Facade G>
   friend class const_proxy_view;
+  template<Facade G, access_mode A>
+  friend class details::view_base;
 };
 
 // `proxy_impl` is the library-provided binding so that a `proxy_view`
@@ -400,19 +410,6 @@ public:
   // No need for a `using` because we do not declare a `call` here that shadows
   // the base's const-only `call`.
 
-  // Attempt to downcast a const view of `D`, which is a facade extending `F`,
-  // over a target that may have been upcast away from it; see
-  // `proxy_view::try_downcast`.
-  //
-  // The result is another const view, so downcasting never reopens mutability.
-  template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] constexpr const_proxy_view<D> try_downcast() const noexcept {
-    const auto* table = details::find_downcast_table<D, F>(this->vtable_);
-    if (!table) return {};
-    return const_proxy_view<D>{this->target_, table};
-  }
-
 private:
   constexpr const_proxy_view(const void* target,
       const base::vtable_t* vtable) noexcept
@@ -420,6 +417,8 @@ private:
 
   template<Facade G>
   friend class const_proxy_view;
+  template<Facade G, access_mode A>
+  friend class details::view_base;
 };
 
 // `proxy_impl` is the library-provided binding so that a `const_proxy_view`
