@@ -54,6 +54,11 @@ namespace prox {
 // Only the conversions that might change the mode can throw; everything
 // else is `noexcept`, including every same-policy move.
 //
+// That holds even for a target whose move constructor can throw, because
+// inline eligibility requires a nothrow move (see `fits_inline`). Such a
+// target only ever lives on the heap, where a move passes the pointer, and an
+// `inline_only` proxy refuses it at compile time.
+//
 // The proxy is deep-const, so only const-qualified facade methods dispatch
 // through a const proxy. Being move-only, it cannot be copied out of that
 // constness the way a view can: no const reference to a proxy can ever be
@@ -85,7 +90,8 @@ class proxy: public details::api_base_t<F> {
 
   // The buffer may only grow from its defaults, so any target eligible for
   // the default buffer stays eligible for every buffer. A `heap_only` proxy
-  // has no buffer for the knobs to apply to.
+  // keeps only the heap pointer in its storage area, so the knobs are not
+  // consulted (and `with_size` and `with_alignment` refuse to set them).
   static_assert(
       !Policy.admits_inline() ||
           (Policy.inline_size >= invocable_policy{}.inline_size &&
@@ -144,8 +150,15 @@ public:
   }
 
   // Constructor for an owning proxy adopting a heap target already
-  // owned by a `std::unique_ptr` (with the default deleter; the proxy destroys
-  // through `delete` either way).
+  // owned by a `std::unique_ptr` with the default deleter (), which the
+  // signature enforces: a `unique_ptr` with any other deleter does not deduce
+  // `T`. The proxy destroys through `delete`.
+  //
+
+  // Constructor for an owning proxy adopting a heap target already
+  // owned by a `std::unique_ptr`. (The signature ensures that it is
+  // specialized on the default deleter, since proxy eventually destroys the
+  // target using `delete`.)
   //
   // Usually spelled through `make_proxy`.
   //
@@ -440,9 +453,11 @@ private:
   // Only the mode-changing routes can throw (the boxing allocation, or
   // `std::length_error` on a refusal, when an erased target cannot be stored
   // inline and the policy forbids the heap), and a throw happens before
-  // anything moves, leaving `other` intact and `*this` empty. The throw is
-  // pruned rather than left dynamically unreachable, so that a `noexcept`
-  // adoption contains no throw at all.
+  // anything moves, leaving `other` intact and `*this` empty. The routes
+  // that move the target (relocating, un-boxing, and the move into a fresh
+  // box) never throw doing so, since only a nothrow-move target is ever
+  // eligible for a buffer. The throw is pruned rather than left dynamically
+  // unreachable, so that a `noexcept` adoption contains no throw at all.
   template<Facade D, invocable_policy P>
   void
   do_adopt(proxy<D, P>& other) noexcept(!details::adopt_may_throw(Policy, P)) {
