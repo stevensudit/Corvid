@@ -137,6 +137,20 @@ static_assert(std::is_same_v<fixed_function<int(), 64>,
 static_assert(is_fixed_function_v<fixed_function<int(), 64>>);
 static_assert(!is_fixed_function_v<flexi_function<int(), dflt>>);
 static_assert(is_flexi_function_v<fixed_function<int(), 64>>);
+static_assert(is_flexi_function_v<flexi_function<int(char) const noexcept>>);
+static_assert(is_fixed_function_v<fixed_function<int(char) const&&, 64>>);
+
+// The third template parameter is the pattern-matching hook, derived from
+// the signature and constrained to that derivation, so spelling it is
+// ill-formed where the type is named (a constraint failure, so it is
+// pinnable).
+template<class Sig, class FunctionT>
+concept CanSpellHook = requires {
+  typename flexi_function<Sig, dflt, FunctionT>;
+};
+static_assert(CanSpellHook<int(char) const, int(char)>);
+static_assert(!CanSpellHook<int(char) const, int(char) const>);
+static_assert(!CanSpellHook<int(), void()>);
 static_assert(sizeof(flexi_function<int(), heap_only>) == 3 * sizeof(void*));
 static_assert(flexi_function<int(), heap_only>::inline_size == 0);
 static_assert(flexi_function<int(), dflt>::inline_size == 2 * sizeof(void*));

@@ -88,10 +88,9 @@ using fixed_function =
 template<typename T>
 constexpr inline bool is_fixed_function_v = false;
 
-template<class Sig, invocable_policy Policy, class FunctionT>
+template<class Sig, invocable_policy Policy>
 requires(Policy.storage == storage_policy::inline_only)
-constexpr inline bool
-    is_fixed_function_v<flexi_function<Sig, Policy, FunctionT>> = true;
+constexpr inline bool is_fixed_function_v<flexi_function<Sig, Policy>> = true;
 
 #pragma endregion
 #pragma region fixed_function_of

@@ -720,7 +720,12 @@ namespace details {
 // void*`. A noexcept method additionally requires the binding to be
 // noexcept-invocable, and its thunk pointer type carries `noexcept` through
 // the erased ABI.
+//
+// The second parameter is the pattern-matching hook that gives the body
+// `R` and `Args...`, as with `flexi_function`'s third: derived from the
+// method's signature and constrained to that derivation, never passed.
 template<typename M, typename FunctionT = M::function_t>
+requires std::same_as<FunctionT, typename M::function_t>
 struct method_traits;
 
 template<typename M, typename R, typename... Args>

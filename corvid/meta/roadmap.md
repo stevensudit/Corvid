@@ -349,15 +349,11 @@ The review that closed out the sections above found duplication it chose
 not to chase, because each item is a mechanical consolidation with no
 behavior change. The proxy-side items have since landed (`try_downcast`,
 `weak_base`, `ExtendsOrIs`, and `handle_impl`, all described in
-[proxy.md](invoke/proxy.md)); the `flexi_function` items are here.
+[proxy.md](invoke/proxy.md)), and so has the `FunctionT` hook item: the hook
+on `flexi_function`, `flexi_thunks`, and `method_traits` is constrained to
+its derivation, so it cannot be spelled otherwise, and the traits match on
+`flexi_function<Sig, Policy>` alone. What remains is here.
 
-- `flexi_function`'s third template parameter (`FunctionT =
-  signature_function_t<Sig>`) and `method_traits`'s second (`FunctionT =
-  M::function_t`) exist only so that the class body can be one partial
-  specialization on `R(Args...)` (see "Landed: qualified signatures"). Both
-  are public, so a caller can spell a wrong one, and `is_flexi_function_v`
-  and `is_fixed_function_v` have to match on the three-parameter form. A
-  `details` wrapper or a nested implementation class would hide the hook.
 - `flexi_thunks::lifespan_impl` multiplexes size, destroy, probe, and
   relocate on which of `from`, `dest`, and `dest->to` are null. A copy,
   which a copyable sibling of `flexi_function` would need, takes a source
