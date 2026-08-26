@@ -19,9 +19,11 @@ The policy type is shared with `proxy` and documented in
 (`constant_fn`, `runtime_fn`) and the empty-call rules
 (`empty_call_traits`), shared the same way, are in
 [invocable_common.h](invocable_common.h). The header's namespace is
-`corvid::meta::flexi`, deliberately not inline, with `flexi_function`,
-`fixed_function`, `fixed_function_of`, and the two `is_` traits exported
-into `corvid::meta`. The shared vocabulary lives in
+`corvid::meta::flexi`, deliberately not inline, with `flexi_function` and
+`is_flexi_function_v` exported into `corvid::meta` from this header, and
+`fixed_function`, `fixed_function_of`, and `is_fixed_function_v` from
+[fixed_function.h](fixed_function.h), which shares the namespace. The
+shared vocabulary lives in
 `corvid::meta::invocables` under the same rule. Planned work is in
 [roadmap.md](../roadmap.md).
 
@@ -46,7 +48,7 @@ into `corvid::meta`. The shared vocabulary lives in
 | wrapper                     | A `flexi_function` instance.                                                                                                                   |
 | target, callable            | The thing the wrapper calls. "Target" is the stored object; "callable" is the same thing before it is stored.                                  |
 | policy                      | The `invocable_policy` NTTP: buffer size and alignment, `storage`, `empty`, and `enforcement`.                                                   |
-| sibling                     | A `flexi_function` with the same signature and a different policy. Siblings are friends and can adopt from each other.                         |
+| sibling                     | A `flexi_function` with the same signature and a different policy. Every `flexi_function` is a friend of every other; adoption is between siblings. |
 | signature, `Sig`            | The `R(Args...)` type, possibly with `const`, `&`/`&&`, and `noexcept`.                                                                        |
 | thunk                       | A static function generated per stored type that does one erased job: invoke, or manage lifespan.                                              |
 | thunk pair, `dispatch_`     | The two thunk pointers every wrapper keeps ahead of its buffer: `invoke` and `lifespan`.                                                       |
@@ -92,7 +94,7 @@ Construction paths, all landing in one of two private workers:
 
 | Spelling                           | Goes to    | Notes                                                                                                                                                                                                                                                                                      |
 | ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `fn_t f = callable;`               | `do_store` | Implicit. Any callable that the signature can invoke, except the std wrappers. A null function or member pointer, or a null `runtime_fn`, yields an empty wrapper. A function name, or a bare pointer under `policy_enforcement::strict` is a compile error (see "Indirection, counted"). |
+| `fn_t f = callable;`               | `do_store` | Implicit. Any `Consumable` callable the signature can invoke, except the std wrappers: an rvalue expression, or an lvalue whose decayed type is trivially copyable (a pointer, a member pointer, a lambda with trivially copyable captures), since that copy costs what a move would. Any other callable must be passed as an rvalue, so a named one is spelled `std::move(fn)`. A null function or member pointer, a null `runtime_fn`, or an empty std wrapper yields an empty wrapper. A function name, or a bare pointer under `policy_enforcement::strict`, is a compile error (see "Indirection, counted"). |
 | `fn_t f{std::function<...>{...}};` | `do_store` | Explicit. Wraps a `std::function` or `std::move_only_function`, nesting it at a cost.                                                                                                                                                                                                      |
 | `fn_t f{std::move(sibling)};`      | `do_adopt` | Transplants the target across policies.                                                                                                                                                                                                                                                    |
 | `fn_t f{std::move(same)};`         | `do_adopt` | Same type. Always `noexcept`.                                                                                                                                                                                                                                                              |

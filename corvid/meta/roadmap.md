@@ -1,19 +1,16 @@
 # Meta roadmap
 
 Status and next steps for `corvid/meta`. Proxy-specific future work stays in
-[proxy.md](proxy.md); this file tracks the shared `invocable_policy` effort
+[proxy.md](invoke/proxy.md); this file tracks the shared `invocable_policy` effort
 and `flexi_function`.
 
-## In progress: proxy catch-up
+## Landed: proxy catch-up
 
 `flexi_function<Sig, Policy>` generalizes `fixed_function` over
 `invocable_policy` (inline-only, inline-or-heap, heap-only storage, plus the
 empty-call behavior), with `fixed_function` reduced to the `inline_only`
-alias. The wrapper itself is landed and green, and `proxy` now honors the
-empty-call behavior (below); what remains is the rest of the shared
-contract.
-
-The pending `proxy` changes, in the order to land them:
+alias. The wrapper is landed and green, and `proxy` caught up with the
+shared contract, in this order:
 
 - Landed: the vocabulary sweep in `proxy.h` / `proxy.md`. The owning
   table's mode-changing slots are `to_heap`/`to_inline` with their
@@ -74,7 +71,7 @@ maintain and to read; the handles still work as a unit, so a user includes
 `corvid::meta` the names it defines, and `proxy_codegen.h` needs only
 `proxy_common.h`.
 
-## In progress: shared code between proxy and flexi_function
+## Landed: shared code between proxy and flexi_function
 
 Both owners answer the same questions about a target and a result, and the
 answers had been written twice. The shared parts now live in
@@ -85,8 +82,8 @@ answers had been written twice. The shared parts now live in
   (one behavior exactly, given `noexcept`), `resolve_floor` (proxy's
   mildest-at-or-above rule), and `invoke<Behavior>` (the empty call
   itself). `flexi_thunks::empty_invoke_impl` and
-  `method_traits_base::make_empty_thunk` are one-line wrappers over it, and
-  `method_traits_base::empty_behavior` forwards to `resolve_floor`;
+  `method_traits::make_empty_thunk` are one-line wrappers over it, and
+  `method_traits::empty_behavior` forwards to `resolve_floor`;
   `flexi_function`'s three `static_assert`s keep their messages and read
   the two bools. Truth table in meta_test.cpp.
 - `constant_fn`, `runtime_fn`, and `is_runtime_fn_v`, moved verbatim.
@@ -148,8 +145,9 @@ answers had been written twice. The shared parts now live in
   themselves, so not everything that looks alike is the same thing), found
   four borders and landed them. `invocable_policy` answers
   `admits_inline()`, `admits_heap()`, `buffer_size()`, and `buffer_align()`,
-  replacing the `storage` comparisons spelled at every site and the buffer
-  geometry each owner derived for itself. The adoption rule is one
+  replacing the `storage` comparisons spelled at each site (one remains,
+  in `is_fixed_function_v`, which asks for `inline_only` by name) and the
+  buffer geometry each owner derived for itself. The adoption rule is one
   statement, `details::adoption_of` (over `fits_inline`, the value-level
   eligibility test `is_inline_eligible` now calls), answering with an
   `adoption` route: `flexi_thunks::lifespan_impl` and `proxy::do_adopt`
@@ -298,7 +296,7 @@ than in the data, and a captureless lambda that names the function already
 put it there; the thunk generated for that closure type calls the function
 outright. So the landed design is not a new construction path but a
 storage mode plus two spellings, with the mechanism in
-[flexi_function.md](flexi_function.md):
+[flexi_function.md](invoke/flexi_function.md):
 
 - `storage_mode::direct`, beside `inlined` and `dynamic`. A target whose
   type is `is_direct_eligible` (no data members, trivial default construction
@@ -350,19 +348,23 @@ targets. A proxy still refuses an empty buffer, having no
 Not ruled on; recorded so the constraint is understood before anyone
 trips over it.
 
-The `inline_size` rule ("a multiple of `inline_align`") reasons about the
-buffer in isolation, but a buffered `flexi_function` carries a two-pointer
-header ahead of the buffer, so "buffer is a multiple of the alignment" and
-"object is a multiple of the alignment" are different constraints. The
-difference only shows at alignments above the default: a wrapper meant to
-occupy exactly one 64-byte cache line (a per-core callback slot, say) wants a
+The `inline_size` rule ("a multiple of `inline_align`", in
+`is_well_formed`) reasons about the buffer in isolation, but an owner keeps
+a header ahead of the buffer (two pointers for `flexi_function`, one for
+`proxy`), so "buffer is a multiple of the alignment" and "object is a
+multiple of the alignment" are different constraints. The difference only
+shows at alignments above the default: a `flexi_function` meant to occupy
+exactly one 64-byte cache line (a per-core callback slot, say) wants a
 48-byte buffer at 64-byte alignment, which the rule rejects; the nearest
-legal policy is a 64-byte buffer, an 80-byte object, and `sizeof` rounded to
-128.
+legal policy is a 64-byte buffer, and the object is then 128 bytes outright
+(16 of header, 48 of padding ahead of the buffer, 64 of buffer). The
+rounding never lands at the tail, since the buffer is last and sets the
+object's alignment; it lands in the middle.
 
-If that shape is ever wanted, the rule would change to "the object size is a
-multiple of `inline_align`" (`header + inline_size` padded), which is what
-`fixed_function`'s `Size` already means. `heap_only` has no such need: its
-three-word layout is padding-free, and line isolation for any wrapper is the
-container's job (`alignas` on the element or enclosing struct), not the
-policy's.
+If that shape is ever wanted, the rule would change to "the object size is
+a multiple of `inline_align`" (`header + inline_size` padded), which is the
+arithmetic `fixed_function`'s `Size` does on the flexi side, and it would
+have to be stated per owner, since the policy does not know the header.
+`heap_only` has no such need: its layout is padding-free, and line
+isolation for any wrapper is the container's job (`alignas` on the element
+or enclosing struct), not the policy's.

@@ -288,9 +288,9 @@ Registration is therefore the sole act of conformance. Every binding is
 either the facade's boilerplate or a carried impl, and both are opt-in.
 
 Two other spellings of `proxy_impl` exist at namespace scope, one
-deprecated and one dropped.
+supported but not recommended, and one dropped.
 
-The deprecated spelling is the namespace-scope boilerplate: a partial
+The supported spelling is the namespace-scope boilerplate: a partial
 specialization constrained on `ProxyRegistered`, serving every registered
 type exactly as the nested form does (`lockbox` in the test). It predates
 the nested form, and it still works: when a facade has both, the partial
@@ -311,7 +311,7 @@ hook, like `strongbox` in the test. What it uniquely enabled was
 conformance with no opt-in declaration, and that was an ODR footgun, since
 any TU could silently override another's binding. The language cannot
 forbid such specializations, and `proxy_impl` necessarily stays a public
-name for the deprecated boilerplate spelling, so the drop is a contract
+name for that boilerplate spelling, so the drop is a contract
 boundary rather than a mechanical one.
 
 The binding class (in other words, the impl) can live anywhere a type can.
@@ -762,8 +762,11 @@ and uniqueness checking, and `qualified_key`'s fallback branch all went
 away.
 
 Facade names must be unique within a composition (a detonator enforces
-it). C++26 reflection is expected to supply the name from the facade type
-itself, retiring the entry.
+it), and a facade may not list the identical method or extends entry
+twice (another detonator: a literal duplicate is a copy-paste slip, unlike
+the legal diamond, where one base arrives by two paths). C++26 reflection
+is expected to supply the name from the facade type itself, retiring the
+entry.
 
 Names are what make sibling collisions legal outright: two unrelated bases
 declaring the same method name may always be composed, because the
@@ -957,12 +960,14 @@ classDiagram
     class view_base~F,Access~ {
         #vtable_ : view table pointer
         #target_ : void pointer, const if Access is const
+        +facade_t
         +call() const methods only
         +operator bool()
     }
     class shared_base~F,Access~ {
         #vtable_ : view table pointer
         #target_ : shared_ptr of void, const if Access is const
+        +facade_t
         +call() const methods only
         +operator bool()
         +try_share() typed shared_ptr, const through the const flavor
@@ -977,6 +982,8 @@ classDiagram
     class proxy~F,Policy~ {
         -vtable_ : owning table pointer
         -storage_area_ : inline buffer or heap pointer
+        +facade_t
+        +inline_size static, 0 under heap_only
         +call()
         +operator bool()
         +reset()
@@ -1049,6 +1056,8 @@ flowchart LR
     WP -->|"lock()"| SP
     SP -->|one way| CSP
     P -->|"consume, one way"| CSP
+    UP -->|adopt| CSP
+    SPT -->|share| CSP
     CSP -->|lends| CPV
     CSP -->|observe| CWP
     SP -->|observe| CWP
@@ -1109,6 +1118,14 @@ budget. `storage` picks the strategy: `inline_or_heap` (the default),
 `inline_only` (an ineligible target is a clean `static_assert` at
 construction), or `heap_only` (every target's address is stable, and the
 handle drops its buffer to become two words, like a view).
+
+A proxy's mode is `inlined` or `dynamic`. The shared vocabulary has a
+third value, `direct` (a stateless target stored nowhere), which
+`proxy_storage_mode_of` declines: the proxy contract resolves a target
+address at every turn (views lend it, impls take a `T&`, `extract` and
+`shared_proxy` adopt the allocation), so a stateless target is stored like
+any other. `proxy::inline_size` reports the buffer's capacity, 0 under
+`heap_only`.
 
 The chosen mode is baked into the owning table's identity. Tables are per
 (facade, birth facade, type, mode), and the mode discriminates the storage
@@ -1443,8 +1460,15 @@ well as a live one. Expiry stays `lock()`'s business.
   Same cost model as a vtable call, and as Rust `dyn`: the table pointer
   moves out of the object and into the (fat) handle. The full walk of
   this machinery is under "Tables and thunks".
-- Method signatures come in four flavors, `const` crossed with `noexcept`.
-  For a `noexcept` method, conformance additionally requires the binding
+- Method signatures come in four flavors, `const` crossed with `noexcept`,
+  and those are the only shapes: a reference qualifier is a
+  `static_assert`, because the signature serves every handle in the family
+  and a handle's value category says nothing about the target's (a view is
+  a copyable pair of pointers, a shared handle has other owners, so an `&&`
+  method would let either move out of an object it does not own). This is
+  `std::function_ref`'s rule; a consuming operation belongs in the binding
+  or in `proxy::extract`. For a `noexcept` method, conformance
+  additionally requires the binding
   itself to be noexcept-invocable, the thunk pointer type carries
   `noexcept`, and `call` through either handle is itself conditionally
   noexcept. The condition covers the argument conversions as well as the
@@ -1463,9 +1487,9 @@ well as a live one. Expiry stays `lock()`'s business.
   for boxing and un-boxing, the birth ancestry for `try_downcast`, and the
   direct bases' owning tables for the owning upcast. The view table
   carries none of the lifetime machinery, which is why the view was built
-  first. Its two slots beyond dispatch are the view-ancestry pointer for
-  its own `try_downcast` and the type tag that `extract` and `try_share`
-  verify against.
+  first. Its three slots beyond dispatch are the view-ancestry pointer for
+  its own `try_downcast`, the type tag that `extract` and `try_share`
+  verify against, and the direct bases' view tables for the view upcast.
 - Const is handled on two axes. Every handle is deep-const as an instance:
   only const-qualified methods dispatch through a const handle, enforced
   by a constraint on the const `call` overload. For the copyable views
@@ -2065,7 +2089,7 @@ and views, and identity is handled by the two tags.
   the same artifacts as source to paste, and reflection deletes the paste
   step.
 - `std::formatter` bridge once the formatter forwarding helper exists (see
-  [../strings/roadmap.md](../../strings/roadmap.md) stage 2). The ngcpp
+  [../../strings/roadmap.md](../../strings/roadmap.md) stage 2). The ngcpp
   analog is `skills::format`.
 - Spec-carried member-pointer binding: a `corvid_proxy_spec` returning a
   spec that holds `&robber::shoot, &robber::rearm`, bound positionally to
