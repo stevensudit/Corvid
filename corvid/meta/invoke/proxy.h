@@ -14,7 +14,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 #pragma once
 #include <bit>
 #include <concepts>
@@ -29,7 +28,7 @@
 #include "../padding.h"
 #include "proxy_view.h"
 
-// The owning erased handle, `proxy`, and `make_proxy`.
+// The owning erased handle, `proxy`, along with `make_proxy`.
 //
 // See "proxy.md" for the design.
 
@@ -38,17 +37,17 @@ namespace prox {
 
 #pragma region proxy
 
-// `proxy` is the owning erased handle over any `Proxiable` target: Rust's
-// `Box<dyn Trait>`, ngcpp's `proxy`.
+// `proxy` is the owning erased handle over any `Proxiable` target, akin to
+// Rust's `Box<dyn Trait>` or ngcpp's `proxy`.
 //
-// Move-only. Storage follows `Policy` (see `invocable_policy`): by default,
+// Move-only. Storage follows `Policy` (see `invocable_policy`). By default,
 // eligible targets are stored inline and anything else lives in a
 // unique-owned heap allocation. The owning dispatch table carries destroy
 // and relocate slots alongside the facade methods, so destruction and moves
 // work without knowing the target type.
 //
 // Proxies of different policies interconvert as rvalues, in the same move
-// that upcasts. The source's policy never matters: this proxy accommodates
+// that upcasts. The source's policy never matters. This proxy accommodates
 // whatever target actually arrives, changing its storage mode when the
 // policy demands it (boxing an inline arrival onto the heap under
 // `heap_only`, un-boxing a heap arrival into the buffer under `inline_only`).

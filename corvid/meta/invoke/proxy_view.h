@@ -139,14 +139,17 @@ class proxy_view: public details::view_base<F, access_mode::as_mutable> {
 public:
   proxy_view() = default;
 
-  // Converting constructor from an lvalue target.
+  //  Converting constructor from an lvalue `target`, which is an object whose
+  //  type is registered for `F`, thus erasing the type behind the facade.
   //
   // Intentionally implicit, like `string_view` from `string`. Rvalues do not
   // bind, so construction from a temporary is rejected at compile time.
   //
-  // Const targets take a `const_proxy_view`. Handles of `F`, or of a facade
-  // extending it, take the dedicated constructors below instead of being
-  // wrapped as targets.
+  // You cannot construct a `proxy_view` on a const `target`; you have to
+  // instead construct a `const_proxy_view` on it.
+  //
+  // Handles of `F`, or of a facade extending it, take the dedicated
+  // constructors below instead of being wrapped as targets.
   template<typename T>
   requires(Proxiable<T, F> && !std::is_const_v<T> &&
            !details::is_handle_for<T, F>())
@@ -173,8 +176,10 @@ public:
   // by a temporary `proxy`. An empty `proxy` lends an empty view that keeps
   // the proxy's `on_empty` behavior; otherwise the view is good until the
   // `proxy` dies or has its contents removed or replaced (see the class
-  // comment). A const `proxy` takes a `const_proxy_view` instead, preserving
-  // deep const.
+  // comment).
+  //
+  // You cannot construct a `proxy_view` on a const `proxy` reference; you have
+  // to instead construct a `const_proxy_view` on it.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy_view(proxy<D, P>& p) noexcept
@@ -195,8 +200,10 @@ public:
   // Call the facade method named `Key`, forwarding `args` through the erased
   // signature.
   //
-  // The call is `noexcept` when the method is and the argument conversions
-  // cannot throw (they are the caller's, as with the `api` forwarders).
+  // The call is `noexcept` when the method's signature is `noexcept` and each
+  // of `args` converts to its parameter type without the possibility of an
+  // exception. The conversions run inside the dispatcher, so a throwing one
+  // would escape a `noexcept` call; see `is_noexcept` on the table builder.
   //
   // This overload dispatches every method. The inherited const overload,
   // re-exposed by the using-declaration, is constrained to const-qualified
@@ -214,10 +221,10 @@ public:
   // Try to downcast this instance to make a view of `D`, which is a facade
   // extending `F`, over a target that may have been upcast away from it.
   //
-  // The view table remembers the facade the target was born as. The view's
-  // own facade for a view that built directly over a target, and the owning
-  // handle's birth for a view lent from a `proxy` or `shared_proxy`, so a
-  // lent view recovers exactly what its owner could.
+  // The view table remembers the facade the target was born as. For a view
+  // built directly over a target, that is the view's own facade; for a view
+  // lent from a `proxy` or `shared_proxy`, it is the owner's birth facade,
+  // so a lent view recovers exactly what its owner could.
   //
   // On success, the result is a new view over the same target. The source is
   // copied from, never consumed, which is why this is const (where the owning
@@ -245,9 +252,9 @@ private:
   friend class const_proxy_view;
 };
 
-// `proxy_impl` is the library-provided binding so that a view satisfies its
-// own facade and every facade that facade extends (as in Rust, where `dyn
-// Trait` implements `Trait` and meets its supertrait bounds).
+// `proxy_impl` is the library-provided binding so that a `proxy_view`
+// satisfies its own facade and every facade that one extends (as in Rust,
+// where `dyn Trait` implements `Trait` and meets its supertrait bounds).
 //
 // Calls forward through the wrapped view, with conditional `noexcept` so the
 // invariant also holds for facades with noexcept methods. The handle
@@ -298,7 +305,8 @@ class const_proxy_view: public details::view_base<F, access_mode::as_const> {
 public:
   const_proxy_view() = default;
 
-  // Converting constructor from an lvalue target, const or not.
+  // Converting constructor from a const lvalue `target`, which is an object
+  // whose type is registered for `F`, thus erasing the type behind the facade.
   //
   // Intentionally implicit. Rvalues do not bind. Handles of `F`, or of a
   // facade extending it, take the dedicated constructors below instead of
@@ -357,8 +365,9 @@ public:
   const_proxy_view(const proxy<D, P>&&) = delete;
 
   // Viewing constructor from a `shared_proxy` of `F`, or of a facade that
-  // extends it; see the owning-proxy constructor above, including the
-  // temporary-owner deletion.
+  // extends it; see the owning-proxy constructor above. A temporary
+  // `shared_proxy` is refused the same way, by the deleted rvalue overload
+  // below.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const shared_proxy<D>& p) noexcept
