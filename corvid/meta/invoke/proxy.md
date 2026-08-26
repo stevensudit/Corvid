@@ -434,10 +434,31 @@ consteval auto corvid_proxy_spec(gunslinger*, wrangler*) {
 An overloaded member binds too, but the pointer has to be cast to the
 wanted signature to pick the overload, the usual member-pointer wart:
 `member<"fire", static_cast<int (gunsmith::*)(int)>(&gunsmith::fire)>`.
+
+A private member binds when the hook can name it. Access is checked where
+the pointer is spelled, in the hook, and never where the library invokes
+it, so a hook defined as a hidden friend inside the type reaches the
+type's private members while ADL on the `T*` argument still finds it:
+
+```cpp
+struct safecracker {
+  friend consteval auto corvid_proxy_spec(gunslinger*, safecracker*) {
+    return make_proxy_spec<gunslinger, safecracker,
+        members<member<"fire", &safecracker::crack>>>();
+  }
+  // ...
+private:
+  int crack(int rounds);
+};
+```
+
+This is the member-pointer analog of nesting a binding class in the type,
+and shorter, since the whole registration is one declaration inside it.
+
 What `members` cannot express stays with a binding class: a binding that
 adapts arguments or results or calls more than one member, and a private
-member the hook cannot name (a nested or befriended impl can). Exercised by
-`rustler`, `wrangler`, and `gunsmith` in the test.
+member of a type you cannot befriend the hook into. Exercised by
+`rustler`, `wrangler`, `gunsmith`, and `safecracker` in the test.
 
 ### Member-call sugar (the `api` mixin)
 
@@ -2072,6 +2093,7 @@ flowchart LR
     rustler -.->|member bindings| gunslinger
     wrangler -.->|member binding over boilerplate| gunslinger
     gunsmith -.->|member binding, cast overload| gunslinger
+    safecracker -.->|member binding, hidden-friend hook, private member| gunslinger
     turncoat -.->|nested carried impl| gunslinger
     howitzer -.->|boilerplate| mortar
     texas_ranger -.->|chain hook| ranger

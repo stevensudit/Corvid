@@ -278,6 +278,30 @@ consteval auto corvid_proxy_spec(gunslinger*, gunsmith*) {
           static_cast<int (gunsmith::*)(int)>(&gunsmith::fire)>>>();
 }
 
+// `safecracker` keeps `fire` private and binds it anyway: its hook is a
+// hidden friend, defined inside the class, so it can name the private member,
+// and ADL on the `safecracker*` argument still finds it. Access is checked
+// where the pointer is spelled (the hook), never where the library invokes
+// it.
+struct safecracker {
+  friend consteval auto corvid_proxy_spec(gunslinger*, safecracker*) {
+    return prox::make_proxy_spec<gunslinger, safecracker,
+        prox::members<prox::member<"fire", &safecracker::crack>>>();
+  }
+
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "safecracker";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+
+private:
+  int crack(int rounds) { return rounds_fired += rounds; }
+
+  int rounds_fired{};
+};
+
 // `claim_jumper` binds `fire` to a member that cannot take the arguments, so
 // the key is not bound and the pair is registered but not conformant.
 struct claim_jumper {
@@ -1265,6 +1289,7 @@ static_assert(Proxiable<sheriff, gunslinger>);
 static_assert(Proxiable<rustler, gunslinger>);
 static_assert(Proxiable<wrangler, gunslinger>);
 static_assert(Proxiable<gunsmith, gunslinger>);
+static_assert(Proxiable<safecracker, gunslinger>);
 static_assert(!Proxiable<claim_jumper, gunslinger>);
 static_assert(!Proxiable<cowboy, gunslinger>);
 static_assert(!Proxiable<int, gunslinger>);
@@ -1934,6 +1959,12 @@ TEST_CASE("Member-pointer bindings", "[proxy]") {
   proxy_view<gunslinger> pg{g};
   CHECK(pg.fire(3) == 3);
   CHECK(pg.describe() == "gunsmith"s);
+
+  // A private member binds through a hidden-friend hook.
+  safecracker s;
+  proxy_view<gunslinger> ps{s};
+  CHECK(ps.fire(7) == 7);
+  CHECK(ps.shots() == 7);
 
   // A facade with no boilerplate takes the listed bindings alone.
   const_proxy_view<census> counted{r};

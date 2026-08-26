@@ -268,10 +268,13 @@ constexpr inline bool is_member_binding_v<member<Key, Ptr>> = true;
 // (a hook's parameters are not), and they are spellable where member names
 // are not: a library cannot turn `"fire"` into `.fire`, but `&robber::shoot`
 // is a value. An overloaded member binds too, but the pointer must be cast to
-// the wanted signature to select the overload, as any member pointer must.
-// What this cannot express stays with a binding class: a binding that adapts
-// arguments or results or calls more than one member, or a private member
-// the hook cannot name.
+// the wanted signature to select the overload, as any member pointer must. A
+// private member binds when the hook can name it, which a hook defined as a
+// hidden friend of the type can: access is checked where the pointer is
+// spelled, never where the library invokes it. What this cannot express stays
+// with a binding class: a binding that adapts arguments or results or calls
+// more than one member, or a private member of a type whose hook cannot be
+// befriended.
 template<typename... Ms>
 requires(sizeof...(Ms) > 0) && (details::is_member_binding_v<Ms> && ...)
 struct members {};
