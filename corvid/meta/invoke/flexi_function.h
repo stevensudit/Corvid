@@ -174,10 +174,16 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // in.
   //
   // `to` is the destination buffer, or null for a probe.
+  //
+  // `is_inline_fit_guaranteed` is the caller's compile-time knowledge that
+  // every inline target the source's policy admits fits this buffer (see
+  // `implementation::is_inline_fit_guaranteed`), which every same-type move
+  // has. With it, an inline source relocates without the runtime fit check.
   struct destination_spec {
     invocable_policy policy;
     thunk_pair* dispatch;
     void* to;
+    bool is_inline_fit_guaranteed;
   };
 
   // `invoke_impl` to invoke the stored callable, where `storage` is the
@@ -275,8 +281,15 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
     if (!dest) return do_destroy<F, SourceStorage>(f);
 
     // First decide whether a relocation is allowed, and which route it takes.
-    const auto route = details::adoption_of(dest->policy, SourceStorage,
-        sizeof(F), alignof(F), std::is_nothrow_move_constructible_v<F>);
+    // An inline source whose fit the destination guarantees relocates
+    // outright; the `SourceStorage` test folds, so the `inlined` thunk tests
+    // one flag and the `dynamic` thunk keeps the full rule.
+    const auto route =
+        (SourceStorage == storage_mode::inlined &&
+            dest->is_inline_fit_guaranteed)
+            ? adoption::relocate
+            : details::adoption_of(dest->policy, SourceStorage, sizeof(F),
+                  alignof(F), std::is_nothrow_move_constructible_v<F>);
     if (route == adoption::refuse) return refusal;
     if (!dest->to) return sizeof(F);
 
@@ -765,7 +778,9 @@ public:
       if (!source.dispatch_.lifespan) return true;
       destination_spec probe{.policy = Policy,
           .dispatch = nullptr,
-          .to = nullptr};
+          .to = nullptr,
+          .is_inline_fit_guaranteed =
+              details::is_inline_fit_guaranteed(Policy, P)};
       // The probe only reads, but the erased signature is mutable.
       auto& probed = const_cast<flexi_function<Sig, P>&>(source);
       return (probed.dispatch_.lifespan(&probed.storage_area_, &probe) !=
@@ -847,7 +862,9 @@ private:
     if (!other.dispatch_.lifespan) return;
     destination_spec dest{.policy = Policy,
         .dispatch = &dispatch_,
-        .to = &storage_area_};
+        .to = &storage_area_,
+        .is_inline_fit_guaranteed =
+            details::is_inline_fit_guaranteed(Policy, P)};
     [[maybe_unused]] const bool is_refused =
         (other.dispatch_.lifespan(&other.storage_area_, &dest) ==
             thunks::refusal);

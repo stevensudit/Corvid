@@ -377,12 +377,12 @@ consteval bool can_store_nothrow(invocable_policy p) noexcept {
   return (storage_mode_of<T>(p) != storage_mode::dynamic);
 }
 
-// `inline_fit_guaranteed`: whether every inline target the source policy
+// `is_inline_fit_guaranteed`: whether every inline target the source policy
 // admits is guaranteed to fit the destination's buffer, letting adoption skip
 // the runtime fit check (and, with it, every mode-changing path for inline
 // arrivals).
 consteval bool
-inline_fit_guaranteed(invocable_policy to, invocable_policy from) noexcept {
+is_inline_fit_guaranteed(invocable_policy to, invocable_policy from) noexcept {
   return to.admits_inline() && (to.inline_size >= from.inline_size) &&
          (to.inline_align >= from.inline_align);
 }
@@ -395,7 +395,7 @@ inline_fit_guaranteed(invocable_policy to, invocable_policy from) noexcept {
 // arrival that must un-box into an `inline_only` buffer it might not fit.
 consteval bool
 adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
-  return (from.admits_inline() && !inline_fit_guaranteed(to, from)) ||
+  return (from.admits_inline() && !is_inline_fit_guaranteed(to, from)) ||
          (from.admits_heap() && !to.admits_heap());
 }
 

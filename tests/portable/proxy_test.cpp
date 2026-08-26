@@ -2583,6 +2583,10 @@ TEST_CASE("Upcasting views", "[proxy]") {
   CHECK(cgv2.describe() == "texas_ranger"s);
 }
 
+// Whether `make_proxy_view` accepts a `gunslinger` handle of type `H`.
+template<typename H>
+concept can_make_view = requires(H& h) { make_proxy_view<gunslinger>(h); };
+
 TEST_CASE("Viewing an owning proxy", "[proxy]") {
   auto p = make_proxy<ranger, texas_ranger>();
 
@@ -2609,6 +2613,13 @@ TEST_CASE("Viewing an owning proxy", "[proxy]") {
   };
   CHECK(fire_once(p) == 1);
   CHECK(fire_once(rv) == 2);
+
+  // A const view is refused along with a const target: as an instance it
+  // dispatches only const methods, so there is no mutable access to lend;
+  // `make_const_proxy_view` (below) is the way to re-erase it.
+  static_assert(can_make_view<proxy_view<gunslinger>>);
+  static_assert(!can_make_view<const proxy_view<gunslinger>>);
+  static_assert(!can_make_view<const texas_ranger>);
 
   // `make_const_proxy_view` is the const counterpart, accepting what
   // `make_proxy_view` refuses (a const target, a const proxy), and copying

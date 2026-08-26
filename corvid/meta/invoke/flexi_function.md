@@ -350,8 +350,11 @@ serves four requests, distinguished by which arguments are null:
 
 `destination_spec` describes the receiving wrapper: its `policy` (whose
 storage members decide inline, heap, or neither), the address of its thunk
-pair (`dispatch`, a passive output), and its buffer (`to`, null for a
-probe).
+pair (`dispatch`, a passive output), its buffer (`to`, null for a probe),
+and `is_inline_fit_guaranteed`, the caller's compile-time knowledge that
+every inline target the source's policy admits fits this buffer. With it
+set, an inline source relocates without consulting `adoption_of`; every
+same-type move is that case.
 
 `refusal` is `size_t(-1)`, kept off 0 so that a size of 0 remains a
 legitimate answer. Only `inline_only` destinations can refuse, because
@@ -365,7 +368,9 @@ flowchart TD
     d -->|yes| destroy["destroy target, free block if dynamic; return stored size"]
     d -->|no| dir{source direct?}
     dir -->|yes| pair["relocate: write dest.dispatch; probe: nothing. return 0"]
-    dir -->|no| fit["route: adoption_of(dest.policy, source mode, sizeof F, alignof F, nothrow move)"]
+    dir -->|no| guar{"inline source, and dest.is_inline_fit_guaranteed?"}
+    guar -->|yes| probe
+    guar -->|no| fit["route: adoption_of(dest.policy, source mode, sizeof F, alignof F, nothrow move)"]
     fit --> ref{route is refuse?}
     ref -->|yes| r["return refusal"]
     ref -->|no| probe{dest.to null?}
@@ -383,6 +388,21 @@ moving and writes the destination's pair for the mode the target landed
 in. The source's own pair is the caller's business: `do_adopt` reinstalls
 the source's `empty_dispatch` afterwards, since each wrapper's empty-call
 behavior is baked into its type.
+
+Every stored type instantiates both the `inlined` and the `dynamic` pair,
+whatever the storing policy, because the inline thunk's `box` arm has to be
+able to hand a heap-admitting sibling a block it can keep, and an
+`inline_only` wrapper cannot know who will adopt its callable. So a
+`fixed_function` TU references `operator new` and `operator delete`, and
+carries a heap-mode pair per callable type that it never runs: measured at
+about 600 bytes of text per (signature, callable type) against the
+single-mode `fixed_function` it replaced, with the call path unchanged. A
+fourth `storage_policy` value, `inline_only` without the heap-mode interop
+(an inline source that answers a `box` route with a refusal), was weighed
+and ruled out. The saving is cold code that never executes, and the price
+is a parameter on the thunk protocol plus a permanent asymmetry, where an
+`inline_only` source sometimes refuses a heap-admitting sibling it could
+have fed. Not worth reopening.
 
 ## Relocation between siblings
 
@@ -414,9 +434,12 @@ What can throw, and what it leaves behind:
 - `invocables::implementation::adopt_may_throw(to, from)` computes at compile time
   whether any of that is reachable for a pair of policies, and the
   converting constructor and assignment are `noexcept` exactly when it is
-  not. `inline_fit_guaranteed(to, from)` is the inline half of that: a
+  not. `is_inline_fit_guaranteed(to, from)` is the inline half of that: a
   destination buffer at least as big and as aligned as the source's admits
-  every inline target the source could hold.
+  every inline target the source could hold. `do_adopt` also passes it in
+  the `destination_spec`, so an inline arrival it covers skips the runtime
+  fit check inside the thunk, the same short cut `proxy` takes in
+  `adoption_for`.
 
 `can_adopt(source)` is static: the answer is a property of the destination
 type against the source's runtime target, so it works before any

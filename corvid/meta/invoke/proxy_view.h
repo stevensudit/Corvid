@@ -457,10 +457,16 @@ struct proxy_impl<F, const_proxy_view<D>> {
 // indirections. A handle of a facade extending `F`, or an owning proxy,
 // likewise re-points at its target (upcasting as needed) through the
 // dedicated view constructors.
+//
+// A const view is refused along with a const target. These dispatch only const
+// methods, so there is no mutable access to lend, and `make_const_proxy_view`
+// re-erases it without widening it. (Copying a `const proxy_view` directly
+// still yields a mutable view. That is the documented guardrail that can still
+// be bypassed, and this helper declines to be the place for that.)
 template<Facade F, typename T>
 requires Proxiable<T, F>
 [[nodiscard]] constexpr proxy_view<F> make_proxy_view(T& target) noexcept {
-  if constexpr (std::same_as<std::remove_cv_t<T>, proxy_view<F>>)
+  if constexpr (std::same_as<T, proxy_view<F>>)
     return target;
   else
     return proxy_view<F>{target};

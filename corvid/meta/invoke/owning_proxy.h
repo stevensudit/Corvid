@@ -496,7 +496,7 @@ private:
   template<invocable_policy P>
   static adoption adoption_for(const owning_vtable_t* vt) noexcept {
     if (vt->relocate) {
-      if constexpr (details::inline_fit_guaranteed(Policy, P))
+      if constexpr (details::is_inline_fit_guaranteed(Policy, P))
         return adoption::relocate;
       return details::adoption_of(Policy, storage_mode::inlined, vt->size,
           vt->align, true);
