@@ -949,8 +949,10 @@ constness is a property of the instance or of the type. All of the
 dispatching handles inherit the facade's `api` sugar when it exists,
 through `details::api_base_t<F>`. The two views additionally share their
 storage, const-method `call`, and `try_downcast` through
-`details::view_base<F, Access>`, and the two shared-owning handles theirs,
-plus the moves, through `details::shared_base<F, Access>`:
+`details::view_base<F, Access>`, the two shared-owning handles theirs, plus
+the moves, through `details::shared_base<F, Access>`, and the two weak
+handles their storage, `expired`, and `lock` through
+`details::weak_base<F, Access>`:
 
 ```mermaid
 classDiagram
@@ -999,17 +1001,15 @@ classDiagram
     }
     class const_shared_proxy~F~ {
     }
-    class weak_proxy~F~ {
-        -vtable_ : view table pointer
-        -target_ : weak_ptr of void
-        +lock() a shared_proxy
+    class weak_base~F,Access~ {
+        #vtable_ : view table pointer
+        #target_ : weak_ptr of void, const if Access is const
         +expired()
+        +lock() the shared flavor of Access
+    }
+    class weak_proxy~F~ {
     }
     class const_weak_proxy~F~ {
-        -vtable_ : view table pointer
-        -target_ : weak_ptr of const void
-        +lock() a const_shared_proxy
-        +expired()
     }
     api_base_t <|-- view_base
     view_base <|-- proxy_view
@@ -1018,6 +1018,8 @@ classDiagram
     api_base_t <|-- shared_base
     shared_base <|-- shared_proxy
     shared_base <|-- const_shared_proxy
+    weak_base <|-- weak_proxy
+    weak_base <|-- const_weak_proxy
 ```
 
 The weak proxies deliberately inherit no `api` and expose no `call`. Each
@@ -2111,12 +2113,6 @@ and views, and identity is handled by the two tags.
 Consolidations deferred from the final review of the handle family, each
 mechanical and with no behavior change:
 
-- `weak_proxy` and `const_weak_proxy` are two whole classes with no shared
-  base, where `shared_proxy` and `const_shared_proxy` sit on
-  `details::shared_base<F, Access>` and the two views on `view_base`. Each
-  weak flavor carries its own table pointer, `std::weak_ptr` (to `void` or
-  to `const void`), `expired`, `lock`, and converting constructors, and only
-  the constness of the pointee and of the locked result differs.
 - Some two dozen converting constructors across the handle family (one on
   `proxy`, three on `proxy_view`, five on `const_proxy_view` plus three
   deleted rvalue overloads, three on `shared_proxy`, five on

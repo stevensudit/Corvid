@@ -175,6 +175,49 @@ protected:
   shared_ptr_t target_;
 };
 
+// Storage, `expired`, and `lock` shared by the two weak flavors, which differ
+// only in the constness of the observed target and, through it, of the
+// shared handle `lock` returns.
+//
+// There is no `api` base and no `call` here: a weak handle carries its table
+// only to hand to the shared handle it locks into.
+template<Facade F, access_mode Access>
+class weak_base {
+protected:
+  using vtable_t = vtbuild_t<F>::vtable_t;
+  using weak_ptr_t = std::weak_ptr<conditional_const_t<Access, void>>;
+
+  // The shared-owning flavor with this access mode over `F`, which is what
+  // `lock` returns.
+  using shared_t = std::conditional_t<(Access == access_mode::as_const),
+      const_shared_proxy<F>, shared_proxy<F>>;
+
+public:
+  // Whether the target is already gone.
+  //
+  // As with `std::weak_ptr`, a false response is stale the moment it is read
+  // while a true one is sticky. The reliable gate is `lock`.
+  [[nodiscard]] bool expired() const noexcept { return target_.expired(); }
+
+  // Lock to regain shared ownership by creating a shared handle over the
+  // target, or an empty one when every owner is gone.
+  [[nodiscard]] shared_t lock() const noexcept {
+    return shared_t{target_.lock(), vtable_};
+  }
+
+protected:
+  weak_base() = default;
+  ~weak_base() = default;
+
+  // Construct observing `target` with `vtable`, taken verbatim so that an
+  // upcast carries the source's table over.
+  weak_base(weak_ptr_t target, const vtable_t* vtable) noexcept
+      : vtable_{vtable}, target_{std::move(target)} {}
+
+  const vtable_t* vtable_ = &empty_vtable_for<F, on_empty::raise>;
+  weak_ptr_t target_;
+};
+
 } // namespace details
 
 // `shared_proxy` is the shared-owning erased handle, like Rust's `Rc<dyn
@@ -340,6 +383,8 @@ private:
   friend class const_proxy_view;
   template<Facade G, access_mode A>
   friend class details::shared_base;
+  template<Facade G, access_mode A>
+  friend class details::weak_base;
 };
 
 // `proxy_impl` is the library-provided binding so that a shared proxy
@@ -484,6 +529,8 @@ private:
   friend class const_proxy_view;
   template<Facade G, access_mode A>
   friend class details::shared_base;
+  template<Facade G, access_mode A>
+  friend class details::weak_base;
 };
 
 // `proxy_impl` is the library-provided binding so that a `const_shared_proxy`
@@ -510,8 +557,8 @@ struct proxy_impl<F, const_shared_proxy<D>> {
 // `lock`, which returns a shared proxy (empty if every owner is gone), so
 // there is no way to call through a target that might be dying.
 template<Facade F>
-class weak_proxy {
-  using vtable_t = details::vtbuild_t<F>::vtable_t;
+class weak_proxy: public details::weak_base<F, access_mode::as_mutable> {
+  using base = details::weak_base<F, access_mode::as_mutable>;
 
 public:
   weak_proxy() = default;
@@ -525,7 +572,7 @@ public:
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   weak_proxy(const shared_proxy<D>& p) noexcept
-      : vtable_{details::upcast_vtable<F, D>(p.vtable_)}, target_{p.target_} {}
+      : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
 
   // Upcasting converting constructors from a `weak_proxy` of a facade that
   // extends `F`, by copy or by move, mirroring the `shared_proxy`'s.
@@ -540,34 +587,15 @@ public:
   template<Facade D>
   requires Extends<D, F>
   weak_proxy(const weak_proxy<D>& other) noexcept
-      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
-        target_{other.target_} {}
+      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   weak_proxy(weak_proxy<D>&& other) noexcept
-      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
-        target_{std::move(other.target_)} {}
+      : base{std::move(other.target_),
+            details::upcast_vtable<F, D>(other.vtable_)} {}
 
-  // Whether the target is already gone.
-  //
-  // As with `std::weak_ptr`, a false response is stale the moment it is read
-  // while a true one is sticky. The reliable gate is `lock`.
-  [[nodiscard]] bool expired() const noexcept { return target_.expired(); }
-
-  // Lock to regain shared ownership by creating a `shared_proxy` over the
-  // target, or an empty one when every owner is gone.
-  [[nodiscard]] shared_proxy<F> lock() const noexcept {
-    return shared_proxy<F>{target_.lock(), vtable_};
-  }
-
-#pragma region Data members
 private:
-  const vtable_t* vtable_ = &details::empty_vtable_for<F, on_empty::raise>;
-  std::weak_ptr<void> target_;
-
-#pragma endregion
-
   template<Facade G>
   friend class weak_proxy;
   template<Facade G>
@@ -581,8 +609,8 @@ private:
 // flavor, or converts from a `weak_proxy`. Its `lock` returns a
 // `const_shared_proxy`, so mutability never reopens through it.
 template<Facade F>
-class const_weak_proxy {
-  using vtable_t = details::vtbuild_t<F>::vtable_t;
+class const_weak_proxy: public details::weak_base<F, access_mode::as_const> {
+  using base = details::weak_base<F, access_mode::as_const>;
 
 public:
   const_weak_proxy() = default;
@@ -595,12 +623,12 @@ public:
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   const_weak_proxy(const const_shared_proxy<D>& p) noexcept
-      : vtable_{details::upcast_vtable<F, D>(p.vtable_)}, target_{p.target_} {}
+      : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   const_weak_proxy(const shared_proxy<D>& p) noexcept
-      : vtable_{details::upcast_vtable<F, D>(p.vtable_)}, target_{p.target_} {}
+      : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
 
   // Converting constructors from a `weak_proxy` of `F`, or of a facade that
   // extends it, dropping mutability, and upcasting constructors from a
@@ -616,43 +644,26 @@ public:
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   const_weak_proxy(const weak_proxy<D>& other) noexcept
-      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
-        target_{other.target_} {}
+      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   const_weak_proxy(weak_proxy<D>&& other) noexcept
-      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
-        target_{std::move(other.target_)} {}
+      : base{std::move(other.target_),
+            details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   const_weak_proxy(const const_weak_proxy<D>& other) noexcept
-      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
-        target_{other.target_} {}
+      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   const_weak_proxy(const_weak_proxy<D>&& other) noexcept
-      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
-        target_{std::move(other.target_)} {}
+      : base{std::move(other.target_),
+            details::upcast_vtable<F, D>(other.vtable_)} {}
 
-  // Whether the target is already gone; see `weak_proxy::expired`.
-  [[nodiscard]] bool expired() const noexcept { return target_.expired(); }
-
-  // Lock to regain shared ownership by creating a `const_shared_proxy` over
-  // the target, or an empty one when every owner is gone.
-  [[nodiscard]] const_shared_proxy<F> lock() const noexcept {
-    return const_shared_proxy<F>{target_.lock(), vtable_};
-  }
-
-#pragma region Data members
 private:
-  const vtable_t* vtable_ = &details::empty_vtable_for<F, on_empty::raise>;
-  std::weak_ptr<const void> target_;
-
-#pragma endregion
-
   template<Facade G>
   friend class const_weak_proxy;
 };
