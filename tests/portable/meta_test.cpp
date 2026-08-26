@@ -1619,6 +1619,19 @@ TEST_CASE("SignatureTraits", "[MetaTest]") {
   static_assert(!signature_traits<int() noexcept>::is_const);
   static_assert(signature_traits<int() noexcept>::is_noexcept);
 
+  // The const axis once more as an access mode, which is what
+  // `conditional_const_t` keys on.
+  static_assert(st::access == access_mode::as_const);
+  static_assert(
+      signature_traits<int() noexcept>::access == access_mode::as_mutable);
+  static_assert(
+      std::is_same_v<conditional_const_t<st::access, int>, const int>);
+  static_assert(std::is_same_v<
+      conditional_const_t<signature_traits<int() noexcept>::access, int>,
+      int>);
+  static_assert(std::is_same_v<
+      conditional_const_t<access_mode::as_const, void>*, const void*>);
+
   // Only the twelve variants qualify: not a non-function, a pointer to one,
   // a `volatile`-qualified one, or a C-variadic one.
   static_assert(HasSignatureTraits<int(char)>);

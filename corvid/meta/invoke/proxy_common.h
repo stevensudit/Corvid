@@ -188,17 +188,23 @@ consteval storage_mode proxy_storage_mode_of(invocable_policy p) noexcept {
 // The signature may carry `const` and `noexcept`, but not a reference
 // qualifier, because it serves every handle in the family, owning, viewing,
 // and shared alike, and constness is the one qualifier they all share with
-// the target. A handle's value category says nothing about the target's: a
-// view is a copyable pair of pointers, and a shared handle has other owners,
-// so an `&&` method would let either move out of an object it does not own,
-// while `&` could only refuse a call on a temporary owner. This is
-// `std::function_ref`'s rule (`const` and `noexcept` only), where
+// the target.
+//
+// A handle's value category says nothing about the target's: a view is a
+// copyable pair of pointers, and a shared handle has other owners, so an `&&`
+// method would let either move out of an object it does not own, while `&`
+// could only refuse a call on a temporary owner.
+//
+// This is `std::function_ref`'s rule (`const` and `noexcept` only), where
 // `flexi_function` follows `std::move_only_function`, whose wrapper is the
-// callable. A consuming operation belongs in the binding, which may take
-// `T&` and move out of it, or in `proxy::extract`. The qualifiers are exposed
-// as `const_qualifier` and `noexcept_specifier`, and as the bools `is_const`
-// and `is_noexcept`; `args_t` is the declared parameter list, for
-// introspection (`codegen` walks it).
+// callable.
+//
+// A consuming operation belongs in the binding, which may take `T&` and move
+// out of it, or in `proxy::extract`. The qualifiers are exposed as
+// `const_qualifier` and `noexcept_specifier`, as the bools `is_const` and
+// `is_noexcept`, and the const axis also as the `access_mode` `access`;
+// `args_t` is the declared parameter list, for introspection (`codegen` walks
+// it).
 template<fixed_string Name, typename Sig>
 struct method: method_key<Name> {
   static_assert(!Name.empty(), "method names may not be empty");
@@ -218,6 +224,7 @@ struct method: method_key<Name> {
       traits::noexcept_specifier;
   static constexpr bool is_const = traits::is_const;
   static constexpr bool is_noexcept = traits::is_noexcept;
+  static constexpr access_mode access = traits::access;
 };
 
 #pragma endregion
@@ -719,8 +726,8 @@ struct method_traits;
 template<typename M, typename R, typename... Args>
 struct method_traits<M, R(Args...)> {
   template<typename T>
-  using target_t = std::conditional_t<M::is_const, const T, T>;
-  using erased_ptr_t = std::conditional_t<M::is_const, const void*, void*>;
+  using target_t = conditional_const_t<M::access, T>;
+  using erased_ptr_t = conditional_const_t<M::access, void>*;
   using thunk_ptr_t = R (*)(erased_ptr_t, Args...) noexcept(M::is_noexcept);
 
   // The parameter list normalized for exact-match probing.
@@ -1596,8 +1603,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     if (cnt < 2) return cnt ? at : none_v;
     using set_t = decltype(make_rank_set<Key, Access>(
         std::make_index_sequence<count_v>{}))::type;
-    using probe_t = std::conditional_t<(Access == access_mode::as_const),
-        const set_t, set_t>;
+    using probe_t = conditional_const_t<Access, set_t>;
     // cl C4244: narrowing here is the ranked overload's own argument
     // conversion, chosen by design.
     PRAGMA_DIAG(push)

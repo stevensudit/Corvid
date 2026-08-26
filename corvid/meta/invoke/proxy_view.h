@@ -47,8 +47,7 @@ template<Facade F, access_mode Access>
 class view_base: public api_base_t<F> {
 protected:
   using vtable_t = vtbuild_t<F>::vtable_t;
-  using target_ptr_t = std::conditional_t<(Access == access_mode::as_const),
-      const void*, void*>;
+  using target_ptr_t = conditional_const_t<Access, void>*;
 
 public:
   using facade_t = F;

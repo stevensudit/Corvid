@@ -100,8 +100,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
 
   // `F` with the signature's cv-qualifier applied.
   template<class F>
-  using cv_qualified_target_t =
-      std::conditional_t<traits::is_const, const F, F>;
+  using cv_qualified_target_t = conditional_const_t<traits::access, F>;
 
   // `qualified_target_t` is `F` with the signature's qualifiers applied,
   // which is how the stored target is invoked: `F cv&`, or `F cv&&` under an

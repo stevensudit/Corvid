@@ -49,12 +49,10 @@ template<Facade F, access_mode Access>
 class shared_base: public api_base_t<F> {
 protected:
   using vtable_t = vtbuild_t<F>::vtable_t;
-  using target_t =
-      std::conditional_t<(Access == access_mode::as_const), const void, void>;
+  using target_t = conditional_const_t<Access, void>;
   using shared_ptr_t = std::shared_ptr<target_t>;
   template<typename T>
-  using typed_t =
-      std::conditional_t<(Access == access_mode::as_const), const T, T>;
+  using typed_t = conditional_const_t<Access, T>;
 
   // The shared-owning flavor with this access mode over facade `D`, which is
   // what the transferring `try_downcast` returns.
@@ -116,9 +114,7 @@ public:
   // downcasts to a `const_shared_proxy`.
   //
   // Copying a const `shared_proxy` reopens mutability, and nothing prevents
-  // that; the downcast simply declines to be the copy that does it. The
-  // transferring flavor keeps the source's own flavor, since an rvalue grants
-  // whatever it had.
+  // that; the downcast simply declines to be the copy that does it.
   template<Facade D>
   requires Extends<D, F> && (Access == access_mode::as_mutable)
   [[nodiscard]] shared_proxy<D> try_downcast() & noexcept {

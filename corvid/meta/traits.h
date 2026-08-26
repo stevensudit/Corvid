@@ -29,6 +29,8 @@
 #include <utility>
 #include <variant>
 
+#include "bool_enums.h"
+
 namespace corvid { inline namespace meta { inline namespace traits {
 
 // Note: Some of these definitions are universal traits that apply anywhere,
@@ -208,6 +210,19 @@ constexpr bool is_initializer_list_v =
 
 #pragma endregion
 #pragma endregion
+#pragma region Const qualification
+
+// The type `T`, const-qualified when `Access` is `as_const` and unchanged
+// when it is `as_mutable`.
+//
+// The one spelling for the const-or-mutable choice a handle, iterator, or
+// thunk makes over its target from an access mode. For a pointer, qualify
+// the pointee: `conditional_const_t<Access, void>*`.
+template<access_mode Access, typename T>
+using conditional_const_t =
+    std::conditional_t<(Access == access_mode::as_const), const T, T>;
+
+#pragma endregion
 #pragma region Signatures
 
 // The const qualifier of a function signature, or of a type.
@@ -236,6 +251,8 @@ struct signature_traits_base {
   static constexpr noexcept_spec noexcept_specifier = Noex;
   static constexpr bool is_const = (Const == const_qual::present);
   static constexpr bool is_noexcept = (Noex == noexcept_spec::present);
+  static constexpr access_mode access =
+      is_const ? access_mode::as_const : access_mode::as_mutable;
 };
 
 } // namespace details
@@ -252,7 +269,8 @@ struct signature_traits_base {
 // `noexcept` included), and one constant per axis: `const_qualifier`,
 // `ref_qualifier`, and `noexcept_specifier`, each typed by its own enum. The
 // two-valued axes are restated as the bools `is_const` and `is_noexcept`, for
-// boolean expressions and `noexcept` clauses.
+// boolean expressions and `noexcept` clauses, and the const axis once more as
+// the `access_mode` `access`, for `conditional_const_t`.
 //
 // Only the twelve variants are specialized, so the trait doubles as the gate
 // for what counts as a signature: anything else, `volatile` qualification and
