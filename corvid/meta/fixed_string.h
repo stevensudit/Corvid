@@ -66,8 +66,7 @@ struct basic_fixed_string {
 
   // Construct from a string literal. The deduction guide supplies `N` as the
   // literal length, less the terminator.
-  constexpr explicit(false)
-      basic_fixed_string(const char_t (&txt)[N + 1]) noexcept {
+  constexpr basic_fixed_string(const char_t (&txt)[N + 1]) noexcept {
     for (auto ndx = 0UZ; ndx != N; ++ndx) do_not_use[ndx] = txt[ndx];
   }
 

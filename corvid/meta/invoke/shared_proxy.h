@@ -241,12 +241,12 @@ public:
   // moved-from source is left with its own type's `raise` table.
   template<Facade D>
   requires Extends<D, F>
-  explicit(false) shared_proxy(const shared_proxy<D>& other) noexcept
+  shared_proxy(const shared_proxy<D>& other) noexcept
       : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
-  explicit(false) shared_proxy(shared_proxy<D>&& other) noexcept
+  shared_proxy(shared_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
             details::upcast_vtable<F, D>(other.vtable_)} {
     other.vtable_ = other.empty_vtable;
@@ -418,12 +418,12 @@ public:
   // and a moved-from source is left with its own type's `raise` table.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_shared_proxy(const shared_proxy<D>& other) noexcept
+  const_shared_proxy(const shared_proxy<D>& other) noexcept
       : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_shared_proxy(shared_proxy<D>&& other) noexcept
+  const_shared_proxy(shared_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
             details::upcast_vtable<F, D>(other.vtable_)} {
     other.vtable_ = other.empty_vtable;
@@ -433,13 +433,13 @@ public:
   // that extends `F`, by copy or by move, under the same rules.
   template<Facade D>
   requires Extends<D, F>
-  explicit(false)
-      const_shared_proxy(const const_shared_proxy<D>& other) noexcept
+
+  const_shared_proxy(const const_shared_proxy<D>& other) noexcept
       : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
-  explicit(false) const_shared_proxy(const_shared_proxy<D>&& other) noexcept
+  const_shared_proxy(const_shared_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
             details::upcast_vtable<F, D>(other.vtable_)} {
     other.vtable_ = other.empty_vtable;
@@ -526,7 +526,7 @@ public:
   // `const_weak_proxy` instead.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) weak_proxy(const shared_proxy<D>& p) noexcept
+  weak_proxy(const shared_proxy<D>& p) noexcept
       : vtable_{details::upcast_vtable<F, D>(p.vtable_)}, target_{p.target_} {}
 
   // Upcasting converting constructors from a `weak_proxy` of a facade that
@@ -535,15 +535,19 @@ public:
   // Intentionally implicit, like every handle upcast. An expired source
   // upcasts like a live one, still observing the same target, while expiration
   // stays `lock`'s business.
+  //
+  // A moved-from source keeps its table. Nothing reads the table except
+  // through `target_`, and `lock` comes out empty once that is gone, so
+  // there is nothing to clear.
   template<Facade D>
   requires Extends<D, F>
-  explicit(false) weak_proxy(const weak_proxy<D>& other) noexcept
+  weak_proxy(const weak_proxy<D>& other) noexcept
       : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
         target_{other.target_} {}
 
   template<Facade D>
   requires Extends<D, F>
-  explicit(false) weak_proxy(weak_proxy<D>&& other) noexcept
+  weak_proxy(weak_proxy<D>&& other) noexcept
       : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
         target_{std::move(other.target_)} {}
 
@@ -592,12 +596,12 @@ public:
   // Intentionally implicit.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_weak_proxy(const const_shared_proxy<D>& p) noexcept
+  const_weak_proxy(const const_shared_proxy<D>& p) noexcept
       : vtable_{details::upcast_vtable<F, D>(p.vtable_)}, target_{p.target_} {}
 
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_weak_proxy(const shared_proxy<D>& p) noexcept
+  const_weak_proxy(const shared_proxy<D>& p) noexcept
       : vtable_{details::upcast_vtable<F, D>(p.vtable_)}, target_{p.target_} {}
 
   // Converting constructors from a `weak_proxy` of `F`, or of a facade that
@@ -605,29 +609,33 @@ public:
   // `const_weak_proxy` of a facade that extends `F`, each by copy or by move.
   //
   // Intentionally implicit, like every handle upcast. An expired source
-  // converts like a live one, still observing the same target; expiry stays
-  // `lock`'s business.
+  // converts like a live one, still observing the same target, while
+  // expiration stays `lock`'s business.
+  //
+  // A moved-from source keeps its table. Nothing reads the table except
+  // through `target_`, and `lock` comes out empty once that is gone, so
+  // there is nothing to clear.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_weak_proxy(const weak_proxy<D>& other) noexcept
+  const_weak_proxy(const weak_proxy<D>& other) noexcept
       : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
         target_{other.target_} {}
 
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_weak_proxy(weak_proxy<D>&& other) noexcept
+  const_weak_proxy(weak_proxy<D>&& other) noexcept
       : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
         target_{std::move(other.target_)} {}
 
   template<Facade D>
   requires Extends<D, F>
-  explicit(false) const_weak_proxy(const const_weak_proxy<D>& other) noexcept
+  const_weak_proxy(const const_weak_proxy<D>& other) noexcept
       : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
         target_{other.target_} {}
 
   template<Facade D>
   requires Extends<D, F>
-  explicit(false) const_weak_proxy(const_weak_proxy<D>&& other) noexcept
+  const_weak_proxy(const_weak_proxy<D>&& other) noexcept
       : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
         target_{std::move(other.target_)} {}
 

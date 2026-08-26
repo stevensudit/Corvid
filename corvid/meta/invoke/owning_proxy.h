@@ -205,8 +205,7 @@ public:
   // `do_adopt` settles the route before anything moves.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) proxy(proxy<D, P>&& other) noexcept(
-      !details::adopt_may_throw(Policy, P)) {
+  proxy(proxy<D, P>&& other) noexcept(!details::adopt_may_throw(Policy, P)) {
     do_adopt(other);
   }
 

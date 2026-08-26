@@ -157,7 +157,7 @@ public:
   template<typename T>
   requires(Proxiable<T, F> && !std::is_const_v<T> &&
            !details::is_handle_for<T, F>())
-  constexpr explicit(false) proxy_view(T& target) noexcept
+  constexpr proxy_view(T& target) noexcept
       : base{std::addressof(target), &details::vtable_for<F, T>} {}
 
   // Upcasting constructor from a view over a facade that extends `F` (Rust
@@ -170,7 +170,7 @@ public:
   // upcasts to an empty view with the same empty behavior.
   template<Facade D>
   requires Extends<D, F>
-  constexpr explicit(false) proxy_view(const proxy_view<D>& view) noexcept
+  constexpr proxy_view(const proxy_view<D>& view) noexcept
       : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
   // Viewing constructor from an owning `proxy` of `F`, or of a facade that
@@ -186,7 +186,7 @@ public:
   // to instead construct a `const_proxy_view` on it.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) proxy_view(proxy<D, P>& p) noexcept
+  proxy_view(proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
@@ -197,7 +197,7 @@ public:
   // owner keeps the target alive (see the class comment).
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) proxy_view(shared_proxy<D>& p) noexcept
+  proxy_view(shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
 
@@ -321,7 +321,7 @@ public:
   // constructors below instead of being wrapped as targets.
   template<typename T>
   requires(Proxiable<T, F> && !details::is_handle_for<T, F>())
-  constexpr explicit(false) const_proxy_view(const T& target) noexcept
+  constexpr const_proxy_view(const T& target) noexcept
       : base{std::addressof(target), &details::vtable_for<F, T>} {}
 
   template<typename T>
@@ -332,8 +332,7 @@ public:
   //
   // Dropping mutability is implicit and safe, like `T*` to `const T*`, and
   // there is no path back.
-  constexpr explicit(false)
-      const_proxy_view(const proxy_view<F>& view) noexcept
+  constexpr const_proxy_view(const proxy_view<F>& view) noexcept
       : base{view.target_, view.vtable_} {}
 
   // Upcasting constructor from a const view over a facade that extends `F`
@@ -342,16 +341,14 @@ public:
   // Intentionally implicit; see the mutable view's upcasting constructor.
   template<Facade D>
   requires Extends<D, F>
-  constexpr explicit(false)
-      const_proxy_view(const const_proxy_view<D>& view) noexcept
+  constexpr const_proxy_view(const const_proxy_view<D>& view) noexcept
       : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
   // Upcasting constructor from the mutable view of a facade that extends `F`,
   // dropping mutability and upcasting in one implicit step.
   template<Facade D>
   requires Extends<D, F>
-  constexpr explicit(false)
-      const_proxy_view(const proxy_view<D>& view) noexcept
+  constexpr const_proxy_view(const proxy_view<D>& view) noexcept
       : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
   // Viewing constructor from an owning `proxy` of `F`, or of a facade that
@@ -364,7 +361,7 @@ public:
   // const view; there is no path back to mutability.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_proxy_view(const proxy<D, P>& p) noexcept
+  const_proxy_view(const proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
@@ -380,7 +377,7 @@ public:
   // below.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_proxy_view(const shared_proxy<D>& p) noexcept
+  const_proxy_view(const shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
 
@@ -393,7 +390,7 @@ public:
   // lends.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
-  explicit(false) const_proxy_view(const const_shared_proxy<D>& p) noexcept
+  const_proxy_view(const const_shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
 
