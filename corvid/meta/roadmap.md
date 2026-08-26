@@ -29,27 +29,25 @@ The pending `proxy` changes, in the order to land them:
 - Wanted: `try_share<T>()`, a verified `std::shared_ptr<T>` out of a shared
   handle; needs a `type_tag` on the view table. Recorded in proxy.md's
   future work.
-- Two open questions, neither blocking. Whether `proxy` could or should
-  honor `storage_mode::direct` (a direct-eligible target stored
-  nowhere): today `details::storage_mode_of` is the one place proxy chooses a
-  mode, and it documents `direct` as not consulted, since a proxy table
-  always resolves a target address. And whether a method signature could
-  carry a reference qualifier, as `flexi_function`'s now may; `method`
-  refuses one with a `static_assert`.
-- Once the above lands, both types share the same empty-call, handover, and
-  vocabulary contracts, and the proxy.md storage-policy section can point at
-  `invocable_policy.h` as the single description. The heap handover is
-  landed: `adoption_of` hands a heap arrival over whenever the destination
-  admits the heap, never un-boxing it even when it would fit inline, and
-  "Storage policies" in proxy_test.cpp pins it, including that the block
-  itself travels (after a round trip through the default policy, the target
-  extracts at the address it went in at). `extract` prunes the home its
-  policy never uses, as `do_adopt` does, which is also what keeps the
-  analyzer off the never-written buffer on that path.
-  `reset()` and `nullptr` assignment are landed too, both over the private
-  `do_reset`, emptying the proxy onto its own type's empty table; pinned in
-  "Empty proxies honor on_empty" (inline target, both spellings, both
-  behaviors) and "Owning proxy, heap target" (destruction counted).
+- Ruled out (2026-08-26): `storage_mode::direct` for `proxy`. The proxy
+  contract resolves a target address at every turn (views lend it, impls
+  take a `T&`, `extract` and `shared_proxy` adopt the allocation), so a
+  target stored nowhere has nothing to offer them, and the two payoffs
+  direct brings `flexi_function` do not transfer: a proxy call is already
+  one thunk with `T` known, and an empty target already costs nothing
+  inline. The one allocation it would save, under `heap_only`, would break
+  that policy's stable-address promise. `details::storage_mode_of` says so.
+- Ruled out (2026-08-26): a reference qualifier on a `method` signature.
+  `flexi_function` binds `this` on `&` and `&&` because the wrapper is the
+  callable, so the two value categories are one (`std::move_only_function`'s
+  rule). A facade signature serves owning, viewing, and shared handles
+  through one dispatch table, and a view's or shared handle's value
+  category says nothing about the target's, so an `&&` method would let
+  them move out of an object they do not own; `&` could only refuse a call
+  on a temporary owner. `std::function_ref` draws the same line (`const`
+  and `noexcept` only), and `proxy_view` is a `function_ref`. Consuming
+  operations belong in the binding or in `extract`. The `static_assert` in
+  `method` stays, and its comment carries the reason.
 
 ## Landed: meta/invoke
 

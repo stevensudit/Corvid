@@ -138,10 +138,14 @@ using namespace invocables::implementation;
 // `storage_mode_of` is where a `proxy` under policy `p` keeps a `T`: `inlined`
 // when the policy can store it inline, else `dynamic`.
 //
-// Never `direct`. A `proxy` table always resolves a target address, so a
-// target with no per-instance state (see `is_direct_eligible`) is stored like
-// any other, and the policy's direct eligibility is not consulted; whether
-// it should be is an open item in roadmap.md.
+// Never `direct`. The proxy contract resolves a target address at every turn
+// (views lend it, impls take a `T&`, `extract` and `shared_proxy` adopt the
+// allocation), so a target with no per-instance state (see
+// `is_direct_eligible`) is stored like any other, and the policy's direct
+// eligibility is not consulted. Nothing is lost: inline storage of such a
+// target already costs nothing at runtime, and the one place it would save
+// an allocation, `heap_only`, promises a stable address, which a target
+// stored nowhere could not keep.
 template<typename T>
 consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
   return can_store_inline<T>(p)
@@ -180,10 +184,19 @@ consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
 // repeatedly, and the bindings overload on the trailing parameters.
 //
 // The signature may carry `const` and `noexcept`, but not a reference
-// qualifier: a handle dispatches on the target's constness alone. The
-// qualifiers are exposed as `const_qualifier` and `noexcept_specifier`, and
-// as the bools `is_const` and `is_noexcept`; `args_t` is the declared
-// parameter list, for introspection (`codegen` walks it).
+// qualifier, because it serves every handle in the family, owning, viewing,
+// and shared alike, and constness is the one qualifier they all share with
+// the target. A handle's value category says nothing about the target's: a
+// view is a copyable pair of pointers, and a shared handle has other owners,
+// so an `&&` method would let either move out of an object it does not own,
+// while `&` could only refuse a call on a temporary owner. This is
+// `std::function_ref`'s rule (`const` and `noexcept` only), where
+// `flexi_function` follows `std::move_only_function`, whose wrapper is the
+// callable. A consuming operation belongs in the binding, which may take
+// `T&` and move out of it, or in `proxy::extract`. The qualifiers are exposed
+// as `const_qualifier` and `noexcept_specifier`, and as the bools `is_const`
+// and `is_noexcept`; `args_t` is the declared parameter list, for
+// introspection (`codegen` walks it).
 template<fixed_string Name, typename Sig>
 struct method: method_key<Name> {
   static_assert(!Name.empty(), "method names may not be empty");
