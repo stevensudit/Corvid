@@ -36,7 +36,8 @@
 // under the handles.
 //
 // Type-erased handles (`proxy`, `proxy_view`, `const_proxy_view`,
-// `shared_proxy`, `weak_proxy`) over an interface definition (a facade),
+// `shared_proxy`, `const_shared_proxy`, `weak_proxy`, `const_weak_proxy`)
+// over an interface definition (a facade),
 // without inheritance, vtable pointers in the target type, or macros.
 //
 // Opting a class into a facade does not require modifying it, so you can
@@ -2001,7 +2002,11 @@ class proxy;
 template<Facade F>
 class shared_proxy;
 template<Facade F>
+class const_shared_proxy;
+template<Facade F>
 class weak_proxy;
+template<Facade F>
+class const_weak_proxy;
 
 namespace details {
 
@@ -2024,6 +2029,10 @@ struct handle_facade<proxy<F, P>> {
 };
 template<Facade F>
 struct handle_facade<shared_proxy<F>> {
+  using type = F;
+};
+template<Facade F>
+struct handle_facade<const_shared_proxy<F>> {
   using type = F;
 };
 

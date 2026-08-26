@@ -388,6 +388,19 @@ public:
   requires(std::same_as<D, F> || Extends<D, F>)
   const_proxy_view(const shared_proxy<D>&&) = delete;
 
+  // Viewing constructor from a `const_shared_proxy` of `F`, or of a facade
+  // that extends it, under the same rules, and the only view that handle
+  // lends.
+  template<Facade D>
+  requires(std::same_as<D, F> || Extends<D, F>)
+  explicit(false) const_proxy_view(const const_shared_proxy<D>& p) noexcept
+      : base{p ? p.target() : nullptr,
+            details::upcast_vtable<F, D>(p.vtable_)} {}
+
+  template<Facade D>
+  requires(std::same_as<D, F> || Extends<D, F>)
+  const_proxy_view(const const_shared_proxy<D>&&) = delete;
+
   // No need for a `using` because we do not declare a `call` here that shadows
   // the base's const-only `call`.
 

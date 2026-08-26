@@ -3317,6 +3317,128 @@ TEST_CASE("Shared ownership", "[proxy]") {
   CHECK(!from_expired.lock());
 }
 
+// Whether a handle of the `lockbox` chain can dispatch its non-const method.
+template<typename Handle>
+concept can_add = requires(Handle h) { h.template call<"add">(1); };
+
+TEST_CASE("Const shared ownership", "[proxy]") {
+  life_stats stats;
+  const_weak_proxy<lockbox> cwk;
+  CHECK(!cwk.lock());
+  if (true) {
+    // The const flavor owns like the mutable one, and exposes only the const
+    // methods.
+    auto cs = make_const_shared_proxy<vault, small_coffer>(stats);
+    REQUIRE(cs);
+    CHECK(cs.call<"gold">() == 0);
+    static_assert(can_add<shared_proxy<vault>>);
+    static_assert(!can_add<const_shared_proxy<vault>>);
+
+    // Constness is in the type, so it survives copying and upcasting: each
+    // is another const owner of the one target.
+    auto copy = cs;
+    const_shared_proxy<lockbox> up = cs;
+    CHECK(stats.constructed == 1);
+    CHECK(copy.call<"gold">() == 0);
+    CHECK(up.call<"gold">() == 0);
+
+    // A mutable shared handle converts to the const flavor, sharing by copy
+    // or transferring by move, and there is no path back.
+    auto sv = make_shared_proxy<vault, small_coffer>(stats);
+    CHECK(sv.call<"add">(5) == 5);
+    const_shared_proxy<vault> from_copy = sv;
+    CHECK(from_copy.call<"gold">() == 5);
+    CHECK(sv.call<"add">(1) == 6);
+    CHECK(from_copy.call<"gold">() == 6);
+    const_shared_proxy<lockbox> from_move = std::move(sv);
+    CHECK(!sv); // NOLINT(bugprone-use-after-move): probing moved-from state.
+    CHECK(from_move.call<"gold">() == 6);
+    static_assert(!std::is_constructible_v<shared_proxy<vault>,
+        const_shared_proxy<vault>&>);
+    static_assert(!std::is_constructible_v<shared_proxy<vault>,
+        const_shared_proxy<vault>>);
+
+    // Only the const view lends from it, from an lvalue.
+    const_proxy_view<lockbox> cv = cs;
+    CHECK(cv.call<"gold">() == 0);
+    CHECK(make_const_proxy_view<lockbox>(cs).call<"gold">() == 0);
+    static_assert(!std::is_constructible_v<proxy_view<lockbox>,
+        const_shared_proxy<vault>&>);
+    static_assert(!std::is_constructible_v<const_proxy_view<lockbox>,
+        const_shared_proxy<vault>>);
+
+    // A const weak proxy observes either flavor, or converts from a weak
+    // proxy, and locks to the const flavor. The mutable weak proxy refuses
+    // the const handles, since its lock would reopen mutability.
+    cwk = cs;
+    CHECK(!cwk.expired());
+    auto locked = cwk.lock();
+    static_assert(std::same_as<decltype(locked), const_shared_proxy<lockbox>>);
+    REQUIRE(locked);
+    CHECK(locked.call<"gold">() == 0);
+    auto sv2 = make_shared_proxy<vault, small_coffer>(stats);
+    const_weak_proxy<vault> observes_mutable = sv2;
+    CHECK(observes_mutable.lock().call<"gold">() == 0);
+    weak_proxy<vault> wv = sv2;
+    const_weak_proxy<lockbox> from_weak = wv;
+    CHECK(from_weak.lock().call<"gold">() == 0);
+    static_assert(!std::is_constructible_v<weak_proxy<vault>,
+        const_shared_proxy<vault>&>);
+    static_assert(
+        !std::is_constructible_v<weak_proxy<vault>, const_weak_proxy<vault>&>);
+  }
+  // Every owner of every flavor is gone, so each target died exactly once.
+  CHECK(stats.constructed == 3);
+  CHECK(stats.destroyed == stats.constructed);
+  CHECK(cwk.expired());
+  CHECK(!cwk.lock());
+}
+
+TEST_CASE("Const shared ownership downcasts and interop", "[proxy]") {
+  // The `api` sugar works through the const handle for const forwarders.
+  auto cs = make_const_shared_proxy<ranger, texas_ranger>();
+  CHECK(cs.call<"describe">() == "texas_ranger"s);
+
+  // An upcast then a downcast stays const, in both `try_downcast` flavors.
+  const_shared_proxy<gunslinger> cg = cs;
+  CHECK(cg.describe() == "texas_ranger"s);
+  auto back = cg.try_downcast<ranger>();
+  static_assert(std::same_as<decltype(back), const_shared_proxy<ranger>>);
+  REQUIRE(back);
+  CHECK(cg);
+  auto moved_back = std::move(cg).try_downcast<ranger>();
+  REQUIRE(moved_back);
+  CHECK(!cg); // NOLINT(bugprone-use-after-move): probing moved-from state.
+
+  // Adoption from std: a `shared_ptr<const T>` or `shared_ptr<T>` shares
+  // with the outside holders, a `unique_ptr<const T>` or `unique_ptr<T>`
+  // converts (the mutable flavor refuses the const one), and an owning proxy
+  // is consumed.
+  auto sp = std::make_shared<lawman>();
+  std::shared_ptr<const lawman> csp = sp;
+  const_shared_proxy<gunslinger> from_const_sp{csp};
+  const_shared_proxy<gunslinger> from_sp{sp};
+  CHECK(from_const_sp.describe() == "lawman"s);
+  CHECK(from_sp.describe() == "lawman"s);
+  CHECK(sp.use_count() == 4);
+  const_shared_proxy<gunslinger> from_up{std::make_unique<lawman>()};
+  CHECK(from_up.describe() == "lawman"s);
+  const_shared_proxy<gunslinger> from_const_up{
+      std::unique_ptr<const lawman>{std::make_unique<lawman>()}};
+  CHECK(from_const_up.describe() == "lawman"s);
+  static_assert(!std::is_constructible_v<shared_proxy<gunslinger>,
+      std::unique_ptr<const lawman>>);
+  auto p = make_proxy<ranger, texas_ranger>();
+  const_shared_proxy<gunslinger> from_proxy{std::move(p)};
+  CHECK(!p); // NOLINT(bugprone-use-after-move): probing moved-from state.
+  CHECK(from_proxy.describe() == "texas_ranger"s);
+
+  // A default-constructed const handle is empty and raises.
+  const_shared_proxy<gunslinger> empty;
+  CHECK(!empty);
+  CHECK_THROWS_AS(empty.describe(), std::bad_function_call);
+}
+
 TEST_CASE("Shared ownership interop with std", "[proxy]") {
   // A unique_ptr converts into shared ownership on the way in.
   auto up = std::make_unique<lawman>();

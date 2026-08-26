@@ -136,6 +136,8 @@ buffer plus dispatch pointer).
 | `try_downcast<D>()`           | (none)                   | (`dyn Any` adjacent) |
 | `shared_proxy<F>`             | `make_proxy_shared`      | `Rc<dyn T>`          |
 | `weak_proxy<F>`               | (its weak counterpart)   | `Weak<dyn T>`        |
+| `const_shared_proxy<F>`       | (none)                   | `Rc<dyn T>` (shared access is immutable there) |
+| `const_weak_proxy<F>`         | (none)                   | `Weak<dyn T>`        |
 | (internal) dispatch table     | meta                     | vtable + drop glue   |
 
 Naming notes:
@@ -935,20 +937,29 @@ expressible, but same-name declarations subsume it.
 
 ## The handle family
 
-Five handles share one shape (a target plus a pointer to a static
-per-(facade, type) table) and differ in what they own. All of the
+Seven handles share one shape (a target plus a pointer to a static
+per-(facade, type) table) and differ in what they own, and in whether
+constness is a property of the instance or of the type. All of the
 dispatching handles inherit the facade's `api` sugar when it exists,
 through `details::api_base_t<F>`. The two views additionally share their
-storage and const-method `call` through `details::view_base<F, Const>`:
+storage and const-method `call` through `details::view_base<F, Access>`,
+and the two shared-owning handles theirs, plus the moves, through
+`details::shared_base<F, Access>`:
 
 ```mermaid
 classDiagram
     class api_base_t~F~ {
         <<the facade's api if defined, else empty>>
     }
-    class view_base~F,Const~ {
-        #target_ : void pointer, const if Const
+    class view_base~F,Access~ {
         #vtable_ : view table pointer
+        #target_ : void pointer, const if Access is const
+        +call() const methods only
+        +operator bool()
+    }
+    class shared_base~F,Access~ {
+        #vtable_ : view table pointer
+        #target_ : shared_ptr of void, const if Access is const
         +call() const methods only
         +operator bool()
     }
@@ -969,27 +980,37 @@ classDiagram
         +try_downcast() rvalue, consumes on success
     }
     class shared_proxy~F~ {
-        -target_ : shared_ptr of void
-        -vtable_ : view table pointer
-        +call()
+        +call() all methods
         +try_downcast() sharing or transferring
     }
+    class const_shared_proxy~F~ {
+        +try_downcast() to const handles only
+    }
     class weak_proxy~F~ {
-        -target_ : weak_ptr of void
         -vtable_ : view table pointer
-        +lock()
+        -target_ : weak_ptr of void
+        +lock() a shared_proxy
+        +expired()
+    }
+    class const_weak_proxy~F~ {
+        -vtable_ : view table pointer
+        -target_ : weak_ptr of const void
+        +lock() a const_shared_proxy
         +expired()
     }
     api_base_t <|-- view_base
     view_base <|-- proxy_view
     view_base <|-- const_proxy_view
     api_base_t <|-- proxy
-    api_base_t <|-- shared_proxy
+    api_base_t <|-- shared_base
+    shared_base <|-- shared_proxy
+    shared_base <|-- const_shared_proxy
 ```
 
-`weak_proxy` deliberately inherits no `api` and exposes no `call`. It
-keeps its table pointer only to hand to the `shared_proxy` that `lock()`
-mints.
+The weak proxies deliberately inherit no `api` and expose no `call`. Each
+keeps its table pointer only to hand to the shared handle that `lock()`
+mints. They share nothing but shape, since the shape is two data members
+and `expired()`.
 
 How the handles and the std smart pointers convert into each other (in
 addition, every handle converts to its own counterpart for any facade the
@@ -1003,7 +1024,9 @@ flowchart LR
     PV["proxy_view"]
     CPV["const_proxy_view"]
     SP["shared_proxy"]
+    CSP["const_shared_proxy"]
     WP["weak_proxy"]
+    CWP["const_weak_proxy"]
 
     UP -->|adopt| P
     P -->|"extract&lt;T&gt;()"| UP
@@ -1015,6 +1038,13 @@ flowchart LR
     PV -->|one way| CPV
     SP -->|observe| WP
     WP -->|"lock()"| SP
+    SP -->|one way| CSP
+    P -->|"consume, one way"| CSP
+    CSP -->|lends| CPV
+    CSP -->|observe| CWP
+    SP -->|observe| CWP
+    WP -->|one way| CWP
+    CWP -->|"lock()"| CSP
 ```
 
 Emptiness propagates along every handle-to-handle edge: an empty source
@@ -1296,6 +1326,19 @@ guardrail it is on the views: copying escapes it. Upcasts are undoable
 through `try_downcast`, in a sharing lvalue flavor and a transferring
 rvalue one (see "Downcasting").
 
+`const_shared_proxy<F>` is the guarantee tier, as `const_proxy_view` is
+for the views: constness is part of the type, so it survives copying, only
+the const-qualified methods dispatch, only `const_proxy_view` lends from
+it, and `try_downcast` yields another const handle. It converts from a
+`shared_proxy` by copy (sharing) or by move (transferring), the
+`shared_ptr<const T>` from `shared_ptr<T>` conversion, and adopts from a
+`std::shared_ptr` or `std::unique_ptr` of `const T` or of `T`, or an owning
+`proxy`, or is made by `make_const_shared_proxy`. There is no
+path back to mutability. This is what Rust's `Rc<dyn Trait>` actually is,
+since shared access is immutable access there, with `Rc<RefCell<dyn
+Trait>>` the mutable spelling. ngcpp expresses constness through its
+conventions and observers rather than through a separate shared handle.
+
 ngcpp built this tier bespoke (`make_proxy_shared`, compact internal
 refcounts) to beat `shared_ptr` overhead. This library reuses std, and
 that is a different tradeoff rather than a concession. The classic
@@ -1322,8 +1365,11 @@ one, without racing the other owners, which is also why `std::shared_ptr`
 has no `release`. Likewise, nothing but a `shared_proxy` converts to a
 `weak_proxy`, since there is no shared ownership to observe.
 
-`weak_proxy<F>` observes without owning, via `std::weak_ptr<void>`. It
-deliberately carries no dispatch. Access always goes through `lock()`,
+`weak_proxy<F>` observes without owning, via `std::weak_ptr<void>`, and
+`const_weak_proxy<F>` observes either shared flavor (or converts from a
+`weak_proxy`) and locks to the const one, so mutability never reopens
+through it; the mutable `weak_proxy` refuses the const handles for the same
+reason. Neither deliberately carries any dispatch. Access always goes through `lock()`,
 which returns a `shared_proxy` (empty when every owner is gone), so there
 is no way to call through a target that might be dying. `expired()` is the
 usual advisory answer. Weak proxies upcast among themselves like every
@@ -1802,14 +1848,16 @@ deliberately NOT inline: `facade`, `method`, and `key` are too generic to
 dump into `corvid`. The family splits by handle, with the machinery in its
 own header: `proxy_common.h` (facades, registration, and dispatch),
 `proxy_view.h` (`proxy_view` and `const_proxy_view`), `owning_proxy.h` (`proxy`),
-and `shared_proxy.h` (`shared_proxy` and `weak_proxy`), each including the
+and `shared_proxy.h` (the shared and weak handles of both constness flavors),
+each including the
 one before it. The handles work as a unit, so the `proxy.h` umbrella is
 the header to include; the split exists to keep each header to one or two
 classes, for maintenance and for reading, not for picking and choosing.
 
 The call-site vocabulary (`proxy`, `proxy_view`, `const_proxy_view`,
-`shared_proxy`, `weak_proxy`, `make_proxy`, `make_proxy_view`,
-`make_const_proxy_view`, `make_shared_proxy`, `Proxiable`,
+`shared_proxy`, `const_shared_proxy`, `weak_proxy`, `const_weak_proxy`,
+`make_proxy`, `make_proxy_view`, `make_const_proxy_view`,
+`make_shared_proxy`, `make_const_shared_proxy`, `Proxiable`,
 `proxy_impl_base`) is exported into
 `corvid::meta` by using-declarations, so consuming code spells
 `proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
@@ -1980,6 +2028,13 @@ and views, and identity is handled by the two tags.
   name-mismatched types that avoids a full custom impl. Overlaps in
   purpose with the partial-override pattern above, which needs no new
   machinery but does need the facade author's cooperation.
+- `try_share<T>()` on the shared handles: a verified, non-consuming
+  `std::shared_ptr<T>` sharing the target, the shared analog of
+  `proxy::extract<T>`. Wanted: the overhead is one `type_tag` pointer per
+  view table (none per instance), and it is the payoff of using
+  `std::shared_ptr` as the engine. Today the view table carries no type
+  tag, so an unverified cast is the only thing possible, and nothing is
+  exposed.
 - A guaranteed-copyable proxy flavor: a policy whose construction
   constrains targets to copyable types, making the handle itself satisfy
   `std::copyable` with no runtime condition (the shape of ngcpp's

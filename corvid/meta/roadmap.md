@@ -22,6 +22,13 @@ The pending `proxy` changes, in the order to land them:
   inline-to-heap move, agreeing with the shared policy vocabulary
   (inline_size / inline_align / inline_only / inline_or_heap) and the
   wrapper. Nothing in proxy says "sbo" or "re-boxed" now.
+- Landed: `const_shared_proxy` and `const_weak_proxy`, the shared tier's
+  guarantee-level constness, mirroring `const_proxy_view`, with a
+  `details::shared_base<F, Access>` under the two shared flavors the way
+  `view_base` sits under the views.
+- Wanted: `try_share<T>()`, a verified `std::shared_ptr<T>` out of a shared
+  handle; needs a `type_tag` on the view table. Recorded in proxy.md's
+  future work.
 - Two open questions, neither blocking. Whether `proxy` could or should
   honor `storage_mode::direct` (a direct-eligible target stored
   nowhere): today `details::storage_mode_of` is the one place proxy chooses a
