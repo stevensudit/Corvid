@@ -417,13 +417,13 @@ adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
 // type-erased destination's policy or an erased arrival's footprint.
 constexpr adoption adoption_of(invocable_policy to, storage_mode from,
     size_t size, size_t align, bool is_nothrow_move) noexcept {
-  const bool fits =
+  const auto does_fit =
       to.admits_inline() && fits_inline(to, size, align, is_nothrow_move);
   if (from == storage_mode::dynamic) {
     if (to.admits_heap()) return adoption::hand_over;
-    return fits ? adoption::unbox : adoption::refuse;
+    return does_fit ? adoption::unbox : adoption::refuse;
   }
-  if (fits) return adoption::relocate;
+  if (does_fit) return adoption::relocate;
   return to.admits_heap() ? adoption::box : adoption::refuse;
 }
 

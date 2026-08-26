@@ -865,7 +865,7 @@ private:
         .to = &storage_area_,
         .is_inline_fit_guaranteed =
             details::is_inline_fit_guaranteed(Policy, P)};
-    [[maybe_unused]] const bool is_refused =
+    [[maybe_unused]] const auto is_refused =
         (other.dispatch_.lifespan(&other.storage_area_, &dest) ==
             thunks::refusal);
     if constexpr (details::adopt_may_throw(Policy, P)) {

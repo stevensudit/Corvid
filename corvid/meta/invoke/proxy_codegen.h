@@ -178,7 +178,7 @@ void emit_api_slot(std::ostream& os, size_t next) {
   emit_params(os, next, args);
   os << ")";
   if constexpr (S::is_noexcept) os << " noexcept";
-  constexpr bool has_twin =
+  constexpr auto has_twin =
       has_const_twin<S>(static_cast<vtbuild_t<F>::flat_slots_t*>(nullptr));
   if constexpr (has_twin) {
     os << "\n    requires(requires {\n      { self.template call<\"" << name

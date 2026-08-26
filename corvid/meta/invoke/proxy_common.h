@@ -540,7 +540,7 @@ consteval void maybe_validate_api() noexcept {
     // A composed facade's probe also runs through each base facade's
     // boilerplate, so their absence is diagnosed here rather than as a hard
     // error deep inside the table build.
-    constexpr bool has_base_boilerplates = are_base_boilerplates_visible<F>();
+    constexpr auto has_base_boilerplates = are_base_boilerplates_visible<F>();
     static_assert(has_base_boilerplates,
         "validating the api of a composed facade needs every base facade's "
         "boilerplate impl visible at the registration; pass api_check::off "

@@ -77,7 +77,7 @@ struct empty_call_traits {
   // `noexcept` specifier `noex`.
   static consteval bool
   admits(on_empty behavior, noexcept_spec noex) noexcept {
-    const bool may_throw = (noex == noexcept_spec::none);
+    const auto may_throw = (noex == noexcept_spec::none);
     if (behavior == on_empty::silent)
       return is_silenceable && (may_throw || is_nothrow_silenceable);
     if (behavior == on_empty::raise) return may_throw;
