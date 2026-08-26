@@ -305,7 +305,7 @@ public:
     using iterator_concept = std::bidirectional_iterator_tag;
     using iterator_category = std::input_iterator_tag;
     using value_type = std::conditional_t<mutable_v, row_lens, row_view>;
-    using difference_type = std::ptrdiff_t;
+    using difference_type = ptrdiff_t;
     using reference = value_type;
     using pointer = value_type*;
     using base_owner_t = std::conditional_t<mutable_v, archetype_storage_base,

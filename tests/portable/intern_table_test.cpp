@@ -43,7 +43,7 @@ struct intern_test {
 };
 }}} // namespace corvid::container::intern
 
-enum class string_id : std::uint8_t { missing };
+enum class string_id : uint8_t { missing };
 consteval auto corvid_enum_spec(string_id*) {
   return corvid::enums::sequence::make_sequence_enum_spec<string_id,
       "missing">();

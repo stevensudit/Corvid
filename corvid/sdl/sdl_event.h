@@ -28,7 +28,7 @@ namespace corvid::sdl {
 #pragma region sdl_event_type
 
 // Enum to wrap `SDL_EventType`.
-enum class sdl_event_type : std::uint16_t {
+enum class sdl_event_type : uint16_t {
   // Application (0x100).
   quit = SDL_EVENT_QUIT,
   terminating = SDL_EVENT_TERMINATING,
@@ -212,7 +212,7 @@ consteval auto corvid_enum_spec(sdl_event_type*) {
 // which typed `sdl_event` accessor applies. Coarser than `sdl_event_type`:
 // `key_down` and `key_up` are both `key`. Header-only events, including
 // `quit`, are `common`.
-enum class sdl_event_data_type : std::uint8_t {
+enum class sdl_event_data_type : uint8_t {
   common,
   display,
   window,
@@ -285,7 +285,7 @@ consteval auto corvid_enum_spec(sdl_window_id_type*) {
 #pragma region sdl_keycode
 
 // Wrapper for `SDL_Keycode`, mirroring the full `SDLK_*` set.
-enum class sdl_keycode : std::uint32_t {
+enum class sdl_keycode : uint32_t {
   unknown = SDLK_UNKNOWN,
   backspace = SDLK_BACKSPACE,
   tab = SDLK_TAB,
@@ -584,7 +584,7 @@ consteval auto corvid_enum_spec(sdl_keycode*) {
 
 // Which mouse button a button event refers to, wrapping SDL's `SDL_BUTTON_*`
 // constants.
-enum class sdl_mouse_button : std::uint8_t {
+enum class sdl_mouse_button : uint8_t {
   left = SDL_BUTTON_LEFT,
   middle = SDL_BUTTON_MIDDLE,
   right = SDL_BUTTON_RIGHT,

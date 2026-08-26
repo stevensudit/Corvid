@@ -273,7 +273,7 @@ public:
     public:
       using iterator_category = std::forward_iterator_tag;
       using value_type = std::string;
-      using difference_type = std::ptrdiff_t;
+      using difference_type = ptrdiff_t;
       using reference = const std::string&;
       using pointer = void;
 

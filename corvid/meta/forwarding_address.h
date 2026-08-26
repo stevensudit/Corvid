@@ -38,7 +38,7 @@ class address_forwarder {
 public:
   // Tag required for direct access. This could have been made private, but the
   // back door has been left open in case it's needed.
-  enum class raw : std::uint8_t { allow };
+  enum class raw : uint8_t { allow };
 
 #pragma region Accessors
 

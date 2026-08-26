@@ -29,7 +29,7 @@ namespace corvid::sdl {
 
 // What the event pump asks the frame loop to do next: keep rendering, rebuild
 // for a resize, open the menu, or quit.
-enum class frame_action : std::uint8_t { proceed, resize, menu, quit };
+enum class frame_action : uint8_t { proceed, resize, menu, quit };
 
 #pragma endregion
 #pragma region pump_events

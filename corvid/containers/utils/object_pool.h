@@ -578,8 +578,8 @@ private:
 
   [[nodiscard]] bool is_in_pool(const void* p) const noexcept {
     if (!p) return false;
-    const auto addr = reinterpret_cast<std::uintptr_t>(p);
-    const auto begin = reinterpret_cast<std::uintptr_t>(slots_.data());
+    const auto addr = reinterpret_cast<uintptr_t>(p);
+    const auto begin = reinterpret_cast<uintptr_t>(slots_.data());
     const auto end = begin + sizeof(slots_);
     return addr >= begin && addr < end && ((addr - begin) % sizeof(T) == 0);
   }

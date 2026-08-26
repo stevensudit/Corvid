@@ -518,7 +518,7 @@ template<Facade F>
 //
 // A facade whose `api` deliberately deviates from the method list (say, a
 // widening convenience signature), must register with `api_check::off`.
-enum class api_check : std::uint8_t { off, on };
+enum class api_check : uint8_t { off, on };
 
 namespace details {
 

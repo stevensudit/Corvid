@@ -127,7 +127,7 @@ public:
   public:
     using iterator_category = std::forward_iterator_tag;
     using value_type = pos_t;
-    using difference_type = std::ptrdiff_t;
+    using difference_type = ptrdiff_t;
     using pointer = const pos_t*;
     using reference = const pos_t&;
 
@@ -892,7 +892,7 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
   }
 
 private:
-  enum class mode : std::uint8_t { binary, index, hex };
+  enum class mode : uint8_t { binary, index, hex };
   mode mode_ = mode::binary;
 };
 

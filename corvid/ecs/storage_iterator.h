@@ -75,7 +75,7 @@ public:
   using value_type = STORAGE::component_t;
   using id_t = STORAGE::id_t;
   using size_type = STORAGE::size_type;
-  using difference_type = std::ptrdiff_t;
+  using difference_type = ptrdiff_t;
   using reference =
       std::conditional_t<mutable_v, value_type&, const value_type&>;
   using pointer =

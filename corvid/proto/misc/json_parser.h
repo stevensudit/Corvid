@@ -268,7 +268,7 @@ public:
   public:
     using iterator_category = std::forward_iterator_tag;
     using value_type = json_value_view;
-    using difference_type = std::ptrdiff_t;
+    using difference_type = ptrdiff_t;
     using reference = value_type;
     using pointer = void;
 
@@ -362,7 +362,7 @@ public:
   public:
     using iterator_category = std::forward_iterator_tag;
     using value_type = entry;
-    using difference_type = std::ptrdiff_t;
+    using difference_type = ptrdiff_t;
     using reference = value_type;
     using pointer = void;
 
@@ -538,8 +538,8 @@ struct json_cursor {
     return *this;
   }
 
-  [[nodiscard]] constexpr char operator[](std::ptrdiff_t n) const noexcept {
-    return input[static_cast<size_t>(static_cast<std::ptrdiff_t>(pos) + n)];
+  [[nodiscard]] constexpr char operator[](ptrdiff_t n) const noexcept {
+    return input[static_cast<size_t>(static_cast<ptrdiff_t>(pos) + n)];
   }
 
   constexpr char next() noexcept { return input[pos++]; }

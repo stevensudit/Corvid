@@ -249,7 +249,7 @@ private:
     using value_type = std::conditional_t<std::is_const_v<CB>,
         const raw_value_type, raw_value_type>;
 
-    using difference_type = std::ptrdiff_t;
+    using difference_type = ptrdiff_t;
     using pointer = value_type*;
     using reference = value_type&;
 

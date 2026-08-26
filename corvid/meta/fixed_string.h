@@ -59,7 +59,7 @@ struct basic_fixed_string {
   using const_iterator = const char_t*;
   using iterator = const_iterator;
   using size_type = size_t;
-  using difference_type = std::ptrdiff_t;
+  using difference_type = ptrdiff_t;
 
 #pragma endregion
 #pragma region Construction

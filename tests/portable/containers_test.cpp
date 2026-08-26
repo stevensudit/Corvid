@@ -746,13 +746,7 @@ struct RangeKey {
   size_t end{};
 };
 
-enum class QueryType : std::uint8_t {
-  None,
-  Retrieve,
-  Range,
-  OtherRange,
-  Status
-};
+enum class QueryType : uint8_t { None, Retrieve, Range, OtherRange, Status };
 
 using QueryVariant = enum_variant<QueryType, std::monostate, RetrievalKey,
     RangeKey, RangeKey, std::string>;
@@ -918,7 +912,7 @@ TEST_CASE("Basic", "[EnumVariant]") {
 
 #pragma endregion
 
-enum class ThrowKind : std::uint8_t { value, thrower };
+enum class ThrowKind : uint8_t { value, thrower };
 
 // The value constructor throws, to manufacture a valueless variant.
 struct ThrowOnConstruct {

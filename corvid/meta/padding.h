@@ -46,7 +46,7 @@ padded_size(size_t sz, size_t align = alignof(std::max_align_t)) noexcept {
 #pragma region calc_padding
 
 // Alignment of content within a fixed-width field.
-enum class aligned : std::uint8_t { left, right, center };
+enum class aligned : uint8_t { left, right, center };
 
 // Calculate the left and right padding counts for `content_width` in a field
 // of `total_width`, based on `alignment`. When centering leaves an odd count,

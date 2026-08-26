@@ -54,7 +54,7 @@ namespace invocables {
 // move is boxed onto the heap. With no buffer for them to size, `inline_size`
 // and `inline_align` are ignored; leave them at their defaults rather than
 // spelling out a zero.
-enum class storage_policy : std::uint8_t {
+enum class storage_policy : uint8_t {
   inline_only = 1 << 0,
   heap_only = 1 << 1,
   inline_or_heap = inline_only | heap_only
@@ -80,7 +80,7 @@ enum class storage_policy : std::uint8_t {
 // termination is never reached there by accident. `proxy` treats the value as
 // a floor per method, since a facade mixes methods; see
 // `invocable_policy::empty`.
-enum class on_empty : std::uint8_t { silent, raise, terminate };
+enum class on_empty : uint8_t { silent, raise, terminate };
 
 #pragma endregion
 #pragma region Storage mode
@@ -104,7 +104,7 @@ enum class on_empty : std::uint8_t { silent, raise, terminate };
 //
 // Unlike `storage_policy`, which is a policy choice, this is the outcome for
 // one target, and it is what the owner's thunks are keyed on.
-enum class storage_mode : std::uint8_t { direct, inlined, dynamic };
+enum class storage_mode : uint8_t { direct, inlined, dynamic };
 
 #pragma endregion
 #pragma region Adoption
@@ -117,7 +117,7 @@ enum class storage_mode : std::uint8_t { direct, inlined, dynamic };
 // destination as is, and `unbox` moves one into the destination's buffer and
 // frees the block. `refuse` is the answer when the destination admits no home
 // the arrival can take. The rule that picks the route is `adoption_of`.
-enum class adoption : std::uint8_t { relocate, box, hand_over, unbox, refuse };
+enum class adoption : uint8_t { relocate, box, hand_over, unbox, refuse };
 
 #pragma endregion
 #pragma region invocable_policy
