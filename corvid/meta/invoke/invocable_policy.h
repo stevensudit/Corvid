@@ -358,13 +358,13 @@ consteval bool is_direct_eligible() noexcept {
           std::is_trivially_destructible_v<T>);
 }
 
-// `storage_mode_of`: where policy `p` keeps a `T`: nowhere when it is direct
-// eligible, inline when it can be, and on the heap otherwise.
+// `function_storage_mode_of`: where policy `p` keeps a `T`: nowhere when it is
+// direct eligible, inline when it can be, and on the heap otherwise.
 //
 // An `inline_only` policy over a target that can be neither is rejected
 // separately, with its own diagnostic.
 template<typename T>
-consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
+consteval storage_mode function_storage_mode_of(invocable_policy p) noexcept {
   if (is_direct_eligible<T>()) return storage_mode::direct;
   if (can_store_inline<T>(p)) return storage_mode::inlined;
   return storage_mode::dynamic;
@@ -374,7 +374,7 @@ consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
 // which is whenever it does not go to the heap.
 template<typename T>
 consteval bool can_store_nothrow(invocable_policy p) noexcept {
-  return (storage_mode_of<T>(p) != storage_mode::dynamic);
+  return (function_storage_mode_of<T>(p) != storage_mode::dynamic);
 }
 
 // `is_inline_fit_guaranteed`: whether every inline target the source policy

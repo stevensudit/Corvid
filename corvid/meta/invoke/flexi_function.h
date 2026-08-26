@@ -844,7 +844,7 @@ private:
         "reference type; every call would produce a dangling reference");
     assert(!dispatch_.lifespan);
 
-    constexpr auto mode = details::storage_mode_of<FD>(Policy);
+    constexpr auto mode = details::function_storage_mode_of<FD>(Policy);
     if constexpr (mode == storage_mode::inlined)
       new (storage_area_.buf) FD(std::forward<FN>(fn));
     else if constexpr (mode == storage_mode::dynamic)

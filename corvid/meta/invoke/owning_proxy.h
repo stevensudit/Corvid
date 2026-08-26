@@ -139,7 +139,7 @@ public:
   requires(Proxiable<T, F> && std::constructible_from<T, Args...>)
   explicit proxy(std::in_place_type_t<T>, Args&&... args)
       : vtable_{&details::owning_vtable_for<F, F, T,
-            details::storage_mode_of<T>(Policy)>} {
+            details::proxy_storage_mode_of<T>(Policy)>} {
     static_assert(
         Policy.admits_heap() || details::is_inline_eligible<T>(Policy),
         "the target is not eligible for an inline_only proxy's inline buffer");

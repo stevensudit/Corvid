@@ -301,7 +301,7 @@ on an empty instance.
 
 ```mermaid
 flowchart TD
-    s["storage_mode_of&lt;FD&gt;(Policy)"] --> m{mode}
+    s["function_storage_mode_of&lt;FD&gt;(Policy)"] --> m{mode}
     m -->|direct| d["store nothing"]
     m -->|inlined| i["placement-new FD into storage_area_.buf"]
     m -->|dynamic| h["storage_area_.ptr = new FD(...)"]
@@ -310,7 +310,7 @@ flowchart TD
     h --> p
 ```
 
-`invocables::implementation::storage_mode_of<T>(p)` is the one routing decision:
+`invocables::implementation::function_storage_mode_of<T>(p)` is the one routing decision:
 `direct` when `is_direct_eligible<T>()`, else `inlined` when
 `can_store_inline<T>(p)` (fits the buffer's size and alignment, is
 nothrow-move-constructible, and the policy is not `heap_only`), else

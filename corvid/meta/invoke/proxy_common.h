@@ -136,19 +136,20 @@ namespace details {
 // `details::` calls below find them.
 using namespace invocables::implementation;
 
-// `storage_mode_of` is where a `proxy` under policy `p` keeps a `T`: `inlined`
-// when the policy can store it inline, else `dynamic`.
+// `proxy_storage_mode_of` is where a `proxy` under policy `p` keeps a `T`:
+// `inlined` when the policy can store it inline, else `dynamic`.
 //
 // Never `direct`. The proxy contract resolves a target address at every turn
 // (views lend it, impls take a `T&`, `extract` and `shared_proxy` adopt the
 // allocation), so a target with no per-instance state (see
 // `is_direct_eligible`) is stored like any other, and the policy's direct
-// eligibility is not consulted. Nothing is lost: inline storage of such a
-// target already costs nothing at runtime, and the one place it would save
-// an allocation, `heap_only`, promises a stable address, which a target
-// stored nowhere could not keep.
+// eligibility is not consulted.
+//
+// Nothing is lost: inline storage of such a target already costs nothing at
+// runtime, and the one place it would save an allocation, `heap_only`,
+// promises a stable address, which a target stored nowhere could not keep.
 template<typename T>
-consteval storage_mode storage_mode_of(invocable_policy p) noexcept {
+consteval storage_mode proxy_storage_mode_of(invocable_policy p) noexcept {
   return can_store_inline<T>(p)
              ? storage_mode::inlined
              : storage_mode::dynamic;
@@ -1836,7 +1837,7 @@ struct vtable_builder<facade<Es...>>
         make_owning_bases<Born, T, StorageMode>(
             static_cast<bases_of_t<Es...>*>(nullptr))};
     static_assert(StorageMode != storage_mode::direct,
-        "a proxy table is inlined or dynamic; see storage_mode_of");
+        "a proxy table is inlined or dynamic; see proxy_storage_mode_of");
     // The housekeeping slots erase the shared primitives (invocable_common.h)
     // here, the last place the target type is seen, as `make_thunk` does for
     // dispatch.

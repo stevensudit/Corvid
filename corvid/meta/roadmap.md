@@ -38,7 +38,7 @@ The pending `proxy` changes, in the order to land them:
   direct brings `flexi_function` do not transfer: a proxy call is already
   one thunk with `T` known, and an empty target already costs nothing
   inline. The one allocation it would save, under `heap_only`, would break
-  that policy's stable-address promise. `details::storage_mode_of` says so.
+  that policy's stable-address promise. `details::proxy_storage_mode_of` says so.
 - Ruled out (2026-08-26): a reference qualifier on a `method` signature.
   `flexi_function` binds `this` on `&` and `&&` because the wrapper is the
   callable, so the two value categories are one (`std::move_only_function`'s
@@ -121,12 +121,14 @@ answers had been written twice. The shared parts now live in
   `ConstOnly` and `view_base`'s flag are `access_mode` (a handle declares
   how it accesses, a different fact from a qualifier found on a signature,
   and the enum keeps the two apart), and the owning-table builders take
-  `storage_mode` in place of `bool Sbo`, with `details::storage_mode_of` the
+  `storage_mode` in place of `bool Sbo`, with `details::proxy_storage_mode_of` the
   one place proxy chooses a mode. `allocation_mode` is now `storage_mode`
   (the enum says where a target is kept, and in two of its three values
   nothing is allocated; the old name also invited confusion with container
-  allocators), the two mode-choosing functions are `storage_mode_of`, and
-  the parameters that carry the enum are `StorageMode` (proxy) and
+  allocators), the two mode-choosing functions are
+  `function_storage_mode_of` and `proxy_storage_mode_of` (distinct names,
+  since the proxy one never answers `direct`), and the parameters that
+  carry the enum are `StorageMode` (proxy) and
   `SourceStorage` (flexi), so they no longer share a generic `Mode` with
   `access_mode`. The bool
   predicates and constants now all lead with `is_`/`has_`/`are_`
