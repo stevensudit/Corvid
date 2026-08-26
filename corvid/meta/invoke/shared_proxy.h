@@ -533,8 +533,8 @@ public:
   // extends `F`, by copy or by move, mirroring the `shared_proxy`'s.
   //
   // Intentionally implicit, like every handle upcast. An expired source
-  // upcasts like a live one, still observing the same target; expiry stays
-  // `lock`'s business.
+  // upcasts like a live one, still observing the same target, while expiration
+  // stays `lock`'s business.
   template<Facade D>
   requires Extends<D, F>
   explicit(false) weak_proxy(const weak_proxy<D>& other) noexcept
