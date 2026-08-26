@@ -134,6 +134,7 @@ buffer plus dispatch pointer).
 | `invocable_policy`            | facade-level constraints | (none)               |
 | `clone()` / `can_clone()`     | copyability constraint   | (dyn-clone idiom)    |
 | `try_downcast<D>()`           | (none)                   | (`dyn Any` adjacent) |
+| `try_share<T>()`              | (none)                   | (`Rc<dyn Any>` downcast) |
 | `shared_proxy<F>`             | `make_proxy_shared`      | `Rc<dyn T>`          |
 | `weak_proxy<F>`               | (its weak counterpart)   | `Weak<dyn T>`        |
 | `const_shared_proxy<F>`       | (none)                   | `Rc<dyn T>` (shared access is immutable there) |
@@ -1235,14 +1236,21 @@ heap path. Nothing is copied or moved, and the address stays stable. An
 `inline_only` proxy instead un-boxes the target into its buffer, the fit
 being a compile-time fact here since the type is concrete.
 
-`extract<T>()` is the inverse. It verifies `T` against the owning table's
-type tag at runtime (the address of a per-type static); on a mismatch or
+`extract<T>()` is the inverse. It verifies `T` against the table's type
+tag at runtime (the address of a per-type static); on a mismatch or
 an empty proxy, the result is null and the proxy is untouched. It hands a
 heap allocation over as-is, and moves an inline target onto the heap
 first.
 
 A `unique_ptr` converts to `shared_ptr`, so this also buys the shared
-tier's interop.
+tier's interop. The shared tier's own inverse is `try_share<T>()`, verified
+the same way through the table's type tag. It hands out a typed
+`std::shared_ptr<T>` (`<const T>` through a const handle) that co-owns the
+target rather than removing it, because shared ownership can never be
+taken back but can always be shared further; the result outlives every
+handle if it is the last owner. This is the payoff of `std::shared_ptr` as
+the engine: the typed owner and the erased handles share one control
+block.
 
 ### Downcasting (vtable-carried RTTI)
 
@@ -1511,13 +1519,16 @@ table of the same thunks.
 ### The dispatch table
 
 `vtable_t`, the table behind the views (and embedded in the owning
-table), has three parts:
+table), has four parts:
 
 - `thunks`: a `std::tuple` holding one thunk pointer per flattened slot,
   bases' methods first, then own. It is a tuple rather than an array
   because each signature (and `noexcept` flavor) is its own pointer type.
 - `ancestry`: a pointer to the born family's birth ancestry, the flat
   array `try_downcast` searches.
+- `type_tag`: the target's no-RTTI identity, the address of a per-type
+  static, which is how `extract<T>` and `try_share<T>` verify the exact
+  type they name.
 - `bases`: one pointer per direct base facade, to that base's table for
   the same target and birth. This is what makes upcasting a pointer read.
 
@@ -1609,10 +1620,9 @@ absent capability throughout:
   mode, so an adopting proxy can box an inline arrival or un-box a
   heap one and land on the right table (`inline_table` is null for a target
   that can never live inline, lacking a nothrow move).
-- `type_tag`, `size`, `align`: the target's no-RTTI identity (the
-  address of a per-type static) and footprint, which is how `extract<T>`
-  verifies its type and how `can_adopt` checks an erased arrival against
-  a buffer.
+- `size`, `align`: the target's footprint, which is how `can_adopt`
+  checks an erased arrival against a buffer (its identity is the embedded
+  table's `type_tag`).
 - `ancestry` and `bases`: as on the dispatch table, but over owning
   tables, and per storage mode, so a downcast or upcast lands on a table
   whose lifetime thunks match where the target actually lives.
@@ -1632,7 +1642,7 @@ flowchart LR
         V1["vt: embedded dispatch table"]
         L1["destroy, relocate, copy"]
         X1["to_heap + heap sibling"]
-        I1["type_tag, size, align"]
+        I1["size, align"]
         N1["ancestry (inline), bases"]
     end
     subgraph OH["heap-mode owning table"]
@@ -1994,8 +2004,8 @@ already gets the one-allocation layout, and a target that must live in
 an arena can stay there and be viewed, since views do not own.
 
 RTTI is capped at two narrow identities, both address compares of empty
-statics: `type_tag_v<T>` lets `extract<T>` verify the exact concrete
-type it names, and `facade_tag_v` plus the birth ancestry lets
+statics: `type_tag_v<T>` lets `extract<T>` and `try_share<T>` verify the
+exact concrete type they name, and `facade_tag_v` plus the birth ancestry lets
 `try_downcast` recover the born facade chain. Scoped out is everything
 open-ended: `typeid` access, type names, `dynamic_cast`-style queries
 against arbitrary types (ngcpp's `proxy_typeid`). The two probes cover
@@ -2028,13 +2038,6 @@ and views, and identity is handled by the two tags.
   name-mismatched types that avoids a full custom impl. Overlaps in
   purpose with the partial-override pattern above, which needs no new
   machinery but does need the facade author's cooperation.
-- `try_share<T>()` on the shared handles: a verified, non-consuming
-  `std::shared_ptr<T>` sharing the target, the shared analog of
-  `proxy::extract<T>`. Wanted: the overhead is one `type_tag` pointer per
-  view table (none per instance), and it is the payoff of using
-  `std::shared_ptr` as the engine. Today the view table carries no type
-  tag, so an unverified cast is the only thing possible, and nothing is
-  exposed.
 - A guaranteed-copyable proxy flavor: a policy whose construction
   constrains targets to copyable types, making the handle itself satisfy
   `std::copyable` with no runtime condition (the shape of ngcpp's

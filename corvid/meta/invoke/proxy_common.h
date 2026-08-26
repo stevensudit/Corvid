@@ -1422,11 +1422,15 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   //
   // `ancestry` names the born family's view ancestry (see
   // `view_ancestry_for`), which is what `try_downcast` on the views and on
-  // `shared_proxy` searches; it is the table's only slot beyond dispatch, so
-  // views still carry no lifetime machinery.
+  // `shared_proxy` searches. `type_tag` identifies the target type itself
+  // (see `type_tag_v`), letting a typed operation on the erased target verify
+  // its `T` at runtime, as `extract` and `try_share` do. Those are the
+  // table's only slots beyond dispatch, so views still carry no lifetime
+  // machinery.
   struct vtable_t {
     thunks_t thunks;
     const ancestry_t* ancestry{};
+    const void* type_tag{};
     std::tuple<const typename vtbuild_t<Bs>::vtable_t*...> bases;
   };
 
@@ -1737,6 +1741,7 @@ struct vtable_builder<facade<Es...>>
   template<typename F, typename T, typename Born>
   static consteval vtable_t make_vtable() noexcept {
     return {impl_t::template make_thunks<F, T>(), &view_ancestry_for<Born, T>,
+        &type_tag_v<T>,
         make_view_bases<T, Born>(static_cast<bases_of_t<Es...>*>(nullptr))};
   }
 
@@ -1760,10 +1765,9 @@ struct vtable_builder<facade<Es...>>
   //
   // A null `relocate` marks a heap-stored target, which moves by pointer
   // steal rather than relocation. A null `copy` marks a target that is not
-  // copy-constructible. `type_tag` identifies the target type itself (see
-  // `type_tag_v`), letting typed operations on the erased target verify
-  // their `T` at runtime; `size` and `align` describe it, so an adopting
-  // proxy can check the fit of an erased arrival against its own buffer.
+  // copy-constructible. `size` and `align` describe the target (its type
+  // identity is `vt.type_tag`), so an adopting proxy can check the fit of an
+  // erased arrival against its own buffer.
   //
   // The mode-changing pairs point across to the table's other-mode sibling:
   // an inline-mode table carries `to_heap` (see `box`) plus `heap_table`,
@@ -1782,7 +1786,6 @@ struct vtable_builder<facade<Es...>>
     void* (*copy)(const void*, void*){};
     void* (*to_heap)(void*){};
     void (*to_inline)(void*, void*) noexcept {};
-    const void* type_tag{};
     const owning_vtable_t* heap_table{};
     const owning_vtable_t* inline_table{};
     size_t size{};
@@ -1826,8 +1829,8 @@ struct vtable_builder<facade<Es...>>
   template<typename F, typename Born, typename T, storage_mode StorageMode>
   static consteval owning_vtable_t make_owning_vtable() noexcept {
     owning_vtable_t ovt{vtable_for<F, T, Born>, nullptr, nullptr, nullptr,
-        nullptr, nullptr, &type_tag_v<T>, nullptr, nullptr, sizeof(T),
-        alignof(T), &ancestry_for<Born, T, StorageMode>,
+        nullptr, nullptr, nullptr, nullptr, sizeof(T), alignof(T),
+        &ancestry_for<Born, T, StorageMode>,
         make_owning_bases<Born, T, StorageMode>(
             static_cast<bases_of_t<Es...>*>(nullptr))};
     static_assert(StorageMode != storage_mode::direct,
@@ -1883,7 +1886,7 @@ struct vtable_builder<facade<Es...>>
   // Build the dispatch table of an empty handle under the policy floor.
   template<on_empty Floor>
   static consteval vtable_t make_empty_vtable() noexcept {
-    return {impl_t::template make_empty_thunks<Floor>(), nullptr,
+    return {impl_t::template make_empty_thunks<Floor>(), nullptr, nullptr,
         make_empty_view_bases<Floor>(
             static_cast<bases_of_t<Es...>*>(nullptr))};
   }

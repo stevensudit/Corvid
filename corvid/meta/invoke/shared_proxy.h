@@ -47,6 +47,15 @@ namespace details {
 // has. Copies are the defaults: a copy shares the one target.
 template<Facade F, access_mode Access>
 class shared_base: public api_base_t<F> {
+protected:
+  using vtable_t = vtbuild_t<F>::vtable_t;
+  using target_t =
+      std::conditional_t<(Access == access_mode::as_const), const void, void>;
+  using shared_ptr_t = std::shared_ptr<target_t>;
+  template<typename T>
+  using typed_t =
+      std::conditional_t<(Access == access_mode::as_const), const T, T>;
+
 public:
   using facade_t = F;
 
@@ -64,12 +73,24 @@ public:
 
   [[nodiscard]] explicit operator bool() const noexcept { return !!target_; }
 
-protected:
-  using vtable_t = vtbuild_t<F>::vtable_t;
-  using target_t =
-      std::conditional_t<(Access == access_mode::as_const), const void, void>;
-  using shared_ptr_t = std::shared_ptr<target_t>;
+  // Try to share the target out as a typed `std::shared_ptr`,
+  // `const`-qualified through a const handle.
+  //
+  // The shared analog of `proxy::extract<T>`, non-consuming because ownership
+  // is shared. The result is another owner of the one target, alongside this
+  // handle and every outside holder, and it outlives them all if it is the
+  // last.
+  //
+  // `T` must be the target's exact type, verified at runtime through the
+  // table's type tag. On a mismatch, or an empty handle, the result is null
+  // and the handle is untouched.
+  template<typename T>
+  [[nodiscard]] std::shared_ptr<typed_t<T>> try_share() const noexcept {
+    if (vtable_->type_tag != &type_tag_v<T>) return nullptr;
+    return std::static_pointer_cast<typed_t<T>>(target_);
+  }
 
+protected:
   shared_base() = default;
 
   shared_base(const shared_base&) = default;

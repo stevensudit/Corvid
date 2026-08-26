@@ -3450,6 +3450,27 @@ TEST_CASE("Shared ownership interop with std", "[proxy]") {
   auto sr = std::make_shared<robber>();
   shared_proxy<gunslinger> sg2{sr};
   CHECK(sg2.fire(3) == 3);
+
+  // `try_share<T>` shares the target back out as a typed `shared_ptr`, an
+  // owner alongside the handle and the outside holder, and refuses any type
+  // but the exact one. The const flavor shares it as `const T`, and an
+  // upcast handle still knows the concrete type.
+  auto shared_back = sg2.try_share<robber>();
+  static_assert(std::same_as<decltype(shared_back), std::shared_ptr<robber>>);
+  REQUIRE(shared_back);
+  CHECK(shared_back.get() == sr.get());
+  CHECK(sr.use_count() == 3);
+  CHECK(!sg2.try_share<lawman>());
+  CHECK(!shared_proxy<gunslinger>{}.try_share<robber>());
+  const_shared_proxy<gunslinger> csg2 = sg2;
+  auto const_back = csg2.try_share<robber>();
+  static_assert(
+      std::same_as<decltype(const_back), std::shared_ptr<const robber>>);
+  CHECK(const_back.get() == sr.get());
+  auto tr = make_shared_proxy<ranger, texas_ranger>();
+  shared_proxy<gunslinger> upcast_tr = tr;
+  CHECK(upcast_tr.try_share<texas_ranger>());
+  CHECK(!upcast_tr.try_share<lawman>());
   CHECK(sr->fired == 3);
   sr->rearm();
   CHECK(sg2.shots() == 0);
@@ -3459,6 +3480,7 @@ TEST_CASE("Shared ownership interop with std", "[proxy]") {
   // becomes the control block's deleter), an inline target moves onto the
   // heap first, and either can upcast on the way.
   life_stats stats;
+  std::shared_ptr<big_box> kept;
   if (true) {
     auto heap_owner = make_proxy<vault, big_box>(stats);
     heap_owner.call<"add">(4);
@@ -3475,7 +3497,15 @@ TEST_CASE("Shared ownership interop with std", "[proxy]") {
     shared_proxy<lockbox> shared_inline{std::move(inline_owner)};
     CHECK(stats.moves == 1);
     CHECK(shared_inline.call<"gold">() == 2);
+
+    // A target adopted from a proxy shares out the same way, and the typed
+    // owner keeps it alive past the handles, destroyed once through the
+    // control block.
+    kept = shared_heap.try_share<big_box>();
+    REQUIRE(kept);
   }
+  CHECK(stats.destroyed == stats.constructed - 1);
+  kept.reset();
   CHECK(stats.destroyed == stats.constructed);
 }
 

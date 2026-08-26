@@ -340,7 +340,7 @@ public:
   // the one case that can throw, again leaving the proxy untouched).
   template<typename T>
   [[nodiscard]] std::unique_ptr<T> extract() {
-    if (vtable_->type_tag != &details::type_tag_v<T>) return nullptr;
+    if (vtable_->vt.type_tag != &details::type_tag_v<T>) return nullptr;
     if constexpr (Policy.admits_heap()) {
       if (!vtable_->relocate) {
         auto* ptr = static_cast<T*>(storage_area_.ptr);

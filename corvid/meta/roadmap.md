@@ -26,9 +26,11 @@ The pending `proxy` changes, in the order to land them:
   guarantee-level constness, mirroring `const_proxy_view`, with a
   `details::shared_base<F, Access>` under the two shared flavors the way
   `view_base` sits under the views.
-- Wanted: `try_share<T>()`, a verified `std::shared_ptr<T>` out of a shared
-  handle; needs a `type_tag` on the view table. Recorded in proxy.md's
-  future work.
+- Landed: `try_share<T>()` on both shared flavors, a verified,
+  non-consuming `std::shared_ptr<T>` (`<const T>` through the const one)
+  co-owning the target. The `type_tag` moved from the owning table to the
+  view table it embeds, so every handle's table now carries the type
+  identity at no per-instance cost, and `extract` reads it there.
 - Ruled out (2026-08-26): `storage_mode::direct` for `proxy`. The proxy
   contract resolves a target address at every turn (views lend it, impls
   take a `T&`, `extract` and `shared_proxy` adopt the allocation), so a
