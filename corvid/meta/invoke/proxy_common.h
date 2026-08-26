@@ -234,6 +234,13 @@ struct method: method_key<Name> {
 template<fixed_string Key, auto Ptr>
 requires std::is_member_pointer_v<decltype(Ptr)>
 struct member {
+  // Bindings are keyed by the method's declared name, as `method` declares
+  // it. Dispatch reaches a binding through `proxy_impl<F, T>` for one facade,
+  // so a qualified key would never match, and there is nothing for it to
+  // disambiguate.
+  static_assert(details::name_is_unqualified(Key.view()),
+      "member binding keys may not contain \"::\"; bindings are per facade, "
+      "so a sibling collision is resolved by which facade is registered");
   static constexpr auto name_v = Key;
   static constexpr auto pointer_v = Ptr;
 };
@@ -260,10 +267,11 @@ constexpr inline bool is_member_binding_v<member<Key, Ptr>> = true;
 // The pointers are template arguments because the bindings must be constants
 // (a hook's parameters are not), and they are spellable where member names
 // are not: a library cannot turn `"fire"` into `.fire`, but `&robber::shoot`
-// is a value. What this cannot express stays with a binding class: an
-// overloaded member (the pointer must be cast to the wanted signature), a
-// binding that adapts arguments or results, or a private member the hook
-// cannot name.
+// is a value. An overloaded member binds too, but the pointer must be cast to
+// the wanted signature to select the overload, as any member pointer must.
+// What this cannot express stays with a binding class: a binding that adapts
+// arguments or results or calls more than one member, or a private member
+// the hook cannot name.
 template<typename... Ms>
 requires(sizeof...(Ms) > 0) && (details::is_member_binding_v<Ms> && ...)
 struct members {};

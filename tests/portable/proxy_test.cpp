@@ -255,6 +255,29 @@ consteval auto corvid_proxy_spec(gunslinger*, wrangler*) {
       prox::members<prox::member<"fire", &wrangler::shoot>>>();
 }
 
+// `gunsmith` overloads `fire`, so the binding casts the pointer to the wanted
+// overload; the rest of its names line up and come from the boilerplate.
+struct gunsmith {
+  int fire(int rounds) { return rounds_fired += rounds; }
+  int fire(int rounds, int barrels) {
+    return rounds_fired += rounds * barrels;
+  }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "gunsmith";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+
+  int rounds_fired{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, gunsmith*) {
+  return prox::make_proxy_spec<gunslinger, gunsmith,
+      prox::members<prox::member<"fire",
+          static_cast<int (gunsmith::*)(int)>(&gunsmith::fire)>>>();
+}
+
 // `claim_jumper` binds `fire` to a member that cannot take the arguments, so
 // the key is not bound and the pair is registered but not conformant.
 struct claim_jumper {
@@ -1241,6 +1264,7 @@ static_assert(Proxiable<robber, gunslinger>);
 static_assert(Proxiable<sheriff, gunslinger>);
 static_assert(Proxiable<rustler, gunslinger>);
 static_assert(Proxiable<wrangler, gunslinger>);
+static_assert(Proxiable<gunsmith, gunslinger>);
 static_assert(!Proxiable<claim_jumper, gunslinger>);
 static_assert(!Proxiable<cowboy, gunslinger>);
 static_assert(!Proxiable<int, gunslinger>);
@@ -1904,6 +1928,12 @@ TEST_CASE("Member-pointer bindings", "[proxy]") {
   CHECK(pp.shots() == 4);
   pp.reload();
   CHECK(w.rounds_fired == 0);
+
+  // An overloaded member binds through a cast to the wanted overload.
+  gunsmith g;
+  proxy_view<gunslinger> pg{g};
+  CHECK(pg.fire(3) == 3);
+  CHECK(pg.describe() == "gunsmith"s);
 
   // A facade with no boilerplate takes the listed bindings alone.
   const_proxy_view<census> counted{r};

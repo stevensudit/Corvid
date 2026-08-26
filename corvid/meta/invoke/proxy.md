@@ -412,10 +412,12 @@ bound. Conformance is then exactly what it is for a hand-written impl,
 including the `noexcept` requirement.
 
 Keys are matched by name, not position, so the facade's method order and
-composition cannot silently rebind anything, and a qualified key
-(`"gunslinger::fire"`) disambiguates a sibling collision as it does in a
-`call`. A key the facade does not declare, or one listed twice, is a
-`static_assert`.
+composition cannot silently rebind anything. They are the method's declared,
+unqualified names: a registration binds one facade, so a sibling collision
+across facades is resolved by which facade is being registered, and a
+qualified key (`"gunslinger::fire"`) is rejected rather than silently never
+matching. A key the facade does not declare, or one listed twice, is
+likewise a `static_assert`.
 
 Every key the list leaves out routes to the facade's `boilerplate<T>` when
 there is one. That makes the rename-one-method case a single binding, with
@@ -429,12 +431,13 @@ consteval auto corvid_proxy_spec(gunslinger*, wrangler*) {
 }
 ```
 
-What `members` cannot express stays with a binding class: an overloaded
-member (the pointer must be cast to the wanted signature, the usual
-member-pointer wart), a binding that adapts arguments or results or calls
-more than one member, and a private member the hook cannot name (a nested
-or befriended impl can). Exercised by `rustler` and `wrangler` in the
-test.
+An overloaded member binds too, but the pointer has to be cast to the
+wanted signature to pick the overload, the usual member-pointer wart:
+`member<"fire", static_cast<int (gunsmith::*)(int)>(&gunsmith::fire)>`.
+What `members` cannot express stays with a binding class: a binding that
+adapts arguments or results or calls more than one member, and a private
+member the hook cannot name (a nested or befriended impl can). Exercised by
+`rustler`, `wrangler`, and `gunsmith` in the test.
 
 ### Member-call sugar (the `api` mixin)
 
@@ -2068,6 +2071,7 @@ flowchart LR
     sheriff -.->|partial override| gunslinger
     rustler -.->|member bindings| gunslinger
     wrangler -.->|member binding over boilerplate| gunslinger
+    gunsmith -.->|member binding, cast overload| gunslinger
     turncoat -.->|nested carried impl| gunslinger
     howitzer -.->|boilerplate| mortar
     texas_ranger -.->|chain hook| ranger
