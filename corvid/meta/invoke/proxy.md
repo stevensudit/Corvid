@@ -62,6 +62,7 @@ using-declaration merges, and diamonds.
 - [Naming map](#naming-map)
 - [User-facing shape](#user-facing-shape)
   - [Partial override of the boilerplate](#partial-override-of-the-boilerplate)
+  - [Member-pointer bindings (`members`)](#member-pointer-bindings-members)
   - [Member-call sugar (the `api` mixin)](#member-call-sugar-the-api-mixin)
   - [API validation (`validate_api`)](#api-validation-validate_api)
   - [Codegen (`prox::codegen`)](#codegen-proxcodegen)
@@ -126,6 +127,7 @@ buffer plus dispatch pointer).
 | `proxy_impl<F, T>`            | (none; structural)                 | `impl Trait for Type`    |
 | `corvid_proxy_spec(F*, T*)`   | (none)                             | empty `impl` block       |
 | `make_proxy_spec<F, T>()`     | (none)                             | (spec payload)           |
+| `members<member<"fire", &T::shoot>, ...>` | (none)                 | (none)                   |
 | `"name"_method` UDL           | (none)                             | (none)                   |
 | `Proxiable<T, F>`             | `proxiable<P, F>`                  | `T: Trait` bound         |
 | `make_proxy<F, T>(...)`       | `make_proxy`                       | `Box::new`               |
@@ -172,6 +174,7 @@ flowchart TB
     BP["F::boilerplate&lt;T&gt; (natural-name bindings)"]
     HOOK["corvid_proxy_spec(F*, T*) (the registration)"]
     CI["carried impl (only when names diverge)"]
+    MB["members&lt;member&lt;&quot;fire&quot;, &amp;T::shoot&gt;, ...&gt; (names diverge, no body needed)"]
     PI["proxy_impl&lt;F, T&gt;"]
     VT["dispatch table: static, per (F, T)"]
     H["proxy&lt;F&gt;, proxy_view&lt;F&gt;, shared_proxy&lt;F&gt;, ..."]
@@ -184,6 +187,7 @@ flowchart TB
     subgraph conformer["type owner (or anyone) writes"]
         HOOK
         CI
+        MB
     end
     subgraph library["library synthesizes"]
         PI
@@ -194,6 +198,7 @@ flowchart TB
     HOOK -->|unlocks| PI
     BP -->|default route| PI
     CI -->|outranks boilerplate| PI
+    MB -->|synthesized impl| PI
     PI -->|one thunk per method| VT
     H -->|points at| VT
     API -->|inherited by| H
@@ -372,9 +377,64 @@ naming the absent member is harmless.
 Before the boilerplate moved into the facade, this tier required the
 facade author to factor the bindings into a separately-named class for the
 namespace-scope partial to derive from. With the nested form, it is
-inherent. It overlaps in purpose with the spec-carried member-pointer
-binding sketched under "Future work", and the two can coexist. Exercised
-by `sheriff` in the test.
+inherent. Exercised by `sheriff` in the test. When the divergent binding
+is a plain rename, `members` (next) says the same thing without a binding
+class; the partial override remains for a binding that needs a body.
+
+### Member-pointer bindings (`members`)
+
+A library cannot turn the declared `"fire"` into `.fire`, which is why the
+boilerplate has to be typed. But `&robber::shoot` is a value, spellable
+where a member name is not, so a registration can carry its bindings as
+member pointers and let the library write the impl. `members<...>` in the
+impl position of `make_proxy_spec` is a list of `member<Key, Ptr>` bindings,
+each naming a facade method by key and the member that serves it:
+
+```cpp
+// `rustler` has the right shape and the wrong names, like `robber`, but its
+// registration is one declaration with no binding class.
+consteval auto corvid_proxy_spec(gunslinger*, rustler*) {
+  return make_proxy_spec<gunslinger, rustler,
+      members<member<"fire", &rustler::shoot>,
+          member<"describe", &rustler::description>,
+          member<"reload", &rustler::rearm>,
+          member<"shots", &rustler::fired>>>();
+}
+```
+
+The synthesized impl's `on` invokes the bound member through `std::invoke`
+with the target and the forwarded arguments, so a member function is
+called and a data member is read (`shots` above binds a data member, and
+the facade's `int&()` serves the reference). The target parameter is
+deduced, so constness flows through: a const target reaches the member as
+const, and whether the member accepts that is part of whether the key is
+bound. Conformance is then exactly what it is for a hand-written impl,
+including the `noexcept` requirement.
+
+Keys are matched by name, not position, so the facade's method order and
+composition cannot silently rebind anything, and a qualified key
+(`"gunslinger::fire"`) disambiguates a sibling collision as it does in a
+`call`. A key the facade does not declare, or one listed twice, is a
+`static_assert`.
+
+Every key the list leaves out routes to the facade's `boilerplate<T>` when
+there is one. That makes the rename-one-method case a single binding, with
+no inherited class and no using-declaration:
+
+```cpp
+// `wrangler` lines up except that `fire` is spelled `shoot`.
+consteval auto corvid_proxy_spec(gunslinger*, wrangler*) {
+  return make_proxy_spec<gunslinger, wrangler,
+      members<member<"fire", &wrangler::shoot>>>();
+}
+```
+
+What `members` cannot express stays with a binding class: an overloaded
+member (the pointer must be cast to the wanted signature, the usual
+member-pointer wart), a binding that adapts arguments or results or calls
+more than one member, and a private member the hook cannot name (a nested
+or befriended impl can). Exercised by `rustler` and `wrangler` in the
+test.
 
 ### Member-call sugar (the `api` mixin)
 
@@ -2006,6 +2066,8 @@ flowchart LR
     deputy -->|C++ inheritance| lawman
     robber -.->|carried impl| gunslinger
     sheriff -.->|partial override| gunslinger
+    rustler -.->|member bindings| gunslinger
+    wrangler -.->|member binding over boilerplate| gunslinger
     turncoat -.->|nested carried impl| gunslinger
     howitzer -.->|boilerplate| mortar
     texas_ranger -.->|chain hook| ranger
@@ -2109,13 +2171,6 @@ and views, and identity is handled by the two tags.
 - `std::formatter` bridge once the formatter forwarding helper exists (see
   [../../strings/roadmap.md](../../strings/roadmap.md) stage 2). The ngcpp
   analog is `skills::format`.
-- Spec-carried member-pointer binding: a `corvid_proxy_spec` returning a
-  spec that holds `&robber::shoot, &robber::rearm`, bound positionally to
-  the facade's methods. Member pointers are spellable at compile time
-  where member names are not, so this is a one-line middle tier for
-  name-mismatched types that avoids a full custom impl. Overlaps in
-  purpose with the partial-override pattern above, which needs no new
-  machinery but does need the facade author's cooperation.
 - A guaranteed-copyable proxy flavor: a policy whose construction
   constrains targets to copyable types, making the handle itself satisfy
   `std::copyable` with no runtime condition (the shape of ngcpp's

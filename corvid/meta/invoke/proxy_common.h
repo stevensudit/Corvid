@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <new>
 #include <string_view>
 #include <tuple>
@@ -226,6 +227,46 @@ struct method: method_key<Name> {
   static constexpr bool is_noexcept = traits::is_noexcept;
   static constexpr access_mode access = traits::access;
 };
+
+// `member<Key, Ptr>` binds the facade method named `Key` to the member `Ptr`
+// points at, for a registration whose bindings are member pointers rather
+// than a binding class; see `members`.
+template<fixed_string Key, auto Ptr>
+requires std::is_member_pointer_v<decltype(Ptr)>
+struct member {
+  static constexpr auto name_v = Key;
+  static constexpr auto pointer_v = Ptr;
+};
+
+namespace details {
+
+template<typename T>
+constexpr inline bool is_member_binding_v = false;
+template<fixed_string Key, auto Ptr>
+constexpr inline bool is_member_binding_v<member<Key, Ptr>> = true;
+
+} // namespace details
+
+// `members<Ms...>` is what a registration carries in place of a binding
+// class: a list of `member` bindings the library turns into one.
+//
+// `make_proxy_spec<F, T, members<...>>()` installs a synthesized impl whose
+// `on` invokes the bound member for each listed key, forwarding the arguments
+// and the target's constness, and routes every unlisted key to the facade's
+// `boilerplate<T>` when there is one. A type whose names line up except for a
+// few therefore lists only those, with no binding class and none of the
+// using-declaration ceremony a partial override needs.
+//
+// The pointers are template arguments because the bindings must be constants
+// (a hook's parameters are not), and they are spellable where member names
+// are not: a library cannot turn `"fire"` into `.fire`, but `&robber::shoot`
+// is a value. What this cannot express stays with a binding class: an
+// overloaded member (the pointer must be cast to the wanted signature), a
+// binding that adapts arguments or results, or a private member the hook
+// cannot name.
+template<typename... Ms>
+requires(sizeof...(Ms) > 0) && (details::is_member_binding_v<Ms> && ...)
+struct members {};
 
 #pragma endregion
 #pragma region Facade
@@ -559,6 +600,23 @@ consteval void maybe_validate_api() noexcept {
   }
 }
 
+// Fwd.
+template<Facade F, typename T, typename... Ms>
+struct member_impl;
+
+// The impl a registration's third argument stands for: a binding class as
+// given, or, for `members<Ms...>`, the impl synthesized from those bindings.
+template<typename F, typename T, typename Impl>
+struct carried_impl {
+  using type = Impl;
+};
+template<typename F, typename T, typename... Ms>
+struct carried_impl<F, T, members<Ms...>> {
+  using type = member_impl<F, T, Ms...>;
+};
+template<typename F, typename T, typename Impl>
+using carried_impl_t = carried_impl<F, T, Impl>::type;
+
 } // namespace details
 
 // `make_proxy_spec` to make the registration spec for a (facade, type) pair.
@@ -569,7 +627,9 @@ consteval void maybe_validate_api() noexcept {
 // The three-type overload carries an impl: `make_proxy_spec<F, T, Impl>()`
 // names the binding class serving the pair, typically a local class in the
 // hook itself or a class nested in `T`; see `proxy_impl` and
-// `SpecCarriesImpl`. `api_check` is the trailing, defaulted parameter of both
+// `SpecCarriesImpl`. In place of a binding class, `Impl` may be a
+// `members<...>` list of member-pointer bindings, which the library turns
+// into one. `api_check` is the trailing, defaulted parameter of both
 // overloads.
 //
 // When the facade defines an `api`, registration is also the moment that the
@@ -588,7 +648,8 @@ template<typename F, typename T, api_check Check = api_check::on>
 
 template<typename F, typename T, typename Impl,
     api_check Check = api_check::on>
-[[nodiscard]] consteval proxy_spec<F, T, Impl> make_proxy_spec() noexcept {
+[[nodiscard]] consteval proxy_spec<F, T, details::carried_impl_t<F, T, Impl>>
+make_proxy_spec() noexcept {
   details::maybe_validate_api<F, Check>();
   return {};
 }
@@ -2082,6 +2143,125 @@ consteval bool is_handle_for() noexcept {
   else
     return ExtendsOrIs<G, F>;
 }
+
+// Whether facade `F` declares a method that answers to `Key`, qualified or
+// not, under mutable access (which sees every method).
+template<Facade F, fixed_string Key>
+consteval bool facade_declares() noexcept {
+  for (const bool flag :
+      vtbuild_t<F>::template candidates<Key, access_mode::as_mutable>())
+    if (flag) return true;
+  return false;
+}
+
+// Whether no two of the member bindings `Ms...` share a key.
+template<typename... Ms>
+consteval bool member_keys_unique() noexcept {
+  constexpr std::array<std::string_view, sizeof...(Ms)> keys{
+      Ms::name_v.view()...};
+  for (auto i = 0UZ; i != keys.size(); ++i)
+    for (auto j = i + 1; j != keys.size(); ++j)
+      if (keys[i] == keys[j]) return false;
+  return true;
+}
+
+// Whether `Key` is bound by one of the member bindings `Ms...`.
+template<fixed_string Key, typename... Ms>
+constexpr inline bool binds_key_v = ((Ms::name_v == Key) || ...);
+
+// The member binding among `Ms...` for `Key`, which must be bound (see
+// `binds_key_v`).
+template<fixed_string Key, typename... Ms>
+struct member_for;
+template<fixed_string Key, typename M, typename... Ms>
+struct member_for<Key, M, Ms...>
+    : std::conditional_t<(M::name_v == Key), std::type_identity<M>,
+          member_for<Key, Ms...>> {};
+template<fixed_string Key, typename... Ms>
+using member_for_t = member_for<Key, Ms...>::type;
+
+template<fixed_string Key, typename... Ms>
+constexpr inline auto bound_pointer_v = member_for_t<Key, Ms...>::pointer_v;
+
+// Forward a binding to facade `F`'s `boilerplate<T>`, when the facade has one
+// and it binds `Key` for these arguments.
+//
+// A function template with `F` and `T` as its own parameters, so that the
+// boilerplate is named only where the name is dependent: spelled directly
+// inside `member_impl`, it would be looked up as soon as that class is
+// instantiated, and a facade without a boilerplate would be an error rather
+// than an unbound key.
+template<typename F, typename T, fixed_string Key, typename Self,
+    typename... Args>
+requires requires(Self& self, Args&&... args) {
+  F::template boilerplate<T>::on(method_key<Key>{}, self,
+      std::forward<Args>(args)...);
+}
+constexpr auto boilerplate_on(method_key<Key> key, Self& self,
+    Args&&... args) noexcept(noexcept(F::template boilerplate<T>::on(key, self,
+    std::forward<Args>(args)...)))
+    -> decltype(F::template boilerplate<T>::on(key, self,
+        std::forward<Args>(args)...)) {
+  return F::template boilerplate<T>::on(key, self,
+      std::forward<Args>(args)...);
+}
+
+// `member_impl` is the impl synthesized for a registration carrying
+// `members<Ms...>`; see `members`.
+//
+// `on` has two mutually exclusive overloads. A key one of `Ms...` binds
+// invokes that member on the target, through `std::invoke`, so a member
+// function is called and a data member is read (as a reference, which a
+// facade method returning one serves directly). Any other key forwards to
+// the facade's `boilerplate<T>`, when there is one and it binds the key. A
+// key bound by neither is not bound at all, which conformance reports as it
+// would for a binding class with no `on` for it.
+//
+// The target parameter is deduced, so a const target reaches the member as
+// const and a mutable one as mutable; whether the member accepts that is
+// part of what makes the key bound.
+//
+// Both overloads spell their return type from the declaration alone, so that
+// probing a binding (see `method_traits::is_bound`) instantiates no body. A
+// boilerplate binding whose body cannot compile for `T` then fails where a
+// hand-written impl's would, at the table build, and never during a
+// conformance probe of some other key.
+template<Facade F, typename T, typename... Ms>
+struct member_impl {
+  static_assert(member_keys_unique<Ms...>(),
+      "a member binding's key may appear only once");
+  static_assert((facade_declares<F, Ms::name_v>() && ...),
+      "a member binding names a method the facade does not declare");
+
+  template<fixed_string Key, typename Self, typename... Args>
+  requires(
+      binds_key_v<Key, Ms...> &&
+      std::is_invocable_v<decltype(bound_pointer_v<Key, Ms...>), Self&,
+          Args...>)
+  static constexpr auto
+  on(method_key<Key>, Self& self, Args&&... args) noexcept(
+      std::is_nothrow_invocable_v<decltype(bound_pointer_v<Key, Ms...>), Self&,
+          Args...>)
+      -> std::invoke_result_t<decltype(bound_pointer_v<Key, Ms...>), Self&,
+          Args...> {
+    return std::invoke(bound_pointer_v<Key, Ms...>, self,
+        std::forward<Args>(args)...);
+  }
+
+  template<fixed_string Key, typename Self, typename... Args>
+  requires(
+      !binds_key_v<Key, Ms...> &&
+      requires(Self& self, Args&&... args) {
+        boilerplate_on<F, T>(method_key<Key>{}, self,
+            std::forward<Args>(args)...);
+      })
+  static constexpr auto on(method_key<Key> key, Self& self,
+      Args&&... args) noexcept(noexcept(boilerplate_on<F, T>(key, self,
+      std::forward<Args>(args)...))) -> decltype(boilerplate_on<F, T>(key,
+      self, std::forward<Args>(args)...)) {
+    return boilerplate_on<F, T>(key, self, std::forward<Args>(args)...);
+  }
+};
 
 // The `Key` qualified by facade `F`'s name.
 //
