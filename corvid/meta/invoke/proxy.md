@@ -2103,3 +2103,36 @@ and views, and identity is handled by the two tags.
   `std::copyable` with no runtime condition (the shape of ngcpp's
   `support_copy`). `clone()`/`can_clone()` cover the need at runtime, so
   this waits for a use case that wants the compile-time guarantee.
+
+Consolidations deferred from the final review of the handle family, each
+mechanical and with no behavior change:
+
+- `try_downcast` is spelled seven times: once on `proxy` (an rvalue method,
+  since it consumes the target only on success), once each on `proxy_view`
+  and `const_proxy_view`, and a `const&`/`&&` pair on each of `shared_proxy`
+  and `const_shared_proxy`. The six view and shared bodies are the same
+  three lines over `details::find_downcast_table<D, F>`, differing only in
+  the result type and, for the two `&&` overloads, the reset of the source's
+  table to its empty table. The owning one walks the ancestry itself and
+  then relocates.
+- `weak_proxy` and `const_weak_proxy` are two whole classes with no shared
+  base, where `shared_proxy` and `const_shared_proxy` sit on
+  `details::shared_base<F, Access>` and the two views on `view_base`. Each
+  weak flavor carries its own table pointer, `std::weak_ptr` (to `void` or
+  to `const void`), `expired`, `lock`, and converting constructors, and only
+  the constness of the pointee and of the locked result differs.
+- Some two dozen converting constructors across the handle family (one on
+  `proxy`, three on `proxy_view`, five on `const_proxy_view` plus three
+  deleted rvalue overloads, three on `shared_proxy`, five on
+  `const_shared_proxy`, three on `weak_proxy`, and six on `const_weak_proxy`)
+  each pair a `requires Extends<D, F>` clause (or `same_as` or `Extends`)
+  with an initializer of `details::upcast_vtable<F, D>` over the source's
+  table and a hand-off of its target. The three that take an owning
+  `proxy<D, P>&&` are the exception, since they adopt storage rather than
+  re-pointing at it.
+- The five `proxy_impl` self-conformance bindings (for `proxy`, `proxy_view`,
+  `const_proxy_view`, `shared_proxy`, and `const_shared_proxy`) are two
+  shapes, copied: a deduced `Handle&` forwarding to
+  `call<details::qualified_key<F, Key>()>` for the three handles that may be
+  mutable, and the same body over a `const` handle behind an
+  `is_const<Key>` constraint for the two const flavors.

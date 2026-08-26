@@ -343,6 +343,30 @@ direct-only `flexi_function`, two pointers and an `empty_t` storage area
 targets. A proxy still refuses an empty buffer, having no
 `direct` mode.
 
+## Open: refactors deferred from the final review
+
+The review that closed out the sections above found duplication it chose
+not to chase, because each item is a mechanical consolidation with no
+behavior change. The proxy-side items (`try_downcast`, the weak pair, the
+converting constructors, and the self-conformance bindings) are under
+"Future work" in [proxy.md](invoke/proxy.md); the `flexi_function` items
+are here.
+
+- `flexi_function`'s third template parameter (`FunctionT =
+  signature_function_t<Sig>`) and `method_traits`'s second (`FunctionT =
+  M::function_t`) exist only so that the class body can be one partial
+  specialization on `R(Args...)` (see "Landed: qualified signatures"). Both
+  are public, so a caller can spell a wrong one, and `is_flexi_function_v`
+  and `is_fixed_function_v` have to match on the three-parameter form. A
+  `details` wrapper or a nested implementation class would hide the hook.
+- `flexi_thunks::lifespan_impl` multiplexes size, destroy, probe, and
+  relocate on which of `from`, `dest`, and `dest->to` are null. A copy,
+  which a copyable sibling of `flexi_function` would need, takes a source
+  and a destination and leaves the source intact, so it would need all
+  three set, and that is relocation's encoding. The alternatives are a
+  second thunk pointer in `thunk_pair`, or an operation enum in
+  `destination_spec`.
+
 ## Speculative: cache-line-sized wrappers
 
 Not ruled on; recorded so the constraint is understood before anyone
