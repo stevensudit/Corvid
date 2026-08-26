@@ -23,7 +23,7 @@
 #include "owning_proxy.h"
 
 // The shared-owning erased handle, `shared_proxy`, its observer
-// `weak_proxy`, and `make_shared_proxy`.
+// `weak_proxy`, along with `make_shared_proxy`.
 //
 // See "proxy.md" for the design.
 
@@ -35,7 +35,7 @@ namespace prox {
 // `shared_proxy` is the shared-owning erased handle, like Rust's `Rc<dyn
 // Trait>`, backed by a `std::shared_ptr<void>`.
 //
-// Copyable, and a copy shares the one target rather than cloning it; the
+// Copyable, and a copy shares the one target rather than cloning it. The
 // target dies with its last owner.
 //
 // Storing the pointer as `shared_ptr<void>` does not lose destruction: a
@@ -50,18 +50,20 @@ namespace prox {
 // dispatch table the views use, born-keyed the same way. There is no
 // inline-storage mode, so the target's address is always stable.
 //
-// Ownership interoperates with `std`: construct from a `std::shared_ptr<T>`
-// (sharing with any outside holders) or a `std::unique_ptr<T>` (which
-// converts), or build target and control block in one allocation with
-// `make_shared_proxy`. Reference counting is `std::shared_ptr`'s, with its
-// usual thread-safety: the count is atomic, the target's own state is the
-// user's business.
+// Ownership interoperates with `std`, allowing it to construct from a
+// `std::shared_ptr<T>` (sharing with any outside holders) or a
+// `std::unique_ptr<T>` (which converts), or build the target and control block
+// in one allocation with `make_shared_proxy`.
 //
-// Deep-const as an instance, like the views: only const-qualified methods
+// Reference counting is `std::shared_ptr`'s, with its usual thread-safety
+// guarantees. Essentially, the count is atomic, while the target's own state
+// is the user's business.
+//
+// Deep-const as an instance, like the views. Only const-qualified methods
 // dispatch through a const handle, and copying escapes it (a copy of a
 // `const shared_proxy` is mutable). A `weak_proxy` observes without owning.
 //
-// A default-constructed or moved-from handle is empty: testable via
+// A default-constructed or moved-from handle is empty. This is testable via
 // `operator bool`, and a call through it raises `std::bad_function_call`,
 // or, when the handle was adopted from an empty `proxy`, runs that proxy's
 // `on_empty` behavior. Handles upcast implicitly, by copy or by move, to any
@@ -93,10 +95,10 @@ public:
 
   ~shared_proxy() = default;
 
-  // Adopting constructor from shared ownership of a concrete target; a null
+  // Adopting constructor from shared ownership of a concrete target. A null
   // pointer yields an empty handle.
   //
-  // Usually spelled through `make_shared_proxy`; there is deliberately no
+  // Usually spelled through `make_shared_proxy`. There is deliberately no
   // raw-pointer constructor.
   template<typename T>
   requires Proxiable<T, F>
@@ -106,7 +108,7 @@ public:
   }
 
   // Adopting constructor from unique ownership, which becomes shared (this
-  // allocates the control block, so unlike the shared flavor it can throw).
+  // allocates the control block, so unlike the shared flavor, it can throw).
   template<typename T>
   requires Proxiable<T, F>
   explicit shared_proxy(std::unique_ptr<T> target)
@@ -115,20 +117,21 @@ public:
   // Adopting constructor from an owning `proxy` of `F`, or of a facade that
   // extends it.
   //
-  // The unique ownership becomes shared (Rust: `Box<dyn T>` into `Rc<dyn T>`),
-  // consuming the source.
+  // The unique ownership becomes shared (like in Rust: `Box<dyn T>` into
+  // `Rc<dyn T>`), consuming the source.
   //
   // A heap-stored target is adopted as-is, the owning table's destroy slot
-  // becoming the control block's deleter, so only the control block allocates;
-  // an inline target moves onto the heap first. On a throw from the
-  // control-block allocation the target is destroyed rather than leaked, and
-  // the source is left empty (the same contract as `std::shared_ptr`'s
-  // constructor from a `unique_ptr`); a throw from the boxing leaves the
-  // source intact.
+  // becoming the control block's deleter, so only the control block allocates.
+  // An inline target moves onto the heap first.
+  //
+  // On a throw from the control-block allocation, the target is destroyed
+  // rather than leaked, and the source is left empty (the same contract as
+  // `std::shared_ptr`'s constructor from a `unique_ptr`). A throw from the
+  // boxing leaves the source intact.
   //
   // The reverse conversion deliberately does not exist because unique
   // ownership cannot be recovered from a shared target, even at a use count of
-  // one, without racing the other owners, which is also why `std::shared_ptr`
+  // one, without racing the other owners. This is also why `std::shared_ptr`
   // has no `release`.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
@@ -155,8 +158,8 @@ public:
   // extends `F`, sharing (copy) or transferring (move) ownership.
   // Intentionally implicit, like every handle upcast.
   //
-  // An empty source upcasts to an empty handle with the same empty behavior;
-  // a moved-from source is left on its own type's `raise` table.
+  // An empty source upcasts to an empty handle with the same empty behavior. A
+  // moved-from source is left with its own type's `raise` table.
   template<Facade D>
   requires Extends<D, F>
   explicit(false) shared_proxy(const shared_proxy<D>& other) noexcept
@@ -172,7 +175,8 @@ public:
   }
 
   // Call the facade method named `Key`, forwarding `args` through the erased
-  // signature; the same dispatch as the other handles, deep const included.
+  // signature. This is the same dispatch as the other handles, deep const
+  // included.
   template<fixed_string Key, typename... Args>
   decltype(auto)
   call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<Key,
@@ -190,9 +194,7 @@ public:
         target(), std::forward<Args>(args)...);
   }
 
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return static_cast<bool>(target_);
-  }
+  [[nodiscard]] explicit operator bool() const noexcept { return !!target_; }
 
   // Try to downcast this instance to recover a `shared_proxy` of `D`, which is
   // a facade extending `F`, from a handle that may have been upcast away from
@@ -202,11 +204,11 @@ public:
   // the owning proxy (see `proxy::try_downcast`), including a birth adopted
   // from a consumed `proxy`.
   //
-  // Because shared ownership is copyable, the lvalue flavor shares: on success
-  // the result is another owner of the one target and the source keeps its own
-  // share. The rvalue flavor transfers instead, consuming the source only on
-  // success. On failure, including an empty source, the result is empty and
-  // the source is untouched.
+  // Because shared ownership is copyable, the lvalue flavor shares. On
+  // success, the result is another owner of the one target and the source
+  // keeps its own share. The rvalue flavor transfers instead, consuming the
+  // source only on success. On failure, including an empty source, the result
+  // is empty and the source is untouched.
   template<Facade D>
   requires Extends<D, F>
   [[nodiscard]] shared_proxy<D> try_downcast() const& noexcept {
@@ -225,16 +227,14 @@ public:
   }
 
 private:
-  // The target address, or null when empty (which the empty thunks never
-  // read).
+  // The target address, or null when empty.
   [[nodiscard]] void* target() noexcept { return target_.get(); }
   [[nodiscard]] const void* target() const noexcept { return target_.get(); }
 
   shared_proxy(std::shared_ptr<void> target, const vtable_t* vtable) noexcept
       : vtable_{target ? vtable : empty_vtable}, target_{std::move(target)} {}
 
-  // Table of a handle built empty or emptied by a move; see
-  // `empty_vtable_for`.
+  // Table of a handle built empty or emptied by a move.
   static constexpr const vtable_t* empty_vtable =
       &details::empty_vtable_for<F, on_empty::raise>;
 
@@ -274,9 +274,9 @@ struct proxy_impl<F, shared_proxy<D>> {
 };
 
 // `weak_proxy` is the weak counterpart to `shared_proxy`, which observes the
-// target without owning it, via a `std::weak_ptr<void>`.
+// target, via a `std::weak_ptr<void>`, without owning it.
 //
-// It carries no dispatch at all; regaining access always goes through
+// It carries no dispatch at all. Regaining access always goes through
 // `lock`, which returns a shared proxy (empty if every owner is gone), so
 // there is no way to call through a target that might be dying.
 template<Facade F>
@@ -315,12 +315,12 @@ public:
 
   // Whether the target is already gone.
   //
-  // As with `std::weak_ptr`, a false answer is stale the moment it is read;
-  // `lock` is the reliable gate.
+  // As with `std::weak_ptr`, a false response is stale the moment it is read
+  // while a true one is sticky. The reliable gate is `lock`.
   [[nodiscard]] bool expired() const noexcept { return target_.expired(); }
 
   // Lock to regain shared ownership by creating a `shared_proxy` over the
-  // target; or an empty one when every owner is gone.
+  // target, or an empty one when every owner is gone.
   [[nodiscard]] shared_proxy<F> lock() const noexcept {
     return shared_proxy<F>{target_.lock(), vtable_};
   }

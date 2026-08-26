@@ -1866,8 +1866,7 @@ struct vtable_builder<facade<Es...>>
     return {&empty_owning_vtable_for<Bs2, Floor>...};
   }
 
-  // Build the dispatch table of an empty handle under the policy floor
-  // `Floor`; see `empty_vtable_for`.
+  // Build the dispatch table of an empty handle under the policy floor.
   template<on_empty Floor>
   static consteval vtable_t make_empty_vtable() noexcept {
     return {impl_t::template make_empty_thunks<Floor>(), nullptr,
