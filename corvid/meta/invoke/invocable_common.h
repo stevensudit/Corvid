@@ -48,8 +48,7 @@ namespace invocables {
 
 #pragma region Empty calls
 
-// `empty_call_traits`: what a call on an empty owner can do with a result of
-// type `R`.
+// What a call on an empty owner can do with a result of type `R`.
 //
 // `on_empty::silent` needs a result that can be value-initialized (or is
 // `void`), and one whose value-initialization cannot throw when the call is
@@ -73,8 +72,8 @@ struct empty_call_traits {
       (Behavior == on_empty::terminate) ||
       ((Behavior == on_empty::silent) && is_nothrow_silenceable);
 
-  // `admits`: whether the call can take `behavior` exactly, given its
-  // `noexcept` specifier `noex`.
+  // Whether the call can take `behavior` exactly, given its `noexcept`
+  // specifier `noex`.
   static consteval bool
   admits(on_empty behavior, noexcept_spec noex) noexcept {
     const auto may_throw = (noex == noexcept_spec::none);
@@ -84,8 +83,8 @@ struct empty_call_traits {
     return true;
   }
 
-  // `resolve_floor`: the mildest behavior at or above `floor` that the call
-  // admits, `terminate` being the ceiling.
+  // The mildest behavior at or above `floor` that the call admits,
+  // `terminate` being the ceiling.
   static consteval on_empty
   resolve_floor(on_empty floor, noexcept_spec noex) noexcept {
     if ((floor == on_empty::silent) && admits(on_empty::silent, noex))
@@ -95,10 +94,11 @@ struct empty_call_traits {
     return on_empty::terminate;
   }
 
-  // `invoke`: perform the empty call under `Behavior`: return `R{}` (or
-  // nothing), throw `std::bad_function_call`, or terminate.
+  // Perform the empty call under `Behavior`.
   //
-  // The caller has already established that `Behavior` is admitted.
+  // Either returns `R{}` (or nothing), throws `std::bad_function_call`, or
+  // terminates.  The caller has already established that `Behavior` is
+  // admitted.
   template<on_empty Behavior>
   static R invoke() noexcept(is_nothrow<Behavior>) {
     if constexpr (Behavior == on_empty::silent) {
@@ -119,8 +119,8 @@ struct empty_call_traits {
 
 namespace implementation {
 
-// `storage_area`: the raw storage an owner keeps behind its dispatch state: a
-// buffer for an inline target, overlaid by the pointer to a heap target's
+// `storage_area` is the raw storage an owner keeps behind its dispatch state:
+// a buffer for an inline target, overlaid by the pointer to a heap target's
 // block.
 //
 // A union rather than a byte array, so that the heap pointer is read and
@@ -144,29 +144,30 @@ union storage_area {
 
 // The housekeeping an owner performs on a stored target: destruction in
 // either home, and the three moves `adoption_of` can route (the analog of
-// Rust's drop glue, plus relocation). Each is typed on the target; a
-// destination buffer is `void*` because it is raw storage until the target is
-// constructed in it, which is placement new's own contract.
+// Rust's drop glue, plus relocation).
+//
+// Each is typed on the target. A destination buffer is `void*` because it is
+// raw storage until the target is constructed in it, which is placement new's
+// own contract.
 //
 // Nothing here throws except `box`'s allocation: a target lives inline only
 // when its move cannot throw, so every move below is nothrow, and `box`
 // allocates before it touches the source.
 
-// `destroy_inline`: destroy the target at `target`, which lives in a buffer.
+// Destroy `target`, which lives in a buffer.
 template<typename T>
 void destroy_inline(T* target) noexcept {
   target->~T();
 }
 
-// `destroy_heap`: destroy the target at `target`, which lives in a heap
-// block, freeing the block.
+// Destroy `target`, which lives in a heap block, freeing the block.
 template<typename T>
 void destroy_heap(T* target) noexcept {
   delete target;
 }
 
-// `relocate_inline`: move the target at `from`, which lives in a buffer, into
-// the buffer at `to`, destroying the source.
+// Move the target at `from`, which lives in a storage area, into the storage
+// area at `to`, destroying the source.
 template<typename T>
 void relocate_inline(T* from, void* to) noexcept {
   // The analyzer cannot see that the caller's fit check ties `sizeof(T)` to
@@ -176,8 +177,8 @@ void relocate_inline(T* from, void* to) noexcept {
   from->~T();
 }
 
-// `box`: move the target at `from`, which lives in a buffer, into a fresh
-// heap block, destroying the source, and return the block.
+// Move the target at `from`, which lives in a storage area, into a fresh heap
+// block, destroying the source, and return the block.
 //
 // The allocation can throw, and it throws before the source is touched.
 template<typename T>
@@ -187,8 +188,8 @@ T* box(T* from) {
   return block;
 }
 
-// `unbox`: move the target at `from`, which lives in a heap block, into the
-// buffer at `to`, freeing the block.
+// Move the target at `from`, which lives in a heap block, into the storage
+// area at `to`, freeing the block.
 //
 // The caller has already established the fit and the nothrow move (see
 // `adoption_of`).
