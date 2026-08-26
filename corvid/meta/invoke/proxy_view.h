@@ -50,12 +50,6 @@ protected:
   using target_ptr_t = std::conditional_t<(Access == access_mode::as_const),
       const void*, void*>;
 
-  // The view flavor with this access mode over facade `D`, which is what
-  // `try_downcast` returns.
-  template<Facade D>
-  using view_t = std::conditional_t<(Access == access_mode::as_const),
-      const_proxy_view<D>, proxy_view<D>>;
-
 public:
   using facade_t = F;
 
@@ -93,21 +87,31 @@ public:
   // lent from a `proxy` or `shared_proxy`, it is the owner's birth facade,
   // so a lent view recovers exactly what its owner could.
   //
-  // On success, the result is a new view of the same flavor over the same
-  // target, so a const view's downcast stays const. The source is copied
-  // from, never consumed, which is why this is const (where the owning
-  // flavor of `try_downcast` in `proxy` is an rvalue method). On failure,
+  // On success, the result is a new view over the same target. The source
+  // is copied from, never consumed (in contrast to the owning flavor of
+  // `try_downcast` in `proxy`, which is an rvalue method). On failure,
   // including an empty source, the result is empty.
   //
-  // Like copying any view, this escapes the instance-level deep-const
-  // guardrail. The guarantee tier is `const_proxy_view`, whose downcast
-  // yields another const view.
+  // The result's flavor follows the access the source grants: a mutable
+  // `proxy_view` downcasts to a `proxy_view`, while a `const_proxy_view`, or
+  // a `proxy_view` reached through `const`, downcasts to a
+  // `const_proxy_view`.
+  //
+  // Copying a const `proxy_view` reopens mutability, and nothing prevents
+  // that; the downcast simply declines to be the copy that does it.
   template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] constexpr view_t<D> try_downcast() const noexcept {
+  requires Extends<D, F> && (Access == access_mode::as_mutable)
+  [[nodiscard]] constexpr proxy_view<D> try_downcast() noexcept {
     const auto* table = find_downcast_table<D, F>(vtable_);
     if (!table) return {};
-    return view_t<D>{target_, table};
+    return proxy_view<D>{target_, table};
+  }
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] constexpr const_proxy_view<D> try_downcast() const noexcept {
+    const auto* table = find_downcast_table<D, F>(vtable_);
+    if (!table) return {};
+    return const_proxy_view<D>{target_, table};
   }
 
 protected:

@@ -963,7 +963,7 @@ classDiagram
         +facade_t
         +call() const methods only
         +operator bool()
-        +try_downcast() const and non-consuming, same flavor
+        +try_downcast() non-consuming, const flavor through const
     }
     class shared_base~F,Access~ {
         #vtable_ : view table pointer
@@ -972,7 +972,7 @@ classDiagram
         +call() const methods only
         +operator bool()
         +try_share() typed shared_ptr, const through the const flavor
-        +try_downcast() sharing or transferring, same flavor
+        +try_downcast() sharing (const flavor through const) or transferring
     }
     class proxy_view~F~ {
         +call() all methods
@@ -1337,15 +1337,20 @@ and a view lent from a `proxy` or `shared_proxy` points into that born
 family. A lent view therefore recovers exactly what its owner could, while
 a directly built view is born as its own facade.
 
-On the copyable handles, the operation is non-consuming. `try_downcast` on
-a view is const and returns a new view over the same target. (This escapes
-the instance-level deep-const guardrail exactly as copying does;
-`const_proxy_view` downcasts only to another const view, so the guarantee
-tier stays closed.) `shared_proxy` has an lvalue flavor that shares,
-minting another owner of the one target, and an rvalue flavor that
-transfers, consuming the source only on success. A birth adopted from a
-consumed `proxy` carries over. The weak proxies deliberately have no
-downcast, because they have no dispatch: `lock()` first.
+On the copyable handles, the operation is non-consuming on an lvalue.
+`try_downcast` on a view returns a new view over the same target, and the
+result's flavor follows the access the source grants: a `proxy_view`
+downcasts to a `proxy_view`, while a `const_proxy_view`, or a `proxy_view`
+reached through `const`, downcasts to a `const_proxy_view`. Copying a const
+`proxy_view` escapes the instance-level deep-const guardrail, and nothing
+prevents that; the downcast simply declines to be the copy that does it,
+the same rule by which a const handle lends only a `const_proxy_view`.
+`shared_proxy` has an lvalue flavor that shares, minting another owner of
+the one target (a `const_shared_proxy` through a const handle, by the same
+rule), and an rvalue flavor that transfers, consuming the source only on
+success and keeping the source's flavor. A birth adopted from a consumed
+`proxy` carries over. The weak proxies deliberately have no downcast,
+because they have no dispatch: `lock()` first.
 
 ### Shared and weak ownership
 
@@ -1362,9 +1367,10 @@ keep their typed view of the same object), from `std::unique_ptr<T>`, or
 via `make_shared_proxy<F, T>(...)` (target and control block in one
 allocation). Handles upcast implicitly by copy or move, and views lend
 from a shared proxy exactly as from an owning one. Deep const is the same
-guardrail it is on the views: copying escapes it. Upcasts are undoable
-through `try_downcast`, in a sharing lvalue flavor and a transferring
-rvalue one (see "Downcasting").
+guardrail it is on the views: copying escapes it, while lending and
+downcasting through a const handle yield the const flavor. Upcasts are
+undoable through `try_downcast`, in a sharing lvalue flavor and a
+transferring rvalue one (see "Downcasting").
 
 `const_shared_proxy<F>` is the guarantee tier, as `const_proxy_view` is
 for the views: constness is part of the type, so it survives copying, only

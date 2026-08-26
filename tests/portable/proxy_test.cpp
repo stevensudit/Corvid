@@ -3037,8 +3037,19 @@ TEST_CASE("Downcasting views", "[proxy]") {
   // reopens.
   const_proxy_view<gunslinger> cg = vm;
   auto cm = cg.try_downcast<marshal>();
+  static_assert(std::same_as<decltype(cm), const_proxy_view<marshal>>);
   REQUIRE(cm);
   CHECK(cm.describe() == "texas_ranger"s);
+
+  // A mutable view reached through `const` grants only const access, so its
+  // downcast is a const view too, where the same view downcasts to a mutable
+  // one directly.
+  static_assert(
+      std::same_as<decltype(vg.try_downcast<marshal>()), proxy_view<marshal>>);
+  auto ccm = std::as_const(vg).try_downcast<marshal>();
+  static_assert(std::same_as<decltype(ccm), const_proxy_view<marshal>>);
+  REQUIRE(ccm);
+  CHECK(ccm.describe() == "texas_ranger"s);
 
   // Through a diamond, a view of the common base sidecasts to either
   // sibling.
@@ -3098,10 +3109,19 @@ TEST_CASE("Downcasting a shared_proxy", "[proxy]") {
   pr.fire(3);
   shared_proxy<gunslinger> shared_gun{std::move(pr)};
   auto sr = shared_gun.try_downcast<ranger>();
+  static_assert(std::same_as<decltype(sr), shared_proxy<ranger>>);
   REQUIRE(sr);
   CHECK(sr.shots() == 3);
   REQUIRE(shared_gun);
   CHECK(shared_gun.shots() == 3);
+
+  // Through `const`, the sharing downcast mints a const handle, and the
+  // source keeps its share.
+  auto csr = std::as_const(shared_gun).try_downcast<ranger>();
+  static_assert(std::same_as<decltype(csr), const_shared_proxy<ranger>>);
+  REQUIRE(csr);
+  CHECK(csr.describe() == "texas_ranger"s);
+  REQUIRE(shared_gun);
 
   // An empty handle downcasts to an empty handle.
   shared_proxy<gunslinger> nobody;

@@ -57,7 +57,7 @@ protected:
       std::conditional_t<(Access == access_mode::as_const), const T, T>;
 
   // The shared-owning flavor with this access mode over facade `D`, which is
-  // what `try_downcast` returns.
+  // what the transferring `try_downcast` returns.
   template<Facade D>
   using shared_t = std::conditional_t<(Access == access_mode::as_const),
       const_shared_proxy<D>, shared_proxy<D>>;
@@ -104,20 +104,34 @@ public:
   // the owning proxy (see `proxy::try_downcast`), including a birth adopted
   // from a consumed `proxy`.
   //
-  // There are two overloads. Called on an lvalue, the result is another owner
-  // of the one target and the source keeps its own share, because shared
-  // ownership is copyable. Called on an rvalue, the source's share transfers
-  // to the result, so the source is consumed, but only on success.
+  // Called on an lvalue, the result is another owner of the one target and
+  // the source keeps its own share, because shared ownership is copyable.
+  // Called on an rvalue, the source's share transfers to the result, so the
+  // source is consumed, but only on success. On failure, including an empty
+  // source, the result is empty and the source is untouched.
   //
-  // The result is a handle of the same flavor, so a const handle's downcast
-  // stays const. On failure, including an empty source, the result is empty
-  // and the source is untouched.
+  // The result's flavor follows the access the source grants: a mutable
+  // `shared_proxy` downcasts to a `shared_proxy`, while a
+  // `const_shared_proxy`, or a `shared_proxy` reached through `const`,
+  // downcasts to a `const_shared_proxy`.
+  //
+  // Copying a const `shared_proxy` reopens mutability, and nothing prevents
+  // that; the downcast simply declines to be the copy that does it. The
+  // transferring flavor keeps the source's own flavor, since an rvalue grants
+  // whatever it had.
   template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] shared_t<D> try_downcast() const& noexcept {
+  requires Extends<D, F> && (Access == access_mode::as_mutable)
+  [[nodiscard]] shared_proxy<D> try_downcast() & noexcept {
     const auto* table = find_downcast_table<D, F>(vtable_);
     if (!table) return {};
-    return shared_t<D>{target_, table};
+    return shared_proxy<D>{target_, table};
+  }
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] const_shared_proxy<D> try_downcast() const& noexcept {
+    const auto* table = find_downcast_table<D, F>(vtable_);
+    if (!table) return {};
+    return const_shared_proxy<D>{target_, table};
   }
   template<Facade D>
   requires Extends<D, F>
