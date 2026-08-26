@@ -262,17 +262,18 @@ struct invocable_policy {
     return admits_inline() ? inline_align : alignof(void*);
   }
 
-  // Whether an owner can honor the buffer this policy describes, which every
-  // owner asserts.
+  // `is_well_formed` determines whether an owner can honor the buffer this
+  // policy describes, which every owner asserts.
   //
   // True, or not a constant expression at all: a broken rule is reported by
-  // naming it, on the pattern of the fluent setters. The rules: the alignment
-  // is a power of two; the size is a multiple of it, since the difference
-  // would be wasted as padding; and, because the buffer overlays the pointer
-  // to a heap block (see `storage_area`), a buffer that can be asked to hold
-  // one is at least a pointer's size and alignment. Only an `inline_only`
-  // buffer may be empty; a smaller one would silently grow to the pointer it
-  // overlays.
+  // naming it, on the pattern of the fluent setters.
+  //
+  // The rules: the alignment is a power of two; the size is a multiple of it,
+  // since the difference would be wasted as padding; and, because the buffer
+  // overlays the pointer to a heap block (see `storage_area`), a buffer that
+  // can be asked to hold one is at least a pointer's size and alignment. Only
+  // an `inline_only` buffer may be empty; a smaller one would silently grow to
+  // the pointer it overlays.
   [[nodiscard]] consteval bool is_well_formed() const noexcept {
     if (!admits_inline()) return true;
     if (!std::has_single_bit(inline_align)) must_be_a_power_of_two();
@@ -308,31 +309,30 @@ inline constexpr invocable_policy invocable_policy::fixed{
 // are imported into the owner's own `details` wholesale.
 namespace implementation {
 
-// `fits_inline`: whether a target of the given size and alignment, whose move
-// cannot throw when `is_nothrow_move`, is eligible for policy `p`'s inline
-// buffer.
+// Whether a target of the given size and alignment, whose move cannot throw
+// when `is_nothrow_move`, is eligible for policy `p`'s inline buffer.
 //
 // The three conditions of inline eligibility, over values, so that the same
 // test serves a type (`is_inline_eligible`) and an erased arrival whose
 // footprint is known only at runtime (`adoption_of`).
 //
-// `constexpr` rather than `consteval`: `flexi_function`'s lifespan thunk
-// evaluates a type-erased destination's policy at runtime.
+// `constexpr` rather than `consteval` because `flexi_function`'s lifespan
+// thunk evaluates a type-erased destination's policy at runtime.
 constexpr bool fits_inline(invocable_policy p, size_t size, size_t align,
     bool is_nothrow_move) noexcept {
   return (size <= p.inline_size) && (align <= p.inline_align) &&
          is_nothrow_move;
 }
 
-// `is_inline_eligible`: whether `T` is eligible for policy `P`'s inline
-// buffer; see `fits_inline`.
+// Whether `T` is eligible for policy `p`'s inline buffer, as `fits_inline`
+// decides.
 template<typename T>
 constexpr bool is_inline_eligible(invocable_policy p) noexcept {
   return fits_inline(p, sizeof(T), alignof(T),
       std::is_nothrow_move_constructible_v<T>);
 }
 
-// `can_store_inline`: whether policy `P` can store `T` inline.
+// Whether policy `p` can store `T` inline.
 //
 // An `inline_only` policy over an ineligible target is rejected separately,
 // with its own diagnostic.
@@ -341,8 +341,8 @@ constexpr bool can_store_inline(invocable_policy p) noexcept {
   return p.admits_inline() && is_inline_eligible<T>(p);
 }
 
-// `is_direct_eligible`: whether a `T` can be called without storing one, so
-// that only its type survives, in the thunk generated for it.
+// Whether a `T` can be called without storing one, so that only its type
+// survives, in the thunk generated for it.
 //
 // No data members (which is what `std::is_empty` checks, along with no
 // virtual functions) rules out per-instance state such as a capture or a
@@ -358,8 +358,8 @@ consteval bool is_direct_eligible() noexcept {
           std::is_trivially_destructible_v<T>);
 }
 
-// `function_storage_mode_of`: where policy `p` keeps a `T`: nowhere when it is
-// direct eligible, inline when it can be, and on the heap otherwise.
+// Where policy `p` keeps a `T`: nowhere when it is direct eligible, inline
+// when it can be, and on the heap otherwise.
 //
 // An `inline_only` policy over a target that can be neither is rejected
 // separately, with its own diagnostic.
@@ -370,25 +370,23 @@ consteval storage_mode function_storage_mode_of(invocable_policy p) noexcept {
   return storage_mode::dynamic;
 }
 
-// `can_store_nothrow`: whether storing a `T` under policy `p` cannot throw,
-// which is whenever it does not go to the heap.
+// Whether storing a `T` under policy `p` cannot throw, which is whenever it
+// does not go to the heap.
 template<typename T>
 consteval bool can_store_nothrow(invocable_policy p) noexcept {
   return (function_storage_mode_of<T>(p) != storage_mode::dynamic);
 }
 
-// `is_inline_fit_guaranteed`: whether every inline target the source policy
-// admits is guaranteed to fit the destination's buffer, letting adoption skip
-// the runtime fit check (and, with it, every mode-changing path for inline
-// arrivals).
+// Whether every inline target the source policy admits is guaranteed to fit
+// the destination's buffer, letting adoption skip the runtime fit check (and,
+// with it, every mode-changing path for inline arrivals).
 consteval bool
 is_inline_fit_guaranteed(invocable_policy to, invocable_policy from) noexcept {
   return to.admits_inline() && (to.inline_size >= from.inline_size) &&
          (to.inline_align >= from.inline_align);
 }
 
-// `adopt_may_throw`: whether adopting from policy `from` into policy `to` can
-// throw.
+// Whether adopting from policy `from` into policy `to` can throw.
 //
 // Could be an inline arrival that might not stay inline (a boxing
 // allocation, or nowhere at all to put it under `inline_only`), or a heap
@@ -399,16 +397,15 @@ adopt_may_throw(invocable_policy to, invocable_policy from) noexcept {
          (from.admits_heap() && !to.admits_heap());
 }
 
-// `adoption_of`: the route a target of the given size and alignment, whose
+// `adoption_of` is the route a target of the given size and alignment, whose
 // move cannot throw when `is_nothrow_move`, takes into policy `to`, arriving
 // from storage mode `from`.
 //
-// The one statement of the adoption rule. A heap
-// arrival is handed over whenever `to` admits the heap, never un-boxed, since
-// the allocation is already paid for; it is un-boxed only into an
-// `inline_only` buffer it fits. An inline arrival stays inline when it fits
-// and is boxed otherwise. When no home is open, the arrival is refused.
-// "Fits" is `fits_inline`.
+// The one statement of the adoption rule. A heap arrival is handed over
+// whenever `to` admits the heap, never un-boxed, since the allocation is
+// already paid for; it is un-boxed only into an `inline_only` buffer it fits.
+// An inline arrival stays inline when it fits and is boxed otherwise. When no
+// home is open, the arrival is refused. "Fits" is `fits_inline`.
 //
 // A `direct` arrival is not routed here: it has no storage to move, and every
 // destination accepts it.

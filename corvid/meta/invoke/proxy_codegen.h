@@ -41,7 +41,7 @@ namespace corvid { inline namespace meta { namespace prox {
 namespace details {
 
 // Facade-wide parameter numbering, one sequence spanning every slot of the
-// flattened list; entry `ndx` is slot ndx's first number.
+// flattened list; entry `ndx` is slot `ndx`'s first number.
 //
 // One shared sequence is what keeps a parameter's generated name identical
 // between the `api` forwarder and the `boilerplate` binding, so renaming it
@@ -136,8 +136,8 @@ consteval auto do_codegen_path() noexcept {
 template<Facade F>
 using codegen_path_t = decltype(do_codegen_path<F>())::type;
 
-// Whether the generated `api` spells a forwarder for slot `S`, which consists
-// of every own method, plus every inherited method the path base `P` does not
+// Whether the generated `api` spells a forwarder for slot `S`. It does so for
+// every own method, plus every inherited method the path base `P` does not
 // cover.
 template<typename S, typename P>
 consteval bool api_emits() noexcept {

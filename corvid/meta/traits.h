@@ -243,8 +243,8 @@ struct signature_traits_base {
 // `signature_traits` is the decomposition of a function signature into its
 // result, parameters, and qualifiers.
 //
-// A signature here is what `std::move_only_function` accepts as `Sig`. These
-// are function type `R(Args...)`, optionally qualified by `const`, by a
+// A signature here is what `std::move_only_function` accepts as `Sig`. This is
+// a function type `R(Args...)`, optionally qualified by `const`, by a
 // reference (`&` or `&&`), and by `noexcept`, for twelve variants in all.
 //
 // The trait provides `result_t`, `args_t` (the parameter types, as a
