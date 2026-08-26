@@ -34,8 +34,8 @@ namespace prox {
 
 namespace details {
 
-// Storage and const-method dispatch shared by the two view flavors, which
-// differ only in the constness of the erased target pointer.
+// Storage, const-method dispatch, and downcasting shared by the two view
+// flavors, which differ only in the constness of the erased target pointer.
 //
 // The `call` here serves const-qualified methods, the only dispatch a const
 // handle allows. The `proxy_view` class layers the unrestricted non-const
@@ -45,6 +45,10 @@ namespace details {
 // view a single-inheritance chain.
 template<Facade F, access_mode Access>
 class view_base: public api_base_t<F> {
+protected:
+  using vtable_t = vtbuild_t<F>::vtable_t;
+  using target_ptr_t = conditional_const_t<Access, void>*;
+
 public:
   using facade_t = F;
 
@@ -74,11 +78,42 @@ public:
     return target_;
   }
 
-protected:
-  using vtable_t = vtbuild_t<F>::vtable_t;
-  using target_ptr_t = std::conditional_t<(Access == access_mode::as_const),
-      const void*, void*>;
+  // Try to downcast this instance to make a view of `D`, which is a facade
+  // extending `F`, over a target that may have been upcast away from it.
+  //
+  // The view table remembers the facade the target was born as. For a view
+  // built directly over a target, that is the view's own facade. For a view
+  // lent from a `proxy` or `shared_proxy`, it is the owner's birth facade,
+  // so a lent view recovers exactly what its owner could.
+  //
+  // On success, the result is a new view over the same target. The source
+  // is copied from, never consumed (in contrast to the owning flavor of
+  // `try_downcast` in `proxy`, which is an rvalue method). On failure,
+  // including an empty source, the result is empty.
+  //
+  // The result's flavor follows the access the source grants: a mutable
+  // `proxy_view` downcasts to a `proxy_view`, while a `const_proxy_view`, or
+  // a `proxy_view` reached through `const`, downcasts to a
+  // `const_proxy_view`.
+  //
+  // Copying a const `proxy_view` reopens mutability, and nothing prevents
+  // that; the downcast simply declines to be the copy that does it.
+  template<Facade D>
+  requires Extends<D, F> && (Access == access_mode::as_mutable)
+  [[nodiscard]] constexpr proxy_view<D> try_downcast() noexcept {
+    const auto* table = find_downcast_table<D, F>(vtable_);
+    if (!table) return {};
+    return proxy_view<D>{target_, table};
+  }
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] constexpr const_proxy_view<D> try_downcast() const noexcept {
+    const auto* table = find_downcast_table<D, F>(vtable_);
+    if (!table) return {};
+    return const_proxy_view<D>{target_, table};
+  }
 
+protected:
   constexpr view_base() noexcept = default;
   constexpr view_base(target_ptr_t target, const vtable_t* vtable) noexcept
       : vtable_{vtable}, target_{target} {}
@@ -184,7 +219,7 @@ public:
   // You cannot construct a `proxy_view` on a const `proxy` reference; you have
   // to instead construct a `const_proxy_view` on it.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   proxy_view(proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
@@ -195,7 +230,7 @@ public:
   // The view does not share ownership, so it is good exactly as long as some
   // owner keeps the target alive (see the class comment).
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   proxy_view(shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
@@ -221,30 +256,6 @@ public:
 
   using base::call;
 
-  // Try to downcast this instance to make a view of `D`, which is a facade
-  // extending `F`, over a target that may have been upcast away from it.
-  //
-  // The view table remembers the facade the target was born as. For a view
-  // built directly over a target, that is the view's own facade; for a view
-  // lent from a `proxy` or `shared_proxy`, it is the owner's birth facade,
-  // so a lent view recovers exactly what its owner could.
-  //
-  // On success, the result is a new view over the same target. The source is
-  // copied from, never consumed, which is why this is const (where the owning
-  // flavor of `try_downcast` in `proxy` is an rvalue method). On failure,
-  // including an empty source, the result is empty.
-  //
-  // Like copying any view, this escapes the instance-level deep-const
-  // guardrail. The guarantee tier is `const_proxy_view`, whose downcast stays
-  // const.
-  template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] constexpr proxy_view<D> try_downcast() const noexcept {
-    const auto* table = details::find_downcast_table<D, F>(this->vtable_);
-    if (!table) return {};
-    return proxy_view<D>{this->target_, table};
-  }
-
 private:
   constexpr proxy_view(void* target, const base::vtable_t* vtable) noexcept
       : base{target, vtable} {}
@@ -253,35 +264,15 @@ private:
   friend class proxy_view;
   template<Facade G>
   friend class const_proxy_view;
+  template<Facade G, access_mode A>
+  friend class details::view_base;
 };
 
-// `proxy_impl` is the library-provided binding so that a `proxy_view`
-// satisfies its own facade and every facade that one extends (as in Rust,
-// where `dyn Trait` implements `Trait` and meets its supertrait bounds).
-//
-// Calls forward through the wrapped view, with conditional `noexcept` so the
-// invariant also holds for facades with noexcept methods. The handle
-// parameter is deduced, serving const and mutable views with one overload,
-// so const methods route through the const `call` exactly as they would on
-// the view itself.
-//
-// This makes facade-constrained generic code accept concrete and erased
-// arguments interchangeably, including derived-facade handles under a
-// base-facade bound, and allows views of views.
+// The library-provided binding so that a `proxy_view` satisfies its own
+// facade and every facade that one extends.
 template<Facade F, Facade D>
-requires(std::same_as<D, F> || Extends<D, F>)
-struct proxy_impl<F, proxy_view<D>> {
-  // `on` is the qualified spelling that keeps the forwarded key unambiguous
-  // when `D`'s flattened list collides on `Key`; see `qualified_key`.
-  template<fixed_string Key, typename Handle, typename... Args>
-  static constexpr decltype(auto)
-  on(method_key<Key>, Handle& view, Args&&... args) noexcept(
-      noexcept(view.template call<details::qualified_key<F, Key>()>(
-          std::forward<Args>(args)...))) {
-    return view.template call<details::qualified_key<F, Key>()>(
-        std::forward<Args>(args)...);
-  }
-};
+requires ExtendsOrIs<D, F>
+struct proxy_impl<F, proxy_view<D>>: details::handle_impl<F> {};
 
 // `const_proxy_view` is the non-owning read-only erased handle, akin to Rust's
 // `&dyn Trait`. To put it another way, it is the `const_iterator` to
@@ -359,7 +350,7 @@ public:
   // `proxy_view`'s class comment). Mutable and const proxies alike yield the
   // const view; there is no path back to mutability.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
@@ -367,7 +358,7 @@ public:
   // Temporary owners must not lend a view: without this deletion, the const
   // reference above would bind an rvalue and dangle.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const proxy<D, P>&&) = delete;
 
   // Viewing constructor from a `shared_proxy` of `F`, or of a facade that
@@ -375,43 +366,30 @@ public:
   // `shared_proxy` is refused the same way, by the deleted rvalue overload
   // below.
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const shared_proxy<D>&&) = delete;
 
   // Viewing constructor from a `const_shared_proxy` of `F`, or of a facade
   // that extends it, under the same rules, and the only view that handle
   // lends.
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const const_shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const const_shared_proxy<D>&&) = delete;
 
   // No need for a `using` because we do not declare a `call` here that shadows
   // the base's const-only `call`.
-
-  // Attempt to downcast a const view of `D`, which is a facade extending `F`,
-  // over a target that may have been upcast away from it; see
-  // `proxy_view::try_downcast`.
-  //
-  // The result is another const view, so downcasting never reopens mutability.
-  template<Facade D>
-  requires Extends<D, F>
-  [[nodiscard]] constexpr const_proxy_view<D> try_downcast() const noexcept {
-    const auto* table = details::find_downcast_table<D, F>(this->vtable_);
-    if (!table) return {};
-    return const_proxy_view<D>{this->target_, table};
-  }
 
 private:
   constexpr const_proxy_view(const void* target,
@@ -420,31 +398,19 @@ private:
 
   template<Facade G>
   friend class const_proxy_view;
+  template<Facade G, access_mode A>
+  friend class details::view_base;
 };
 
-// `proxy_impl` is the library-provided binding so that a `const_proxy_view`
-// satisfies its own facade, and the ones that facade extends, where that is
-// possible.
+// The library-provided binding so that a `const_proxy_view` satisfies its
+// own facade, and the ones that facade extends, where that is possible; see
+// `details::handle_impl`.
 //
 // It dispatches only const methods, so the invariant holds exactly for
 // all-const facades.
-//
-// The `on` is itself constrained to const methods so that a mixed facade
-// fails conformance cleanly at overload resolution, rather than erroring
-// during return type deduction of a forwarder whose `call` cannot compile.
 template<Facade F, Facade D>
-requires(std::same_as<D, F> || Extends<D, F>)
-struct proxy_impl<F, const_proxy_view<D>> {
-  template<fixed_string Key, typename... Args>
-  requires(details::vtbuild_t<F>::template is_const<Key>())
-  static constexpr decltype(auto) on(method_key<Key>,
-      const const_proxy_view<D>& view, Args&&... args) noexcept(noexcept(view
-          .template call<details::qualified_key<F, Key>()>(
-              std::forward<Args>(args)...))) {
-    return view.template call<details::qualified_key<F, Key>()>(
-        std::forward<Args>(args)...);
-  }
-};
+requires ExtendsOrIs<D, F>
+struct proxy_impl<F, const_proxy_view<D>>: details::handle_impl<F> {};
 
 // Make a `proxy_view` over `target`.
 //

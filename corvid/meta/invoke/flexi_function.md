@@ -71,6 +71,7 @@ shared vocabulary lives in
 ```cpp
 template<class Sig, invocable_policy Policy = invocable_policy::basic,
     class FunctionT = signature_function_t<Sig>>
+requires std::same_as<FunctionT, signature_function_t<Sig>>
 class flexi_function;
 ```
 
@@ -88,7 +89,10 @@ The policy describes only the buffer; the pair ahead of it is
 The third parameter is derived from the signature and never passed. It is
 the pattern-matching hook that gives the class body `ResultT` and
 `Args...` even when `Sig` is qualified, so there is one body for all
-twelve qualifier combinations.
+twelve qualifier combinations. The constraint pins it to that derivation:
+any other spelling is ill-formed where it is named, so a `flexi_function`
+is always `flexi_function<Sig, Policy>` and the traits
+(`is_flexi_function_v`, `is_fixed_function_v`) match on those two alone.
 
 Construction paths, all landing in one of two private workers:
 

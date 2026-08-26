@@ -62,6 +62,7 @@ using-declaration merges, and diamonds.
 - [Naming map](#naming-map)
 - [User-facing shape](#user-facing-shape)
   - [Partial override of the boilerplate](#partial-override-of-the-boilerplate)
+  - [Member-pointer bindings (`members`)](#member-pointer-bindings-members)
   - [Member-call sugar (the `api` mixin)](#member-call-sugar-the-api-mixin)
   - [API validation (`validate_api`)](#api-validation-validate_api)
   - [Codegen (`prox::codegen`)](#codegen-proxcodegen)
@@ -126,6 +127,7 @@ buffer plus dispatch pointer).
 | `proxy_impl<F, T>`            | (none; structural)                 | `impl Trait for Type`    |
 | `corvid_proxy_spec(F*, T*)`   | (none)                             | empty `impl` block       |
 | `make_proxy_spec<F, T>()`     | (none)                             | (spec payload)           |
+| `members<member<"fire", &T::shoot>, ...>` | (none)                 | (none)                   |
 | `"name"_method` UDL           | (none)                             | (none)                   |
 | `Proxiable<T, F>`             | `proxiable<P, F>`                  | `T: Trait` bound         |
 | `make_proxy<F, T>(...)`       | `make_proxy`                       | `Box::new`               |
@@ -172,6 +174,7 @@ flowchart TB
     BP["F::boilerplate&lt;T&gt; (natural-name bindings)"]
     HOOK["corvid_proxy_spec(F*, T*) (the registration)"]
     CI["carried impl (only when names diverge)"]
+    MB["members&lt;member&lt;&quot;fire&quot;, &amp;T::shoot&gt;, ...&gt; (names diverge, no body needed)"]
     PI["proxy_impl&lt;F, T&gt;"]
     VT["dispatch table: static, per (F, T)"]
     H["proxy&lt;F&gt;, proxy_view&lt;F&gt;, shared_proxy&lt;F&gt;, ..."]
@@ -184,6 +187,7 @@ flowchart TB
     subgraph conformer["type owner (or anyone) writes"]
         HOOK
         CI
+        MB
     end
     subgraph library["library synthesizes"]
         PI
@@ -194,6 +198,7 @@ flowchart TB
     HOOK -->|unlocks| PI
     BP -->|default route| PI
     CI -->|outranks boilerplate| PI
+    MB -->|synthesized impl| PI
     PI -->|one thunk per method| VT
     H -->|points at| VT
     API -->|inherited by| H
@@ -372,9 +377,88 @@ naming the absent member is harmless.
 Before the boilerplate moved into the facade, this tier required the
 facade author to factor the bindings into a separately-named class for the
 namespace-scope partial to derive from. With the nested form, it is
-inherent. It overlaps in purpose with the spec-carried member-pointer
-binding sketched under "Future work", and the two can coexist. Exercised
-by `sheriff` in the test.
+inherent. Exercised by `sheriff` in the test. When the divergent binding
+is a plain rename, `members` (next) says the same thing without a binding
+class; the partial override remains for a binding that needs a body.
+
+### Member-pointer bindings (`members`)
+
+A library cannot turn the declared `"fire"` into `.fire`, which is why the
+boilerplate has to be typed. But `&robber::shoot` is a value, spellable
+where a member name is not, so a registration can carry its bindings as
+member pointers and let the library write the impl. `members<...>` in the
+impl position of `make_proxy_spec` is a list of `member<Key, Ptr>` bindings,
+each naming a facade method by key and the member that serves it:
+
+```cpp
+// `rustler` has the right shape and the wrong names, like `robber`, but its
+// registration is one declaration with no binding class.
+consteval auto corvid_proxy_spec(gunslinger*, rustler*) {
+  return make_proxy_spec<gunslinger, rustler,
+      members<member<"fire", &rustler::shoot>,
+          member<"describe", &rustler::description>,
+          member<"reload", &rustler::rearm>,
+          member<"shots", &rustler::fired>>>();
+}
+```
+
+The synthesized impl's `on` invokes the bound member through `std::invoke`
+with the target and the forwarded arguments, so a member function is
+called and a data member is read (`shots` above binds a data member, and
+the facade's `int&()` serves the reference). The target parameter is
+deduced, so constness flows through: a const target reaches the member as
+const, and whether the member accepts that is part of whether the key is
+bound. Conformance is then exactly what it is for a hand-written impl,
+including the `noexcept` requirement.
+
+Keys are matched by name, not position, so the facade's method order and
+composition cannot silently rebind anything. They are the method's declared,
+unqualified names: a registration binds one facade, so a sibling collision
+across facades is resolved by which facade is being registered, and a
+qualified key (`"gunslinger::fire"`) is rejected rather than silently never
+matching. A key the facade does not declare, or one listed twice, is
+likewise a `static_assert`.
+
+Every key the list leaves out routes to the facade's `boilerplate<T>` when
+there is one. That makes the rename-one-method case a single binding, with
+no inherited class and no using-declaration:
+
+```cpp
+// `wrangler` lines up except that `fire` is spelled `shoot`.
+consteval auto corvid_proxy_spec(gunslinger*, wrangler*) {
+  return make_proxy_spec<gunslinger, wrangler,
+      members<member<"fire", &wrangler::shoot>>>();
+}
+```
+
+An overloaded member binds too, but the pointer has to be cast to the
+wanted signature to pick the overload, the usual member-pointer wart:
+`member<"fire", static_cast<int (gunsmith::*)(int)>(&gunsmith::fire)>`.
+
+A private member binds when the hook can name it. Access is checked where
+the pointer is spelled, in the hook, and never where the library invokes
+it, so a hook defined as a hidden friend inside the type reaches the
+type's private members while ADL on the `T*` argument still finds it:
+
+```cpp
+struct safecracker {
+  friend consteval auto corvid_proxy_spec(gunslinger*, safecracker*) {
+    return make_proxy_spec<gunslinger, safecracker,
+        members<member<"fire", &safecracker::crack>>>();
+  }
+  // ...
+private:
+  int crack(int rounds);
+};
+```
+
+This is the member-pointer analog of nesting a binding class in the type,
+and shorter, since the whole registration is one declaration inside it.
+
+What `members` cannot express stays with a binding class: a binding that
+adapts arguments or results or calls more than one member, and a private
+member of a type you cannot befriend the hook into. Exercised by
+`rustler`, `wrangler`, `gunsmith`, and `safecracker` in the test.
 
 ### Member-call sugar (the `api` mixin)
 
@@ -948,9 +1032,11 @@ per-(facade, type, birth) table) and differ in what they own, and in whether
 constness is a property of the instance or of the type. All of the
 dispatching handles inherit the facade's `api` sugar when it exists,
 through `details::api_base_t<F>`. The two views additionally share their
-storage and const-method `call` through `details::view_base<F, Access>`,
-and the two shared-owning handles theirs, plus the moves, through
-`details::shared_base<F, Access>`:
+storage, const-method `call`, and `try_downcast` through
+`details::view_base<F, Access>`, the two shared-owning handles theirs, plus
+the moves, through `details::shared_base<F, Access>`, and the two weak
+handles their storage, `expired`, and `lock` through
+`details::weak_base<F, Access>`:
 
 ```mermaid
 classDiagram
@@ -963,6 +1049,7 @@ classDiagram
         +facade_t
         +call() const methods only
         +operator bool()
+        +try_downcast() non-consuming, const flavor through const
     }
     class shared_base~F,Access~ {
         #vtable_ : view table pointer
@@ -971,13 +1058,12 @@ classDiagram
         +call() const methods only
         +operator bool()
         +try_share() typed shared_ptr, const through the const flavor
+        +try_downcast() sharing (const flavor through const) or transferring
     }
     class proxy_view~F~ {
         +call() all methods
-        +try_downcast() const and non-consuming
     }
     class const_proxy_view~F~ {
-        +try_downcast() to const views only
     }
     class proxy~F,Policy~ {
         -vtable_ : owning table pointer
@@ -996,22 +1082,18 @@ classDiagram
     }
     class shared_proxy~F~ {
         +call() all methods
-        +try_downcast() sharing or transferring
     }
     class const_shared_proxy~F~ {
-        +try_downcast() to const handles only
+    }
+    class weak_base~F,Access~ {
+        #vtable_ : view table pointer
+        #target_ : weak_ptr of void, const if Access is const
+        +expired()
+        +lock() the shared flavor of Access
     }
     class weak_proxy~F~ {
-        -vtable_ : view table pointer
-        -target_ : weak_ptr of void
-        +lock() a shared_proxy
-        +expired()
     }
     class const_weak_proxy~F~ {
-        -vtable_ : view table pointer
-        -target_ : weak_ptr of const void
-        +lock() a const_shared_proxy
-        +expired()
     }
     api_base_t <|-- view_base
     view_base <|-- proxy_view
@@ -1020,12 +1102,23 @@ classDiagram
     api_base_t <|-- shared_base
     shared_base <|-- shared_proxy
     shared_base <|-- const_shared_proxy
+    weak_base <|-- weak_proxy
+    weak_base <|-- const_weak_proxy
 ```
 
 The weak proxies deliberately inherit no `api` and expose no `call`. Each
 keeps its table pointer only to hand to the shared handle that `lock()`
-mints. They share nothing but shape, since the shape is two data members
-and `expired()`.
+mints, which is why `weak_base` holds nothing but the two data members,
+`expired()`, and `lock()`.
+
+Every conversion between handles is its own declared constructor,
+constrained on `ExtendsOrIs<D, F>` (or on the strict `Extends<D, F>` for a
+same-kind upcast, where the same facade is the copy constructor) and
+delegating to its base's `(target, table)` constructor. That set of
+declarations, refusals included (the deleted rvalue overloads, the const
+handles `weak_proxy` will not observe), is the specification of which
+conversions exist, and it is kept explicit rather than collapsed into one
+generic constructor whose constraint would have to encode the whole table.
 
 How the handles and the std smart pointers convert into each other (in
 addition, every handle converts to its own counterpart for any facade the
@@ -1339,15 +1432,20 @@ and a view lent from a `proxy` or `shared_proxy` points into that born
 family. A lent view therefore recovers exactly what its owner could, while
 a directly built view is born as its own facade.
 
-On the copyable handles, the operation is non-consuming. `try_downcast` on
-a view is const and returns a new view over the same target. (This escapes
-the instance-level deep-const guardrail exactly as copying does;
-`const_proxy_view` downcasts only to another const view, so the guarantee
-tier stays closed.) `shared_proxy` has an lvalue flavor that shares,
-minting another owner of the one target, and an rvalue flavor that
-transfers, consuming the source only on success. A birth adopted from a
-consumed `proxy` carries over. The weak proxies deliberately have no
-downcast, because they have no dispatch: `lock()` first.
+On the copyable handles, the operation is non-consuming on an lvalue.
+`try_downcast` on a view returns a new view over the same target, and the
+result's flavor follows the access the source grants: a `proxy_view`
+downcasts to a `proxy_view`, while a `const_proxy_view`, or a `proxy_view`
+reached through `const`, downcasts to a `const_proxy_view`. Copying a const
+`proxy_view` escapes the instance-level deep-const guardrail, and nothing
+prevents that; the downcast simply declines to be the copy that does it,
+the same rule by which a const handle lends only a `const_proxy_view`.
+`shared_proxy` has an lvalue flavor that shares, minting another owner of
+the one target (a `const_shared_proxy` through a const handle, by the same
+rule), and an rvalue flavor that transfers, consuming the source only on
+success and keeping the source's flavor. A birth adopted from a consumed
+`proxy` carries over. The weak proxies deliberately have no downcast,
+because they have no dispatch: `lock()` first.
 
 ### Shared and weak ownership
 
@@ -1364,9 +1462,10 @@ keep their typed view of the same object), from `std::unique_ptr<T>`, or
 via `make_shared_proxy<F, T>(...)` (target and control block in one
 allocation). Handles upcast implicitly by copy or move, and views lend
 from a shared proxy exactly as from an owning one. Deep const is the same
-guardrail it is on the views: copying escapes it. Upcasts are undoable
-through `try_downcast`, in a sharing lvalue flavor and a transferring
-rvalue one (see "Downcasting").
+guardrail it is on the views: copying escapes it, while lending and
+downcasting through a const handle yield the const flavor. Upcasts are
+undoable through `try_downcast`, in a sharing lvalue flavor and a
+transferring rvalue one (see "Downcasting").
 
 `const_shared_proxy<F>` is the guarantee tier, as `const_proxy_view` is
 for the views: constness is part of the type, so it survives copying, only
@@ -1510,15 +1609,18 @@ well as a live one. Expiry stays `lock()`'s business.
   satisfy `Proxiable<_, F>`, so generic code constrained on the facade
   accepts concrete and erased arguments interchangeably (Rust: `dyn Trait`
   implements `Trait`). Implemented as library-provided `proxy_impl`
-  bindings whose `on` forwards through `call` with conditional `noexcept`
-  (so the invariant survives noexcept methods). A single deduced-handle
-  binding serves const and mutable handles alike, with deep const enforced
-  by the handle's own `call` overloads. For `const_proxy_view` and
-  `const_shared_proxy` the invariant holds exactly for all-const facades
-  (as with Rust `&dyn`, whose `&mut self` methods are uncallable). Their
-  bindings' `on` is constrained to const methods, so a mixed facade fails
-  conformance cleanly at overload resolution rather than erroring during
-  return type deduction.
+  bindings over one `details::handle_impl<F>`, whose `on` forwards through
+  `call` with conditional `noexcept` (so the invariant survives noexcept
+  methods). The handle parameter is deduced, so one overload serves const
+  and mutable handles alike, and `on` is constrained to exist exactly when
+  the handle's `call` is well-formed, which is what enforces deep const: a
+  const object dispatches only const methods through the handle's own
+  `call` overloads. For `const_proxy_view` and `const_shared_proxy` the
+  invariant holds exactly for all-const facades (as with Rust `&dyn`, whose
+  `&mut self` methods are uncallable); the same constraint makes a mixed
+  facade fail conformance cleanly at overload resolution rather than
+  erroring during return type deduction, since those flavors have no `call`
+  for a mutable method at all.
 
 ## Tables and thunks
 
@@ -1735,9 +1837,9 @@ concatenation instead of multiple inheritance. Facade upcasting is a table
 view instead of a cross-cast. Inline relocation is a table slot instead of
 virtual clone/move on a polymorphic buffer. `proxy_view` stays two plain
 pointers with no embedded polymorphic object. And the `method<"...">` list
-keeps the facade enumerable, which `prox::codegen` already leans on and
-the future-work items (member-pointer specs, formatter bridge,
-reflection-derived boilerplate) will.
+keeps the facade enumerable, which `prox::codegen` and `members` already
+lean on and the future-work items (formatter bridge, reflection-derived
+boilerplate) will.
 
 A facade-holding-`T*` variant without the hidden ABC (handle templates
 deriving from a forwarding facade) was also sketched. It spells each
@@ -1988,6 +2090,10 @@ flowchart LR
     deputy -->|C++ inheritance| lawman
     robber -.->|carried impl| gunslinger
     sheriff -.->|partial override| gunslinger
+    rustler -.->|member bindings| gunslinger
+    wrangler -.->|member binding over boilerplate| gunslinger
+    gunsmith -.->|member binding, cast overload| gunslinger
+    safecracker -.->|member binding, hidden-friend hook, private member| gunslinger
     turncoat -.->|nested carried impl| gunslinger
     howitzer -.->|boilerplate| mortar
     texas_ranger -.->|chain hook| ranger
@@ -2088,51 +2194,25 @@ and views, and identity is handled by the two tags.
   additive rather than a rewrite. Until then, `prox::codegen` generates
   the same artifacts as source to paste, and reflection deletes the paste
   step.
-- `std::formatter` bridge once the formatter forwarding helper exists (see
-  [../../strings/roadmap.md](../../strings/roadmap.md) stage 2). The ngcpp
-  analog is `skills::format`.
-- Spec-carried member-pointer binding: a `corvid_proxy_spec` returning a
-  spec that holds `&robber::shoot, &robber::rearm`, bound positionally to
-  the facade's methods. Member pointers are spellable at compile time
-  where member names are not, so this is a one-line middle tier for
-  name-mismatched types that avoids a full custom impl. Overlaps in
-  purpose with the partial-override pattern above, which needs no new
-  machinery but does need the facade author's cooperation.
+- `std::formatter` bridge: `std::formatter` on the handles, so a proxy
+  formats as its target does. Intended, with two prerequisites. The
+  type-erasure move is `format_with_spec` (the synthetic parse-context
+  technique: the erased formatter keeps the spec tail as text, and at format
+  time a per-(facade, type) thunk runs the target's own formatter under it),
+  which lives in `strings/enable_format.h`, above `meta`; it moves down to
+  `meta/formatting.h` first (stage 5 in
+  [../../strings/roadmap.md](../../strings/roadmap.md)). Then the proxy
+  side: formatting is opt-in per facade (the shape of ngcpp's
+  `skills::format`), a marker that adds a format slot to the dispatch table
+  and constrains registration to formattable targets, so tables of facades
+  that never format carry nothing and instantiate no `std::formatter<T>`.
+  The bridge itself is one `handle_impl`-style formatter base serving every
+  handle flavor. Known limit, shared with `enable_format`: compile-time spec
+  checking stops at the erased grammar, since the target's formatter is only
+  reached at run time.
 - A guaranteed-copyable proxy flavor: a policy whose construction
   constrains targets to copyable types, making the handle itself satisfy
   `std::copyable` with no runtime condition (the shape of ngcpp's
   `support_copy`). `clone()`/`can_clone()` cover the need at runtime, so
   this waits for a use case that wants the compile-time guarantee.
 
-Consolidations deferred from the final review of the handle family, each
-mechanical and with no behavior change:
-
-- `try_downcast` is spelled seven times: once on `proxy` (an rvalue method,
-  since it consumes the target only on success), once each on `proxy_view`
-  and `const_proxy_view`, and a `const&`/`&&` pair on each of `shared_proxy`
-  and `const_shared_proxy`. The six view and shared bodies are the same
-  three lines over `details::find_downcast_table<D, F>`, differing only in
-  the result type and, for the two `&&` overloads, the reset of the source's
-  table to its empty table. The owning one walks the ancestry itself and
-  then relocates.
-- `weak_proxy` and `const_weak_proxy` are two whole classes with no shared
-  base, where `shared_proxy` and `const_shared_proxy` sit on
-  `details::shared_base<F, Access>` and the two views on `view_base`. Each
-  weak flavor carries its own table pointer, `std::weak_ptr` (to `void` or
-  to `const void`), `expired`, `lock`, and converting constructors, and only
-  the constness of the pointee and of the locked result differs.
-- Some two dozen converting constructors across the handle family (one on
-  `proxy`, three on `proxy_view`, five on `const_proxy_view` plus three
-  deleted rvalue overloads, three on `shared_proxy`, five on
-  `const_shared_proxy`, three on `weak_proxy`, and six on `const_weak_proxy`)
-  each pair a `requires Extends<D, F>` clause (or `same_as` or `Extends`)
-  with an initializer of `details::upcast_vtable<F, D>` over the source's
-  table and a hand-off of its target. The three that take an owning
-  `proxy<D, P>&&` are the exception, since they adopt storage rather than
-  re-pointing at it.
-- The five `proxy_impl` self-conformance bindings (for `proxy`, `proxy_view`,
-  `const_proxy_view`, `shared_proxy`, and `const_shared_proxy`) are two
-  shapes, copied: a deduced `Handle&` forwarding to
-  `call<details::qualified_key<F, Key>()>` for the three handles that may be
-  mutable, and the same body over a `const` handle behind an
-  `is_const<Key>` constraint for the two const flavors.

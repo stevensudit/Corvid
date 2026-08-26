@@ -29,6 +29,8 @@
 #include <utility>
 #include <variant>
 
+#include "bool_enums.h"
+
 namespace corvid { inline namespace meta { inline namespace traits {
 
 // Note: Some of these definitions are universal traits that apply anywhere,
@@ -208,6 +210,38 @@ constexpr bool is_initializer_list_v =
 
 #pragma endregion
 #pragma endregion
+#pragma region Const qualification
+
+// `conditional_const` is the type `T`, const-qualified when `Access` is
+// `as_const` and unchanged when it is `as_mutable`, as its `type` member.
+//
+// The one spelling for the const-or-mutable choice a handle, iterator, or
+// thunk makes over its target from an access mode.
+//
+// The qualifier applies to `T` itself, as `std::add_const` would. When `T` is
+// a pointer, that qualifies the pointer, which is right when the pointer is
+// the object in question (a stored function pointer under a const
+// signature) and wrong when the pointee is. For the latter, qualify the
+// pointee with `conditional_const_t<Access, void>*` instead of
+// `conditional_const_t<Access, void*>`.
+//
+// A reference or a function type is rejected because the qualifier would be
+// silently dropped. An already const `T` stays const under either access mode:
+// the choice can add the qualifier but never removes it, so a const target is
+// const to a mutable probe, as it should be.
+template<access_mode Access, typename T>
+struct conditional_const {
+  static_assert(!std::is_reference_v<T> && !std::is_function_v<T>,
+      "const on a reference or a function type is silently dropped, so the "
+      "choice would be no choice; qualify the referent or the target instead");
+  using type =
+      std::conditional_t<(Access == access_mode::as_const), const T, T>;
+};
+
+template<access_mode Access, typename T>
+using conditional_const_t = conditional_const<Access, T>::type;
+
+#pragma endregion
 #pragma region Signatures
 
 // The const qualifier of a function signature, or of a type.
@@ -236,6 +270,8 @@ struct signature_traits_base {
   static constexpr noexcept_spec noexcept_specifier = Noex;
   static constexpr bool is_const = (Const == const_qual::present);
   static constexpr bool is_noexcept = (Noex == noexcept_spec::present);
+  static constexpr access_mode access =
+      is_const ? access_mode::as_const : access_mode::as_mutable;
 };
 
 } // namespace details
@@ -252,7 +288,8 @@ struct signature_traits_base {
 // `noexcept` included), and one constant per axis: `const_qualifier`,
 // `ref_qualifier`, and `noexcept_specifier`, each typed by its own enum. The
 // two-valued axes are restated as the bools `is_const` and `is_noexcept`, for
-// boolean expressions and `noexcept` clauses.
+// boolean expressions and `noexcept` clauses, and the const axis once more as
+// the `access_mode` `access`, for `conditional_const_t`.
 //
 // Only the twelve variants are specialized, so the trait doubles as the gate
 // for what counts as a signature: anything else, `volatile` qualification and

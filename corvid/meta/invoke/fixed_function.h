@@ -70,11 +70,16 @@ consteval size_t fixed_storage_size(size_t size) noexcept {
 // Without `Size`, the instance is the default policy's size, which matches
 // `std::function`'s small buffer.
 //
-// `fixed_function` instances that differ only in `Size` can be freely
-// assigned, so long as the source fits in the target. A downsizing assignment
-// that would not fit throws `std::length_error` and leaves both sides intact.
-// A same-size or upsizing assignment always succeeds, transplanting the stored
-// callable rather than nesting the wrapper.
+// `fixed_function` is an alias for a `flexi_function`, not a class of its
+// own, so it interoperates with every `flexi_function` of the same signature,
+// whatever the policy. They move-construct and move-assign from one another,
+// transplanting the stored callable rather than nesting the wrapper.
+//
+// The one refusal is a target that cannot hold the source. Assigning into a
+// `fixed_function` whose buffer is too small throws `std::length_error` and
+// leaves both sides intact, and `can_adopt` is the up-front check. Between
+// instances that differ only in `Size`, a same-size or upsizing assignment
+// therefore always succeeds.
 template<class Sig,
     size_t Size = padded_size(details::thunk_pair_size,
                       invocable_policy::fixed.inline_align) +
@@ -88,10 +93,9 @@ using fixed_function =
 template<typename T>
 constexpr inline bool is_fixed_function_v = false;
 
-template<class Sig, invocable_policy Policy, class FunctionT>
+template<class Sig, invocable_policy Policy>
 requires(Policy.storage == storage_policy::inline_only)
-constexpr inline bool
-    is_fixed_function_v<flexi_function<Sig, Policy, FunctionT>> = true;
+constexpr inline bool is_fixed_function_v<flexi_function<Sig, Policy>> = true;
 
 #pragma endregion
 #pragma region fixed_function_of

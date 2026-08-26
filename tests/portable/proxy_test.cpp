@@ -210,6 +210,109 @@ consteval auto corvid_proxy_spec(gunslinger*, sheriff*) {
   return prox::make_proxy_spec<gunslinger, sheriff, as_gunslinger>();
 }
 
+// `rustler` has the right shape and the wrong names, like `robber`, but its
+// registration carries member pointers instead of a binding class: one
+// `member` per facade method, keyed by name, and the library synthesizes the
+// impl. `shots` binds a data member, which `std::invoke` reads as a
+// reference.
+struct rustler {
+  int shoot(int rounds) { return fired += rounds; }
+  [[nodiscard]] std::string description() const {
+    (void)this;
+    return "rustler";
+  }
+  void rearm() { fired = 0; }
+
+  int fired{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, rustler*) {
+  return prox::make_proxy_spec<gunslinger, rustler,
+      prox::members<prox::member<"fire", &rustler::shoot>,
+          prox::member<"describe", &rustler::description>,
+          prox::member<"reload", &rustler::rearm>,
+          prox::member<"shots", &rustler::fired>>>();
+}
+
+// `wrangler` lines up except that `fire` is spelled `shoot`, like
+// `sheriff`, but its registration lists just that one `member`: every
+// unlisted key routes to the facade's boilerplate, with no binding class and
+// no using-declaration.
+struct wrangler {
+  int shoot(int rounds) { return rounds_fired += rounds; }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "wrangler";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+
+  int rounds_fired{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, wrangler*) {
+  return prox::make_proxy_spec<gunslinger, wrangler,
+      prox::members<prox::member<"fire", &wrangler::shoot>>>();
+}
+
+// `gunsmith` overloads `fire`, so the binding casts the pointer to the wanted
+// overload; the rest of its names line up and come from the boilerplate.
+struct gunsmith {
+  int fire(int rounds) { return rounds_fired += rounds; }
+  int fire(int rounds, int barrels) {
+    return rounds_fired += rounds * barrels;
+  }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "gunsmith";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+
+  int rounds_fired{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, gunsmith*) {
+  return prox::make_proxy_spec<gunslinger, gunsmith,
+      prox::members<prox::member<"fire",
+          static_cast<int (gunsmith::*)(int)>(&gunsmith::fire)>>>();
+}
+
+// `safecracker` keeps `fire` private and binds it anyway: its hook is a
+// hidden friend, defined inside the class, so it can name the private member,
+// and ADL on the `safecracker*` argument still finds it. Access is checked
+// where the pointer is spelled (the hook), never where the library invokes
+// it.
+struct safecracker {
+  friend consteval auto corvid_proxy_spec(gunslinger*, safecracker*) {
+    return prox::make_proxy_spec<gunslinger, safecracker,
+        prox::members<prox::member<"fire", &safecracker::crack>>>();
+  }
+
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "safecracker";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+
+private:
+  int crack(int rounds) { return rounds_fired += rounds; }
+
+  int rounds_fired{};
+};
+
+// `claim_jumper` binds `fire` to a member that cannot take the arguments, so
+// the key is not bound and the pair is registered but not conformant.
+struct claim_jumper {
+  void rearm() {}
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, claim_jumper*) {
+  return prox::make_proxy_spec<gunslinger, claim_jumper,
+      prox::members<prox::member<"fire", &claim_jumper::rearm>>>();
+}
+
 // `turncoat` could be registered as a `gunslinger` without any extra work,
 // but is used to demonstrate two features. First, the `as_gunslinger` is
 // inside the class instead of local to the `corvid_proxy_spec` call, which
@@ -1135,6 +1238,9 @@ static_assert(prox::ProxyRegistered<gunslinger, lawman>);
 static_assert(prox::ProxyRegistered<gunslinger, deputy>);
 static_assert(prox::ProxyRegistered<gunslinger, robber>);
 static_assert(prox::ProxyRegistered<gunslinger, sheriff>);
+static_assert(prox::ProxyRegistered<gunslinger, rustler>);
+static_assert(prox::ProxyRegistered<gunslinger, wrangler>);
+static_assert(prox::ProxyRegistered<gunslinger, claim_jumper>);
 static_assert(!prox::ProxyRegistered<gunslinger, cowboy>);
 static_assert(std::same_as<decltype(prox::proxy_spec_v<gunslinger, lawman>),
     const prox::proxy_spec<gunslinger, lawman>>);
@@ -1180,6 +1286,11 @@ static_assert(Proxiable<proxy_view<vault>, vault>);
 static_assert(Proxiable<lawman, gunslinger>);
 static_assert(Proxiable<robber, gunslinger>);
 static_assert(Proxiable<sheriff, gunslinger>);
+static_assert(Proxiable<rustler, gunslinger>);
+static_assert(Proxiable<wrangler, gunslinger>);
+static_assert(Proxiable<gunsmith, gunslinger>);
+static_assert(Proxiable<safecracker, gunslinger>);
+static_assert(!Proxiable<claim_jumper, gunslinger>);
 static_assert(!Proxiable<cowboy, gunslinger>);
 static_assert(!Proxiable<int, gunslinger>);
 
@@ -1188,6 +1299,8 @@ static_assert(!Proxiable<int, gunslinger>);
 static_assert(Proxiable<turncoat, gunslinger>);
 static_assert(prox::SpecCarriesImpl<gunslinger, robber>);
 static_assert(prox::SpecCarriesImpl<gunslinger, sheriff>);
+static_assert(prox::SpecCarriesImpl<gunslinger, rustler>);
+static_assert(prox::SpecCarriesImpl<gunslinger, wrangler>);
 static_assert(prox::SpecCarriesImpl<gunslinger, turncoat>);
 static_assert(!prox::SpecCarriesImpl<gunslinger, lawman>);
 
@@ -1303,8 +1416,19 @@ consteval auto corvid_proxy_spec(census*, lawman*) {
   return prox::make_proxy_spec<census, lawman, as_census>();
 }
 
+// `rustler` conforms to `census`, which has no boilerplate, through a
+// member binding alone: an unlisted key on such a facade is simply unbound,
+// and here there is none.
+consteval auto corvid_proxy_spec(census*, rustler*) {
+  return prox::make_proxy_spec<census, rustler,
+      prox::members<prox::member<"describe", &rustler::description>>>();
+}
+static_assert(Proxiable<rustler, census>);
+
 static_assert(Proxiable<const_proxy_view<census>, census>);
 static_assert(!Proxiable<const_proxy_view<gunslinger>, gunslinger>);
+static_assert(Proxiable<const_shared_proxy<census>, census>);
+static_assert(!Proxiable<const_shared_proxy<gunslinger>, gunslinger>);
 
 // Composition. A composed facade flattens its bases' methods ahead of its
 // own; `Extends` is transitive and strict (false for the facade itself, per
@@ -1798,6 +1922,59 @@ TEST_CASE("Partially-overridden boilerplate impl", "[proxy]") {
   CHECK(pv.shots() == 4);
   pv.reload();
   CHECK(s.rounds_fired == 0);
+}
+
+TEST_CASE("Member-pointer bindings", "[proxy]") {
+  // `rustler` conforms through the member pointers its registration lists,
+  // including a data member behind `shots`.
+  rustler r;
+  proxy_view<gunslinger> pv{r};
+
+  CHECK(pv.fire(6) == 6);
+  CHECK(r.fired == 6);
+  CHECK(pv.describe() == "rustler"s);
+  CHECK(pv.shots() == 6);
+  pv.shots() = 2;
+  CHECK(r.fired == 2);
+  pv.reload();
+  CHECK(r.fired == 0);
+
+  // A const view dispatches the const member; the bound mutable members are
+  // not reachable through it, as with any other impl.
+  const_proxy_view<gunslinger> cv{r};
+  CHECK(cv.describe() == "rustler"s);
+
+  // `wrangler` lists one binding and takes the rest from the boilerplate.
+  wrangler w;
+  proxy_view<gunslinger> pp{w};
+  CHECK(pp.fire(4) == 4);
+  CHECK(w.rounds_fired == 4);
+  CHECK(pp.describe() == "wrangler"s);
+  CHECK(pp.shots() == 4);
+  pp.reload();
+  CHECK(w.rounds_fired == 0);
+
+  // An overloaded member binds through a cast to the wanted overload.
+  gunsmith g;
+  proxy_view<gunslinger> pg{g};
+  CHECK(pg.fire(3) == 3);
+  CHECK(pg.describe() == "gunsmith"s);
+
+  // A private member binds through a hidden-friend hook.
+  safecracker s;
+  proxy_view<gunslinger> ps{s};
+  CHECK(ps.fire(7) == 7);
+  CHECK(ps.shots() == 7);
+
+  // A facade with no boilerplate takes the listed bindings alone.
+  const_proxy_view<census> counted{r};
+  CHECK(counted.call<"describe">() == "rustler"s);
+
+  // Owning and shared handles go through the same synthesized impl.
+  auto owned = make_proxy<gunslinger, rustler>();
+  CHECK(owned.fire(3) == 3);
+  auto shared = make_shared_proxy<gunslinger, wrangler>();
+  CHECK(shared.fire(5) == 5);
 }
 
 TEST_CASE("Carried impl outranks the boilerplate", "[proxy]") {
@@ -3037,8 +3214,19 @@ TEST_CASE("Downcasting views", "[proxy]") {
   // reopens.
   const_proxy_view<gunslinger> cg = vm;
   auto cm = cg.try_downcast<marshal>();
+  static_assert(std::same_as<decltype(cm), const_proxy_view<marshal>>);
   REQUIRE(cm);
   CHECK(cm.describe() == "texas_ranger"s);
+
+  // A mutable view reached through `const` grants only const access, so its
+  // downcast is a const view too, where the same view downcasts to a mutable
+  // one directly.
+  static_assert(
+      std::same_as<decltype(vg.try_downcast<marshal>()), proxy_view<marshal>>);
+  auto ccm = std::as_const(vg).try_downcast<marshal>();
+  static_assert(std::same_as<decltype(ccm), const_proxy_view<marshal>>);
+  REQUIRE(ccm);
+  CHECK(ccm.describe() == "texas_ranger"s);
 
   // Through a diamond, a view of the common base sidecasts to either
   // sibling.
@@ -3098,10 +3286,19 @@ TEST_CASE("Downcasting a shared_proxy", "[proxy]") {
   pr.fire(3);
   shared_proxy<gunslinger> shared_gun{std::move(pr)};
   auto sr = shared_gun.try_downcast<ranger>();
+  static_assert(std::same_as<decltype(sr), shared_proxy<ranger>>);
   REQUIRE(sr);
   CHECK(sr.shots() == 3);
   REQUIRE(shared_gun);
   CHECK(shared_gun.shots() == 3);
+
+  // Through `const`, the sharing downcast mints a const handle, and the
+  // source keeps its share.
+  auto csr = std::as_const(shared_gun).try_downcast<ranger>();
+  static_assert(std::same_as<decltype(csr), const_shared_proxy<ranger>>);
+  REQUIRE(csr);
+  CHECK(csr.describe() == "texas_ranger"s);
+  REQUIRE(shared_gun);
 
   // An empty handle downcasts to an empty handle.
   shared_proxy<gunslinger> nobody;

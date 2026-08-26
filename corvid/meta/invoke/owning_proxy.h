@@ -192,7 +192,7 @@ public:
   // A throw leaves the source intact and this proxy empty, because
   // `do_adopt` settles the route before anything moves.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   proxy(proxy<D, P>&& other) noexcept(!details::adopt_may_throw(Policy, P)) {
     do_adopt(other);
   }
@@ -213,8 +213,7 @@ public:
   // side is touched. A boxing allocation can still throw, after this proxy
   // has released its own target, leaving it empty and the source intact.
   template<Facade D, invocable_policy P>
-  requires((std::same_as<D, F> || Extends<D, F>) &&
-           !(std::same_as<D, F> && P == Policy))
+  requires(ExtendsOrIs<D, F> && !(std::same_as<D, F> && P == Policy))
   proxy& operator=(proxy<D, P>&& other) noexcept(
       !details::adopt_may_throw(Policy, P)) {
     if constexpr (details::adopt_may_throw(Policy, P)) {
@@ -294,7 +293,7 @@ public:
   // adoptable, to empty. It does not promise the allocation a mode-changing
   // adoption may need.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   [[nodiscard]] static bool can_adopt(const proxy<D, P>& source) noexcept {
     if constexpr (Policy.admits_heap()) {
       return true;
@@ -541,27 +540,11 @@ private:
   friend class shared_proxy;
 };
 
-// `proxy_impl` is the library-provided binding so that an owning `proxy`
-// satisfies its own facade and every facade that facade extends, like the
-// view.
-//
-// Calls forward through the proxy, with conditional `noexcept`, through a
-// single deduced-handle binding that serves const and mutable proxies alike;
-// deep const is enforced by the proxy's own `call` overloads.
+// The library-provided binding so that an owning `proxy` satisfies its own
+// facade and every facade that facade extends.
 template<Facade F, Facade D, invocable_policy P>
-requires(std::same_as<D, F> || Extends<D, F>)
-struct proxy_impl<F, proxy<D, P>> {
-  // Qualified forwarding, as with the view bindings; see `qualified_key`. The
-  // deduced handle parameter serves const and mutable proxies alike.
-  template<fixed_string Key, typename Handle, typename... Args>
-  static decltype(auto)
-  on(method_key<Key>, Handle& p, Args&&... args) noexcept(
-      noexcept(p.template call<details::qualified_key<F, Key>()>(
-          std::forward<Args>(args)...))) {
-    return p.template call<details::qualified_key<F, Key>()>(
-        std::forward<Args>(args)...);
-  }
-};
+requires ExtendsOrIs<D, F>
+struct proxy_impl<F, proxy<D, P>>: details::handle_impl<F> {};
 
 // Make an owning `proxy` of facade `F` holding a `T` constructed in place from
 // `args`.

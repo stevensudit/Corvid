@@ -274,6 +274,13 @@ struct invocable_policy {
   // can be asked to hold one is at least a pointer's size and alignment. Only
   // an `inline_only` buffer may be empty; a smaller one would silently grow to
   // the pointer it overlays.
+  //
+  // The multiple-of-alignment rule costs nothing: `storage_area` is a union,
+  // whose size rounds up to its alignment regardless, so a smaller
+  // `inline_size` would only underreport the buffer it already has. An
+  // alignment larger than the size is pointless for the same reason a type's
+  // size is a multiple of its alignment, which is that no type that needs the
+  // alignment could fit.
   [[nodiscard]] consteval bool is_well_formed() const noexcept {
     if (!admits_inline()) return true;
     if (!std::has_single_bit(inline_align)) must_be_a_power_of_two();

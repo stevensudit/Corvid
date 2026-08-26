@@ -47,17 +47,23 @@ using namespace invocables;
 #pragma region Traits
 
 // Fwd.
+//
+// The third parameter is the pattern-matching hook that gives the class body
+// `ResultT` and `Args...` even when `Sig` is qualified. It is derived from
+// the signature and constrained to that derivation, so any other spelling
+// is ill-formed where it is named, and every `flexi_function` is spelled by
+// its first two parameters alone.
 template<class Sig, invocable_policy Policy = invocable_policy::basic,
     class FunctionT = signature_function_t<Sig>>
+requires std::same_as<FunctionT, signature_function_t<Sig>>
 class flexi_function;
 
 // `is_flexi_function_v` is whether `T` is a `flexi_function` (of any policy).
 template<typename T>
 constexpr inline bool is_flexi_function_v = false;
 
-template<class Sig, invocable_policy Policy, class FunctionT>
-constexpr inline bool
-    is_flexi_function_v<flexi_function<Sig, Policy, FunctionT>> = true;
+template<class Sig, invocable_policy Policy>
+constexpr inline bool is_flexi_function_v<flexi_function<Sig, Policy>> = true;
 
 #pragma endregion
 #pragma region details
@@ -86,8 +92,9 @@ using namespace invocables::implementation;
 // nothing past it is erased.
 //
 // The second parameter mirrors `flexi_function`'s third: it is the
-// pattern-matching hook, not a choice.
+// pattern-matching hook, not a choice, and is constrained the same way.
 template<class Sig, class FunctionT = signature_function_t<Sig>>
+requires std::same_as<FunctionT, signature_function_t<Sig>>
 struct flexi_thunks;
 
 template<class Sig, class ResultT, class... Args>
@@ -100,8 +107,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
 
   // `F` with the signature's cv-qualifier applied.
   template<class F>
-  using cv_qualified_target_t =
-      std::conditional_t<traits::is_const, const F, F>;
+  using cv_qualified_target_t = conditional_const_t<traits::access, F>;
 
   // `qualified_target_t` is `F` with the signature's qualifiers applied,
   // which is how the stored target is invoked: `F cv&`, or `F cv&&` under an
@@ -488,10 +494,6 @@ private:
 // "flexi_function.md".
 template<class Sig, invocable_policy Policy, class ResultT, class... Args>
 class flexi_function<Sig, Policy, ResultT(Args...)> {
-  static_assert(std::is_same_v<ResultT(Args...), signature_function_t<Sig>>,
-      "flexi_function: the third template parameter is derived from the "
-      "signature; do not pass it");
-
   using thunks = details::flexi_thunks<Sig>;
 
   // The stored callable with the signature's qualifiers applied.
@@ -522,7 +524,8 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
       "result whose value-initialization cannot throw; choose terminate");
 
   // Siblings are friends.
-  template<class, invocable_policy, class>
+  template<class S, invocable_policy P, class FunctionT>
+  requires std::same_as<FunctionT, signature_function_t<S>>
   friend class flexi_function;
 
   // Actual buffer geometry: a `heap_only` instance keeps just the pointer,
