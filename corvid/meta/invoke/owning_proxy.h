@@ -19,7 +19,6 @@
 #include <cassert>
 #include <concepts>
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <new>
 #include <stdexcept>
