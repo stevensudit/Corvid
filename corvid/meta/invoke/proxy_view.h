@@ -82,10 +82,14 @@ protected:
 
   constexpr view_base() noexcept = default;
   constexpr view_base(target_ptr_t target, const vtable_t* vtable) noexcept
-      : target_{target}, vtable_{vtable} {}
+      : vtable_{vtable}, target_{target} {}
 
-  target_ptr_t target_{};
+#pragma region Data members
+
   const vtable_t* vtable_ = &empty_vtable_for<F, on_empty::raise>;
+  target_ptr_t target_{};
+
+#pragma endregion
 };
 
 } // namespace details

@@ -80,8 +80,8 @@ public:
   shared_proxy& operator=(const shared_proxy&) = default;
 
   shared_proxy(shared_proxy&& other) noexcept
-      : target_{std::move(other.target_)},
-        vtable_{std::exchange(other.vtable_, empty_vtable)} {}
+      : vtable_{std::exchange(other.vtable_, empty_vtable)},
+        target_{std::move(other.target_)} {}
 
   shared_proxy& operator=(shared_proxy&& other) noexcept {
     if (this != &other) {
@@ -160,14 +160,14 @@ public:
   template<Facade D>
   requires Extends<D, F>
   explicit(false) shared_proxy(const shared_proxy<D>& other) noexcept
-      : target_{other.target_},
-        vtable_{details::upcast_vtable<F, D>(other.vtable_)} {}
+      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
+        target_{other.target_} {}
 
   template<Facade D>
   requires Extends<D, F>
   explicit(false) shared_proxy(shared_proxy<D>&& other) noexcept
-      : target_{std::move(other.target_)},
-        vtable_{details::upcast_vtable<F, D>(other.vtable_)} {
+      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
+        target_{std::move(other.target_)} {
     other.vtable_ = other.empty_vtable;
   }
 
@@ -231,7 +231,7 @@ private:
   [[nodiscard]] const void* target() const noexcept { return target_.get(); }
 
   shared_proxy(std::shared_ptr<void> target, const vtable_t* vtable) noexcept
-      : target_{std::move(target)}, vtable_{target_ ? vtable : empty_vtable} {}
+      : vtable_{target ? vtable : empty_vtable}, target_{std::move(target)} {}
 
   // Table of a handle built empty or emptied by a move; see
   // `empty_vtable_for`.
@@ -240,8 +240,8 @@ private:
 
 #pragma region Data members
 
-  std::shared_ptr<void> target_;
   const vtable_t* vtable_ = empty_vtable;
+  std::shared_ptr<void> target_;
 
 #pragma endregion
 
@@ -293,7 +293,7 @@ public:
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) weak_proxy(const shared_proxy<D>& p) noexcept
-      : target_{p.target_}, vtable_{details::upcast_vtable<F, D>(p.vtable_)} {}
+      : vtable_{details::upcast_vtable<F, D>(p.vtable_)}, target_{p.target_} {}
 
   // Upcasting converting constructors from a `weak_proxy` of a facade that
   // extends `F`, by copy or by move, mirroring the `shared_proxy`'s.
@@ -304,14 +304,14 @@ public:
   template<Facade D>
   requires Extends<D, F>
   explicit(false) weak_proxy(const weak_proxy<D>& other) noexcept
-      : target_{other.target_},
-        vtable_{details::upcast_vtable<F, D>(other.vtable_)} {}
+      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
+        target_{other.target_} {}
 
   template<Facade D>
   requires Extends<D, F>
   explicit(false) weak_proxy(weak_proxy<D>&& other) noexcept
-      : target_{std::move(other.target_)},
-        vtable_{details::upcast_vtable<F, D>(other.vtable_)} {}
+      : vtable_{details::upcast_vtable<F, D>(other.vtable_)},
+        target_{std::move(other.target_)} {}
 
   // Whether the target is already gone.
   //
@@ -327,8 +327,8 @@ public:
 
 #pragma region Data members
 private:
-  std::weak_ptr<void> target_;
   const vtable_t* vtable_ = &details::empty_vtable_for<F, on_empty::raise>;
+  std::weak_ptr<void> target_;
 
 #pragma endregion
 

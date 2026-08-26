@@ -517,12 +517,12 @@ private:
 
 #pragma region Data members
 
+  const owning_vtable_t* vtable_ = empty_vtable;
+
   // Storage area deliberately has no initializer because emptiness and the
   // active member are keyed by `vtable_` (see `target`), and zeroing the
   // buffer on every construction would be pure waste.
   storage_area_t storage_area_;
-
-  const owning_vtable_t* vtable_ = empty_vtable;
 
 #pragma endregion
 
