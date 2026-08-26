@@ -387,23 +387,11 @@ private:
   friend class details::weak_base;
 };
 
-// `proxy_impl` is the library-provided binding so that a shared proxy
-// satisfies its own facade and every facade that facade extends, like the
-// other handles; see the owning proxy's binding.
+// The library-provided binding so that a `shared_proxy` satisfies its own
+// facade and every facade that facade extends.
 template<Facade F, Facade D>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, shared_proxy<D>> {
-  // The deduced handle parameter serves const and mutable handles alike, as
-  // with the other self-conformance bindings.
-  template<fixed_string Key, typename Handle, typename... Args>
-  static decltype(auto)
-  on(method_key<Key>, Handle& p, Args&&... args) noexcept(
-      noexcept(p.template call<details::qualified_key<F, Key>()>(
-          std::forward<Args>(args)...))) {
-    return p.template call<details::qualified_key<F, Key>()>(
-        std::forward<Args>(args)...);
-  }
-};
+struct proxy_impl<F, shared_proxy<D>>: details::handle_impl<F> {};
 
 // `const_shared_proxy` is the shared-owning read-only erased handle, akin to
 // Rust's `Rc<dyn Trait>` as it actually behaves (shared access is immutable
@@ -532,22 +520,15 @@ private:
   friend class details::weak_base;
 };
 
-// `proxy_impl` is the library-provided binding so that a `const_shared_proxy`
-// satisfies its own facade, and the ones that facade extends, where that is
-// possible; see `const_proxy_view`'s binding, which it mirrors.
+// The library-provided binding so that a `const_shared_proxy` satisfies its
+// own facade, and the ones that facade extends, where that is possible; see
+// `details::handle_impl`.
+//
+// It dispatches only const methods, so the invariant holds exactly for
+// all-const facades, as with `const_proxy_view`.
 template<Facade F, Facade D>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, const_shared_proxy<D>> {
-  template<fixed_string Key, typename... Args>
-  requires(details::vtbuild_t<F>::template is_const<Key>())
-  static decltype(auto)
-  on(method_key<Key>, const const_shared_proxy<D>& p, Args&&... args) noexcept(
-      noexcept(p.template call<details::qualified_key<F, Key>()>(
-          std::forward<Args>(args)...))) {
-    return p.template call<details::qualified_key<F, Key>()>(
-        std::forward<Args>(args)...);
-  }
-};
+struct proxy_impl<F, const_shared_proxy<D>>: details::handle_impl<F> {};
 
 // `weak_proxy` is the weak counterpart to `shared_proxy`, which observes the
 // target, via a `std::weak_ptr<void>`, without owning it.

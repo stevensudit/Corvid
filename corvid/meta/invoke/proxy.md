@@ -1525,15 +1525,18 @@ well as a live one. Expiry stays `lock()`'s business.
   satisfy `Proxiable<_, F>`, so generic code constrained on the facade
   accepts concrete and erased arguments interchangeably (Rust: `dyn Trait`
   implements `Trait`). Implemented as library-provided `proxy_impl`
-  bindings whose `on` forwards through `call` with conditional `noexcept`
-  (so the invariant survives noexcept methods). A single deduced-handle
-  binding serves const and mutable handles alike, with deep const enforced
-  by the handle's own `call` overloads. For `const_proxy_view` and
-  `const_shared_proxy` the invariant holds exactly for all-const facades
-  (as with Rust `&dyn`, whose `&mut self` methods are uncallable). Their
-  bindings' `on` is constrained to const methods, so a mixed facade fails
-  conformance cleanly at overload resolution rather than erroring during
-  return type deduction.
+  bindings over one `details::handle_impl<F>`, whose `on` forwards through
+  `call` with conditional `noexcept` (so the invariant survives noexcept
+  methods). The handle parameter is deduced, so one overload serves const
+  and mutable handles alike, and `on` is constrained to exist exactly when
+  the handle's `call` is well-formed, which is what enforces deep const: a
+  const object dispatches only const methods through the handle's own
+  `call` overloads. For `const_proxy_view` and `const_shared_proxy` the
+  invariant holds exactly for all-const facades (as with Rust `&dyn`, whose
+  `&mut self` methods are uncallable); the same constraint makes a mixed
+  facade fail conformance cleanly at overload resolution rather than
+  erroring during return type deduction, since those flavors have no `call`
+  for a mutable method at all.
 
 ## Tables and thunks
 
@@ -2119,12 +2122,3 @@ and views, and identity is handled by the two tags.
   `support_copy`). `clone()`/`can_clone()` cover the need at runtime, so
   this waits for a use case that wants the compile-time guarantee.
 
-Consolidations deferred from the final review of the handle family, each
-mechanical and with no behavior change:
-
-- The five `proxy_impl` self-conformance bindings (for `proxy`, `proxy_view`,
-  `const_proxy_view`, `shared_proxy`, and `const_shared_proxy`) are two
-  shapes, copied: a deduced `Handle&` forwarding to
-  `call<details::qualified_key<F, Key>()>` for the three handles that may be
-  mutable, and the same body over a `const` handle behind an
-  `is_const<Key>` constraint for the two const flavors.

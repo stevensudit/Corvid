@@ -1305,6 +1305,8 @@ consteval auto corvid_proxy_spec(census*, lawman*) {
 
 static_assert(Proxiable<const_proxy_view<census>, census>);
 static_assert(!Proxiable<const_proxy_view<gunslinger>, gunslinger>);
+static_assert(Proxiable<const_shared_proxy<census>, census>);
+static_assert(!Proxiable<const_shared_proxy<gunslinger>, gunslinger>);
 
 // Composition. A composed facade flattens its bases' methods ahead of its
 // own; `Extends` is transitive and strict (false for the facade itself, per

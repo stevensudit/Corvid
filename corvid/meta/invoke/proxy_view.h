@@ -268,33 +268,11 @@ private:
   friend class details::view_base;
 };
 
-// `proxy_impl` is the library-provided binding so that a `proxy_view`
-// satisfies its own facade and every facade that one extends (as in Rust,
-// where `dyn Trait` implements `Trait` and meets its supertrait bounds).
-//
-// Calls forward through the wrapped view, with conditional `noexcept` so the
-// invariant also holds for facades with noexcept methods. The handle
-// parameter is deduced, serving const and mutable views with one overload,
-// so const methods route through the const `call` exactly as they would on
-// the view itself.
-//
-// This makes facade-constrained generic code accept concrete and erased
-// arguments interchangeably, including derived-facade handles under a
-// base-facade bound, and allows views of views.
+// The library-provided binding so that a `proxy_view` satisfies its own
+// facade and every facade that one extends.
 template<Facade F, Facade D>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, proxy_view<D>> {
-  // `on` is the qualified spelling that keeps the forwarded key unambiguous
-  // when `D`'s flattened list collides on `Key`; see `qualified_key`.
-  template<fixed_string Key, typename Handle, typename... Args>
-  static constexpr decltype(auto)
-  on(method_key<Key>, Handle& view, Args&&... args) noexcept(
-      noexcept(view.template call<details::qualified_key<F, Key>()>(
-          std::forward<Args>(args)...))) {
-    return view.template call<details::qualified_key<F, Key>()>(
-        std::forward<Args>(args)...);
-  }
-};
+struct proxy_impl<F, proxy_view<D>>: details::handle_impl<F> {};
 
 // `const_proxy_view` is the non-owning read-only erased handle, akin to Rust's
 // `&dyn Trait`. To put it another way, it is the `const_iterator` to
@@ -424,29 +402,15 @@ private:
   friend class details::view_base;
 };
 
-// `proxy_impl` is the library-provided binding so that a `const_proxy_view`
-// satisfies its own facade, and the ones that facade extends, where that is
-// possible.
+// The library-provided binding so that a `const_proxy_view` satisfies its
+// own facade, and the ones that facade extends, where that is possible; see
+// `details::handle_impl`.
 //
 // It dispatches only const methods, so the invariant holds exactly for
 // all-const facades.
-//
-// The `on` is itself constrained to const methods so that a mixed facade
-// fails conformance cleanly at overload resolution, rather than erroring
-// during return type deduction of a forwarder whose `call` cannot compile.
 template<Facade F, Facade D>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, const_proxy_view<D>> {
-  template<fixed_string Key, typename... Args>
-  requires(details::vtbuild_t<F>::template is_const<Key>())
-  static constexpr decltype(auto) on(method_key<Key>,
-      const const_proxy_view<D>& view, Args&&... args) noexcept(noexcept(view
-          .template call<details::qualified_key<F, Key>()>(
-              std::forward<Args>(args)...))) {
-    return view.template call<details::qualified_key<F, Key>()>(
-        std::forward<Args>(args)...);
-  }
-};
+struct proxy_impl<F, const_proxy_view<D>>: details::handle_impl<F> {};
 
 // Make a `proxy_view` over `target`.
 //

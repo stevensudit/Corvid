@@ -2089,6 +2089,42 @@ consteval auto qualified_key() noexcept {
   return vtbuild_t<F>::name_v + fixed_string{"::"} + Key;
 }
 
+// `handle_impl` is the self-conformance binding shared by every dispatching
+// handle, so that a handle satisfies its own facade and every facade that
+// one extends (as in Rust, where `dyn Trait` implements `Trait` and meets
+// its supertrait bounds).
+//
+// `on` forwards to the handle's `call` under the key qualified by `F`, which
+// keeps the forwarded key unambiguous when the handle's flattened list
+// collides on `Key` (see `qualified_key`), with conditional `noexcept` so the
+// invariant also holds for facades with noexcept methods.
+//
+// The handle parameter is deduced, so one overload serves const and mutable
+// objects, and `on` exists exactly when the handle can make the call. That
+// is what enforces deep const: a const object dispatches only const methods
+// through the handle's own `call` overloads, and a const flavor
+// (`const_proxy_view`, `const_shared_proxy`) has no `call` for a mutable
+// method at all, so a mixed facade fails conformance cleanly at overload
+// resolution rather than erroring during return type deduction.
+//
+// This makes facade-constrained generic code accept concrete and erased
+// arguments interchangeably, including derived-facade handles under a
+// base-facade bound, and allows views of views.
+template<Facade F>
+struct handle_impl {
+  template<fixed_string Key, typename Handle, typename... Args>
+  requires requires(Handle& handle, Args&&... args) {
+    handle.template call<qualified_key<F, Key>()>(std::forward<Args>(args)...);
+  }
+  static constexpr decltype(auto)
+  on(method_key<Key>, Handle& handle, Args&&... args) noexcept(
+      noexcept(handle.template call<qualified_key<F, Key>()>(
+          std::forward<Args>(args)...))) {
+    return handle.template call<qualified_key<F, Key>()>(
+        std::forward<Args>(args)...);
+  }
+};
+
 } // namespace details
 
 // `Proxiable` is the concept for when `T` can back facade `F`.

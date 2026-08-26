@@ -540,27 +540,11 @@ private:
   friend class shared_proxy;
 };
 
-// `proxy_impl` is the library-provided binding so that an owning `proxy`
-// satisfies its own facade and every facade that facade extends, like the
-// view.
-//
-// Calls forward through the proxy, with conditional `noexcept`, through a
-// single deduced-handle binding that serves const and mutable proxies alike;
-// deep const is enforced by the proxy's own `call` overloads.
+// The library-provided binding so that an owning `proxy` satisfies its own
+// facade and every facade that facade extends.
 template<Facade F, Facade D, invocable_policy P>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, proxy<D, P>> {
-  // Qualified forwarding, as with the view bindings; see `qualified_key`. The
-  // deduced handle parameter serves const and mutable proxies alike.
-  template<fixed_string Key, typename Handle, typename... Args>
-  static decltype(auto)
-  on(method_key<Key>, Handle& p, Args&&... args) noexcept(
-      noexcept(p.template call<details::qualified_key<F, Key>()>(
-          std::forward<Args>(args)...))) {
-    return p.template call<details::qualified_key<F, Key>()>(
-        std::forward<Args>(args)...);
-  }
-};
+struct proxy_impl<F, proxy<D, P>>: details::handle_impl<F> {};
 
 // Make an owning `proxy` of facade `F` holding a `T` constructed in place from
 // `args`.
