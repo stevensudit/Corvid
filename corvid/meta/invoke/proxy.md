@@ -1,7 +1,7 @@
 # Proxy
 
-[proxy.h](proxy.h) implements registration-based runtime polymorphism
-through proxies, which are type-erased handles over an interface definition.
+The proxy family ([proxies.h](proxies.h)) implements registration-based
+runtime polymorphism through proxies, which are type-erased handles over an interface definition.
 They work without inheritance, vtable pointers in the target type, or macros.
 
 The contrast with the traditional mechanism, an abstract base class with
@@ -546,8 +546,8 @@ the namespace-scope spelling can trip it.
 facade to a stream, ready to paste into the facade body. The workflow:
 define the facade's method list, add the one-liner to a scratch `main`,
 paste the output, delete the one-liner. It lives in its own header,
-[proxy_codegen.h](proxy_codegen.h), so `proxy.h` stays free of streams and
-RTTI.
+[proxy_codegen.h](proxy_codegen.h), so the proxy headers stay free of
+streams and RTTI.
 
 This is the closest thing to reflection available today. The real value is
 that it spells the conventions' edge cases correctly every time:
@@ -1796,9 +1796,15 @@ Smaller lessons:
 
 ## Placement
 
-The header is `corvid/meta/invoke/proxy.h`, namespace `corvid::meta::prox`,
+The headers live in `corvid/meta/invoke/`, namespace `corvid::meta::prox`,
 deliberately NOT inline: `facade`, `method`, and `key` are too generic to
-dump into `corvid`.
+dump into `corvid`. The family splits by handle, with the machinery in its
+own header: `proxy_common.h` (facades, registration, and dispatch),
+`proxy_view.h` (`proxy_view` and `const_proxy_view`), `proxy.h` (`proxy`),
+and `shared_proxy.h` (`shared_proxy` and `weak_proxy`), each including the
+one before it. The handles work as a unit, so the `proxies.h` umbrella is
+the header to include; the split exists to keep each header to one or two
+classes, for maintenance and for reading, not for picking and choosing.
 
 The call-site vocabulary (`proxy`, `proxy_view`, `const_proxy_view`,
 `shared_proxy`, `weak_proxy`, `make_proxy`, `make_proxy_view`,
@@ -1812,10 +1818,10 @@ namespace, `corvid::meta::invocables`: `invocable_policy`, `on_empty`,
 stay home, reached through `invocable_policy`'s fluent starting points
 (`basic`, `heap`, `fixed`) or qualified.
 
-The header stays out of the `meta.h` umbrella to limit include weight (the
-formatting.h precedent); include `corvid/meta/invoke/proxy.h` directly. It
-lives in the `corvid/meta/invoke/` family with `flexi_function.h` and the
-shared invocable headers. Tests: `tests/portable/proxy_test.cpp`.
+The family stays out of the `meta.h` umbrella to limit include weight
+(the formatting.h precedent); include `corvid/meta/invoke/proxies.h`
+directly. It shares `corvid/meta/invoke/` with `flexi_function.h` and the
+invocable headers. Tests: `tests/portable/proxy_test.cpp`.
 
 One structural note: `method` derives from its `key`, so a method tag is
 usable anywhere its key is (subsumption).
@@ -1945,7 +1951,7 @@ open-ended: `typeid` access, type names, `dynamic_cast`-style queries
 against arbitrary types (ngcpp's `proxy_typeid`). The two probes cover
 the legitimate questions, and anything broader invites switch-on-type
 code, the anti-pattern erasure exists to remove. The cap also keeps
-`proxy.h` free of `<typeinfo>` (the RTTI demangling lives only in
+the proxy headers free of `<typeinfo>` (the RTTI demangling lives only in
 `proxy_codegen.h`, a dev-time tool in its own header for exactly this
 reason).
 

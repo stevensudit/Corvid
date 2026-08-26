@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "corvid/meta/crossplatform.h"
-#include "corvid/meta/invoke/proxy.h"
+#include "corvid/meta/invoke/proxies.h"
 #include "corvid/meta/invoke/proxy_codegen.h"
 #include "catch2_main.h"
 
