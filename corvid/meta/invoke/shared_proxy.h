@@ -305,7 +305,7 @@ public:
   // one, without racing the other owners. This is also why `std::shared_ptr`
   // has no `release`.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   explicit shared_proxy(proxy<D, P>&& source) {
     const auto* src = source.vtable_;
     const auto* ovt = details::upcast_owning_vtable<F, D>(src);
@@ -391,7 +391,7 @@ private:
 // satisfies its own facade and every facade that facade extends, like the
 // other handles; see the owning proxy's binding.
 template<Facade F, Facade D>
-requires(std::same_as<D, F> || Extends<D, F>)
+requires ExtendsOrIs<D, F>
 struct proxy_impl<F, shared_proxy<D>> {
   // The deduced handle parameter serves const and mutable handles alike, as
   // with the other self-conformance bindings.
@@ -470,7 +470,7 @@ public:
   // extends it, consuming the source; see `shared_proxy`'s, whose contract
   // this shares because the adoption goes through it.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   explicit const_shared_proxy(proxy<D, P>&& source)
       : const_shared_proxy{shared_proxy<D>{std::move(source)}} {}
 
@@ -481,12 +481,12 @@ public:
   // An empty source converts to an empty handle with the same empty behavior,
   // and a moved-from source is left with its own type's `raise` table.
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_shared_proxy(const shared_proxy<D>& other) noexcept
       : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_shared_proxy(shared_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
             details::upcast_vtable<F, D>(other.vtable_)} {
@@ -497,7 +497,6 @@ public:
   // that extends `F`, by copy or by move, under the same rules.
   template<Facade D>
   requires Extends<D, F>
-
   const_shared_proxy(const const_shared_proxy<D>& other) noexcept
       : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
@@ -537,7 +536,7 @@ private:
 // satisfies its own facade, and the ones that facade extends, where that is
 // possible; see `const_proxy_view`'s binding, which it mirrors.
 template<Facade F, Facade D>
-requires(std::same_as<D, F> || Extends<D, F>)
+requires ExtendsOrIs<D, F>
 struct proxy_impl<F, const_shared_proxy<D>> {
   template<fixed_string Key, typename... Args>
   requires(details::vtbuild_t<F>::template is_const<Key>())
@@ -570,7 +569,7 @@ public:
   // `lock` would reopen mutability. That handle is observed by a
   // `const_weak_proxy` instead.
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   weak_proxy(const shared_proxy<D>& p) noexcept
       : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
 
@@ -621,12 +620,12 @@ public:
   //
   // Intentionally implicit.
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_weak_proxy(const const_shared_proxy<D>& p) noexcept
       : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_weak_proxy(const shared_proxy<D>& p) noexcept
       : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
 
@@ -642,12 +641,12 @@ public:
   // through `target_`, and `lock` comes out empty once that is gone, so
   // there is nothing to clear.
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_weak_proxy(const weak_proxy<D>& other) noexcept
       : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_weak_proxy(weak_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
             details::upcast_vtable<F, D>(other.vtable_)} {}

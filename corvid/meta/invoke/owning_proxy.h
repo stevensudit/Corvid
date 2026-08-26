@@ -192,7 +192,7 @@ public:
   // A throw leaves the source intact and this proxy empty, because
   // `do_adopt` settles the route before anything moves.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   proxy(proxy<D, P>&& other) noexcept(!details::adopt_may_throw(Policy, P)) {
     do_adopt(other);
   }
@@ -213,8 +213,7 @@ public:
   // side is touched. A boxing allocation can still throw, after this proxy
   // has released its own target, leaving it empty and the source intact.
   template<Facade D, invocable_policy P>
-  requires((std::same_as<D, F> || Extends<D, F>) &&
-           !(std::same_as<D, F> && P == Policy))
+  requires(ExtendsOrIs<D, F> && !(std::same_as<D, F> && P == Policy))
   proxy& operator=(proxy<D, P>&& other) noexcept(
       !details::adopt_may_throw(Policy, P)) {
     if constexpr (details::adopt_may_throw(Policy, P)) {
@@ -294,7 +293,7 @@ public:
   // adoptable, to empty. It does not promise the allocation a mode-changing
   // adoption may need.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   [[nodiscard]] static bool can_adopt(const proxy<D, P>& source) noexcept {
     if constexpr (Policy.admits_heap()) {
       return true;
@@ -549,7 +548,7 @@ private:
 // single deduced-handle binding that serves const and mutable proxies alike;
 // deep const is enforced by the proxy's own `call` overloads.
 template<Facade F, Facade D, invocable_policy P>
-requires(std::same_as<D, F> || Extends<D, F>)
+requires ExtendsOrIs<D, F>
 struct proxy_impl<F, proxy<D, P>> {
   // Qualified forwarding, as with the view bindings; see `qualified_key`. The
   // deduced handle parameter serves const and mutable proxies alike.

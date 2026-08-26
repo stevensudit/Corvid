@@ -219,7 +219,7 @@ public:
   // You cannot construct a `proxy_view` on a const `proxy` reference; you have
   // to instead construct a `const_proxy_view` on it.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   proxy_view(proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
@@ -230,7 +230,7 @@ public:
   // The view does not share ownership, so it is good exactly as long as some
   // owner keeps the target alive (see the class comment).
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   proxy_view(shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
@@ -282,7 +282,7 @@ private:
 // arguments interchangeably, including derived-facade handles under a
 // base-facade bound, and allows views of views.
 template<Facade F, Facade D>
-requires(std::same_as<D, F> || Extends<D, F>)
+requires ExtendsOrIs<D, F>
 struct proxy_impl<F, proxy_view<D>> {
   // `on` is the qualified spelling that keeps the forwarded key unambiguous
   // when `D`'s flattened list collides on `Key`; see `qualified_key`.
@@ -372,7 +372,7 @@ public:
   // `proxy_view`'s class comment). Mutable and const proxies alike yield the
   // const view; there is no path back to mutability.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
@@ -380,7 +380,7 @@ public:
   // Temporary owners must not lend a view: without this deletion, the const
   // reference above would bind an rvalue and dangle.
   template<Facade D, invocable_policy P>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const proxy<D, P>&&) = delete;
 
   // Viewing constructor from a `shared_proxy` of `F`, or of a facade that
@@ -388,26 +388,26 @@ public:
   // `shared_proxy` is refused the same way, by the deleted rvalue overload
   // below.
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const shared_proxy<D>&&) = delete;
 
   // Viewing constructor from a `const_shared_proxy` of `F`, or of a facade
   // that extends it, under the same rules, and the only view that handle
   // lends.
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const const_shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             details::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
-  requires(std::same_as<D, F> || Extends<D, F>)
+  requires ExtendsOrIs<D, F>
   const_proxy_view(const const_shared_proxy<D>&&) = delete;
 
   // No need for a `using` because we do not declare a `call` here that shadows
@@ -435,7 +435,7 @@ private:
 // fails conformance cleanly at overload resolution, rather than erroring
 // during return type deduction of a forwarder whose `call` cannot compile.
 template<Facade F, Facade D>
-requires(std::same_as<D, F> || Extends<D, F>)
+requires ExtendsOrIs<D, F>
 struct proxy_impl<F, const_proxy_view<D>> {
   template<fixed_string Key, typename... Args>
   requires(details::vtbuild_t<F>::template is_const<Key>())

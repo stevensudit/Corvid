@@ -1024,8 +1024,17 @@ classDiagram
 
 The weak proxies deliberately inherit no `api` and expose no `call`. Each
 keeps its table pointer only to hand to the shared handle that `lock()`
-mints. They share nothing but shape, since the shape is two data members
-and `expired()`.
+mints, which is why `weak_base` holds nothing but the two data members,
+`expired()`, and `lock()`.
+
+Every conversion between handles is its own declared constructor,
+constrained on `ExtendsOrIs<D, F>` (or on the strict `Extends<D, F>` for a
+same-kind upcast, where the same facade is the copy constructor) and
+delegating to its base's `(target, table)` constructor. That set of
+declarations, refusals included (the deleted rvalue overloads, the const
+handles `weak_proxy` will not observe), is the specification of which
+conversions exist, and it is kept explicit rather than collapsed into one
+generic constructor whose constraint would have to encode the whole table.
 
 How the handles and the std smart pointers convert into each other (in
 addition, every handle converts to its own counterpart for any facade the
@@ -2113,15 +2122,6 @@ and views, and identity is handled by the two tags.
 Consolidations deferred from the final review of the handle family, each
 mechanical and with no behavior change:
 
-- Some two dozen converting constructors across the handle family (one on
-  `proxy`, three on `proxy_view`, five on `const_proxy_view` plus three
-  deleted rvalue overloads, three on `shared_proxy`, five on
-  `const_shared_proxy`, three on `weak_proxy`, and six on `const_weak_proxy`)
-  each pair a `requires Extends<D, F>` clause (or `same_as` or `Extends`)
-  with an initializer of `details::upcast_vtable<F, D>` over the source's
-  table and a hand-off of its target. The three that take an owning
-  `proxy<D, P>&&` are the exception, since they adopt storage rather than
-  re-pointing at it.
 - The five `proxy_impl` self-conformance bindings (for `proxy`, `proxy_view`,
   `const_proxy_view`, `shared_proxy`, and `const_shared_proxy`) are two
   shapes, copied: a deduced `Handle&` forwarding to

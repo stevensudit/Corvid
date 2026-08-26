@@ -1986,8 +1986,8 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
 // The concept for when facade `D` (transitively) extends facade `B` through
 // `extends` composition entries.
 //
-// Strict: false when `D` is `B` itself. Constraints that mean "B or anything
-// extending it" pair this with `std::same_as`.
+// Strict: false when `D` is `B` itself. `ExtendsOrIs` is the reflexive
+// form.
 template<typename D, typename B>
 concept Extends =
     Facade<D> && Facade<B> &&
@@ -2010,6 +2010,15 @@ concept Extends =
 // opt-in ceremony.
 template<typename B, typename D>
 concept InChainOf = Facade<B> && (std::same_as<B, D> || Extends<D, B>);
+
+// `ExtendsOrIs` is the concept for when facade `D` is facade `B` itself or
+// (transitively) extends it. It is `Extends` made reflexive, in `Extends`'s
+// argument order.
+//
+// This is the constraint on a conversion's source facade, where `InChainOf`
+// is the same relation from the hook's side.
+template<typename D, typename B>
+concept ExtendsOrIs = InChainOf<B, D>;
 
 // Fwd.
 template<Facade F>
@@ -2066,7 +2075,7 @@ consteval bool is_handle_for() noexcept {
   if constexpr (std::is_void_v<G>)
     return false;
   else
-    return std::same_as<G, F> || Extends<G, F>;
+    return ExtendsOrIs<G, F>;
 }
 
 // The `Key` qualified by facade `F`'s name.
@@ -2172,7 +2181,7 @@ struct api_probe: api_base_t<F> {
 // would recurse into itself through the boilerplate-visibility check, whose
 // `ProxyRegistered` probe deduces this hook's return type.
 template<Facade F, Facade G>
-requires(std::same_as<F, G> || Extends<G, F>)
+requires ExtendsOrIs<G, F>
 consteval auto corvid_proxy_spec(F*, api_probe<G>*) noexcept {
   return make_proxy_spec<F, api_probe<G>, api_check::off>();
 }
