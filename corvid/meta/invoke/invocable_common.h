@@ -139,13 +139,6 @@ union storage_area {
   void* ptr;
 };
 
-// The storage of an `inline_only` owner whose buffer is empty, which serves
-// only `direct` targets, since those store nothing. No pointer either: such an
-// owner never boxes. Empty, so that an owner can hide it with
-// `CORVID_NO_UNIQUE_ADDRESS`.
-template<size_t Align>
-union storage_area<0, Align> {};
-
 #pragma endregion
 #pragma region Housekeeping
 

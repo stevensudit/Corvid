@@ -160,8 +160,9 @@ Above that floor the alignment is free, so a buffer may sit below
 The one exception is an empty `inline_only` buffer,
 `invocable_policy::fixed.with_storage_size(0)` or `fixed_function<Sig,
 16>`: a direct-only wrapper. It holds nothing but the pair, 16 bytes,
-since `storage_area<0, Align>` is an empty type and the member is hidden
-with `CORVID_NO_UNIQUE_ADDRESS`. It stores only `direct` targets (a
+since the storage area is then `maybe_t`'s `empty_t` (an empty
+`storage_area<0, Align>` is never formed) and the member is hidden with
+`CORVID_NO_UNIQUE_ADDRESS`. It stores only `direct` targets (a
 `constant_fn`, a captureless lambda); a stored target is a compile error
 at construction and a refused adoption from a sibling, while direct
 pairs travel to and from it freely. A buffer of one to seven bytes is

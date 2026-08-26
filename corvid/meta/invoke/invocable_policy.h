@@ -172,15 +172,14 @@ enum class adoption : uint8_t { relocate, box, hand_over, unbox, refuse };
 // A policy is usually spelled fluently, from one of three starting points:
 // `basic` (the default, `inline_or_heap`), `heap` (`heap_only`), and `fixed`
 // (`inline_only`), each with the default buffer. `with` replaces one member
-// by its value's type, `with_alignment` sets the buffer alignment, and
-// `with_storage_size` resizes the buffer, rounding up to the buffer alignment
-// so no padding is wasted (which means you must set the alignment before the
-// size):
+// by its value's type, and `with_storage_size` resizes the buffer, at its
+// current alignment or at one given alongside, rounding the size up to the
+// alignment so no padding is wasted:
 //
 //   flexi_function<int(), invocable_policy::heap.with(on_empty::silent)>
 //   proxy<F, invocable_policy::basic.with(policy_enforcement::strict)>
 //   flexi_function<int(), invocable_policy::fixed.with_storage_size(48)>
-//   flexi_function<int(), invocable_policy::fixed.with_alignment(8)>
+//   flexi_function<int(), invocable_policy::fixed.with_storage_size(16, 8)>
 //
 // The policy describes the buffer alone. What an owner keeps ahead of it is
 // the owner's business, so `sizeof` the owner is the only instance size.
@@ -216,32 +215,24 @@ struct invocable_policy {
     return p;
   }
 
-  // A copy whose buffer is aligned to `align`, a power of two, with the
-  // buffer size rounded up to it so the instance stays padding-free.
-  //
-  // Set the alignment before the size: `with_storage_size` pads to whatever
-  // alignment is in force. The policy must have a buffer, enforced at compile
-  // time.
-  [[nodiscard]] consteval invocable_policy with_alignment(
-      size_t align) const noexcept {
+  // A copy whose buffer holds `sz` bytes, rounded up to the buffer alignment
+  // so no padding is wasted: the current alignment, or `align` (a power of
+  // two), which is set together with the size so that neither is rounded
+  // against a stale value of the other. The policy must have a buffer,
+  // enforced at compile time. Zero is allowed: an `inline_only` policy with
+  // an empty buffer serves only `direct` targets, which store nothing (see
+  // `is_well_formed`).
+  [[nodiscard]] consteval invocable_policy with_storage_size(
+      size_t sz) const noexcept {
+    return with_storage_size(sz, inline_align);
+  }
+  [[nodiscard]] consteval invocable_policy
+  with_storage_size(size_t sz, size_t align) const noexcept {
     if (!admits_inline()) needs_a_buffer();
     if (!std::has_single_bit(align)) must_be_a_power_of_two();
     auto p = *this;
     p.inline_align = align;
-    p.inline_size = padded_size(inline_size, align);
-    return p;
-  }
-
-  // A copy whose buffer holds `sz` bytes, rounded up to the buffer alignment
-  // so no padding is wasted. The policy must have a buffer, enforced at
-  // compile time. Zero is allowed: an `inline_only` policy with an empty
-  // buffer serves only `direct` targets, which store nothing (see
-  // `is_well_formed`).
-  [[nodiscard]] consteval invocable_policy with_storage_size(
-      size_t sz) const noexcept {
-    if (!admits_inline()) needs_a_buffer();
-    auto p = *this;
-    p.inline_size = padded_size(sz, inline_align);
+    p.inline_size = padded_size(sz, align);
     return p;
   }
 

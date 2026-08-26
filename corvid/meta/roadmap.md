@@ -329,7 +329,8 @@ Landed alongside, from the same conversation: the template order is now
 `fixed_function<Sig, Size>` with the default `Size` the two-pointer pair
 plus the default buffer; and `invocable_policy` is spelled fluently from
 `basic`, `heap`, and `fixed` through `with(on_empty)`,
-`with(policy_enforcement)`, `with_alignment`, and `with_storage_size`.
+`with(policy_enforcement)`, and `with_storage_size` (with an optional
+alignment set alongside the size, replacing a separate `with_alignment`).
 
 Landed 2026-08-26: the policy no longer knows any owner's layout.
 `with_size` and `size()` assumed `flexi_function`'s two-pointer header,
@@ -339,9 +340,9 @@ header subtraction itself. The buffer rules moved into
 assert, so the two floors cannot drift (proxy had floored at the
 defaults, 16/16, with nothing depending on it; the real floor is a
 pointer). With that, an empty `inline_only` buffer became legal: a
-direct-only `flexi_function`, two pointers and an empty
-`storage_area<0, Align>` under `CORVID_NO_UNIQUE_ADDRESS`, holding only
-`direct` targets. A proxy still refuses an empty buffer, having no
+direct-only `flexi_function`, two pointers and an `empty_t` storage area
+(`maybe_t`, under `CORVID_NO_UNIQUE_ADDRESS`), holding only `direct`
+targets. A proxy still refuses an empty buffer, having no
 `direct` mode.
 
 ## Speculative: cache-line-sized wrappers

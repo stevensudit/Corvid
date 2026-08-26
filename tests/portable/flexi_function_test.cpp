@@ -48,11 +48,10 @@ static_assert(invocable_policy::fixed.with_storage_size(48).inline_size == 48);
 static_assert(
     invocable_policy::fixed.with_storage_size(17).inline_size ==
     padded_size(17));
-static_assert(invocable_policy::fixed.with_alignment(32).inline_size == 32);
 static_assert(
-    invocable_policy::fixed.with_alignment(32)
-        .with_storage_size(40)
-        .inline_size == 64);
+    invocable_policy::fixed.with_storage_size(16, 32).inline_size == 32);
+static_assert(
+    invocable_policy::fixed.with_storage_size(40, 32).inline_size == 64);
 static_assert(sizeof(flexi_function<int()>) == 4 * sizeof(void*));
 static_assert(sizeof(flexi_function<int(), heap_only>) == 3 * sizeof(void*));
 static_assert(sizeof(fixed_function<int(), 64>) == 64);
@@ -64,6 +63,11 @@ static_assert(direct_only.inline_size == 0);
 static_assert(sizeof(flexi_function<int(), direct_only>) == 2 * sizeof(void*));
 static_assert(
     sizeof(fixed_function<int(), 2 * sizeof(void*)>) == 2 * sizeof(void*));
+// Exactly the pair: the empty storage area is `empty_t`, hidden with
+// `CORVID_NO_UNIQUE_ADDRESS`.
+static_assert(
+    sizeof(flexi_function<int(), direct_only>) ==
+    sizeof(flexi::details::flexi_thunks<int()>::thunk_pair));
 
 // A callable whose payload exceeds the default buffer.
 struct fat_fn {
@@ -139,7 +143,8 @@ static_assert(flexi_function<int(), dflt>::inline_size == 2 * sizeof(void*));
 
 // An inline_only buffer may be aligned below the default: with no heap
 // pointer to hold, nothing forces the buffer up to the default geometry.
-constexpr auto lean = invocable_policy::fixed.with_alignment(alignof(void*));
+constexpr auto lean = invocable_policy::fixed.with_storage_size(
+    2 * sizeof(void*), alignof(void*));
 static_assert(lean.inline_size == 2 * sizeof(void*));
 static_assert(sizeof(flexi_function<int(), lean>) == 4 * sizeof(void*));
 static_assert(alignof(flexi_function<int(), lean>) == alignof(void*));

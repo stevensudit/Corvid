@@ -26,6 +26,7 @@
 
 #include "../concepts.h"
 #include "../crossplatform.h"
+#include "../maybe.h"
 #include "invocable_common.h"
 #include "invocable_policy.h"
 #include "../traits.h"
@@ -524,10 +525,13 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
   template<class, invocable_policy, class>
   friend class flexi_function;
 
-  // Actual buffer geometry: a `heap_only` instance keeps just the pointer.
+  // Actual buffer geometry: a `heap_only` instance keeps just the pointer,
+  // and an empty `inline_only` buffer, which serves only `direct` targets,
+  // is `empty_t`, so that `CORVID_NO_UNIQUE_ADDRESS` can hide it.
   static constexpr size_t buf_size = Policy.buffer_size();
   static constexpr size_t buf_align = Policy.buffer_align();
-  using storage_area_t = details::storage_area<buf_size, buf_align>;
+  using storage_area_t =
+      maybe_t<details::storage_area<buf_size, buf_align>, (buf_size > 0)>;
 
 #pragma region Creation
 public:
