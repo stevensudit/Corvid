@@ -788,6 +788,8 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   CHECK(expand(rt, "42") == "42");
 
   // Holes: each becomes its expression, and the rest is quoted piecewise.
+  // In cells, `(a $x)` is `(a (unquote x))`, the sublist sitting as the head
+  // of the second cell: `[a | [[unquote | [x | nil]] | nil]]`.
   CHECK(expand(rt, "'$x") == "x");
   CHECK(expand(rt, "'(a $x)") == "(list (quote a) x)");
   CHECK(expand(rt, "'(a $(+ 1 2) \"s\" 7 nil true)") ==
@@ -801,7 +803,19 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   CHECK(expand(rt, "'($@xs)") == "xs");
   CHECK(expand(rt, "'($@xs $@ys)") == "(append xs ys)");
   // A dotted tail is built too, a hole there reading as the classic
-  // `(a unquote x)`.
+  // `(a unquote x)`. A proper list spends a cell per item and ends in nil,
+  // while the dot means "use this object as the tail". Since `$x` reads as
+  // the list `(unquote x)`, dotting it on makes its cells the rest of the
+  // spine, where `(a $x)` had put them as the head of a new cell:
+  //   (a x)      [a | [x | nil]]
+  //   (a . x)    [a | x]
+  //   (a $x)     [a | [[unquote | [x | nil]] | nil]]
+  //   (a . $x)   [a | [unquote | [x | nil]]]
+  // The last is still a proper list, just flattened, and `(a unquote x)` is
+  // its printed form, so the flat spelling is the same cells and reads the
+  // same way. It is the only shape that can say "the tail is a hole", and
+  // `append` then makes the value of `x` the tail, dotted or not as that
+  // value turns out.
   CHECK(expand(rt, "'(a . $x)") == "(append (list (quote a)) x)");
   CHECK(expand(rt, "'(a unquote x)") == "(append (list (quote a)) x)");
   CHECK(expand(rt, "'(a . $$x)") ==
