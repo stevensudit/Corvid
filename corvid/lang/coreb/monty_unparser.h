@@ -271,9 +271,9 @@ private:
         const auto family =
             op->kind == operator_kind::additive ? band::add : band::mul;
         auto text = as_arith_operand(elems[1], family, true);
-        text += " ";
+        text += ' ';
         text += name;
-        text += " ";
+        text += ' ';
         text += as_arith_operand(elems[2], family, false);
         return emitted{std::move(text), family};
       }
@@ -283,9 +283,9 @@ private:
         std::string text;
         for (const auto& elem : elems.subspan(1)) {
           if (!text.empty()) {
-            text += " ";
+            text += ' ';
             text += name;
-            text += " ";
+            text += ' ';
           }
           text += as_cmp_operand(elem);
         }

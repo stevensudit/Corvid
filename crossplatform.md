@@ -127,9 +127,10 @@ keeps its dynamic runtime. `CMAKE_CUDA_ARCHITECTURES` is passed explicitly
 8.9 -> sm_89): clang-CUDA's `native` arch detection does not work on Windows and
 silently produces a binary whose kernels never run.
 
-Versions used during bring-up: clang++ and clang-format from LLVM 22.1.7; MSVC
-STL 14.51 and Windows SDK via VS 2026 (MSVC `_MSC_VER` 1951); CMake 4.3, Ninja,
-nvcc 13.3 (toolkit headers/libs and `ptxas`; the compiler driver is clang++).
+Versions used during bring-up: clang++ and clang-format from the LLVM Windows
+installer, kept at the same major as the Linux Dockerfile pins; MSVC STL 14.51
+and Windows SDK via VS 2026 (MSVC `_MSC_VER` 1951); CMake 4.3, Ninja, nvcc 13.3
+(toolkit headers/libs and `ptxas`; the compiler driver is clang++).
 
 ## 4. Building
 
@@ -220,7 +221,7 @@ set matches the `.cpp` suite: `-Wall -Wextra -Werror`, with
 that fires on the deliberate partial designated-init idiom for C DESC structs
 (the positional `-Wmissing-field-initializers` stays on, like the cl `/wd`
 codes). Plus `-std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the
-last silences the note that CUDA 13.3 is newer than clang 22's last fully
+last silences the note that CUDA 13.3 is newer than clang's last fully
 supported toolkit) and `-gline-tables-only` (section 8). On Linux the nvcc form
 is `-std=c++23 -O3 -lineinfo`; raising its host warnings to `-Wextra` (via nvcc
 `-Xcompiler`) is a separate follow-up.
@@ -336,9 +337,11 @@ add the `clang_rt` libs and `/DEBUG`/`/OPT:NOICF` by hand, because CMake linked
 clang-cl through lld-link directly, bypassing the driver.
 
 One toolchain limitation is worth recording: any C++ rethrow of an in-flight
-exception crashes under ASAN on Windows (clang 22.1.7 with dynamic
-VCRUNTIME140). The single library rethrow site is exercised by one test, which
-is guarded out under ASAN-on-Windows (via `__has_feature(address_sanitizer)`).
+exception crashes under ASAN on Windows (clang 22 and 23 with dynamic
+VCRUNTIME140). The library has two rethrow sites: the explicit `throw;` in
+`try_or_log`, and the implicit one at the end of `scope_guard`'s constructor
+function-try-block handler. Each is exercised by one test, which is guarded
+out under ASAN-on-Windows (via `__has_feature(address_sanitizer)`).
 
 ASAN instruments host code; the device-side analog is `./cleanbuild.ps1
 cudacheck`. It builds the cuda bucket and runs each registered `.cu` test under

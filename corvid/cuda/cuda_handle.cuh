@@ -21,13 +21,13 @@
 #include <type_traits>
 #include <utility>
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "./cuda_status.cuh"
 
 // Generic ownership of a CUDA handle.
 
 namespace corvid::cuda {
-using corvid::enums::bool_enums::on_failure;
+using corvid::meta::bool_enums::on_failure;
 
 #pragma region cuda_handle
 

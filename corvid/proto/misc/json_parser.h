@@ -859,7 +859,7 @@ constexpr bool parse_value(json_cursor& c, json_value_view& out,
   case '[': return parse_array(c, out, err, opts, depth);
   case '{': return parse_object(c, out, err, opts, depth);
   default:
-    if (*c == '-' || (is_digit(*c))) return parse_number(c, out, err);
+    if (*c == '-' || is_digit(*c)) return parse_number(c, out, err);
     return json_error::fail(err, json_errc::invalid_token, c.pos);
   }
 }

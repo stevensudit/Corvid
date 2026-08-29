@@ -121,6 +121,7 @@ inline constexpr std::string_view contextual_keywords[]{"fun", "if", "return",
 
 // Whether `t` spells a word symbol: a leading letter or underscore, then
 // word characters, with `?` permitted only as the final character.
+// NOLINTNEXTLINE(bugprone-exception-escape): substr follows an empty check.
 [[nodiscard]] constexpr bool is_word_symbol(std::string_view t) noexcept {
   if (t.empty() || !is_word_lead(t.front())) return false;
   auto rest = t.substr(1);
@@ -137,6 +138,7 @@ inline constexpr std::string_view contextual_keywords[]{"fun", "if", "return",
 
 // Whether `t` is a valid symbol spelling: a word symbol, an operator
 // symbol, or the `%` kernel prefix on a word symbol.
+// NOLINTNEXTLINE(bugprone-exception-escape): substr follows a prefix check.
 [[nodiscard]] constexpr bool is_symbol_spelling(std::string_view t) noexcept {
   if (t.starts_with('%')) return is_word_symbol(t.substr(1));
   return is_word_symbol(t) || is_operator_symbol(t);

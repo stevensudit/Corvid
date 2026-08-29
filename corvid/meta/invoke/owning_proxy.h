@@ -468,6 +468,7 @@ private:
     const auto* vt = details::upcast_owning_vtable<F, D>(other.vtable_);
     switch (adoption_for<P>(vt)) {
     case adoption::relocate:
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage): see target
       vt->relocate(other.storage_area_.buf, storage_area_.buf);
       vtable_ = vt;
       break;

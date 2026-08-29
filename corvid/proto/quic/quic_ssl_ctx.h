@@ -32,7 +32,7 @@
 
 namespace corvid { inline namespace proto { namespace quic {
 
-using connection_role = meta::bool_enums::connection_role;
+using meta::bool_enums::connection_role;
 
 #pragma region ssl_identity
 

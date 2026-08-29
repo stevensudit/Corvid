@@ -2,8 +2,11 @@
 # by `tests/CMakeLists.txt` via `configure_file` and is gitignored (rewritten
 # on every configure). Edit `.clangd.in`, not the generated `.clangd`, then
 # re-run `./cleanbuild.sh` (or `cmake` directly) to regenerate.
+#
+# The `Compiler:` entries name the update-alternatives links, so the clang
+# version follows the Dockerfile without an edit here.
 CompileFlags:
-  Compiler: /usr/bin/clang++-22
+  Compiler: /usr/bin/clang++
   # `compile_commands.json` lives under `tests/build/` (the only CMake project
   # in the repo). Without this, files outside `tests/`: e.g., the headers in
   # `corvid/proto/quic/`: fall back to default flags and clangd can't find
@@ -36,7 +39,7 @@ CompileFlags:
 If:
   PathMatch: .*\.c
 CompileFlags:
-  Compiler: /usr/bin/clang-22
+  Compiler: /usr/bin/clang
   Add: [-xc, -std=c17]
 
 ---
@@ -57,9 +60,9 @@ CompileFlags:
 # these as plain C++ and flags the CUDA attributes (__host__, __device__,
 # __global__) and the <<<...>>> launch syntax as unknown. Put clangd into CUDA
 # mode with clang's own CUDA frontend (the one clangd embeds): -xcuda plus the
-# toolkit path. clang-22 only "partially supports" up to CUDA 12.9, so
-# --no-cuda-version-check silences the version-mismatch warning for the 13.3
-# toolkit; parsing is unaffected.
+# toolkit path. clang lags the toolkit's release (it only "partially
+# supports" the newest CUDA), so --no-cuda-version-check silences the
+# version-mismatch warning; parsing is unaffected.
 #
 # A .cu file (unlike a header) has an nvcc entry in compile_commands.json.
 # clangd runs that command through its embedded clang, which rejects nvcc-only
@@ -69,7 +72,7 @@ CompileFlags:
 If:
   PathMatch: [.*\.cu, .*\.cuh]
 CompileFlags:
-  Compiler: /usr/bin/clang++-22
+  Compiler: /usr/bin/clang++
   Remove: [-forward-unknown-to-host-compiler, -ccbin=*, -arch=*]
   Add: [-xcuda, --cuda-path=/usr/local/cuda, --no-cuda-version-check, -std=c++23]
 

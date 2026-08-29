@@ -266,6 +266,7 @@ TEST_CASE("try_or_log swallows and substitutes failure_value",
             -1) == -1);
 
   // A thrown C string is caught and its text logged.
+  // NOLINTNEXTLINE(bugprone-std-exception-baseclass): deliberate.
   CHECK(try_or_log([]() -> bool { throw "c-string boom"; }) == false);
 
   log::singleton().set_stream(std::cerr);
@@ -384,6 +385,7 @@ TEST_CASE("try_or_log with attempt swallows mid-unwind",
   bool swallowed = false;
   struct guard {
     bool& swallowed;
+    // NOLINTNEXTLINE(bugprone-unsafe-to-allow-exceptions): deliberate.
     ~guard() noexcept(false) {
       swallowed = try_or_log<log_policy::on_throw, rethrow_policy::attempt>(
           []() -> bool { throw std::runtime_error("inner"); }, true);

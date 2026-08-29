@@ -26,11 +26,14 @@ if(NOT _ncores OR _ncores LESS 1)
     set(_ncores 1)
 endif()
 
-# All libcxx configs share these compilers. MSAN additionally consumes the
+# All libcxx configs share these compilers: the update-alternatives-linked
+# clang (the Dockerfile picks the version). MSAN additionally consumes the
 # locally-built MSAN-instrumented libc++ at .local/llvm-msan/, wired up by
 # tests/CMakeLists.txt when SANITIZER=msan.
-set(ENV{CC}  "/usr/bin/clang-22")
-set(ENV{CXX} "/usr/bin/clang++-22")
+find_program(_corvid_cc  clang   REQUIRED)
+find_program(_corvid_cxx clang++ REQUIRED)
+set(ENV{CC}  "${_corvid_cc}")
+set(ENV{CXX} "${_corvid_cxx}")
 
 set(_failures "")
 

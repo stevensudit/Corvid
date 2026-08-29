@@ -52,7 +52,8 @@ TEST_CASE("Default", "[TimerFuse]") {
   // Copyability: a copy is also unarmed.
   auto copy = fuse;
   CHECK(copy.get_if_armed() == nullptr);
-  copy = fuse; // copy assignment
+  // NOLINTNEXTLINE(performance-use-std-move): copy assignment is the point.
+  copy = fuse;
 }
 
 #pragma endregion

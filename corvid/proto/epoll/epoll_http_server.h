@@ -319,8 +319,8 @@ public:
   [[nodiscard]] bool
   add_route(host_path_key key, epoll_http_transaction_factory factory) {
     if (configured_) return false;
-    assert(key.base_path.starts_with("/"));
-    assert(key.base_path.size() == 1 || !key.base_path.ends_with("/"));
+    assert(key.base_path.starts_with('/'));
+    assert(key.base_path.size() == 1 || !key.base_path.ends_with('/'));
     routes_[std::move(key)] = std::move(factory);
     return true;
   }

@@ -5,10 +5,9 @@
 # Fail fast.
 set -e
 
-# Locate clang-format, preferring versioned clang-format-22 if available
-if command -v clang-format-22 &> /dev/null; then
-  CLANG_FORMAT="clang-format-22"
-elif command -v clang-format &> /dev/null; then
+# clang-format is an update-alternatives link to the version the Dockerfile
+# installs, so no versioned name is needed here.
+if command -v clang-format &> /dev/null; then
   CLANG_FORMAT="clang-format"
 else
   echo "Error: clang-format not found. Please install clang-format." >&2

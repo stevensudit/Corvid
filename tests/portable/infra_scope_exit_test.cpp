@@ -223,6 +223,18 @@ TEST_CASE("Basic", "[ScopeSuccess]") {
 #pragma endregion
 #pragma region ThrowingConstruction
 
+// AddressSanitizer on Windows (clang plus the VCRUNTIME exception runtime)
+// access-violates when an in-flight exception is rethrown, and a constructor
+// function-try-block rethrows implicitly when its handler falls off the end.
+// It is a toolchain limitation, not a Corvid bug; see the matching guard in
+// infra_log_test.cpp and crossplatform.md. Skip just this test (and its
+// helper) under that one configuration.
+#if defined(_WIN32) && defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define CORVID_WIN_ASAN_NO_RETHROW 1
+#endif
+#endif
+#ifndef CORVID_WIN_ASAN_NO_RETHROW
 namespace {
 // Callable whose copy constructor throws, exercising a guard whose
 // construction fails.
@@ -259,6 +271,7 @@ TEST_CASE("Throwing construction", "[ScopeExit][ScopeFail][ScopeSuccess]") {
     CHECK(calls == 0);
   }
 }
+#endif
 
 #pragma endregion
 #pragma region CopyRefused

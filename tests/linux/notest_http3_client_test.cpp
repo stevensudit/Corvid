@@ -217,7 +217,7 @@ int curl(int argc, char** argv) {
         std::cout << "\n[" << out->body_bytes << " body bytes]\n";
         const auto ok =
             !out->failed && !out->status.empty() &&
-            out->status.starts_with("2");
+            out->status.starts_with('2');
         rc = ok ? 0 : 1;
         return true;
       }))

@@ -49,7 +49,7 @@ std::string type_name() {
   if (std::is_const_v<TR>) r += " const";
   if (std::is_volatile_v<TR>) r += " volatile";
   if (std::is_lvalue_reference_v<T>)
-    r += "&";
+    r += '&';
   else if (std::is_rvalue_reference_v<T>)
     r += "&&";
   return r;
@@ -109,7 +109,7 @@ std::string friendly_type_name() {
     if (std::is_const_v<TR>) r = "const " + r;
   }
   if (std::is_lvalue_reference_v<T>)
-    r += "&";
+    r += '&';
   else if (std::is_rvalue_reference_v<T>)
     r += "&&";
   return r;
