@@ -22,7 +22,7 @@ RUN userdel -r ubuntu 2>/dev/null || true && \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget lsb-release gnupg software-properties-common && \
     wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && \
-    ./llvm.sh 22 && rm llvm.sh && \
+    ./llvm.sh 23 && rm llvm.sh && \
     rm -rf /var/lib/apt/lists/*
 
 # Generate en_US.UTF-8, so bash stops complaining.
@@ -58,20 +58,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   vim \
   nodejs \
   openssh-client rsync zip file bc \
-  clang-22 clangd-22 lldb-22 lld-22 clang-format-22 clang-tidy-22 cmake ninja-build \
-  libc++-22-dev libc++abi-22-dev liburing-dev pkg-config \
+  clang-23 clangd-23 lldb-23 lld-23 clang-format-23 clang-tidy-23 cmake ninja-build \
+  libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
   ccache strace \
   gcc-16 g++-16 libstdc++-16-dev \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Alternatives for clang and gcc.
-RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100 \
-    --slave /usr/bin/clang++ clang++ /usr/bin/clang++-22 \
-    --slave /usr/bin/clangd clangd /usr/bin/clangd-22 \
-    --slave /usr/bin/clang-format clang-format /usr/bin/clang-format-22 \
-    --slave /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-22 \
-    --slave /usr/bin/lldb lldb /usr/bin/lldb-22 && \
+RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
+    --slave /usr/bin/clang++ clang++ /usr/bin/clang++-23 \
+    --slave /usr/bin/clangd clangd /usr/bin/clangd-23 \
+    --slave /usr/bin/clang-format clang-format /usr/bin/clang-format-23 \
+    --slave /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-23 \
+    --slave /usr/bin/lldb lldb /usr/bin/lldb-23 && \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-16 100 \
     --slave /usr/bin/g++ g++ /usr/bin/g++-16
 
