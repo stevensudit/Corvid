@@ -141,11 +141,13 @@ elseif(USE_LIBSTDCPP)
     # 23 in C++26 mode cannot constant-evaluate libstdc++ 16's
     # `check_dynamic_spec`, so every format string with a dynamic width or
     # precision (`{:{}}`) fails to compile, plain `std::format` included. gcc
-    # 16 (the 2026-03-15 snapshot) in C++26 mode misfolds `__builtin_memchr`
-    # on a constant array with a nonzero offset, which reaches
-    # `string_view::find` wherever inlining exposes the constant, so
-    # strings_test and quic_conn_test fail at run time. Retry each on a newer
-    # compiler.
+    # 16 (the 16.2.0 release, and the 2026-03-15 snapshot before it) in
+    # C++26 mode misfolds `__builtin_memchr` on a constant array with a
+    # nonzero offset, which reaches `string_view::find` wherever inlining
+    # exposes the constant, so strings_test and quic_conn_test fail at run
+    # time. The fault is in the constexpr evaluator (present since gcc 13, in
+    # every dialect); C++26 exposes it by making `void*` casts constant
+    # expressions (P2738). Retry each on a newer compiler.
     set(CMAKE_CXX_STANDARD 23)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

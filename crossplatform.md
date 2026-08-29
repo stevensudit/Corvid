@@ -148,16 +148,20 @@ at C++23 for now:
   clang 23 cannot constant-evaluate libstdc++ 16's `check_dynamic_spec`, so
   any format string with a dynamic width or precision (`{:{}}`) fails to
   compile, plain `std::format` included. Retry on a newer clang.
-- gcc (`./cleanbuild.sh gcc`), because gcc 16 (the 2026-03-15 snapshot) in
-  C++26 mode misfolds `__builtin_memchr` on a constant array with a nonzero
-  offset, adding the offset twice. `string_view::find` reaches it wherever
-  inlining exposes the constant, so `strings_test` and `quic_conn_test` fail
-  at run time (at any optimization level above `-O0`). Repro, wrong at `-O0`
-  already: `static constexpr const char lit[] = "abcdefghijabxdefghijaaa";`
-  then `__builtin_memchr(lit + 1, 'a', sizeof(lit) - 2) - lit` is 11, not
-  10, under `g++ -std=c++26`; correct under `-std=c++23` and under clang.
-  Retry on gcc 16.2, which the Dockerfile now builds from source (the PPA
-  only carries the snapshot for noble), and lift the pin in
+- gcc (`./cleanbuild.sh gcc`), because gcc 16 (verified on the 16.2.0 release
+  as well as the 2026-03-15 snapshot) in C++26 mode misfolds
+  `__builtin_memchr` on a constant array with a nonzero offset, adding the
+  offset twice. `string_view::find` reaches it wherever inlining exposes the
+  constant, so `strings_test` and `quic_conn_test` fail at run time (at any
+  optimization level above `-O0`). The fault is in the constexpr evaluator
+  and is as old as gcc 13, in every dialect: `constexpr const char a[] =
+  "abcdefghijabxdefghijaaa"; static_assert(__builtin_memchr(a + 1, 'a',
+  sizeof(a) - 2) == a + 10);` fails under `-std=c++23` too. C++26 exposes it
+  to ordinary code by making `void*` to `T*` casts constant expressions
+  (P2738), so an initializer such as `const char* r = static_cast<const
+  char*>(__builtin_memchr(lit + 1, ...))` is now folded by the front end
+  instead of calling memchr. No `-fno-builtin` variant helps; clang is
+  correct. Retry on a gcc that fixes it and lift the pin in
   `tests/CMakeLists.txt`.
 
 Windows (`./cleanbuild.ps1`) does a Release configure, build, and ctest,
