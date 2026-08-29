@@ -255,13 +255,20 @@ fi
 # Dockerfile installs (/usr/bin/clang -> /usr/bin/clang-NN). Nothing below
 # names a version; the compiler is reached through those links, and the LLVM
 # tools that have no unversioned link (analyze-build, llvm-profdata, llvm-cov)
-# are reached through the bin directory of that same install.
+# are reached through the bin directory of that same install. Discovery is
+# unconditional, but only the clang-dependent paths (the clang compiler
+# choice, scan, coverage) require it, so the gcc path works without clang.
 clang_path="$(command -v clang || true)"
-if [[ -z "$clang_path" ]]; then
-  echo "$0: clang not found on PATH" >&2
-  exit 1
+llvm_bin=""
+if [[ -n "$clang_path" ]]; then
+  llvm_bin="$(dirname "$(readlink -f "$clang_path")")"
 fi
-llvm_bin="$(dirname "$(readlink -f "$clang_path")")"
+require_clang() {
+  if [[ -z "$clang_path" ]]; then
+    echo "$0: clang not found on PATH" >&2
+    exit 1
+  fi
+}
 
 if [[ "$choice" == "libstdcpp" ]]; then
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=ON"
@@ -271,11 +278,13 @@ if [[ "$choice" == "libstdcpp" ]]; then
     export CXX="$(command -v g++)"
   else
     echo "Using clang with libstdc++"
+    require_clang
     export CC="$clang_path"
     export CXX="$(command -v clang++)"
   fi
 else
   echo "Using clang with libc++"
+  require_clang
   export CC="$clang_path"
   export CXX="$(command -v clang++)"
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=OFF"
@@ -326,6 +335,7 @@ else
 fi
 
 if $use_coverage; then
+  require_clang
   echo "Coverage: source-based instrumentation"
   COV_OPTION="-DCOVERAGE=ON"
 else
@@ -422,6 +432,7 @@ fi
 # than annotate every site twice with `[[clang::suppress]]`; the scan mode
 # stays for the rare cross-procedural finding tidy might miss.
 if $use_scan; then
+  require_clang
   scanReports="$buildRoot/csa-reports"
   rm -rf "$scanReports"
   echo
