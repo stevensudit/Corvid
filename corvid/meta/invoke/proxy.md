@@ -502,17 +502,23 @@ producing a key object: `p("fire"_k, 3)` or `p["fire"_k](3)`. These were
 recorded as alternates while the mixin was unproven, and never needed once
 the restyled tests confirmed its ergonomics.
 
-Mechanics of the built form: `details::api_base_t<F>` yields `F::api` when
-the facade defines one, and an empty `no_api` stand-in otherwise. The
+Mechanics of the built form: `details::api_base_t<F, H>` yields `F::api`
+when the facade defines one, and an empty `no_api` stand-in otherwise. The
 selection is a lazy specialization rather than a `std::conditional_t`,
-because naming `F::api` when it does not exist is ill-formed.
+because naming `F::api` when it does not exist is ill-formed. `H` is the
+complete handle type. A hand-written `api` does not use it, since its
+forwarders deduce `this`; it is there for the reflected `api`, whose
+forwarders must name the handle's `call` (see "The reflected api").
 
 The views pick the base up through their shared `details::view_base`,
 and the shared handles through `details::shared_base`, keeping each
-handle a single-inheritance chain. The owning `proxy`, which has no other
-base, inherits it directly. Deducing `this` sees the complete handle type
-regardless of where in the hierarchy the forwarders sit. The mixin is
-stateless, so empty-base optimization keeps the views at two pointers.
+handle a single-inheritance chain. Each base passes the handle flavor its
+`Access` selects (`details::view_t<F, Access>` and
+`details::shared_t<F, Access>`). The owning `proxy`, which has no other
+base, inherits it directly and passes itself. Deducing `this` sees the
+complete handle type regardless of where in the hierarchy the forwarders
+sit. The mixin is stateless, so empty-base optimization keeps the views at
+two pointers.
 
 Caveats, all on the facade author's side of the contract:
 
@@ -1040,7 +1046,7 @@ Seven handles share one shape (a target plus a pointer to a static
 per-(facade, type, birth) table) and differ in what they own, and in whether
 constness is a property of the instance or of the type. All of the
 dispatching handles inherit the facade's `api` sugar when it exists,
-through `details::api_base_t<F>`. The two views additionally share their
+through `details::api_base_t<F, H>`. The two views additionally share their
 storage, const-method `call`, and `try_downcast` through
 `details::view_base<F, Access>`, the two shared-owning handles theirs, plus
 the moves, through `details::shared_base<F, Access>`, and the two weak
@@ -1049,7 +1055,7 @@ handles their storage, `expired`, and `lock` through
 
 ```mermaid
 classDiagram
-    class api_base_t~F~ {
+    class api_base_t~F,H~ {
         <<the facade's api if defined, else empty>>
     }
     class view_base~F,Access~ {

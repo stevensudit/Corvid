@@ -428,25 +428,28 @@ namespace details {
 // The stand-in API base for facades that define no member-call sugar.
 struct no_api {};
 
-// `api_base` is the sugar base for handles of facade `F`.
+// `api_base` is the sugar base for handles of type `H` over facade `F`.
 //
 // Yields the facade's nested `api` when it defines one, and the empty stand-in
 // otherwise. The selection has to be lazy (a specialization rather than a
 // `std::conditional_t`), because naming `F::api` when it does not exist is
 // ill-formed.
-template<typename F>
+//
+// `H` is the complete handle type, for an `api` whose forwarders must name the
+// handle they forward to. A hand-written `api` deduces `this` and ignores it.
+template<typename F, typename H>
 struct api_base {
   using type = no_api;
 };
 
-template<typename F>
+template<typename F, typename H>
 requires(requires { typename F::api; })
-struct api_base<F> {
+struct api_base<F, H> {
   using type = F::api;
 };
 
-template<typename F>
-using api_base_t = api_base<F>::type;
+template<typename F, typename H>
+using api_base_t = api_base<F, H>::type;
 
 } // namespace details
 
@@ -2122,6 +2125,16 @@ class const_weak_proxy;
 
 namespace details {
 
+// The view flavor with access mode `Access` over facade `F`.
+template<Facade F, access_mode Access>
+using view_t = std::conditional_t<(Access == access_mode::as_const),
+    const_proxy_view<F>, proxy_view<F>>;
+
+// The shared-owning flavor with access mode `Access` over facade `F`.
+template<Facade F, access_mode Access>
+using shared_t = std::conditional_t<(Access == access_mode::as_const),
+    const_shared_proxy<F>, shared_proxy<F>>;
+
 // Facade of a proxy handle type, or `void` for any other type.
 template<typename T>
 struct handle_facade {
@@ -2388,7 +2401,7 @@ using strict_return_t = std::conditional_t<std::is_void_v<R>, void,
 // `has_exact_args`), and the result converts only to exactly the declared
 // result type. Never constructed or executed; it exists to be type-checked.
 template<Facade F>
-struct api_probe: api_base_t<F> {
+struct api_probe: api_base_t<F, api_probe<F>> {
   template<fixed_string Key, typename... Args>
   requires(vtbuild_t<F>::template has_exact_args<Key, access_mode::as_mutable,
       Args...>())
