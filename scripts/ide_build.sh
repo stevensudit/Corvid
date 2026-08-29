@@ -28,8 +28,13 @@ fcDebug="$repo/tests/.fetchcontent-debug"
 stem="$(basename "${src%.*}")"
 
 # clang/libc++ by default, matching cleanbuild.sh's default configuration.
-export CC="$(command -v clang)"
-export CXX="$(command -v clang++)"
+CC="$(command -v clang || true)"
+CXX="$(command -v clang++ || true)"
+if [[ -z "$CC" || -z "$CXX" ]]; then
+  echo "$0: clang and clang++ not both found on PATH" >&2
+  exit 1
+fi
+export CC CXX
 
 # CUDA (.cu) targets compile with nvcc (g++-15 host); mirror cleanbuild.sh.
 # Enabling CUDA whenever the toolchain is present keeps the configure signature

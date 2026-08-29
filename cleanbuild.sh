@@ -259,13 +259,14 @@ fi
 # unconditional, but only the clang-dependent paths (the clang compiler
 # choice, scan, coverage) require it, so the gcc path works without clang.
 clang_path="$(command -v clang || true)"
+clangxx_path="$(command -v clang++ || true)"
 llvm_bin=""
 if [[ -n "$clang_path" ]]; then
   llvm_bin="$(dirname "$(readlink -f "$clang_path")")"
 fi
 require_clang() {
-  if [[ -z "$clang_path" ]]; then
-    echo "$0: clang not found on PATH" >&2
+  if [[ -z "$clang_path" || -z "$clangxx_path" ]]; then
+    echo "$0: clang and clang++ not both found on PATH" >&2
     exit 1
   fi
 }
@@ -274,19 +275,25 @@ if [[ "$choice" == "libstdcpp" ]]; then
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=ON"
   if [[ "$compiler" == "gcc" ]]; then
     echo "Using gcc with libstdc++"
-    export CC="$(command -v gcc)"
-    export CXX="$(command -v g++)"
+    gcc_path="$(command -v gcc || true)"
+    gxx_path="$(command -v g++ || true)"
+    if [[ -z "$gcc_path" || -z "$gxx_path" ]]; then
+      echo "$0: gcc and g++ not both found on PATH" >&2
+      exit 1
+    fi
+    export CC="$gcc_path"
+    export CXX="$gxx_path"
   else
     echo "Using clang with libstdc++"
     require_clang
     export CC="$clang_path"
-    export CXX="$(command -v clang++)"
+    export CXX="$clangxx_path"
   fi
 else
   echo "Using clang with libc++"
   require_clang
   export CC="$clang_path"
-  export CXX="$(command -v clang++)"
+  export CXX="$clangxx_path"
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=OFF"
 fi
 

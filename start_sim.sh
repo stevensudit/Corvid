@@ -17,8 +17,13 @@ cd "$REPO_ROOT"
 
 # C++ build --------------------------------------------------------------
 
-export CC="$(command -v clang)"
-export CXX="$(command -v clang++)"
+CC="$(command -v clang || true)"
+CXX="$(command -v clang++ || true)"
+if [[ -z "$CC" || -z "$CXX" ]]; then
+  echo "$0: clang and clang++ not both found on PATH" >&2
+  exit 1
+fi
+export CC CXX
 
 BUILD_DIR="tests/build_sim"
 
