@@ -30,6 +30,7 @@
 
 using namespace corvid;
 using namespace corvid::sim;
+using namespace std::literals;
 
 namespace {
 
@@ -1632,12 +1633,12 @@ TEST_CASE("ParseUiActionMessageFields", "[SimJson]") {
   CHECK(input.action == "start_wave");
   REQUIRE(input.fields.size() == 2U);
   const auto defender_kind =
-      std::ranges::find(input.fields, "defender/kind", &UiActionField::key);
+      std::ranges::find(input.fields, "defender/kind"sv, &UiActionField::key);
   REQUIRE(defender_kind != input.fields.end());
   CHECK(defender_kind->value == "ice");
 
   const auto note =
-      std::ranges::find(input.fields, "note", &UiActionField::key);
+      std::ranges::find(input.fields, "note"sv, &UiActionField::key);
   REQUIRE(note != input.fields.end());
   CHECK(note->value == std::string("line\nbreak"));
 }

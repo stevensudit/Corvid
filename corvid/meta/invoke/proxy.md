@@ -45,13 +45,14 @@ The full feature set, as built and tested:
 
 Two facts frame everything below. First, the manual duplication in
 the facade's `boilerplate` and `api` classes is an artifact of C++23
-lacking reflection, not of the design. The system, as designed, can be
-extended to derive both from the facade's method list under C++26
-reflection, removing the need to define these two classes at all. The
-blocker is compiler support: currently, only gcc enables it, and this
-library is clang-centric.
+lacking reflection, not of the design. Under C++26 reflection (P2996)
+the `boilerplate` derives outright, the `api` derives through a
+`define_aggregate` construction, and the facade's method list itself can
+be written as plain member function declarations; see "Reflection
+(C++26)". That layer is gcc-only for now, so the C++23 spellings stay the
+portable route.
 
-Second, in the interim, `prox::codegen`
+Second, on the portable route, `prox::codegen`
 ([proxy_codegen.h](proxy_codegen.h)) writes them for you. It handles all
 the tricky details and edge cases: noexcept propagation, const pairs, the
 using-declaration merges, and diamonds.
@@ -90,6 +91,14 @@ using-declaration merges, and diamonds.
 - [Placement](#placement)
 - [Test fixture map](#test-fixture-map)
 - [Non-goals](#non-goals)
+- [Reflection (C++26)](#reflection-c26)
+  - [The end state](#the-end-state)
+  - [Api-first facades](#api-first-facades)
+  - [The reflected boilerplate](#the-reflected-boilerplate)
+  - [The reflected api](#the-reflected-api)
+  - [Portability and testing](#portability-and-testing)
+  - [gcc 16 notes](#gcc-16-notes)
+  - [Steps](#steps)
 - [Future work](#future-work)
 
 ## Lineage and positioning
@@ -2186,14 +2195,231 @@ redundancy: operators and conversions were always reachable through
 bindings under a name, allocation policy is handled by storage policy
 and views, and identity is handled by the two tags.
 
+## Reflection (C++26)
+
+This section is the design for the reflection layer, written before the
+layer exists. It is the reference for the work and, once the steps below
+are done, the description of the result. Everything in it was proven on
+gcc 16 by standalone probes (kept under "tests/.local/reflection/", which
+is gitignored) before being written down.
+
+### The end state
+
+The facade is the one manual artifact. Its two derivations, the
+`boilerplate` that maps `call<"fire">` to the target's `fire`, and the
+`api` that exposes `call<"fire">` as `p.fire(3)`, are mechanical, and
+reflection writes both. The facade itself can be written as the interface
+it describes:
+
+```cpp
+struct animal_api {
+  void speak() const;
+};
+
+struct animal : facade<animal, animal_api> {};
+
+consteval auto corvid_proxy_spec(animal*, dog*) {
+  return make_proxy_spec<animal, dog>();
+}
+```
+
+That is the whole of it: an interface, a facade naming it, and one
+registration line per conforming type. `p.speak()` dispatches through the
+same table as `p.call<"speak">()`. Nothing is hand-forwarded, nothing is
+pasted from `codegen`, and `validate_api` has nothing left to check.
+
+The C++23 spellings all remain. A facade may still list `method<>` entries
+and hand-write its `api` and `boilerplate`, and every registration tier
+(carried impl, partial override, `members<>`) keeps working, with the
+reflected pieces slotting in underneath rather than replacing the tiers.
+
+### Api-first facades
+
+The interface struct holds plain member function declarations, never
+defined and never called; they are the specification, read by
+reflection. The declaration grammar carries everything a `method<>`
+entry does: `void f() const` is a const method, `noexcept` is honored, and
+two declarations of one name are an overload set. So
+
+```cpp
+struct gunslinger_api {
+  void fire(int);
+  int fire(int, int);
+  bool reload() noexcept;
+  int& count();
+  int count() const;
+};
+```
+
+is exactly `facade<name<"gunslinger">, method<"fire", void(int)>,
+method<"fire", int(int, int)>, method<"reload", bool() noexcept>,
+method<"count", int&()>, method<"count", int() const>>`, and the two
+spellings yield the same flattened slot list (the test pins this).
+
+The spec is what `members_of` reports as the struct's non-static, named,
+non-special member functions, in declaration order. Static members,
+constructors, operators, data members, and templates are not methods.
+That last one matters: a deducing-this forwarder
+(`void speak(this const auto& self)`) is a function template and has no
+type to reflect, and an explicit-object non-template reflects with its
+object parameter as an ordinary parameter, so neither can serve as a
+spec. Declarations take no `this` parameter; constness is spelled with
+the `const` qualifier.
+
+The facade's name comes from its own identifier (`identifier_of(^^animal)`
+is "animal"), so the `name<>` entry is not needed. It stays available as
+an override, for the case the identifier does not serve (two facades
+sharing an identifier across namespaces, which must not collide in a
+composition). `extends<Base>` entries are listed alongside as before:
+`facade<marshal, marshal_api, extends<gunslinger>>`.
+
+The derivation is a consteval enumeration of the interface's members into
+a pack of reflections, and then type-level formation of the entries by
+pack expansion (a key per member from its identifier, a signature per
+member from `type_of`), because that split is what gcc 16 compiles; see
+"gcc 16 notes". The derived facade is an ordinary `facade<...>`, so the
+rest of the machinery is unaware of where the entries came from.
+
+### The reflected boilerplate
+
+`reflected_impl<T>` is a binding class like any other: its `on` for a
+key enumerates `T`'s members with that identifier, hands the candidates to
+the same synthetic overload set `resolve` uses (`rank_set`, so the
+compiler ranks promotions, conversions, and the object parameter exactly
+as it does for `call<>`), and invokes the winner through its member
+pointer, `&[:m:]`, with `std::invoke`, the way `member_impl` invokes a
+`members<>` binding. The target parameter is deduced, so constness flows
+through, and the result type and `noexcept` come from the declaration
+alone, so a conformance probe instantiates no body. A `noexcept` method
+stays `noexcept` through `call<>`, a const pair splits by handle
+constness, and an overload set resolves per call.
+
+It is the bottom tier, in the position the facade's nested `boilerplate`
+holds today, and the precedence is unchanged: a registration-carried impl
+outranks it, a facade that hand-writes a nested `boilerplate` keeps it,
+`members<>` routes every unlisted key to it, and a partial-override
+binding class inherits it, re-exposes its `on` with a using-declaration,
+and adds the one binding that needs a body. Conformance for a type whose
+names line up is therefore the registration line alone, and a type whose
+names diverge on one method registers one `member<>` and leaves the rest
+derived. There is no all-or-nothing choice between reflection and manual
+binding.
+
+Private members follow the rule `members<>` already has: a private member
+binds when the registering hook can name it. The enumeration runs under
+the hook's own access context, obtained through a defaulted
+`std::meta::access_context::current()` template argument, which is
+evaluated where the template-id is written (like
+`std::source_location::current()`). A hidden-friend hook inside the type
+therefore binds its private members; a namespace-scope hook sees only the
+public ones. The member-pointer call is not access-checked by the
+language, so a hook that can enumerate a member can bind it; a hook that
+cannot enumerate it never learns it exists. `access_context::unchecked()`
+is not used by the library.
+
+### The reflected api
+
+P2996 can define a class with computed data members (`define_aggregate`)
+but cannot declare a member function with a computed name; that is token
+injection (P3294), a C++29 target. The `api` is therefore built as a
+class with one empty `[[no_unique_address]]` data member per distinct
+method name, each of a per-key callable type whose `operator()` recovers
+the enclosing handle from its own address and forwards to `call<Key>`.
+`p.fire(3)` is then `p.fire`, a data member, followed by `(3)`, its call
+operator. All the members are empty and of distinct types, so they share
+the api's address, the api is an empty base, and the handle keeps its
+size. The offsets are computed by reflection (`offset_of` on the member
+and on the base) and asserted zero rather than assumed.
+
+Deep const holds: a const handle reaches only the const `operator()`,
+which forwards to the const `call`, so a const handle has no mutable
+`fire` at all. Overloads and const pairs resolve inside `call<>`, which
+ranks with the compiler's rules, so the sugar cannot disagree with the
+core spelling; `noexcept` propagates; a method returning `int&` returns
+`int&`.
+
+What differs from a hand-written forwarder, and is accepted: `p.fire`
+without parentheses is a valid expression (an empty object), and
+`&handle::fire` is a pointer to a data member rather than to a member
+function. The construction is isolated in one class template so that the
+P3294 form, real member functions, replaces it without touching callers.
+
+The api needs the handle type, to name the `call` it forwards to. The
+hand-written `api` never did, since its forwarders deduce `this`. So the
+handles inherit their sugar base by handle type as well as facade
+(`api_base<F, H>`, CRTP), which is the one change the reflection layer
+asks of the portable headers. A facade that defines an `api` keeps it; the
+reflected one applies only when it does not.
+
+### Portability and testing
+
+The layer lives in one header, "proxy_reflect.h", gated on
+`__cpp_impl_reflection >= 202506L`, and its test is one target compiled
+only under gcc 16 or newer, with `-std=c++2c -freflection` on that target
+alone. Everything else stays C++23 and builds as before; "proxy_test.cpp"
+is unchanged. The reflection test mirrors the fixtures of "proxy_test.cpp"
+rather than inventing new ones, and pins agreement directly: the reflected
+facade's flattened slot list is the hand-written facade's, and
+`prox::codegen` prints the same text for both.
+
+gcc is the only compiler with reflection semantics today (clang 23 parses
+the operators without implementing them; cl has nothing). When clang
+arrives it may have its own holes, different from gcc's. Every gcc
+workaround below is standard C++26, so clang will compile it, and each
+lives in a small named helper with the wart it dodges in the comment, so
+a clang pass reshapes one helper at a time.
+
+### gcc 16 notes
+
+Facts about the gcc 16 snapshot (16.0.1, 2026-03) that shaped the
+patterns, each verified by a probe:
+
+- The flag is `-freflection`; the gate macro is `__cpp_impl_reflection`
+  (not `__cpp_reflection`), defined only under the flag.
+- A call splice `t.[:m:](args)` is access-checked at the splice site, even
+  though P2996 says a member-access splice involves no access checking.
+  `&[:m:]` is not checked. Bindings go through the member pointer.
+- A splice expression, or a consteval call carrying reflection values,
+  cannot appear in a function signature (an unimplemented mangling, and an
+  ICE). Reflection computations live in class-template scope; function
+  signatures name only class template-ids. An `info` or `access_context`
+  NTTP on a class template mangles fine.
+- `define_aggregate` runs only inside a `consteval {}` block, and the
+  block must sit in a scope enclosing the class it defines, so the api is
+  a nested `struct type;` of a class template whose body holds the block,
+  defined on first naming.
+- `substitute` inside a loop over reflected members fails from the second
+  iteration; the loop only collects reflections into a pack, and keys and
+  signatures are formed at the type level from that pack.
+- A type splice directly under a pack expansion is rejected; it goes
+  through an alias template. A spliced type in template-argument position
+  needs `typename`. `^^alias` reflects the alias, so `dealias` before
+  comparing types.
+- Under `-fsanitize=undefined`, a consteval `std::string{string_view}` is
+  not a constant expression; the string is built by `push_back`.
+
+### Steps
+
+0. Build the `.cpp` suite as C++26 on every compiler, with the code
+   staying C++23 (the `.cu` bucket stays at C++23, nvcc's ceiling).
+1. `api_base<F, H>`: the handles pass their own type to the sugar base.
+   Portable change; the existing suite verifies it.
+2. `reflected_impl<T>` in "proxy_reflect.h", the registration route to it
+   when the facade has no boilerplate, and the gcc-only test target
+   mirroring the conformance fixtures. Prerequisite: `cleanbuild.sh gcc`
+   green under gcc 16, which needs a few `-Werror` fixes unrelated to
+   reflection.
+3. Api-first facades and the name derivation, with the agreement asserts
+   against the hand-written fixtures.
+4. The reflected api, with the sugar fixtures.
+5. Documentation: this section becomes the description of the result, and
+   the codegen section notes that it serves the portable route.
+
+Later: a clang pass when clang implements reflection; the P3294 form of
+the api when a compiler offers token injection.
+
 ## Future work
 
-- C++26 reflection plus annotations (P2996/P3394) enables deriving the
-  boilerplate impl itself from the facade's method list, removing even the
-  facade author's forwarding lines. Registration-first is what makes this
-  additive rather than a rewrite. Until then, `prox::codegen` generates
-  the same artifacts as source to paste, and reflection deletes the paste
-  step.
 - `std::formatter` bridge: `std::formatter` on the handles, so a proxy
   formats as its target does. Intended, with two prerequisites. The
   type-erasure move is `format_with_spec` (the synthetic parse-context

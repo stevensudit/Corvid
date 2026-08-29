@@ -1,3 +1,45 @@
+# gcc 16.2 release, built from source. The ubuntu-toolchain-r/test PPA only
+# carries a March 2026 trunk snapshot of gcc 16 for noble, so the release comes
+# from the gcc.gnu.org tarball instead. Its own stage so the layer cache
+# survives edits to the main image below; --disable-bootstrap halves the build
+# (a bootstrap only guards against a broken host compiler). The prefix is
+# /opt/gcc-16 rather than /usr/local so it cannot collide with /usr/local/cuda.
+#
+# The source gets one local patch, gcc-constexpr-strret.patch: the C++ front
+# end's constexpr evaluator counts a nonzero offset twice in the pointer that
+# memchr/strchr/strrchr/strstr return, which C++26 exposes through
+# std::string_view::find on constant haystacks (details in the patch header
+# and crossplatform.md). gcc_constexpr_strret_check.cpp is compiled against
+# the installed gcc so the image build fails if the patch did not take. After
+# a GCC_VERSION bump, a patch that no longer applies means upstream fixed it:
+# drop the patch and the check together.
+FROM ubuntu:24.04 AS gcc-build
+ARG GCC_VERSION=16.2.0
+# SHA-512 of gcc-${GCC_VERSION}.tar.xz, from the release's sha512.sum on
+# gcc.gnu.org, cross-checked against the bytes ftp.gnu.org serves. Pins the
+# exact source the image builds, since HTTPS alone trusts whatever the server
+# sends. A version bump updates both ARGs.
+ARG GCC_SHA512=c51c30ca7422d0cbecf504b2e0f33c3aca31e0f90a76b65217f465163fa6fa17b3f5de39e145c47e5bab90ac0ce7fff3b03c8d553ae36e01faaea5a50f8648d1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl xz-utils build-essential flex bison patch \
+    libgmp-dev libmpfr-dev libmpc-dev libisl-dev zlib1g-dev libzstd-dev && \
+    rm -rf /var/lib/apt/lists/*
+COPY gcc-constexpr-strret.patch gcc_constexpr_strret_check.cpp /tmp/corvid/
+RUN curl -fsSL -o /tmp/gcc-${GCC_VERSION}.tar.xz \
+      https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz && \
+    echo "${GCC_SHA512}  /tmp/gcc-${GCC_VERSION}.tar.xz" | sha512sum -c - && \
+    tar -xJ -C /tmp -f /tmp/gcc-${GCC_VERSION}.tar.xz && \
+    rm /tmp/gcc-${GCC_VERSION}.tar.xz && \
+    patch -p1 -d /tmp/gcc-${GCC_VERSION} < /tmp/corvid/gcc-constexpr-strret.patch && \
+    mkdir /tmp/gcc-obj && cd /tmp/gcc-obj && \
+    /tmp/gcc-${GCC_VERSION}/configure --prefix=/opt/gcc-16 \
+      --enable-languages=c,c++ --disable-multilib --disable-bootstrap \
+      --with-system-zlib --enable-default-pie --enable-default-ssp \
+      --program-suffix=-16 && \
+    make -j"$(nproc)" && make install-strip && rm -rf /tmp/gcc-* && \
+    /opt/gcc-16/bin/g++-16 -std=c++23 -fsyntax-only /tmp/corvid/gcc_constexpr_strret_check.cpp && \
+    rm -rf /tmp/corvid
+
 FROM nvidia/cuda:13.3.1-devel-ubuntu24.04
 
 ARG TZ
@@ -36,7 +78,14 @@ RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test
 # Node.js was the base image; on the CUDA base it's an install step.
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 
-# Basic development tools, toolchain, and iptables/ipset.
+# Basic development tools, toolchain, and iptables/ipset. gcc-15 is the nvcc
+# host compiler (nvcc 13.3 rejects gcc newer than 15; see cleanbuild.sh). The
+# PPA's gcc-16 snapshot stays only for its libstdc++-16-dev, which the clang +
+# libstdc++ leg picks up from /usr/lib/gcc (its <format> gets a local patch
+# below); the gcc leg itself uses the 16.2 built in the gcc-build stage. catch2
+# is the system libstdc++ Catch2 that the
+# CUDA tests link against (tests/CMakeLists.txt requires it once nvcc and
+# g++-15 are both present; the .cpp suite uses its own FetchContent Catch2).
 RUN apt-get update && apt-get install -y --no-install-recommends \
   less \
   git \
@@ -61,10 +110,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   clang-23 clangd-23 lldb-23 lld-23 clang-format-23 clang-tidy-23 cmake ninja-build \
   libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
   llvm-23 \
-  ccache strace \
-  gcc-16 g++-16 libstdc++-16-dev \
+  ccache strace patch \
+  gcc-15 g++-15 gcc-16 g++-16 libstdc++-16-dev catch2 \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# gcc 16.2 from the gcc-build stage. gcc adds no rpath, so binaries it links
+# find its libstdc++ through ld.so.conf; the 000- name sorts ahead of the
+# system paths so /opt/gcc-16/lib64 wins over the PPA snapshot's libstdc++.
+COPY --from=gcc-build /opt/gcc-16 /opt/gcc-16
+RUN echo /opt/gcc-16/lib64 > /etc/ld.so.conf.d/000-gcc-16.conf && ldconfig
 
 # Alternatives for clang and gcc.
 RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
@@ -73,8 +128,21 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
     --slave /usr/bin/clang-format clang-format /usr/bin/clang-format-23 \
     --slave /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-23 \
     --slave /usr/bin/lldb lldb /usr/bin/lldb-23 && \
-    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-16 100 \
-    --slave /usr/bin/g++ g++ /usr/bin/g++-16
+    update-alternatives --install /usr/bin/gcc gcc /opt/gcc-16/bin/gcc-16 100 \
+    --slave /usr/bin/g++ g++ /opt/gcc-16/bin/g++-16
+
+# The PPA snapshot's <format> gets one local patch, libstdcxx-format-clang.patch,
+# so that clang can constant-evaluate format strings with a dynamic width or
+# precision in C++26 mode (LLVM issue 73232 plus a static_assert clang rejects;
+# details in the patch header and crossplatform.md). libstdcxx_format_check.cpp
+# is compiled with clang++ against the patched header so the image build fails
+# if the patch did not take. A patch that no longer applies after a snapshot
+# bump means upstream changed the area: re-derive or retire the patch and the
+# check together.
+COPY libstdcxx-format-clang.patch libstdcxx_format_check.cpp /tmp/corvid/
+RUN patch -p1 -d /usr/include/c++/16 < /tmp/corvid/libstdcxx-format-clang.patch && \
+    clang++-23 -std=c++26 -fsyntax-only /tmp/corvid/libstdcxx_format_check.cpp && \
+    rm -rf /tmp/corvid
 
 # npm global dir writable by node.
 RUN mkdir -p /usr/local/share/npm-global && \

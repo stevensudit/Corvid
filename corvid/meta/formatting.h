@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 #include "concepts.h"
 #include "padding.h"
@@ -97,6 +98,30 @@ struct parsed_spec {
 
 #pragma endregion
 };
+
+#pragma endregion
+#pragma region Arg visiting
+
+namespace details {
+
+// Visit a `basic_format_arg` with `fn`, through the argument's own `visit`
+// where the library provides it and through `std::visit_format_arg`
+// otherwise.
+//
+// The member arrived in C++26, which deprecates the free function, so the
+// choice is probed rather than gated on a macro (libc++ deprecates without
+// bumping `__cpp_lib_format`).
+template<typename Arg, typename Fn>
+constexpr decltype(auto) visit_format_arg(Arg&& arg, Fn&& fn) {
+  if constexpr (requires {
+                  std::forward<Arg>(arg).visit(std::forward<Fn>(fn));
+                })
+    return std::forward<Arg>(arg).visit(std::forward<Fn>(fn));
+  else
+    return std::visit_format_arg(std::forward<Fn>(fn), std::forward<Arg>(arg));
+}
+
+} // namespace details
 
 #pragma endregion
 #pragma region spec_parser
@@ -199,19 +224,17 @@ struct spec_parser: parsed_spec<CharT> {
     // but not integers) are rejected just as the std formatters reject them.
     template<typename FormatContext>
     static constexpr size_t get_dynamic_num(FormatContext& ctx, size_t id) {
-      return std::visit_format_arg(
-          [](auto value) -> size_t {
-            using T = std::remove_cvref_t<decltype(value)>;
-            if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> &&
-                          !CharType<T>)
-            {
-              if constexpr (std::is_signed_v<T>)
-                if (value < 0) throw std::format_error{"negative arg"};
-              return static_cast<size_t>(value);
-            } else
-              throw std::format_error{"arg is not an integer"};
-          },
-          ctx.arg(id));
+      return details::visit_format_arg(ctx.arg(id), [](auto value) -> size_t {
+        using T = std::remove_cvref_t<decltype(value)>;
+        if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                      !CharType<T>)
+        {
+          if constexpr (std::is_signed_v<T>)
+            if (value < 0) throw std::format_error{"negative arg"};
+          return static_cast<size_t>(value);
+        } else
+          throw std::format_error{"arg is not an integer"};
+      });
     }
 
     // Resolve a dynamic string, such as a lookup key: arg `id` as a view of
@@ -224,7 +247,7 @@ struct spec_parser: parsed_spec<CharT> {
     template<typename FormatContext>
     static constexpr std::basic_string_view<CharT>
     get_dynamic_str(FormatContext& ctx, size_t id) {
-      return std::visit_format_arg(
+      return details::visit_format_arg(ctx.arg(id),
           [](auto value) -> std::basic_string_view<CharT> {
             using T = std::remove_cvref_t<decltype(value)>;
             if constexpr (std::is_same_v<T, std::basic_string_view<CharT>> ||
@@ -232,8 +255,7 @@ struct spec_parser: parsed_spec<CharT> {
               return value;
             else
               throw std::format_error{"arg is not a string"};
-          },
-          ctx.arg(id));
+          });
     }
   };
 

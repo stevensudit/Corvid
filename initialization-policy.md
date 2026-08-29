@@ -499,6 +499,11 @@ Braces express "this object takes on these values", and they reject narrowing.
   cite it as precedent for a size-like argument taking parens.
   `Image blank{1024, 1024};` keeps braces because `Image` has no
   `initializer_list` constructor to collide with.
+  - `std::span` from a pointer and a count is this case as of C++26, which
+    adds `span(initializer_list<T>)`: `std::span<const value>{&v, 1}` is a
+    span over two temporaries whenever `T` converts from a pointer (via
+    `bool`) or an integer, so it takes parens, `std::span<const value>(&v,
+    1)`, on every element type.
 - When the identity test is genuinely ambiguous, the ambiguity is itself the
   finding, because it means the constructor is doing two jobs. `Image` is
   unsettling for exactly that reason: a real one would have both a dimensions

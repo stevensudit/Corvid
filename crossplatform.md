@@ -138,6 +138,56 @@ Linux (`./cleanbuild.sh`) is unchanged. The full menu (libc++/libstdc++,
 asan/tsan/ubsan/msan, scan, coverage, single-file) is documented in the
 build-and-test skill.
 
+The `.cpp` suite builds as C++26 where the toolchain allows (clang with
+libc++, gcc, and both Windows compilers), while the code stays C++23: C++26
+features are permitted only behind their feature-test gates. One leg stays
+at C++23: the `.cu` bucket, because `c++23` is the top of nvcc 13.3's `--std`
+list.
+
+The clang + libstdc++ leg (`./cleanbuild.sh libstdcpp`) builds as C++26 only
+because the container's libstdc++ 16 `<format>` carries a local patch,
+`.devcontainer/libstdcxx-format-clang.patch`. Stock libstdc++ (15 through
+trunk, as of 2026-08-29) declares `basic_format_parse_context::
+__check_dynamic_spec` in the class and defines it near the end of the header,
+while the explicit specialization `formatter<char, wchar_t>` instantiates it
+in between through its non-template `parse`. clang instantiates a constexpr
+function template at its first use and cannot instantiate during constant
+evaluation (LLVM issue 73232, CWG2497; gcc, EDG and MSVC instantiate on
+demand), so in C++26 mode, where the dynamic-spec checks exist, every format
+string with a dynamic width or precision (`{:{}}`) fails to compile with
+"undefined function `__check_dynamic_spec`". The patch routes the integral
+and string checks through non-template helpers declared before the class,
+and also makes `__valid_types_for_check_dynamic_spec` static, since clang
+rejects the `static_assert` that calls that non-static member (an implicit
+`this` in a constant expression) whenever a user formatter calls
+`check_dynamic_spec<Ts...>`. The Dockerfile applies the patch to the PPA
+snapshot's copy in `/usr/include/c++/16` (the one clang reads; gcc uses
+`/opt/gcc-16` and needs no patch) and compiles
+`.devcontainer/libstdcxx_format_check.cpp` with clang++ against the result,
+so an image whose header lacks the fix does not build. A patch that no
+longer applies after a snapshot bump means upstream changed the area:
+re-derive or retire the patch and the check together.
+
+The gcc leg (`./cleanbuild.sh gcc`) builds as C++26 only because the
+container's gcc 16.2.0 carries a local patch,
+`.devcontainer/gcc-constexpr-strret.patch`. Stock gcc (13 through 16.2.0, and
+trunk as of 2026-08-29) has a bug in the C++ front end's constexpr evaluator:
+when it folds `memchr`, `strchr`, `strrchr` or `strstr` on an argument that
+carries an offset, it re-bases the folded result on the original argument
+even though the fold already merged that offset in, so
+`__builtin_memchr(a + 1, 'a', n)` on a constant array yields `a + 11` instead
+of `a + 10`. The bug is dialect-independent (`static_assert` forms fail under
+`-std=c++23` too), but C++26 exposes it to ordinary code: P2738 makes `void*`
+to `T*` casts constant expressions, so the front end folds
+`char_traits<char>::find` on constant haystacks instead of leaving `memchr`
+to the middle end, and `string_view::find(c, pos)` returns the right index
+plus `pos`. `strings_test` and `quic_conn_test` catch it at run time. The
+Dockerfile applies the patch in the `gcc-build` stage and compiles
+`.devcontainer/gcc_constexpr_strret_check.cpp` against the result, so an
+image whose gcc lacks the fix does not build. After a gcc bump, a patch that
+no longer applies means upstream fixed it: retire the patch and the check
+together. clang is correct throughout.
+
 Windows (`./cleanbuild.ps1`) does a Release configure, build, and ctest,
 incrementally when the configuration is unchanged (`clean` forces a fresh
 configure and full recompile):
@@ -205,15 +255,15 @@ nobody has ported it: `compute-sanitizer` ships with the Linux toolkit too.
 Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
 
 - clang++: `-Wall -Wextra -Werror -fms-runtime-lib=dll`, plus the plain
-  `-std=c++23` CMake emits from `CMAKE_CXX_STANDARD=23` (which clangd parses
+  `-std=c++26` CMake emits from `CMAKE_CXX_STANDARD=26` (which clangd parses
   correctly, unlike the clang-cl `/std` form the retired path had to work
   around). `-fms-runtime-lib=dll` selects the `/MD` CRT (see section 3).
-- cl: `/std:c++latest` (cl has no `/std:c++23`), then `/EHsc /permissive-
-  /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305 /wd4310`. `/permissive-`
-  turns on conformant two-phase name lookup; `/Zc:preprocessor` selects the
-  conformant preprocessor, without which cl corrupts raw string literals passed
-  through Catch2 macros. The four `/wd` codes silence MSVC-only warnings that
-  fire on correct, intentional code.
+- cl: `/std:c++latest` (cl has no `/std:c++26`), then `/EHsc /permissive-
+  /Zc:preprocessor /W4 /WX /wd4244 /wd4245 /wd4267 /wd4305 /wd4310
+  /wd4805`. `/permissive-` turns on conformant two-phase name lookup;
+  `/Zc:preprocessor` selects the conformant preprocessor, without which cl
+  corrupts raw string literals passed through Catch2 macros. The `/wd` codes
+  silence MSVC-only warnings that fire on correct, intentional code.
 
 The CUDA flags live in the `CORVID_ENABLE_CUDA` block. On Windows the warning
 set matches the `.cpp` suite: `-Wall -Wextra -Werror`, with
@@ -224,7 +274,9 @@ codes). Plus `-std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the
 last silences the note that CUDA 13.3 is newer than clang's last fully
 supported toolkit) and `-gline-tables-only` (section 8). On Linux the nvcc form
 is `-std=c++23 -O3 -lineinfo`; raising its host warnings to `-Wextra` (via nvcc
-`-Xcompiler`) is a separate follow-up.
+`-Xcompiler`) is a separate follow-up. The `.cu` bucket stays at C++23 on both
+platforms while the `.cpp` suite builds as C++26, because `c++23` is the top
+of nvcc 13.3's `--std` list.
 
 ## 5. Header portability conventions
 

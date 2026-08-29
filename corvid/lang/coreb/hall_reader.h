@@ -120,7 +120,7 @@ public:
     parser p(rt, src);
     for (p.skip_trivia(); !p.at_end(); p.skip_trivia()) {
       auto v = p.parse_value();
-      if (!v) return std::move(v);
+      if (!v) return v;
       values.push_back(*v);
     }
     return values;

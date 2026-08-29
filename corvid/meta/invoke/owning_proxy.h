@@ -507,10 +507,13 @@ private:
   template<invocable_policy P>
   static adoption adoption_for(const owning_vtable_t* vt) noexcept {
     if (vt->relocate) {
+      // The `else` keeps the fallback out of the guaranteed-fit
+      // instantiations, where cl otherwise warns C4702 (unreachable).
       if constexpr (details::is_inline_fit_guaranteed(Policy, P))
         return adoption::relocate;
-      return details::adoption_of(Policy, storage_mode::inlined, vt->size,
-          vt->align, true);
+      else
+        return details::adoption_of(Policy, storage_mode::inlined, vt->size,
+            vt->align, true);
     }
     return details::adoption_of(Policy, storage_mode::dynamic, vt->size,
         vt->align, static_cast<bool>(vt->to_inline));

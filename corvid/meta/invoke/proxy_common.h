@@ -39,8 +39,8 @@
 //
 // Type-erased handles (`proxy`, `proxy_view`, `const_proxy_view`,
 // `shared_proxy`, `const_shared_proxy`, `weak_proxy`, `const_weak_proxy`)
-// over an interface definition (a facade),
-// without inheritance, vtable pointers in the target type, or macros.
+// over an interface definition (a facade), without inheritance, vtable
+// pointers in the target type, or macros.
 //
 // Opting a class into a facade does not require modifying it, so you can
 // retrofit a facade onto an existing type (even one in `std`), or have
@@ -104,7 +104,7 @@ using namespace invocables;
 
 // `method_key` is the tag carrying a method name as a compile-time string.
 //
-// `proxy_impl` bindings overload their `on` hook on it; it is how code
+// `proxy_impl` bindings overload their `on` hook on it. It is how code
 // canonically names a method, given that a library cannot mint a member with a
 // caller-chosen name.
 template<fixed_string Name>
@@ -116,7 +116,7 @@ inline namespace literals {
 
 // UDL for method keys: `"name"_method` is a `method_key<"name">`.
 //
-// This must be a literal operator template: the literal itself binds as the
+// This must be a literal operator template. The literal itself binds as the
 // `fixed_string` template argument, which is what lets it reach NTTP
 // position.
 //
@@ -146,7 +146,7 @@ using namespace invocables::implementation;
 // `is_direct_eligible`) is stored like any other, and the policy's direct
 // eligibility is not consulted.
 //
-// Nothing is lost: inline storage of such a target already costs nothing at
+// Nothing is lost. Inline storage of such a target already costs nothing at
 // runtime, and the one place it would save an allocation, `heap_only`,
 // promises a stable address, which a target stored nowhere could not keep.
 template<typename T>
@@ -164,13 +164,13 @@ consteval storage_mode proxy_storage_mode_of(invocable_policy p) noexcept {
 
 } // namespace details
 
-// `method` is the descriptor with the name plus the erased signature.
+// `method` is the descriptor with the name, plus the erased signature.
 //
 // The signature is spelled like a member function's definition. So, for
 // example, it would look like `std::string(int)`. Or, for `const this`, it
 // would be `std::string(int) const`.
 //
-// The signature fixes the erased ABI; a binding may return the declared result
+// The signature fixes the erased ABI. A binding may return the declared result
 // type or anything convertible to it.
 //
 // A `noexcept` qualifier is likewise honored. Conformance then requires the
@@ -187,11 +187,11 @@ consteval storage_mode proxy_storage_mode_of(invocable_policy p) noexcept {
 // repeatedly, and the bindings overload on the trailing parameters.
 //
 // The signature may carry `const` and `noexcept`, but not a reference
-// qualifier, because it serves every handle in the family, owning, viewing,
-// and shared alike, and constness is the one qualifier they all share with
+// qualifier, because it serves every handle in the family (owning, viewing,
+// and shared alike) and constness is the one qualifier they all share with
 // the target.
 //
-// A handle's value category says nothing about the target's: a view is a
+// A handle's value category says nothing about the target's. A view is a
 // copyable pair of pointers, and a shared handle has other owners, so an `&&`
 // method would let either move out of an object it does not own, while `&`
 // could only refuse a call on a temporary owner.
@@ -203,9 +203,9 @@ consteval storage_mode proxy_storage_mode_of(invocable_policy p) noexcept {
 // A consuming operation belongs in the binding, which may take `T&` and move
 // out of it, or in `proxy::extract`. The qualifiers are exposed as
 // `const_qualifier` and `noexcept_specifier`, as the bools `is_const` and
-// `is_noexcept`, and the const axis also as the `access_mode` `access`;
-// `args_t` is the declared parameter list, for introspection (`codegen` walks
-// it).
+// `is_noexcept` (derived for convenience), and the const axis also as the
+// `access_mode` `access`. The declared parameter list is `args_t`, for
+// introspection (`codegen` walks it).
 template<fixed_string Name, typename Sig>
 struct method: method_key<Name> {
   static_assert(!Name.empty(), "method names may not be empty");
@@ -268,8 +268,9 @@ constexpr inline bool is_member_binding_v<member<Key, Ptr>> = true;
 // (a hook's parameters are not), and they are spellable where member names
 // are not: a library cannot turn `"fire"` into `.fire`, but `&robber::shoot`
 // is a value. An overloaded member binds too, but the pointer must be cast to
-// the wanted signature to select the overload, as any member pointer must. A
-// private member binds when the hook can name it, which a hook defined as a
+// the wanted signature to select the overload, as any member pointer must.
+//
+// A private member binds when the hook can name it, which a hook defined as a
 // hidden friend of the type can: access is checked where the pointer is
 // spelled, never where the library invokes it. What this cannot express stays
 // with a binding class: a binding that adapts arguments or results or calls
@@ -359,7 +360,7 @@ concept Facade = requires(const F& f) { details::probe(f); };
 //                     method<"play", void()>> {};
 //
 // The derived facade's effective method list is the flattening of its bases'
-// lists, in declaration order, followed by its own; handles of the derived
+// lists, in declaration order, followed by its own. Handles of the derived
 // facade dispatch inherited and own methods alike.
 //
 // Within one extends chain, a recurring method name forms an overload set,
@@ -380,7 +381,7 @@ concept Facade = requires(const F& f) { details::probe(f); };
 // and since conformance is per facade there is only one binding to reach, no
 // matter the path.
 //
-// Conformance is per facade, as with Rust supertraits: a type conforms to
+// Conformance is per facade, as with Rust supertraits. A type conforms to
 // `pet` by binding `pet`'s own methods through `proxy_impl<pet, T>` and
 // conforming to `animal` in the usual way. An inherited method's behavior is
 // therefore defined once, by the base facade's impl, and an upcast handle
@@ -404,12 +405,13 @@ struct extends {};
 //
 // Every method then answers to its facade-qualified name ("animal::speak")
 // as well as its plain one: a `call` key containing "::" matches the
-// declaring facade's name plus the method name. The qualified spelling is
-// what disambiguates sibling collisions, two `extends` bases declaring the
-// same method name. Facade names must be unique within a composition, and
-// would ideally be globally unique, though not by namespace-style
-// qualification: `"::"` is reserved for splitting a qualified key, so
-// neither facade nor method names may contain it (enforced here and in
+// declaring facade's name plus the method name.
+//
+// The qualified spelling is what disambiguates sibling collisions, two
+// `extends` bases declaring the same method name. Facade names must be unique
+// within a composition, and would ideally be globally unique, though not by
+// namespace-style qualification: `"::"` is reserved for splitting a qualified
+// key, so neither facade nor method names may contain it (enforced here and in
 // `method`).
 template<fixed_string Name>
 struct name {
@@ -796,7 +798,12 @@ namespace details {
 // The second parameter is the pattern-matching hook that gives the body
 // `R` and `Args...`, as with `flexi_function`'s third: derived from the
 // method's signature and constrained to that derivation, never passed.
-template<typename M, typename FunctionT = M::function_t>
+//
+// The default's `typename` is redundant per C++20 (P0634) but load-bearing
+// for MSVC, which fails to apply implicit typename when the template-id is
+// instantiated with a dependent argument (C4346).
+// NOLINTNEXTLINE(readability-redundant-typename)
+template<typename M, typename FunctionT = typename M::function_t>
 requires std::same_as<FunctionT, typename M::function_t>
 struct method_traits;
 
