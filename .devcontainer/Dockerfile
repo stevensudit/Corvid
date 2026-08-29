@@ -60,6 +60,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   openssh-client rsync zip file bc \
   clang-23 clangd-23 lldb-23 lld-23 clang-format-23 clang-tidy-23 cmake ninja-build \
   libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
+  llvm-23 \
   ccache strace \
   gcc-16 g++-16 libstdc++-16-dev \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
