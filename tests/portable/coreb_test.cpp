@@ -780,55 +780,158 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   runtime rt;
   evaluator ev(rt);
 
-  // A quote with no holes is the literal it always was, untouched; so is
-  // everything that is not a template.
-  CHECK(expand(rt, "'(a b c)") == "(quote (a b c))");
-  CHECK(expand(rt, "'x") == "(quote x)");
-  CHECK(expand(rt, "(+ 1 2)") == "(+ 1 2)");
-  CHECK(expand(rt, "42") == "42");
+  // The job of the expander is to convert a template into code that builds the
+  // contents of the template. This is a mechanical transformation in which the
+  // elements of the input are wrapped in `list`, `quote`, and perhaps `append`
+  // forms to create that build code.
+  //
+  // However, when there are no holes or gensyms, there's no reason to do this:
+  // the data itself is already in the final form, so the expander just passes
+  // it through unchanged.
+  //
+  // When there are holes, the expander has to convert the input to code that
+  // evaluates those holes later and fills them in. In the process, it replaces
+  // the quoted template input with unquoted code that generates its contents.
 
-  // Holes: each becomes its expression, and the rest is quoted piecewise.
-  // In cells, `(a $x)` is `(a (unquote x))`, the sublist sitting as the head
-  // of the second cell: `[a | [[unquote | [x | nil]] | nil]]`.
-  CHECK(expand(rt, "'$x") == "x");
-  CHECK(expand(rt, "'(a $x)") == "(list (quote a) x)");
+  // What makes something a template is that it's code being treated as data.
+  // Specifically, this means that it's a quote form encountered by the
+  // expander in the context of code. So if we're already inside a quote and
+  // encounter a quote, that's just data, not a template. Therefore, we don't
+  // expand that inner quote (even if it has `unquote`s or other holes in it).
+
+  // For example, a quote with no holes is the literal it always was,
+  // untouched; so is everything that is not a template.
+  CHECK(expand(rt, "'(a b c)") == "(quote (a b c))"); // template
+  CHECK(expand(rt, "'x") == "(quote x)");             // template
+  CHECK(expand(rt, "(+ 1 2)") == "(+ 1 2)");          // non-template
+  CHECK(expand(rt, "42") == "42");                    // non-template
+
+  // If it's not data, it's not a template, so it's not expanded.
+  //
+  // The `$` is short for `unquote`, just as the `'` is short for `quote`. When
+  // spoken, '$' is pronounced "unquote" or "dollar". Note how the `$` syntax
+  // mirrors replaceable parameters in format strings.
+  CHECK(expand(rt, "$x") == "(unquote x)"); // non-template
+  // The following, shown as cells is:
+  // `[quote | [a | [[unquote | [x | nil]] | nil]]]`.
+  CHECK(expand(rt, "(a $x)") == "(quote (a (unquote x)))"); // non-template
+
+  // If it's a template, it's a quote whose content has holes (such as those
+  // marked by an unquote form), so it cannot stand for itself. Instead, the
+  // expander rewrites it as code that will build the template while filling in
+  // the unquoted holes with evaluations.
+  //
+  // Concretely, the contents are placed in a `list` and each segment that
+  // wasn't marked as `unquote` is quoted. It multiplies the `quote` against
+  // each element in the data, which cancels out when it hits an `unquote`.
+  CHECK(expand(rt, "'$x") == "x"); // Template with a single hole.
+  CHECK(expand(rt, "'(a $x)") ==
+        "(list (quote a) x)"); // Template with a hole in a proper list.
+
+  // Note how the `(+ 1 2)` is unquoted, which means if it this were a macro
+  // definition, it would be evaluated when the macro was applied so as to
+  // generate a function, not when that function runs. In other words, the
+  // generated function would contain a `3` there.
   CHECK(expand(rt, "'(a $(+ 1 2) \"s\" 7 nil true)") ==
-        "(list (quote a) (+ 1 2) \"s\" 7 nil true)");
-  // Nesting: a sublist with holes is built; one without stays a literal.
+        "(list (quote a) (+ 1 2) \"s\" 7 nil true)"); // template with hole.
+
+  // Nesting: A hole can be in a sublist (so long as that sublist itself is not
+  // quoted). When this is expanded, the input as a whole is wrapped in a
+  // `list`, as usual, but the elements that have no holes are quoted instead
+  // of being replaced by code that builds them.
   CHECK(expand(rt, "'(a (b $x) (c d))") ==
         "(list (quote a) (list (quote b) x) (quote (c d)))");
-  // Splices join segments with append; a splice alone is the list itself.
+
+  // A splice is a hole marked by `$@`, which is short for `unquote_splicing`.
+  // When spoken, it's pronounced "splice" or "dollar at".
+  //
+  // It expands to a list that's merged in (as opposed to becoming a sublist).
+  // The generated code uses `append`, and each segment becomes a `list` with
+  // `quote` inside. In other words, it concatenates a list of lists to build
+  // the output as opposed to just building a list.
   CHECK(expand(rt, "'(a $@xs b)") ==
         "(append (list (quote a)) xs (list (quote b)))");
   CHECK(expand(rt, "'($@xs)") == "xs");
   CHECK(expand(rt, "'($@xs $@ys)") == "(append xs ys)");
-  // A dotted tail is built too, a hole there reading as the classic
-  // `(a unquote x)`. A proper list spends a cell per item and ends in nil,
-  // while the dot means "use this object as the tail". Since `$x` reads as
-  // the list `(unquote x)`, dotting it on makes its cells the rest of the
-  // spine, where `(a $x)` had put them as the head of a new cell:
-  //   (a x)      [a | [x | nil]]
-  //   (a . x)    [a | x]
-  //   (a $x)     [a | [[unquote | [x | nil]] | nil]]
-  //   (a . $x)   [a | [unquote | [x | nil]]]
-  // The last is still a proper list, just flattened, and `(a unquote x)` is
-  // its printed form, so the flat spelling is the same cells and reads the
-  // same way. It is the only shape that can say "the tail is a hole", and
-  // `append` then makes the value of `x` the tail, dotted or not as that
-  // value turns out.
-  CHECK(expand(rt, "'(a . $x)") == "(append (list (quote a)) x)");
-  CHECK(expand(rt, "'(a unquote x)") == "(append (list (quote a)) x)");
+
+  // An interesting special case is a hole in the dotted tail, such as in
+  // `'(a . $x)`. This turns out to be identical to the "classic" expression,
+  // `'(a unquote x)`.
+  //
+  // To understand why, consider that a proper list spends a cell per item,
+  // where the last cell ends in nil, while a dot instructs the reader to use
+  // this object as the tail.
+  //
+  // Since `$x` reads as the list `(unquote x)`, dotting it makes its cells the
+  // rest of the spine. In contrast, `(a $x)` would have put them as the head
+  // of a new cell. So if you look at the actual transformations, you can see
+  // that the dotted-tail hole naturally expands into a proper list, but with
+  // `unquote` in front of the hole instead of nesting it:
+  //
+  //   `(a x)`      `[a | [x | nil]]`
+  //   `(a . x)`    `[a | x]`
+  //   `(a $x)`     `[a | [[unquote | [x | nil]] | nil]]`
+  //   `(a . $x)`   `[a | [unquote | [x | nil]]]`
+  //
+  // The last example is still a proper list, just flattened, and `(a unquote
+  // x)` is its canonical printed form, so the flat spelling has the same cells
+  // and reads the same way.
+  //
+  // The expanded code has to use `append` in order to put the hole in the
+  // tail, since `list` generates proper lists, not dot-tailed ones.
+  CHECK(expand(rt, "'(a $x)") == "(list (quote a) x)"); // For contrast.
+  CHECK(expand(rt, "'(a . $x)") ==
+        "(append (list (quote a)) x)"); // Dotted-tail syntax.
+  CHECK(expand(rt, "'(a unquote x)") ==
+        "(append (list (quote a)) x)"); // Same same!
+
+  // The `$$` is an escape that maps directly to `%unquote`. When spoken, it's
+  // pronounced "dollar dollar" or "double dollar", but could also be called
+  // "quoted unquote" or even "escaped dollar".
+  //
+  // It allows a template to output `unquote` itself, without the expander
+  // interpreting it as a hole marker. This is useful for a macro that
+  // generates a macro. The result of its expansion shows up as `(quote
+  // unquote)`, as in the example below:
   CHECK(expand(rt, "'(a . $$x)") ==
         "(append (list (quote a)) (list (quote unquote) (quote x)))");
+
+  // A splice can work with a dotted-tail literal: the expander has to switch
+  // to `append` of `list`s, instead of a single `list`, because `append`
+  // allows creating a dotted tail.
   CHECK(
       expand(rt, "'(a $@xs . b)") == "(append (list (quote a)) xs (quote b))");
-  // A hole's expression is code: a template inside it expands in turn.
+
+  // Normally, a quote inside a template is data, so it would not be expanded.
+  // But if a quote is unquoted with `$`, then it's no longer the trivial
+  // passthrough case. Instead, the entire template is replaced with code that
+  // builds the template, with the holes filled in.
+  //
+  // In the example below, the output is the same as for `'(a (b $x))`, as
+  // though the `$` cancelled out the `'` that followed. However, it's not
+  // identical in general, because it creates two templates, which means that
+  // the gensyms would be distinct.
+  //
+  // The `$` opens a hole and its contents are interpreted as code. Since that
+  // code begins with a quote, it's a template. Therefore, the expander leaves
+  // the outer template and expands the contents of the hole much as if they
+  // had been encountered at the top level. The code is then dropped into the
+  // outer template's `list` as an element.
+  //
+  // The big picture is that `quote` marks data while `unquote` marks code. The
+  // odd case is `$$` (aka `%unquote`), which lets you enter the symbol
+  // `unquote` as data (where the build renders it as `(quote unquote)`). It
+  // is to `$` what the C `\\` is to `\`: an escape that makes the mode-switch
+  // symbol a plain one, while its operand stays a template like everything
+  // around it.
   CHECK(expand(rt, "'(a $'(b $x))") == "(list (quote a) (list (quote b) x))");
+
   // A quote nested inside a template is data, holes and all: it neither
   // counts as a hole nor gets built.
   CHECK(expand(rt, "'(a '(b $x))") == "(quote (a (quote (b (unquote x)))))");
   CHECK(expand(rt, "'(a $x '(b $y))") ==
         "(list (quote a) x (quote (quote (b (unquote y)))))");
+
   // The escape yields the literal unquote form as data, its operand a
   // template.
   CHECK(expand(rt, "'(a $$x)") ==
