@@ -44,10 +44,15 @@ else()
     endif()
 endif()
 
-# Default libc++ prefix is the system clang-22 install. SANITIZER=msan
-# overrides this to the locally built MSAN-instrumented libc++ so that the
-# C++ stdlib code MSAN's instrumentation observes is itself instrumented.
-set(LIBCXX_PREFIX "/usr/lib/llvm-22")
+# Default libc++ prefix is the LLVM install of the clang doing the build:
+# /usr/bin/clang++ is an update-alternatives link (the Dockerfile picks the
+# version) that resolves to /usr/lib/llvm-NN/bin/clang++, so the prefix is two
+# directories up from the resolved binary. Only the libc++ branch below reads
+# it. SANITIZER=msan overrides this to the locally built MSAN-instrumented
+# libc++ so that the C++ stdlib code MSAN's instrumentation observes is itself
+# instrumented.
+get_filename_component(_corvid_cxx_real "${CMAKE_CXX_COMPILER}" REALPATH)
+get_filename_component(LIBCXX_PREFIX "${_corvid_cxx_real}/../.." ABSOLUTE)
 if(SANITIZER STREQUAL "msan")
     if(USE_LIBSTDCPP)
         message(FATAL_ERROR "SANITIZER=msan requires libc++ (USE_LIBSTDCPP=OFF)")
@@ -68,7 +73,7 @@ if(WIN32)
     # same driver and warning flags as Linux clang, which also keeps clangd's
     # parsing aligned. cl is the conformance-mode second compiler. (The CUDA
     # bucket also uses clang++, because nvcc's MSVC device frontend has no C++23
-    # dialect; see the CUDA section.) The libc++/clang-22 knobs in the Linux
+    # dialect; see the CUDA section.) The libc++/clang knobs in the Linux
     # branches (-nostdinc++, the libc++ include prefix, -march=native,
     # -fexperimental-library, the libc++ link options) have no MSVC-ABI analog,
     # so none apply here. The Linux network stack is excluded at the
@@ -125,8 +130,16 @@ elseif(USE_LIBSTDCPP)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=array-bounds")
     endif()
 else()
-    # Use Clang 22 and avoid pulling in GCC.
-    set(CMAKE_CXX_COMPILER "/usr/bin/clang++-22")
+    # This branch is clang-only (-nostdinc++, the libc++ prefix, compiler-rt,
+    # lld). The drivers (cleanbuild.sh, comprehensive.cmake, ide_build.sh,
+    # start_sim.sh) export CC/CXX to the alternatives-linked clang; a bare
+    # cmake invocation would pick up the default c++, which is g++ here.
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR
+            "The libc++ configuration needs clang, got ${CMAKE_CXX_COMPILER_ID} "
+            "(${CMAKE_CXX_COMPILER}). Export CXX=clang++ or pass -DUSE_LIBSTDCPP=ON.")
+    endif()
+    message(STATUS "libc++ prefix: ${LIBCXX_PREFIX}")
     set(CMAKE_CXX_COMPILER_TARGET "x86_64-pc-linux-gnu")
     # `-fexperimental-library` unlocks libc++'s tzdb / utc_clock / zoned_time
     # headers (gated behind `_LIBCPP_HAS_EXPERIMENTAL_TZDB`); the matching
@@ -380,7 +393,7 @@ set(NGTCP2_INCLUDE_DIR "${NGTCP2_INSTALL_DIR}/include")
 set(_ngtcp2_san_args "")
 if(SANITIZER STREQUAL "msan")
     set(_ngtcp2_san_args
-        "-DCMAKE_C_COMPILER=clang-22"
+        "-DCMAKE_C_COMPILER=clang"
         "-DCMAKE_C_FLAGS=-fsanitize=memory -fno-omit-frame-pointer -g")
 endif()
 
@@ -465,7 +478,7 @@ set(NGHTTP3_INCLUDE_DIR "${NGHTTP3_INSTALL_DIR}/include")
 set(_nghttp3_san_args "")
 if(SANITIZER STREQUAL "msan")
     set(_nghttp3_san_args
-        "-DCMAKE_C_COMPILER=clang-22"
+        "-DCMAKE_C_COMPILER=clang"
         "-DCMAKE_C_FLAGS=-fsanitize=memory -fno-omit-frame-pointer -g")
 endif()
 
@@ -504,7 +517,7 @@ add_dependencies(nghttp3_static nghttp3_external)
 endif() # CMAKE_SYSTEM_NAME STREQUAL "Linux" (io_uring / QUIC / HTTP/3 deps)
 
 if(USE_CLANG_TIDY)
-    find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy)
     if(CLANG_TIDY_EXE)
         message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
         # Hardcode disabling StackAddressEscape explicitly
@@ -546,7 +559,7 @@ if(CORVID_ENABLE_CUDA)
         # device together. -fms-runtime-lib=dll picks the dynamic (/MD) CRT to
         # match the FetchContent Catch2 (clang defaults to the static /MT one);
         # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
-        # than clang 22's last fully supported toolkit (codegen is unaffected).
+        # than clang's last fully supported toolkit (codegen is unaffected).
         # -gline-tables-only is the clang analog of the Linux side's -lineinfo:
         # it embeds the SASS<->source line mapping (.nv_debug_line_sass) that
         # compute-sanitizer (./cleanbuild.ps1 cudacheck) and Nsight attribute

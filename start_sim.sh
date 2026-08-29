@@ -17,8 +17,8 @@ cd "$REPO_ROOT"
 
 # C++ build --------------------------------------------------------------
 
-export CC="/usr/bin/clang-22"
-export CXX="/usr/bin/clang++-22"
+export CC="$(command -v clang)"
+export CXX="$(command -v clang++)"
 
 BUILD_DIR="tests/build_sim"
 

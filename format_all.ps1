@@ -3,14 +3,12 @@
 
 $ErrorActionPreference = 'Stop'
 
-# Locate clang-format, preferring a versioned clang-format-22 on PATH, then a
-# plain clang-format on PATH, then the LLVM install scripts/ide_build.ps1 uses
-# (Windows LLVM ships an unversioned clang-format.exe).
+# Locate clang-format: a plain clang-format on PATH, then the LLVM install
+# scripts/ide_build.ps1 uses (Windows LLVM ships an unversioned
+# clang-format.exe, so no versioned name is needed).
 $clangFormat = $null
-foreach ($name in 'clang-format-22', 'clang-format') {
-  $cmd = Get-Command $name -ErrorAction SilentlyContinue
-  if ($cmd) { $clangFormat = $cmd.Source; break }
-}
+$cmd = Get-Command 'clang-format' -ErrorAction SilentlyContinue
+if ($cmd) { $clangFormat = $cmd.Source }
 if (-not $clangFormat) {
   $fallback = 'C:/Program Files/LLVM/bin/clang-format.exe'
   if (Test-Path $fallback) { $clangFormat = $fallback }
