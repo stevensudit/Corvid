@@ -378,7 +378,7 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   // Depth counts nesting, not length: a long flat list is fine.
   std::string wide = "(";
   for (auto ndx = 0; ndx < 1000; ++ndx) wide += "x ";
-  wide += ")";
+  wide += ')';
   CHECK(hall_reader::read_one(rt, wide).has_value());
   // A caller already nested (the Monty parser reading a Hall escape) seeds
   // the budget, so the same input that reads at the top level fails when

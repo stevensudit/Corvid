@@ -36,7 +36,7 @@ auto make_date(auto date) {
   return steady_clock::time_point{} + sys_days{date}.time_since_epoch();
 }
 
-using time_point_t = corvid::concurrency::time_point_t;
+using corvid::concurrency::time_point_t;
 
 static time_point_t make_time(int ms) {
   return time_point_t{} + milliseconds{ms};

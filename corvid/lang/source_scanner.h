@@ -113,6 +113,7 @@ public:
   }
 
   // Whether `s` is next at the cursor.
+  // NOLINTNEXTLINE(bugprone-exception-escape): `pos_` is in-bounds.
   [[nodiscard]] bool at_text(std::string_view s) const noexcept {
     return src_.substr(pos_).starts_with(s);
   }
@@ -158,6 +159,7 @@ public:
   }
 
   // Text from `start` up to the cursor.
+  // NOLINTNEXTLINE(bugprone-exception-escape): `start` is in-bounds.
   [[nodiscard]] std::string_view taken_from(size_t start) const noexcept {
     return src_.substr(start, pos_ - start);
   }

@@ -275,6 +275,8 @@ struct gunsmith {
 consteval auto corvid_proxy_spec(gunslinger*, gunsmith*) {
   return prox::make_proxy_spec<gunslinger, gunsmith,
       prox::members<prox::member<"fire",
+          // The cast selects an overload.
+          // NOLINTNEXTLINE(readability-redundant-casting)
           static_cast<int (gunsmith::*)(int)>(&gunsmith::fire)>>>();
 }
 
