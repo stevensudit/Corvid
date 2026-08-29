@@ -4,20 +4,33 @@
 # survives edits to the main image below; --disable-bootstrap halves the build
 # (a bootstrap only guards against a broken host compiler). The prefix is
 # /opt/gcc-16 rather than /usr/local so it cannot collide with /usr/local/cuda.
+#
+# The source gets one local patch, gcc-constexpr-strret.patch: the C++ front
+# end's constexpr evaluator counts a nonzero offset twice in the pointer that
+# memchr/strchr/strrchr/strstr return, which C++26 exposes through
+# std::string_view::find on constant haystacks (details in the patch header
+# and crossplatform.md). gcc_constexpr_strret_check.cpp is compiled against
+# the installed gcc so the image build fails if the patch did not take. After
+# a GCC_VERSION bump, a patch that no longer applies means upstream fixed it:
+# drop the patch and the check together.
 FROM ubuntu:24.04 AS gcc-build
 ARG GCC_VERSION=16.2.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl xz-utils build-essential flex bison \
+    ca-certificates curl xz-utils build-essential flex bison patch \
     libgmp-dev libmpfr-dev libmpc-dev libisl-dev zlib1g-dev libzstd-dev && \
     rm -rf /var/lib/apt/lists/*
+COPY gcc-constexpr-strret.patch gcc_constexpr_strret_check.cpp /tmp/corvid/
 RUN curl -fsSL https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz \
       | tar -xJ -C /tmp && \
+    patch -p1 -d /tmp/gcc-${GCC_VERSION} < /tmp/corvid/gcc-constexpr-strret.patch && \
     mkdir /tmp/gcc-obj && cd /tmp/gcc-obj && \
     /tmp/gcc-${GCC_VERSION}/configure --prefix=/opt/gcc-16 \
       --enable-languages=c,c++ --disable-multilib --disable-bootstrap \
       --with-system-zlib --enable-default-pie --enable-default-ssp \
       --program-suffix=-16 && \
-    make -j"$(nproc)" && make install-strip && rm -rf /tmp/gcc-*
+    make -j"$(nproc)" && make install-strip && rm -rf /tmp/gcc-* && \
+    /opt/gcc-16/bin/g++-16 -std=c++23 -fsyntax-only /tmp/corvid/gcc_constexpr_strret_check.cpp && \
+    rm -rf /tmp/corvid
 
 FROM nvidia/cuda:13.3.1-devel-ubuntu24.04
 

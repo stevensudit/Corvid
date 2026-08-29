@@ -139,8 +139,8 @@ asan/tsan/ubsan/msan, scan, coverage, single-file) is documented in the
 build-and-test skill.
 
 The `.cpp` suite builds as C++26 where the toolchain allows (clang with
-libc++, and both Windows compilers), while the code stays C++23: C++26
-features are permitted only behind their feature-test gates. Three legs stay
+libc++, gcc, and both Windows compilers), while the code stays C++23: C++26
+features are permitted only behind their feature-test gates. Two legs stay
 at C++23 for now:
 
 - The `.cu` bucket, because `c++23` is the top of nvcc 13.3's `--std` list.
@@ -148,21 +148,26 @@ at C++23 for now:
   clang 23 cannot constant-evaluate libstdc++ 16's `check_dynamic_spec`, so
   any format string with a dynamic width or precision (`{:{}}`) fails to
   compile, plain `std::format` included. Retry on a newer clang.
-- gcc (`./cleanbuild.sh gcc`), because gcc 16 (verified on the 16.2.0 release
-  as well as the 2026-03-15 snapshot) in C++26 mode misfolds
-  `__builtin_memchr` on a constant array with a nonzero offset, adding the
-  offset twice. `string_view::find` reaches it wherever inlining exposes the
-  constant, so `strings_test` and `quic_conn_test` fail at run time (at any
-  optimization level above `-O0`). The fault is in the constexpr evaluator
-  and is as old as gcc 13, in every dialect: `constexpr const char a[] =
-  "abcdefghijabxdefghijaaa"; static_assert(__builtin_memchr(a + 1, 'a',
-  sizeof(a) - 2) == a + 10);` fails under `-std=c++23` too. C++26 exposes it
-  to ordinary code by making `void*` to `T*` casts constant expressions
-  (P2738), so an initializer such as `const char* r = static_cast<const
-  char*>(__builtin_memchr(lit + 1, ...))` is now folded by the front end
-  instead of calling memchr. No `-fno-builtin` variant helps; clang is
-  correct. Retry on a gcc that fixes it and lift the pin in
-  `tests/CMakeLists.txt`.
+
+The gcc leg (`./cleanbuild.sh gcc`) builds as C++26 only because the
+container's gcc 16.2.0 carries a local patch,
+`.devcontainer/gcc-constexpr-strret.patch`. Stock gcc (13 through 16.2.0, and
+trunk as of 2026-08-29) has a bug in the C++ front end's constexpr evaluator:
+when it folds `memchr`, `strchr`, `strrchr` or `strstr` on an argument that
+carries an offset, it re-bases the folded result on the original argument
+even though the fold already merged that offset in, so
+`__builtin_memchr(a + 1, 'a', n)` on a constant array yields `a + 11` instead
+of `a + 10`. The bug is dialect-independent (`static_assert` forms fail under
+`-std=c++23` too), but C++26 exposes it to ordinary code: P2738 makes `void*`
+to `T*` casts constant expressions, so the front end folds
+`char_traits<char>::find` on constant haystacks instead of leaving `memchr`
+to the middle end, and `string_view::find(c, pos)` returns the right index
+plus `pos`. `strings_test` and `quic_conn_test` catch it at run time. The
+Dockerfile applies the patch in the `gcc-build` stage and compiles
+`.devcontainer/gcc_constexpr_strret_check.cpp` against the result, so an
+image whose gcc lacks the fix does not build. After a gcc bump, a patch that
+no longer applies means upstream fixed it: retire the patch and the check
+together. clang is correct throughout.
 
 Windows (`./cleanbuild.ps1`) does a Release configure, build, and ctest,
 incrementally when the configuration is unchanged (`clean` forces a fresh

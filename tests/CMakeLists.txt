@@ -137,20 +137,15 @@ if(WIN32)
 elseif(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror")
-    # Both libstdc++ legs stay at C++23 for now (see crossplatform.md). clang
-    # 23 in C++26 mode cannot constant-evaluate libstdc++ 16's
-    # `check_dynamic_spec`, so every format string with a dynamic width or
-    # precision (`{:{}}`) fails to compile, plain `std::format` included. gcc
-    # 16 (the 16.2.0 release, and the 2026-03-15 snapshot before it) in
-    # C++26 mode misfolds `__builtin_memchr` on a constant array with a
-    # nonzero offset, which reaches `string_view::find` wherever inlining
-    # exposes the constant, so strings_test and quic_conn_test fail at run
-    # time. The fault is in the constexpr evaluator (present since gcc 13, in
-    # every dialect); C++26 exposes it by making `void*` casts constant
-    # expressions (P2738). Retry each on a newer compiler.
-    set(CMAKE_CXX_STANDARD 23)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        # gcc builds as C++26; the dialect override near the top of this file
+        # supplies the flag CMake 3.28 lacks. That needs the container's
+        # patched gcc: stock gcc 16.2.0's constexpr evaluator counts a nonzero
+        # offset twice in the pointer memchr/strchr/strrchr/strstr return,
+        # which C++26 exposes through `string_view::find` on constant
+        # haystacks (strings_test and quic_conn_test fail at run time). See
+        # .devcontainer/gcc-constexpr-strret.patch and crossplatform.md.
+        #
         # At -O3, gcc raises false-positive -Wmaybe-uninitialized,
         # -Wuninitialized (libstdc++'s move_only_function copying its storage
         # bytes for a stateless callable), and -Warray-bounds from inside
@@ -158,6 +153,14 @@ elseif(USE_LIBSTDCPP)
         # so they cannot be suppressed at the source. Keep them as warnings
         # but do not fail the build on them.
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=array-bounds")
+    else()
+        # clang with libstdc++ stays at C++23 for now (see crossplatform.md):
+        # clang 23 in C++26 mode cannot constant-evaluate libstdc++ 16's
+        # `check_dynamic_spec`, so every format string with a dynamic width or
+        # precision (`{:{}}`) fails to compile, plain `std::format` included.
+        # Retry on a newer clang.
+        set(CMAKE_CXX_STANDARD 23)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23")
     endif()
 else()
     # This branch is clang-only (-nostdinc++, the libc++ prefix, compiler-rt,
