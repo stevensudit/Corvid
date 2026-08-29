@@ -153,15 +153,11 @@ elseif(USE_LIBSTDCPP)
         # so they cannot be suppressed at the source. Keep them as warnings
         # but do not fail the build on them.
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=array-bounds")
-    else()
-        # clang with libstdc++ stays at C++23 for now (see crossplatform.md):
-        # clang 23 in C++26 mode cannot constant-evaluate libstdc++ 16's
-        # `check_dynamic_spec`, so every format string with a dynamic width or
-        # precision (`{:{}}`) fails to compile, plain `std::format` included.
-        # Retry on a newer clang.
-        set(CMAKE_CXX_STANDARD 23)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23")
     endif()
+    # clang with libstdc++ builds as C++26 too, on the container's patched
+    # <format> (.devcontainer/libstdcxx-format-clang.patch): stock libstdc++ 16
+    # trips LLVM issue 73232, so clang cannot constant-evaluate any format
+    # string with a dynamic width or precision (`{:{}}`). See crossplatform.md.
 else()
     # This branch is clang-only (-nostdinc++, the libc++ prefix, compiler-rt,
     # lld). The drivers (cleanbuild.sh, comprehensive.cmake, ide_build.sh,

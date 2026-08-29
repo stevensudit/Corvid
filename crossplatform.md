@@ -140,14 +140,33 @@ build-and-test skill.
 
 The `.cpp` suite builds as C++26 where the toolchain allows (clang with
 libc++, gcc, and both Windows compilers), while the code stays C++23: C++26
-features are permitted only behind their feature-test gates. Two legs stay
-at C++23 for now:
+features are permitted only behind their feature-test gates. One leg stays
+at C++23: the `.cu` bucket, because `c++23` is the top of nvcc 13.3's `--std`
+list.
 
-- The `.cu` bucket, because `c++23` is the top of nvcc 13.3's `--std` list.
-- clang with libstdc++ (`./cleanbuild.sh libstdcpp`), because in C++26 mode
-  clang 23 cannot constant-evaluate libstdc++ 16's `check_dynamic_spec`, so
-  any format string with a dynamic width or precision (`{:{}}`) fails to
-  compile, plain `std::format` included. Retry on a newer clang.
+The clang + libstdc++ leg (`./cleanbuild.sh libstdcpp`) builds as C++26 only
+because the container's libstdc++ 16 `<format>` carries a local patch,
+`.devcontainer/libstdcxx-format-clang.patch`. Stock libstdc++ (15 through
+trunk, as of 2026-08-29) declares `basic_format_parse_context::
+__check_dynamic_spec` in the class and defines it near the end of the header,
+while the explicit specialization `formatter<char, wchar_t>` instantiates it
+in between through its non-template `parse`. clang instantiates a constexpr
+function template at its first use and cannot instantiate during constant
+evaluation (LLVM issue 73232, CWG2497; gcc, EDG and MSVC instantiate on
+demand), so in C++26 mode, where the dynamic-spec checks exist, every format
+string with a dynamic width or precision (`{:{}}`) fails to compile with
+"undefined function `__check_dynamic_spec`". The patch routes the integral
+and string checks through non-template helpers declared before the class,
+and also makes `__valid_types_for_check_dynamic_spec` static, since clang
+rejects the `static_assert` that calls that non-static member (an implicit
+`this` in a constant expression) whenever a user formatter calls
+`check_dynamic_spec<Ts...>`. The Dockerfile applies the patch to the PPA
+snapshot's copy in `/usr/include/c++/16` (the one clang reads; gcc uses
+`/opt/gcc-16` and needs no patch) and compiles
+`.devcontainer/libstdcxx_format_check.cpp` with clang++ against the result,
+so an image whose header lacks the fix does not build. A patch that no
+longer applies after a snapshot bump means upstream changed the area:
+re-derive or retire the patch and the check together.
 
 The gcc leg (`./cleanbuild.sh gcc`) builds as C++26 only because the
 container's gcc 16.2.0 carries a local patch,

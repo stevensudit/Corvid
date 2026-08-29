@@ -73,8 +73,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 # Basic development tools, toolchain, and iptables/ipset. gcc-15 is the nvcc
 # host compiler (nvcc 13.3 rejects gcc newer than 15; see cleanbuild.sh). The
 # PPA's gcc-16 snapshot stays only for its libstdc++-16-dev, which the clang +
-# libstdc++ leg picks up from /usr/lib/gcc; the gcc leg itself uses the 16.2
-# built in the gcc-build stage. catch2 is the system libstdc++ Catch2 that the
+# libstdc++ leg picks up from /usr/lib/gcc (its <format> gets a local patch
+# below); the gcc leg itself uses the 16.2 built in the gcc-build stage. catch2
+# is the system libstdc++ Catch2 that the
 # CUDA tests link against (tests/CMakeLists.txt requires it once nvcc and
 # g++-15 are both present; the .cpp suite uses its own FetchContent Catch2).
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -101,7 +102,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   clang-23 clangd-23 lldb-23 lld-23 clang-format-23 clang-tidy-23 cmake ninja-build \
   libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
   llvm-23 \
-  ccache strace \
+  ccache strace patch \
   gcc-15 g++-15 gcc-16 g++-16 libstdc++-16-dev catch2 \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -121,6 +122,19 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
     --slave /usr/bin/lldb lldb /usr/bin/lldb-23 && \
     update-alternatives --install /usr/bin/gcc gcc /opt/gcc-16/bin/gcc-16 100 \
     --slave /usr/bin/g++ g++ /opt/gcc-16/bin/g++-16
+
+# The PPA snapshot's <format> gets one local patch, libstdcxx-format-clang.patch,
+# so that clang can constant-evaluate format strings with a dynamic width or
+# precision in C++26 mode (LLVM issue 73232 plus a static_assert clang rejects;
+# details in the patch header and crossplatform.md). libstdcxx_format_check.cpp
+# is compiled with clang++ against the patched header so the image build fails
+# if the patch did not take. A patch that no longer applies after a snapshot
+# bump means upstream changed the area: re-derive or retire the patch and the
+# check together.
+COPY libstdcxx-format-clang.patch libstdcxx_format_check.cpp /tmp/corvid/
+RUN patch -p1 -d /usr/include/c++/16 < /tmp/corvid/libstdcxx-format-clang.patch && \
+    clang++-23 -std=c++26 -fsyntax-only /tmp/corvid/libstdcxx_format_check.cpp && \
+    rm -rf /tmp/corvid
 
 # npm global dir writable by node.
 RUN mkdir -p /usr/local/share/npm-global && \
