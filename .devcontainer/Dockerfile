@@ -15,13 +15,21 @@
 # drop the patch and the check together.
 FROM ubuntu:24.04 AS gcc-build
 ARG GCC_VERSION=16.2.0
+# SHA-512 of gcc-${GCC_VERSION}.tar.xz, from the release's sha512.sum on
+# gcc.gnu.org, cross-checked against the bytes ftp.gnu.org serves. Pins the
+# exact source the image builds, since HTTPS alone trusts whatever the server
+# sends. A version bump updates both ARGs.
+ARG GCC_SHA512=c51c30ca7422d0cbecf504b2e0f33c3aca31e0f90a76b65217f465163fa6fa17b3f5de39e145c47e5bab90ac0ce7fff3b03c8d553ae36e01faaea5a50f8648d1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl xz-utils build-essential flex bison patch \
     libgmp-dev libmpfr-dev libmpc-dev libisl-dev zlib1g-dev libzstd-dev && \
     rm -rf /var/lib/apt/lists/*
 COPY gcc-constexpr-strret.patch gcc_constexpr_strret_check.cpp /tmp/corvid/
-RUN curl -fsSL https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz \
-      | tar -xJ -C /tmp && \
+RUN curl -fsSL -o /tmp/gcc-${GCC_VERSION}.tar.xz \
+      https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz && \
+    echo "${GCC_SHA512}  /tmp/gcc-${GCC_VERSION}.tar.xz" | sha512sum -c - && \
+    tar -xJ -C /tmp -f /tmp/gcc-${GCC_VERSION}.tar.xz && \
+    rm /tmp/gcc-${GCC_VERSION}.tar.xz && \
     patch -p1 -d /tmp/gcc-${GCC_VERSION} < /tmp/corvid/gcc-constexpr-strret.patch && \
     mkdir /tmp/gcc-obj && cd /tmp/gcc-obj && \
     /tmp/gcc-${GCC_VERSION}/configure --prefix=/opt/gcc-16 \
