@@ -156,8 +156,9 @@ at C++23 for now:
   already: `static constexpr const char lit[] = "abcdefghijabxdefghijaaa";`
   then `__builtin_memchr(lit + 1, 'a', sizeof(lit) - 2) - lit` is 11, not
   10, under `g++ -std=c++26`; correct under `-std=c++23` and under clang.
-  Retry on a newer gcc 16 (a container rebuild pulls the PPA's current
-  snapshot; see the Dockerfile), and lift the pin in `tests/CMakeLists.txt`.
+  Retry on gcc 16.2, which the Dockerfile now builds from source (the PPA
+  only carries the snapshot for noble), and lift the pin in
+  `tests/CMakeLists.txt`.
 
 Windows (`./cleanbuild.ps1`) does a Release configure, build, and ctest,
 incrementally when the configuration is unchanged (`clean` forces a fresh

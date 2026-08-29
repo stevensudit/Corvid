@@ -217,8 +217,14 @@ fi
 # apply to nvcc, and those flags would break the g++-15-driven CUDA link.
 CUDA_OPTION=""
 if [[ -z "$sanitizer" ]] && ! $use_coverage && ! $use_scan; then
-  if command -v nvcc >/dev/null 2>&1 && command -v g++-15 >/dev/null 2>&1; then
-    CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+  if command -v nvcc >/dev/null 2>&1; then
+    if command -v g++-15 >/dev/null 2>&1; then
+      CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+    else
+      # nvcc without its host compiler means a broken container image, not a
+      # non-CUDA machine, so say so rather than dropping the bucket silently.
+      echo "$0: warning: nvcc found but g++-15 is missing; skipping CUDA targets" >&2
+    fi
   fi
 fi
 

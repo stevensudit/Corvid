@@ -1,3 +1,24 @@
+# gcc 16.2 release, built from source. The ubuntu-toolchain-r/test PPA only
+# carries a March 2026 trunk snapshot of gcc 16 for noble, so the release comes
+# from the gcc.gnu.org tarball instead. Its own stage so the layer cache
+# survives edits to the main image below; --disable-bootstrap halves the build
+# (a bootstrap only guards against a broken host compiler). The prefix is
+# /opt/gcc-16 rather than /usr/local so it cannot collide with /usr/local/cuda.
+FROM ubuntu:24.04 AS gcc-build
+ARG GCC_VERSION=16.2.0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl xz-utils build-essential flex bison \
+    libgmp-dev libmpfr-dev libmpc-dev libisl-dev zlib1g-dev libzstd-dev && \
+    rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz \
+      | tar -xJ -C /tmp && \
+    mkdir /tmp/gcc-obj && cd /tmp/gcc-obj && \
+    /tmp/gcc-${GCC_VERSION}/configure --prefix=/opt/gcc-16 \
+      --enable-languages=c,c++ --disable-multilib --disable-bootstrap \
+      --with-system-zlib --enable-default-pie --enable-default-ssp \
+      --program-suffix=-16 && \
+    make -j"$(nproc)" && make install-strip && rm -rf /tmp/gcc-*
+
 FROM nvidia/cuda:13.3.1-devel-ubuntu24.04
 
 ARG TZ
@@ -36,7 +57,11 @@ RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test
 # Node.js was the base image; on the CUDA base it's an install step.
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 
-# Basic development tools, toolchain, and iptables/ipset.
+# Basic development tools, toolchain, and iptables/ipset. gcc-15 is the nvcc
+# host compiler (nvcc 13.3 rejects gcc newer than 15; see cleanbuild.sh). The
+# PPA's gcc-16 snapshot stays only for its libstdc++-16-dev, which the clang +
+# libstdc++ leg picks up from /usr/lib/gcc; the gcc leg itself uses the 16.2
+# built in the gcc-build stage.
 RUN apt-get update && apt-get install -y --no-install-recommends \
   less \
   git \
@@ -62,9 +87,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
   llvm-23 \
   ccache strace \
-  gcc-16 g++-16 libstdc++-16-dev \
+  gcc-15 g++-15 gcc-16 g++-16 libstdc++-16-dev \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# gcc 16.2 from the gcc-build stage. gcc adds no rpath, so binaries it links
+# find its libstdc++ through ld.so.conf; the 000- name sorts ahead of the
+# system paths so /opt/gcc-16/lib64 wins over the PPA snapshot's libstdc++.
+COPY --from=gcc-build /opt/gcc-16 /opt/gcc-16
+RUN echo /opt/gcc-16/lib64 > /etc/ld.so.conf.d/000-gcc-16.conf && ldconfig
 
 # Alternatives for clang and gcc.
 RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
@@ -73,8 +104,8 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
     --slave /usr/bin/clang-format clang-format /usr/bin/clang-format-23 \
     --slave /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-23 \
     --slave /usr/bin/lldb lldb /usr/bin/lldb-23 && \
-    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-16 100 \
-    --slave /usr/bin/g++ g++ /usr/bin/g++-16
+    update-alternatives --install /usr/bin/gcc gcc /opt/gcc-16/bin/gcc-16 100 \
+    --slave /usr/bin/g++ g++ /opt/gcc-16/bin/g++-16
 
 # npm global dir writable by node.
 RUN mkdir -p /usr/local/share/npm-global && \
