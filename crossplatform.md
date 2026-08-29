@@ -138,6 +138,27 @@ Linux (`./cleanbuild.sh`) is unchanged. The full menu (libc++/libstdc++,
 asan/tsan/ubsan/msan, scan, coverage, single-file) is documented in the
 build-and-test skill.
 
+The `.cpp` suite builds as C++26 where the toolchain allows (clang with
+libc++, and both Windows compilers), while the code stays C++23: C++26
+features are permitted only behind their feature-test gates. Three legs stay
+at C++23 for now:
+
+- The `.cu` bucket, because `c++23` is the top of nvcc 13.3's `--std` list.
+- clang with libstdc++ (`./cleanbuild.sh libstdcpp`), because in C++26 mode
+  clang 23 cannot constant-evaluate libstdc++ 16's `check_dynamic_spec`, so
+  any format string with a dynamic width or precision (`{:{}}`) fails to
+  compile, plain `std::format` included. Retry on a newer clang.
+- gcc (`./cleanbuild.sh gcc`), because gcc 16 (the 2026-03-15 snapshot) in
+  C++26 mode misfolds `__builtin_memchr` on a constant array with a nonzero
+  offset, adding the offset twice. `string_view::find` reaches it wherever
+  inlining exposes the constant, so `strings_test` and `quic_conn_test` fail
+  at run time (at any optimization level above `-O0`). Repro, wrong at `-O0`
+  already: `static constexpr const char lit[] = "abcdefghijabxdefghijaaa";`
+  then `__builtin_memchr(lit + 1, 'a', sizeof(lit) - 2) - lit` is 11, not
+  10, under `g++ -std=c++26`; correct under `-std=c++23` and under clang.
+  Retry on a newer gcc 16 (a container rebuild pulls the PPA's current
+  snapshot; see the Dockerfile), and lift the pin in `tests/CMakeLists.txt`.
+
 Windows (`./cleanbuild.ps1`) does a Release configure, build, and ctest,
 incrementally when the configuration is unchanged (`clean` forces a fresh
 configure and full recompile):
@@ -205,10 +226,10 @@ nobody has ported it: `compute-sanitizer` ships with the Linux toolkit too.
 Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
 
 - clang++: `-Wall -Wextra -Werror -fms-runtime-lib=dll`, plus the plain
-  `-std=c++23` CMake emits from `CMAKE_CXX_STANDARD=23` (which clangd parses
+  `-std=c++26` CMake emits from `CMAKE_CXX_STANDARD=26` (which clangd parses
   correctly, unlike the clang-cl `/std` form the retired path had to work
   around). `-fms-runtime-lib=dll` selects the `/MD` CRT (see section 3).
-- cl: `/std:c++latest` (cl has no `/std:c++23`), then `/EHsc /permissive-
+- cl: `/std:c++latest` (cl has no `/std:c++26`), then `/EHsc /permissive-
   /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305 /wd4310`. `/permissive-`
   turns on conformant two-phase name lookup; `/Zc:preprocessor` selects the
   conformant preprocessor, without which cl corrupts raw string literals passed
@@ -224,7 +245,9 @@ codes). Plus `-std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the
 last silences the note that CUDA 13.3 is newer than clang's last fully
 supported toolkit) and `-gline-tables-only` (section 8). On Linux the nvcc form
 is `-std=c++23 -O3 -lineinfo`; raising its host warnings to `-Wextra` (via nvcc
-`-Xcompiler`) is a separate follow-up.
+`-Xcompiler`) is a separate follow-up. The `.cu` bucket stays at C++23 on both
+platforms while the `.cpp` suite builds as C++26, because `c++23` is the top
+of nvcc 13.3's `--std` list.
 
 ## 5. Header portability conventions
 

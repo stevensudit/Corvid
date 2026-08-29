@@ -5,7 +5,7 @@
             "intelliSenseMode": "linux-clang-x64",
             "compilerPath": "/usr/bin/clang++",
             "cStandard": "c11",
-            "cppStandard": "c++23",
+            "cppStandard": "c++26",
             "includePath": [
                 "${workspaceFolder}/**",
                 "/usr/include/c++/v1",

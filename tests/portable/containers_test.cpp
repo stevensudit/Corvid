@@ -915,9 +915,20 @@ TEST_CASE("Basic", "[EnumVariant]") {
 enum class ThrowKind : uint8_t { value, thrower };
 
 // The value constructor throws, to manufacture a valueless variant.
+//
+// The move constructor is potentially throwing so that `emplace` has to
+// construct in place: given a nothrow-movable alternative, libstdc++ builds it
+// on the side and the variant never goes valueless.
 struct ThrowOnConstruct {
   ThrowOnConstruct() = default;
   explicit ThrowOnConstruct(int) { throw std::runtime_error{"boom"}; }
+  ThrowOnConstruct(const ThrowOnConstruct&) = default;
+  ThrowOnConstruct(ThrowOnConstruct&&) noexcept(false) {}
+  ThrowOnConstruct& operator=(const ThrowOnConstruct&) = default;
+  ThrowOnConstruct& operator=(ThrowOnConstruct&&) noexcept(false) {
+    return *this;
+  }
+  ~ThrowOnConstruct() = default;
 };
 
 using ThrowVariant = enum_variant<ThrowKind, int, ThrowOnConstruct>;

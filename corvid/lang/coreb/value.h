@@ -661,7 +661,7 @@ public:
     return list;
   }
   [[nodiscard]] value list_of(std::initializer_list<value> elems) {
-    return list_of(std::span<const value>{elems.begin(), elems.size()});
+    return list_of(std::span<const value>(elems.begin(), elems.size()));
   }
 
   // Allocate a string.
@@ -807,7 +807,7 @@ private:
 //   rt.collect(); // `v` survives; unpinned garbage does not.
 class gc_pin final {
 public:
-  gc_pin(runtime_core& rt, const value& v) : rt_{rt}, vals_{&v, 1} {
+  gc_pin(runtime_core& rt, const value& v) : rt_{rt}, vals_(&v, 1) {
     rt_.do_pin(*this);
   }
 

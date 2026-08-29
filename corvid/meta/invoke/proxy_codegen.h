@@ -151,7 +151,10 @@ consteval bool api_emits() noexcept {
 // Emit `, T arg_N` for each declared parameter, numbering from `next`.
 template<typename... Args>
 void emit_params(std::ostream& os, size_t next, std::tuple<Args...>*) {
-  ((os << ", " << friendly_type_name<Args>() << " arg_" << next++), ...);
+  const std::array<std::string, sizeof...(Args)> names{
+      friendly_type_name<Args>()...};
+  for (auto ndx = 0UZ; ndx != names.size(); ++ndx)
+    os << ", " << names[ndx] << " arg_" << next + ndx;
 }
 
 // Emit `arg_N, arg_N+1, ...`, numbering from `next`.
