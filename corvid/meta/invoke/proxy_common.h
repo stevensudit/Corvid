@@ -798,7 +798,12 @@ namespace details {
 // The second parameter is the pattern-matching hook that gives the body
 // `R` and `Args...`, as with `flexi_function`'s third: derived from the
 // method's signature and constrained to that derivation, never passed.
-template<typename M, typename FunctionT = M::function_t>
+//
+// The default's `typename` is redundant per C++20 (P0634) but load-bearing
+// for MSVC, which fails to apply implicit typename when the template-id is
+// instantiated with a dependent argument (C4346).
+// NOLINTNEXTLINE(readability-redundant-typename)
+template<typename M, typename FunctionT = typename M::function_t>
 requires std::same_as<FunctionT, typename M::function_t>
 struct method_traits;
 

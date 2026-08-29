@@ -923,8 +923,10 @@ struct ThrowOnConstruct {
   ThrowOnConstruct() = default;
   explicit ThrowOnConstruct(int) { throw std::runtime_error{"boom"}; }
   ThrowOnConstruct(const ThrowOnConstruct&) = default;
+  // NOLINTNEXTLINE(bugprone-unsafe-to-allow-exceptions): throwing by design
   ThrowOnConstruct(ThrowOnConstruct&&) noexcept(false) {}
   ThrowOnConstruct& operator=(const ThrowOnConstruct&) = default;
+  // NOLINTNEXTLINE(bugprone-unsafe-to-allow-exceptions): throwing by design
   ThrowOnConstruct& operator=(ThrowOnConstruct&&) noexcept(false) {
     return *this;
   }
