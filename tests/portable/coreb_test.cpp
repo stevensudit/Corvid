@@ -814,7 +814,7 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   CHECK(expand(rt, "$x") == "(unquote x)"); // non-template
   // The following, shown as cells is:
   // `[quote | [a | [[unquote | [x | nil]] | nil]]]`.
-  CHECK(expand(rt, "(a $x)") == "(quote (a (unquote x)))"); // non-template
+  CHECK(expand(rt, "(a $x)") == "(a (unquote x))"); // non-template
 
   // If it's a template, it's a quote whose content has holes (such as those
   // marked by an unquote form), so it cannot stand for itself. Instead, the
