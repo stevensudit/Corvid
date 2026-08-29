@@ -26,7 +26,7 @@ CompileFlags:
 # (__host__, __device__, __global__) and the <<<...>>> launch syntax as unknown.
 # Put clangd into CUDA mode with clang's own CUDA frontend: -xcuda plus the
 # toolkit path (derived from nvcc at configure time). --no-cuda-version-check
-# silences the note that the 13.3 toolkit is newer than clang 22's last fully
+# silences the note that the 13.3 toolkit is newer than clang's last fully
 # supported version; parsing is unaffected.
 If:
   PathMatch: [.*\.cu, .*\.cuh]

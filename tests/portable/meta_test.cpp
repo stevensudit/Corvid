@@ -1265,6 +1265,11 @@ TEST_CASE("WrapStdFunction", "[FixedFunction]") {
   ff e{std::function<int()>{}};
   CHECK_FALSE(static_cast<bool>(e));
   CHECK(e.size() == 0);
+  // The analyzer loses the `std::function` heap payload (MSVC STL allocates
+  // it through `operator new`, which it tracks; libc++ does not) and cannot
+  // see it freed through the erased lifespan thunk, as in
+  // flexi_function_test's "Heap fallback".
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
 #pragma endregion
