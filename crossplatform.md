@@ -259,11 +259,11 @@ Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
   correctly, unlike the clang-cl `/std` form the retired path had to work
   around). `-fms-runtime-lib=dll` selects the `/MD` CRT (see section 3).
 - cl: `/std:c++latest` (cl has no `/std:c++26`), then `/EHsc /permissive-
-  /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305 /wd4310`. `/permissive-`
-  turns on conformant two-phase name lookup; `/Zc:preprocessor` selects the
-  conformant preprocessor, without which cl corrupts raw string literals passed
-  through Catch2 macros. The four `/wd` codes silence MSVC-only warnings that
-  fire on correct, intentional code.
+  /Zc:preprocessor /W4 /WX /wd4244 /wd4245 /wd4267 /wd4305 /wd4310
+  /wd4805`. `/permissive-` turns on conformant two-phase name lookup;
+  `/Zc:preprocessor` selects the conformant preprocessor, without which cl
+  corrupts raw string literals passed through Catch2 macros. The `/wd` codes
+  silence MSVC-only warnings that fire on correct, intentional code.
 
 The CUDA flags live in the `CORVID_ENABLE_CUDA` block. On Windows the warning
 set matches the `.cpp` suite: `-Wall -Wextra -Werror`, with
