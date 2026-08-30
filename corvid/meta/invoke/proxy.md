@@ -2408,12 +2408,12 @@ collects and a pack expansion that forms every key and type, is what gcc
 every key what a hand-written boilerplate's `on(method_key<"fire">, T& t,
 int n) { return t.fire(n); }` does for one. Its `on` for a key enumerates
 `T`'s non-static member functions with that identifier (own members
-first, then bases, with the name hiding that an ordinary member call
-applies), hands the candidates to the same synthetic overload set `resolve`
-uses (`rank_set`, so the compiler ranks promotions, conversions, and the
-object parameter exactly as it does for `call<>`), and invokes the winner
-through its member pointer, `&[: m :]`, with `std::invoke`, the way
-`member_impl` invokes a `members<>` binding.
+first, then bases, closely approximating the name hiding an ordinary member
+call applies; see "Limits" for the two gaps), hands the candidates to the same
+synthetic overload set `resolve` uses (`rank_set`, so the compiler ranks
+promotions, conversions, and the object parameter exactly as it does for
+`call<>`), and invokes the winner through its member pointer, `&[: m :]`, with
+`std::invoke`, the way `member_impl` invokes a `members<>` binding.
 
 The target parameter is deduced, so constness flows through, and the result
 type and `noexcept` come from the member's declaration, so a conformance
