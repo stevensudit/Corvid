@@ -182,23 +182,21 @@ deduce_object(std::meta::info m, std::meta::info self) {
 //
 // A deducing-this member counts through the specialization `deduce_object`
 // derives for `self`, and an explicit-object member through itself. Searches
-// the class's own members first and its bases only when it declares no
-// function or function template by that name, which is the name hiding that
-// an ordinary member call `t.name(...)` applies, with two documented gaps.
+// the class's own members first and its bases only when it declares nothing
+// by that name. Any member hides, function or not, which is the name hiding
+// that an ordinary member call `t.name(...)` applies, with one documented
+// gap.
 //
-// The first is that a using-declaration is not a member to `members_of`, so a
-// base overload it un-hides is not a candidate beside the class's own. The
-// second is that a non-function member by that name does not hide the base's
-// functions here, though it does in the language. Two bases each contributing
-// one leaves both in the set, so the call is ambiguous, as it would be in the
-// language.
+// The gap is that a using-declaration is not a member to `members_of`, so a
+// base overload it un-hides is not a candidate beside the class's own. Two
+// bases each contributing one leaves both in the set, so the call is
+// ambiguous, as it would be in the language.
 //
 // `members_of` walks a class's direct members under an access context, each
 // as an `info`, the compile-time handle to an entity. `has_identifier` guards
 // `identifier_of`, which is ill-formed on unnamed members (constructors,
 // operators). A member function template is a template to it, not a
-// function, and one that turns out to have no deducing object parameter (a
-// static member template, or an ordinary function template) still hides.
+// function.
 consteval std::vector<std::meta::info> named_functions(std::meta::info cls,
     std::string_view name, std::meta::access_context ctx,
     std::meta::info self) {
@@ -209,10 +207,10 @@ consteval std::vector<std::meta::info> named_functions(std::meta::info cls,
   for (const auto m : std::meta::members_of(cls, ctx)) {
     if (!std::meta::has_identifier(m) || std::meta::identifier_of(m) != name)
       continue;
+    declared = true;
     const auto is_function =
         std::meta::is_function(m) && !std::meta::is_static_member(m);
     if (!is_function && !std::meta::is_function_template(m)) continue;
-    declared = true;
     if (const auto fn = deduce_object(m, self); fn != std::meta::info{})
       out.push_back(fn);
   }

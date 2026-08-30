@@ -2421,7 +2421,7 @@ every key what a hand-written boilerplate's `on(method_key<"fire">, T& t,
 int n) { return t.fire(n); }` does for one. Its `on` for a key enumerates
 `T`'s non-static member functions with that identifier (own members
 first, then bases, closely approximating the name hiding an ordinary member
-call applies; see "Limits" for the two gaps), hands the candidates to the same
+call applies; see "Limits" for the one gap), hands the candidates to the same
 synthetic overload set `resolve` uses (`rank_set`, so the compiler ranks
 promotions, conversions, and the object parameter exactly as it does for
 `call<>`), and invokes the winner through its member pointer, `&[: m :]`, with
@@ -2577,9 +2577,7 @@ a clang pass reshapes one helper at a time.
   using-declaration is not a member to it, so a base overload that
   `using base::fire;` un-hides beside the class's own `fire` is not a
   candidate, and the pair does not conform on that key (it takes a
-  `members<>` binding or an override). In the other direction, a
-  non-function member named `fire` does not hide a base's `fire()` here,
-  though it does in the language. Both are on the list in "Later".
+  `members<>` binding or an override). This is on the list in "Later".
 - Static members, data members, operators, and constructors are never
   methods, on either side. `members<>` still binds a data member by
   pointer where that is wanted.
@@ -2655,8 +2653,16 @@ shaped the patterns, each verified by a probe:
   nothing in P2996 says whether a `using` made it visible, and a member
   pointer call does not check hiding, so that walk would also admit an
   overload the language hides. The fix wants the language's own rules (a
-  call expression on the name, once a splice can spell one); the
-  data-member hiding gap falls out of the same fix.
+  call expression on the name, once a splice can spell one). An opt-in
+  aggressive mode, permission on a registration to walk every base and
+  assume visibility, was considered and rejected. A hand-written
+  `members<>` binding spells the member's name, so it is the one spelling
+  that gets the language's own hiding check, and the mode would trade
+  that check away. A per-key form of it duplicates the binding it
+  replaces, minus the check, while a registration-wide form silently
+  extends every key's reach into hidden base members. Revisit when a
+  real target needs it, or when a second compiler's reflection defines
+  what a portable version could promise.
 
 ## Future work
 

@@ -313,6 +313,18 @@ struct cowboy {
   int rounds_fired{};
 };
 
+// `arsonist` is a `lawman` whose own `fire` is a data member.
+//
+// A member by that name hides the base's `fire`, function or not, and a data
+// member is never a method, so the pair is registered but not conformant.
+struct arsonist: public lawman {
+  int fire{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, arsonist*) {
+  return prox::make_proxy_spec<gunslinger, arsonist>();
+}
+
 // `battery` carries an overload set, a const pair, and a `noexcept` method,
 // all spelled as declarations, and takes its name from its identifier.
 struct battery_api {
@@ -623,6 +635,7 @@ static_assert(prox::Proxiable<lawman, roster>);
 
 static_assert(!prox::Proxiable<recluse, gunslinger>);
 static_assert(!prox::Proxiable<cowboy, gunslinger>);
+static_assert(!prox::Proxiable<arsonist, gunslinger>);
 static_assert(!prox::Proxiable<lawman, hair_trigger>);
 static_assert(!prox::Proxiable<int, till>);
 
