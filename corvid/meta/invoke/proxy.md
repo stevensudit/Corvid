@@ -2353,16 +2353,24 @@ P3294 form, real member functions, replaces it without touching callers.
 The api needs the handle type, to name the `call` it forwards to. The
 hand-written `api` never did, since its forwarders deduce `this`. So the
 handles inherit their sugar base by handle type as well as facade
-(`api_base<F, H>`, CRTP), which is the one change the reflection layer
-asks of the portable headers. A facade that defines an `api` keeps it; the
+(`api_base<F, H>`, CRTP). A facade that defines an `api` keeps it; the
 reflected one applies only when it does not.
+
+That is one of the two changes the reflection layer asks of the portable
+headers. The other is `details::default_impl<F, T>`, the bottom binding
+tier: the facade's `boilerplate<T>` when it has one, reached by the
+library's `proxy_impl` partial for a plain registration and by
+`members<>` for its unlisted keys. Both routes named `F::boilerplate<T>`
+directly before, which nothing outside the facade could stand in for; the
+reflection header now adds one constrained partial (no `boilerplate`, so
+`reflected_impl<T>`), and both routes serve it.
 
 ### Portability and testing
 
 The layer lives in one header, "proxy_reflect.h", gated on
 `__cpp_impl_reflection >= 202506L`, and its test is one target compiled
-only under gcc 16 or newer, with `-std=c++2c -freflection` on that target
-alone. Everything else stays C++23 and builds as before; "proxy_test.cpp"
+only under gcc 16 or newer (the "tests/reflection/" bucket), with
+`-freflection` on that target alone. Everything else stays C++23 and builds as before; "proxy_test.cpp"
 is unchanged. The reflection test mirrors the fixtures of "proxy_test.cpp"
 rather than inventing new ones, and pins agreement directly: the reflected
 facade's flattened slot list is the hand-written facade's, and
@@ -2403,6 +2411,14 @@ patterns, each verified by a probe:
   comparing types.
 - Under `-fsanitize=undefined`, a consteval `std::string{string_view}` is
   not a constant expression; the string is built by `push_back`.
+- `access_context::current()` evaluated inside a function whose return type
+  is still being deduced (a `consteval auto` registration hook) makes gcc
+  try to deduce that function to describe the scope, and it warns
+  (`-Wsfinae-incomplete`, an error under `-Werror`) once a class carrying
+  the context is instantiated there. So a binding class deriving from
+  `reflected_impl<T>` is defined at namespace scope or nested in `T`, never
+  local to the hook; merely naming `reflected_impl<T>` as the carried impl
+  inside the hook is fine, since that instantiates nothing.
 
 ### Steps
 

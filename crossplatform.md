@@ -39,7 +39,7 @@ example) without providing Darwin alternatives.
 
 ## 2. Source buckets
 
-Five buckets, selected by platform at configure time:
+Six buckets, selected by platform and compiler at configure time:
 
 | Bucket       | Builds on         | Depends on                                 |
 |--------------|-------------------|--------------------------------------------|
@@ -48,9 +48,15 @@ Five buckets, selected by platform at configure time:
 | cuda         | Linux and Windows | CUDA toolkit (plus Catch2)                 |
 | windows      | Windows only      | SDL3 (Windows SDK)                         |
 | cuda/windows | Windows only      | CUDA toolkit + D3D11/DXGI + SDL3 (+ ImGui) |
+| reflection   | gcc 16 or newer   | C++26 reflection (P2996), `-freflection`   |
 
 Tests live under `tests/portable/`, `tests/linux/`, `tests/cuda/`,
-`tests/windows/`, and `tests/cuda/windows/`.
+`tests/windows/`, `tests/cuda/windows/`, and `tests/reflection/`. The
+reflection bucket is selected by compiler rather than platform: it exercises
+`corvid/meta/invoke/proxy_reflect.h`, whose contents sit behind
+`__cpp_impl_reflection`, and only gcc 16 or newer has the semantics (clang 23
+parses the operators without implementing them). `cleanbuild.sh gcc` is the
+leg that builds it; every other configuration skips the bucket.
 `tests/CMakeLists.txt` globs each bucket separately. The linux bucket and its
 liburing / OpenSSL / ngtcp2 / nghttp3 dependencies sit behind
 `if(CMAKE_SYSTEM_NAME STREQUAL "Linux")`, so Windows configures none of them.
