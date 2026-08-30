@@ -2246,8 +2246,9 @@ three derivations in order: the facade, the boilerplate, the sugar API.
 ### Reflection in five ideas
 
 C++26 reflection (P2996) lets compile-time code look at the program's own
-declarations and produce new ones. Everything in this layer uses these
-five facilities, and nothing else.
+declarations and produce new ones. Everything in this layer rests on
+these five ideas, plus one more facility, used in one place, at the end
+of the section.
 
 **A reflection is a value.** The reflection operator `^^` turns a name
 into a value of type `std::meta::info`: `^^lawman` is a value describing
