@@ -45,9 +45,8 @@
 //
 // The reflected sugar API gives every handle of a facade that lacks a
 // hand-written `api` its member-call sugar, `p.speak()` for
-// `p.call<"speak">()`. All of
-// the C++23 spellings keep working alongside; see "Reflection (C++26)" in
-// "proxy.md".
+// `p.call<"speak">()`. All of the C++23 spellings keep working alongside; see
+// "Reflection (C++26)" in "proxy.md".
 //
 // Gated on `__cpp_impl_reflection`, so the header is empty (beyond the proxy
 // system it includes) on a compiler without P2996. Each helper below states
@@ -87,9 +86,13 @@ struct info_pack {};
 // `name`, as seen from `ctx`, or none when `cls` is not a class type.
 //
 // Searches the class's own members first and its bases only when it declares
-// none by that name, which is the name hiding an ordinary member call
-// `t.name(...)` applies. Two bases each contributing one leaves both in the
-// set, so the call is ambiguous, as it would be in the language.
+// no function by that name, which is the name hiding that an ordinary member
+// call `t.name(...)` applies, with two gaps (see "Limits" in "proxy.md"): a
+// using-declaration is not a member to `members_of`, so a base overload it
+// un-hides is not a candidate beside the class's own; and a non-function
+// member by that name does not hide the base's functions here, though it does
+// in the language. Two bases each contributing one leaves both in the set, so
+// the call is ambiguous, as it would be in the language.
 //
 // `members_of` walks a class's direct members under an access context, each
 // as an `info`, the compile-time handle to an entity. `has_identifier` guards
@@ -299,17 +302,41 @@ constexpr inline bool has_name_entry_v = (entry_name<Es>::is_name || ...);
 // pack of its interface, followed by the extra entries `Es`.
 //
 // The name is `F`'s own identifier unless `Es` carries a `name` entry. The
-// consteval enumeration only collected reflections; every key and signature
-// is formed here, at the type level, by pack expansion (gcc 16 rejects
-// `substitute` inside a loop over reflected members).
+// partials split on that, so the identifier is reflected only where it is
+// used: a class template specialization has none (`has_identifier` is false,
+// and `identifier_of` is not a constant expression), so it must carry a
+// `name` entry. The consteval enumeration only collected reflections; every
+// key and signature is formed here, at the type level, by pack expansion (gcc
+// 16 rejects `substitute` inside a loop over reflected members).
 template<typename F, typename Methods, typename... Es>
 struct facade_maker;
 
 template<typename F, std::meta::info... Ms, typename... Es>
+requires has_name_entry_v<Es...>
 struct facade_maker<F, info_pack<Ms...>, Es...> {
-  using type = std::conditional_t<has_name_entry_v<Es...>,
-      facade<method<key_v<Ms>, signature_t<Ms>>..., Es...>,
-      facade<name<key_v<^^F>>, method<key_v<Ms>, signature_t<Ms>>..., Es...>>;
+  using type = facade<method<key_v<Ms>, signature_t<Ms>>..., Es...>;
+};
+
+template<typename F, std::meta::info... Ms, typename... Es>
+requires(!has_name_entry_v<Es...> && std::meta::has_identifier(^^F))
+struct facade_maker<F, info_pack<Ms...>, Es...> {
+  using type =
+      facade<name<key_v<^^F>>, method<key_v<Ms>, signature_t<Ms>>..., Es...>;
+};
+
+// The diagnostic partial, for no `name` entry and no identifier to stand in
+// for one.
+//
+// The placeholder name keeps the error to the one assertion, in place of the
+// cascade that reflecting the missing identifier would add.
+template<typename F, std::meta::info... Ms, typename... Es>
+requires(!has_name_entry_v<Es...> && !std::meta::has_identifier(^^F))
+struct facade_maker<F, info_pack<Ms...>, Es...> {
+  static_assert(false,
+      "this facade has no identifier to serve as its name (a class template "
+      "specialization has none); add a name<> entry");
+  using type =
+      facade<name<"unnamed">, method<key_v<Ms>, signature_t<Ms>>..., Es...>;
 };
 
 #pragma endregion
@@ -345,7 +372,9 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 //
 // The name is `F`'s own identifier. A `name<>` entry among `Es` overrides it,
 // for a facade whose identifier does not serve (two facades sharing one across
-// namespaces, which must not collide in a composition).
+// namespaces, which must not collide in a composition), and is required for a
+// facade that has none: a class template specialization is unnamed to
+// reflection, and leaving the entry out is a `static_assert` saying so.
 //
 // `extends<>` entries are listed in `Es` as they would be in a `facade<...>`.
 template<typename F, typename Api, typename... Es>
@@ -391,7 +420,11 @@ using reflected_facade = details::facade_maker<F,
 //
 // The following are never bound, because reflection does not see them as
 // member functions: member function templates (a deducing-this member is one),
-// static members, data members, and anything on a non-class target.
+// static members, data members, and anything on a non-class target. Nor is a
+// base overload that a using-declaration un-hides beside the class's own
+// (`using base::fire;` next to a `fire` of the class), since `members_of`
+// does not report the using-declaration; such a key takes a `members<>`
+// binding or an override. See "Limits" in "proxy.md".
 template<typename T,
     std::meta::access_context Ctx = std::meta::access_context::current()>
 struct reflected_impl: proxy_impl_base {
@@ -436,7 +469,7 @@ struct default_impl<F, T> {
 } // namespace details
 
 #pragma endregion
-#pragma region The reflected Sugar API
+#pragma region The reflected sugar API
 
 namespace details {
 

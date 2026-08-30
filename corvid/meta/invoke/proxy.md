@@ -513,7 +513,7 @@ selection is a lazy specialization rather than a `std::conditional_t`,
 because naming `F::api` when it does not exist is ill-formed. `H` is the
 complete handle type. A hand-written `api` does not use it, since its
 forwarders deduce `this`; it is there for the reflected `api`, whose
-forwarders must name the handle's `call` (see "The reflected api").
+forwarders must name the handle's `call` (see "The reflected sugar API").
 
 The views pick the base up through their shared `details::view_base`,
 and the shared handles through `details::shared_base`, keeping each
@@ -2375,7 +2375,11 @@ The facade's name comes from its own identifier (`identifier_of(^^animal)`
 is "animal"), so the `name<>` entry is not needed. It stays available as
 an override, for the case the identifier does not serve (two facades
 sharing an identifier across namespaces, which must not collide in a
-composition). `extends<Base>` entries are listed alongside as before:
+composition), and it is required for a facade that has no identifier: a
+class template specialization (`repeater<int>`) is unnamed to reflection,
+so `reflected_facade<repeater<Round>, gunslinger_api, name<"repeater">>`
+spells the name, and leaving it out is a `static_assert` saying so.
+`extends<Base>` entries are listed alongside as before:
 `reflected_facade<marshal, marshal_api, extends<gunslinger>>`, and a
 chain can be interface-first at every level.
 
@@ -2402,9 +2406,9 @@ collects and a pack expansion that forms every key and type, is what gcc
 every key what a hand-written boilerplate's `on(method_key<"fire">, T& t,
 int n) { return t.fire(n); }` does for one. Its `on` for a key enumerates
 `T`'s non-static member functions with that identifier (own members
-first, then bases, with the name hiding an ordinary member call applies),
-hands the candidates to the same synthetic overload set `resolve` uses
-(`rank_set`, so the compiler ranks promotions, conversions, and the
+first, then bases, with the name hiding that an ordinary member call
+applies), hands the candidates to the same synthetic overload set `resolve`
+uses (`rank_set`, so the compiler ranks promotions, conversions, and the
 object parameter exactly as it does for `call<>`), and invokes the winner
 through its member pointer, `&[: m :]`, with `std::invoke`, the way
 `member_impl` invokes a `members<>` binding.
@@ -2474,8 +2478,12 @@ and the sugar's instructions are the core spelling's.
 What differs from a hand-written forwarder, and is accepted: `p.fire`
 without parentheses is a valid expression (an empty object), and
 `&handle::fire` is a pointer to a data member rather than to a member
-function. The construction is isolated in one class template so that the
-P3294 form, real member functions, replaces it without touching callers.
+function. And `p.fire` copies: `auto f = p.fire; f(3)` is undefined
+behavior, a dangling forwarder, since the copy recovers its owner from its
+own address, where there is no handle. The member forwards only in place,
+and it cannot be made non-copyable without making every handle non-copyable.
+The construction is isolated in one class template so that the P3294 form,
+real member functions, replaces it without touching callers.
 
 The sugar API needs the handle type, to name the `call` it forwards to. The
 hand-written `api` never did, since its forwarders deduce `this`. So the
@@ -2550,6 +2558,13 @@ a clang pass reshapes one helper at a time.
   since a template has no address; a binding class with an `on` that
   calls it can). Whether `substitute` on the template can lift this is
   an open question; see "Later".
+- Name hiding is approximated from what `members_of` reports. A
+  using-declaration is not a member to it, so a base overload that
+  `using base::fire;` un-hides beside the class's own `fire` is not a
+  candidate, and the pair does not conform on that key (it takes a
+  `members<>` binding or an override). In the other direction, a
+  non-function member named `fire` does not hide a base's `fire()` here,
+  though it does in the language. Both are on the list in "Later".
 - Static members, data members, operators, and constructors are never
   methods, on either side. `members<>` still binds a data member by
   pointer where that is wanted.
@@ -2614,6 +2629,14 @@ shaped the patterns, each verified by a probe:
   concrete object type, and then the same rule. The target side is the
   one that matters, since an interface can always be written as plain
   declarations.
+- Name hiding through using-declarations. The base overload can be found
+  by walking the bases whenever the class's own set does not resolve, but
+  nothing in P2996 says whether a `using` made it visible, and a member
+  pointer call does not check hiding, so that walk would also admit an
+  overload the language hides. The fix wants the language's own rules (a
+  call expression on the name, once a splice can spell one) and belongs
+  with the deducing-this gap, since both are candidates reflection cannot
+  enumerate; the data-member hiding gap falls out of the same fix.
 
 ## Future work
 

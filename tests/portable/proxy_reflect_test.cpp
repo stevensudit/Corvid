@@ -60,6 +60,13 @@ struct gunslinger2
     : prox::reflected_facade<gunslinger2, gunslinger_api,
           prox::name<"gunslinger">> {};
 
+// `repeater` is a class template, so a specialization has no identifier to
+// reflect, and the `name` entry is required rather than optional.
+template<typename Round>
+struct repeater
+    : prox::reflected_facade<repeater<Round>, gunslinger_api,
+          prox::name<"repeater">> {};
+
 // A type whose method names line up with the facade. Conforms by
 // registration alone: the reflected impl is the facade's default impl.
 struct lawman {
@@ -430,6 +437,13 @@ using gunslinger2_build = prox::details::vtbuild_t<gunslinger2>;
 static_assert(
     gunslinger2_build::name_v.view() == gunslinger_build::name_v.view());
 static_assert(std::is_same_v<gunslinger2_build::flat_slots_t,
+    gunslinger_build::flat_slots_t>);
+
+// A class template specialization has no identifier; its `name` entry serves,
+// and the slots are the interface's as for any other facade.
+using repeater_build = prox::details::vtbuild_t<repeater<int>>;
+static_assert(repeater_build::name_v.view() == "repeater");
+static_assert(std::is_same_v<repeater_build::flat_slots_t,
     gunslinger_build::flat_slots_t>);
 
 // The identifier serves as the name, and the declaration grammar carries
