@@ -48,11 +48,12 @@ the facade's `boilerplate` and `api` classes is an artifact of C++23
 lacking reflection, not of the design. Under C++26 reflection (P2996)
 the `boilerplate` derives outright, the `api` derives through a
 `define_aggregate` construction, and the facade itself is written as
-plain member function declarations, so a facade, its sugar, and every
-conforming type's bindings come from one declaration-only struct and one
-registration line each; see "Reflection (C++26)". That layer builds only
-on gcc 16 or newer for now, so the C++23 spellings stay the portable
-route.
+plain member function declarations, so a facade and its sugar come from
+one declaration-only struct, and a conforming type whose member names
+line up binds by its registration line alone (a divergent name takes one
+`member<>` or override on top); see "Reflection (C++26)". That layer
+builds only on gcc 16 or newer for now, so the C++23 spellings stay the
+portable route.
 
 Second, on the portable route, `prox::codegen`
 ([proxy_codegen.h](proxy_codegen.h)) writes them for you. It handles all
