@@ -82,7 +82,7 @@ namespace prox {
 // When the facade defines a nested `api`, the proxy inherits it, so the
 // member-call sugar forwarders dispatch alongside `call`.
 template<Facade F, invocable_policy Policy>
-class proxy: public details::api_base_t<F> {
+class proxy: public details::api_base_t<F, proxy<F, Policy>> {
   using vtbuild_t = details::vtbuild_t<F>;
   using owning_vtable_t = vtbuild_t::owning_vtable_t;
 

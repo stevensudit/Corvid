@@ -153,6 +153,15 @@ elseif(USE_LIBSTDCPP)
         # so they cannot be suppressed at the source. Keep them as warnings
         # but do not fail the build on them.
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=array-bounds")
+        # gcc 16 and newer implement C++26 reflection (P2996). Enable it for
+        # the whole leg, so the reflection layer of the proxy system
+        # (corvid/meta/invoke/proxy_reflect.h, gated on __cpp_impl_reflection)
+        # is live in every translation unit, and user code needs only the same
+        # gate. Other compilers see the gate closed, and a test of the layer
+        # compiles down to its gate-reporting case. See crossplatform.md.
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -freflection")
+        endif()
     endif()
     # clang with libstdc++ builds as C++26 too, on the container's patched
     # <format> (.devcontainer/libstdcxx-format-clang.patch): stock libstdc++ 16

@@ -144,6 +144,15 @@ features are permitted only behind their feature-test gates. One leg stays
 at C++23: the `.cu` bucket, because `c++23` is the top of nvcc 13.3's `--std`
 list.
 
+The gcc leg also builds with `-freflection` (gcc 16 or newer), which opens
+the C++26 reflection layer of the proxy system,
+`corvid/meta/invoke/proxy_reflect.h`, gated on `__cpp_impl_reflection`. Only
+gcc has the semantics today (clang 23 parses the operators without
+implementing them; cl has nothing), so the header is empty past its includes
+everywhere else, and its test, `tests/portable/proxy_reflect_test.cpp`,
+carries the same gate: on gcc it runs the reflected cases, and on every other
+compiler it compiles down to one case reporting that the layer is unavailable.
+
 The clang + libstdc++ leg (`./cleanbuild.sh libstdcpp`) builds as C++26 only
 because the container's libstdc++ 16 `<format>` carries a local patch,
 `.devcontainer/libstdcxx-format-clang.patch`. Stock libstdc++ (15 through

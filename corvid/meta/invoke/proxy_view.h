@@ -44,7 +44,7 @@ namespace details {
 // This is also where the views pick up the facade's `api` base, keeping each
 // view a single-inheritance chain.
 template<Facade F, access_mode Access>
-class view_base: public api_base_t<F> {
+class view_base: public api_base_t<F, view_t<F, Access>> {
 protected:
   using vtable_t = vtbuild_t<F>::vtable_t;
   using target_ptr_t = conditional_const_t<Access, void>*;

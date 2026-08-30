@@ -47,9 +47,12 @@ Two facts frame everything below. First, the manual duplication in
 the facade's `boilerplate` and `api` classes is an artifact of C++23
 lacking reflection, not of the design. Under C++26 reflection (P2996)
 the `boilerplate` derives outright, the `api` derives through a
-`define_aggregate` construction, and the facade's method list itself can
-be written as plain member function declarations; see "Reflection
-(C++26)". That layer is gcc-only for now, so the C++23 spellings stay the
+`define_aggregate` construction, and the facade itself is written as
+plain member function declarations, so a facade and its sugar come from
+one declaration-only struct, and a conforming type whose member names
+line up binds by its registration line alone (a divergent name takes one
+`member<>` or override on top); see "Reflection (C++26)". That layer
+builds only on gcc 16 or newer for now, so the C++23 spellings stay the
 portable route.
 
 Second, on the portable route, `prox::codegen`
@@ -92,13 +95,16 @@ using-declaration merges, and diamonds.
 - [Test fixture map](#test-fixture-map)
 - [Non-goals](#non-goals)
 - [Reflection (C++26)](#reflection-c26)
+  - [Reflection in five ideas](#reflection-in-five-ideas)
   - [The end state](#the-end-state)
-  - [Api-first facades](#api-first-facades)
-  - [The reflected boilerplate](#the-reflected-boilerplate)
-  - [The reflected api](#the-reflected-api)
+  - [Interface-first facades (`reflected_facade`)](#interface-first-facades-reflected_facade)
+  - [The reflected boilerplate (`reflected_impl`)](#the-reflected-boilerplate-reflected_impl)
+  - [The reflected sugar API](#the-reflected-sugar-api)
+  - [What the layer asked of the portable headers](#what-the-layer-asked-of-the-portable-headers)
   - [Portability and testing](#portability-and-testing)
+  - [Limits](#limits)
   - [gcc 16 notes](#gcc-16-notes)
-  - [Steps](#steps)
+  - [Later](#later)
 - [Future work](#future-work)
 
 ## Lineage and positioning
@@ -126,32 +132,32 @@ buffer plus dispatch pointer).
 
 ## Naming map
 
-| Corvid                        | ngcpp/proxy                        | Rust                     |
-| ----------------------------- | ---------------------------------- | ------------------------ |
-| `proxy<F>`                    | `pro::proxy<F>`                    | `Box<dyn T>`             |
-| `proxy_view<F>`               | `pro::proxy_view<F>`               | `&mut dyn T`             |
-| `const_proxy_view<F>`         | (none)                             | `&dyn T`                 |
-| `facade`                      | facade (`facade_builder`)          | `trait`                  |
-| `method<"fire", void(int)>`   | dispatch + convention              | trait method             |
-| `proxy_impl<F, T>`            | (none; structural)                 | `impl Trait for Type`    |
-| `corvid_proxy_spec(F*, T*)`   | (none)                             | empty `impl` block       |
-| `make_proxy_spec<F, T>()`     | (none)                             | (spec payload)           |
-| `members<member<"fire", &T::shoot>, ...>` | (none)                 | (none)                   |
-| `"name"_method` UDL           | (none)                             | (none)                   |
-| `Proxiable<T, F>`             | `proxiable<P, F>`                  | `T: Trait` bound         |
-| `make_proxy<F, T>(...)`       | `make_proxy`                       | `Box::new`               |
-| `make_proxy_view<F>(t)`       | `make_proxy_view`                  | `&mut x as &mut dyn T`   |
-| `make_const_proxy_view<F>(t)` | (none)                             | `&x as &dyn T`           |
-| `extends<Base>`               | `add_facade`                       | supertrait               |
-| `invocable_policy`            | facade-level constraints           | (none)                   |
-| `clone()` / `can_clone()`     | copyability constraint             | (dyn-clone idiom)        |
-| `try_downcast<D>()`           | (none)                             | (`dyn Any` adjacent)     |
-| `try_share<T>()`              | (none)                             | (`Rc<dyn Any>` downcast) |
-| `shared_proxy<F>`             | `proxy<F>` via `make_proxy_shared` | `Rc<RefCell<dyn T>>`     |
-| `weak_proxy<F>`               | `weak_proxy`                       | `Weak<RefCell<dyn T>>`   |
-| `const_shared_proxy<F>`       | (none)                             | `Rc<dyn T>`              |
-| `const_weak_proxy<F>`         | (none)                             | `Weak<dyn T>`            |
-| (internal) dispatch table     | meta                               | vtable + drop glue       |
+| Corvid                                    | ngcpp/proxy                        | Rust                     |
+| ----------------------------------------- | ---------------------------------- | ------------------------ |
+| `proxy<F>`                                | `pro::proxy<F>`                    | `Box<dyn T>`             |
+| `proxy_view<F>`                           | `pro::proxy_view<F>`               | `&mut dyn T`             |
+| `const_proxy_view<F>`                     | (none)                             | `&dyn T`                 |
+| `facade`                                  | facade (`facade_builder`)          | `trait`                  |
+| `method<"fire", void(int)>`               | dispatch + convention              | trait method             |
+| `proxy_impl<F, T>`                        | (none; structural)                 | `impl Trait for Type`    |
+| `corvid_proxy_spec(F*, T*)`               | (none)                             | empty `impl` block       |
+| `make_proxy_spec<F, T>()`                 | (none)                             | (spec payload)           |
+| `members<member<"fire", &T::shoot>, ...>` | (none)                             | (none)                   |
+| `"name"_method` UDL                       | (none)                             | (none)                   |
+| `Proxiable<T, F>`                         | `proxiable<P, F>`                  | `T: Trait` bound         |
+| `make_proxy<F, T>(...)`                   | `make_proxy`                       | `Box::new`               |
+| `make_proxy_view<F>(t)`                   | `make_proxy_view`                  | `&mut x as &mut dyn T`   |
+| `make_const_proxy_view<F>(t)`             | (none)                             | `&x as &dyn T`           |
+| `extends<Base>`                           | `add_facade`                       | supertrait               |
+| `invocable_policy`                        | facade-level constraints           | (none)                   |
+| `clone()` / `can_clone()`                 | copyability constraint             | (dyn-clone idiom)        |
+| `try_downcast<D>()`                       | (none)                             | (`dyn Any` adjacent)     |
+| `try_share<T>()`                          | (none)                             | (`Rc<dyn Any>` downcast) |
+| `shared_proxy<F>`                         | `proxy<F>` via `make_proxy_shared` | `Rc<RefCell<dyn T>>`     |
+| `weak_proxy<F>`                           | `weak_proxy`                       | `Weak<RefCell<dyn T>>`   |
+| `const_shared_proxy<F>`                   | (none)                             | `Rc<dyn T>`              |
+| `const_weak_proxy<F>`                     | (none)                             | `Weak<dyn T>`            |
+| (internal) dispatch table                 | meta                               | vtable + drop glue       |
 
 Naming notes:
 
@@ -502,17 +508,23 @@ producing a key object: `p("fire"_k, 3)` or `p["fire"_k](3)`. These were
 recorded as alternates while the mixin was unproven, and never needed once
 the restyled tests confirmed its ergonomics.
 
-Mechanics of the built form: `details::api_base_t<F>` yields `F::api` when
-the facade defines one, and an empty `no_api` stand-in otherwise. The
+Mechanics of the built form: `details::api_base_t<F, H>` yields `F::api`
+when the facade defines one, and an empty `no_api` stand-in otherwise. The
 selection is a lazy specialization rather than a `std::conditional_t`,
-because naming `F::api` when it does not exist is ill-formed.
+because naming `F::api` when it does not exist is ill-formed. `H` is the
+complete handle type. A hand-written `api` does not use it, since its
+forwarders deduce `this`; it is there for the reflected `api`, whose
+forwarders must name the handle's `call` (see "The reflected sugar API").
 
 The views pick the base up through their shared `details::view_base`,
 and the shared handles through `details::shared_base`, keeping each
-handle a single-inheritance chain. The owning `proxy`, which has no other
-base, inherits it directly. Deducing `this` sees the complete handle type
-regardless of where in the hierarchy the forwarders sit. The mixin is
-stateless, so empty-base optimization keeps the views at two pointers.
+handle a single-inheritance chain. Each base passes the handle flavor its
+`Access` selects (`details::view_t<F, Access>` and
+`details::shared_t<F, Access>`). The owning `proxy`, which has no other
+base, inherits it directly and passes itself. Deducing `this` sees the
+complete handle type regardless of where in the hierarchy the forwarders
+sit. The mixin is stateless, so empty-base optimization keeps the views at
+two pointers.
 
 Caveats, all on the facade author's side of the contract:
 
@@ -648,8 +660,10 @@ paste the output, delete the one-liner. It lives in its own header,
 [proxy_codegen.h](proxy_codegen.h), so the proxy headers stay free of
 streams and RTTI.
 
-This is the closest thing to reflection available today. The real value is
-that it spells the conventions' edge cases correctly every time:
+This is the portable route's stand-in for reflection: under C++26
+reflection, none of it is needed since the `boilerplate` and `api` derive
+(see "Reflection (C++26)"), but every compiler builds this. The real
+value is that it spells the conventions' edge cases correctly every time:
 
 - `noexcept` propagated onto forwarders and bindings (a plain binding for
   a noexcept method fails conformance)
@@ -1040,7 +1054,7 @@ Seven handles share one shape (a target plus a pointer to a static
 per-(facade, type, birth) table) and differ in what they own, and in whether
 constness is a property of the instance or of the type. All of the
 dispatching handles inherit the facade's `api` sugar when it exists,
-through `details::api_base_t<F>`. The two views additionally share their
+through `details::api_base_t<F, H>`. The two views additionally share their
 storage, const-method `call`, and `try_downcast` through
 `details::view_base<F, Access>`, the two shared-owning handles theirs, plus
 the moves, through `details::shared_base<F, Access>`, and the two weak
@@ -1049,7 +1063,7 @@ handles their storage, `expired`, and `lock` through
 
 ```mermaid
 classDiagram
-    class api_base_t~F~ {
+    class api_base_t~F,H~ {
         <<the facade's api if defined, else empty>>
     }
     class view_base~F,Access~ {
@@ -2120,6 +2134,21 @@ flowchart LR
     int -.->|carried impl| till
 ```
 
+The reflection test, [proxy_reflect_test.cpp](../../../tests/portable/proxy_reflect_test.cpp),
+mirrors this family with the facades stripped to their method lists and
+the interface-first spellings alongside: `gunslinger2` is `gunslinger` derived
+from `gunslinger_api` (with a `name<>` override so the two agree to the
+letter), `lawman_facade` is a facade over the concrete `lawman`'s whole
+public interface, `battery` and `hair_trigger` are interface-first from
+the start,
+`marshal` extends the hand-written `gunslinger` and `ranger` extends
+`marshal`, so the chain is interface-first at two levels, and `census` keeps a
+hand-written `api` over a reflected boilerplate. The conforming types are
+the same ones on the same routes, plus `recluse` (a private member behind
+a plain hook, not proxiable), `marksman` (`noexcept` members), `cannon`
+(overloads and a const pair), `constable` and `texas_ranger` (the chain),
+and `mute` (a deducing-this interface, which declares nothing).
+
 Four fixtures are deliberately missing from the conformance edges.
 `cowboy` has the right shape and no registration, so nominal conformance
 keeps it non-proxiable. `drifter` has the right shape and two hooks, but
@@ -2197,26 +2226,93 @@ and views, and identity is handled by the two tags.
 
 ## Reflection (C++26)
 
-This section is the design for the reflection layer, written before the
-layer exists. It is the reference for the work and, once the steps below
-are done, the description of the result. Everything in it was proven on
-gcc 16 by standalone probes (kept under "tests/.local/reflection/", which
-is gitignored) before being written down.
+The reflection layer, [proxy_reflect.h](proxy_reflect.h), removes the
+two mechanical artifacts of the portable route. Under it, the author
+writes an interface as plain declarations, and three things derive in
+turn: the facade derives from the interface, the call-to-method
+boilerplate (the `boilerplate<T>` of the portable route) derives from the
+target type's members, and the syntactic-sugar API (the facade's `api`
+class, hereafter the sugar API) derives from the facade.
+
+`p.speak()` then works with nothing hand-forwarded and nothing pasted from
+`codegen`. The layer builds only on gcc 16 or newer, in one header gated on
+the compiler's feature-test macro, and everything below it stays the C++23
+library the rest of this document describes.
+
+This section explains the layer for a reader who has not met reflection
+before, so it starts with the language facilities and then follows the
+three derivations in order: the facade, the boilerplate, the sugar API.
+
+### Reflection in five ideas
+
+C++26 reflection (P2996) lets compile-time code look at the program's own
+declarations and produce new ones. Everything in this layer rests on
+these five ideas, plus one more facility, used in one place, at the end
+of the section.
+
+**A reflection is a value.** The reflection operator `^^` turns a name
+into a value of type `std::meta::info`: `^^lawman` is a value describing
+the class `lawman`, and `^^lawman::fire` describes that member function.
+An `info` is an opaque compile-time handle, like a file descriptor for a
+declaration. It can be stored in variables, put in a `std::vector`,
+compared, and passed to functions, all inside `consteval` code, which is
+the code the compiler runs while compiling.
+
+**Queries read a reflection.** `std::meta::members_of(cls, ctx)` returns
+the reflections of a class's members, in declaration order. With `m` one
+of those member reflections, `identifier_of(m)` is the member's name as
+a `string_view`, `type_of(m)` is its type (for a member function, the full
+function type, `const` and `noexcept` included), `is_function(m)` and
+`is_static_member(m)` classify it, `bases_of(cls, ctx)` lists the base classes,
+and `offset_of(m)` is a data member's byte offset. This is how the layer learns
+what a struct declares without being told.
+
+**A splice turns a reflection back into a name.** `[: r :]` is the
+inverse of `^^`: where a type is expected, `[: type_of(m) :]` is that
+type, and `&[: m :]` is the address of the member `m` describes, an
+ordinary pointer to member. The combination `^^`, query, `[: :]` is the
+whole loop: reflect a class, pick out a member, and splice it back into
+code that names it.
+
+**`substitute` instantiates a template from reflections.** Ordinary
+compile-time code (loops, vectors, `if`) cannot produce a pack of
+template arguments. `substitute(^^tmpl, args)`, given a template and a
+vector of reflections, returns the reflection of the instantiated
+template-id, which a splice then names. It is the bridge from "a list I
+computed" back into template-land, and the layer crosses it once per
+derivation: it collects the member reflections it wants into a vector,
+substitutes them into a pack, and then does everything else with ordinary
+pack expansion.
+
+**`define_aggregate` defines a struct.** Given the reflection of a
+declared-but-undefined class and a list of `data_member_spec`s (type,
+name, attributes), it completes the class with exactly those data
+members. Computed data members are as far as P2996 goes: it cannot
+declare a member function with a computed name (that is P3294, a C++29
+target), which shapes the sugar API below.
+
+One more facility appears in one place. An `access_context` says whose
+eyes an enumeration looks through: `members_of(cls, ctx)` reports what
+`ctx` may access, so a private member is visible only to a context that
+could name it. `std::meta::access_context::current()` is the context of
+the code where it is written, and the layer uses it the way
+`std::source_location::current()` is used, as a defaulted template
+argument that captures the caller's position.
 
 ### The end state
 
 The facade is the one manual artifact. Its two derivations, the
 `boilerplate` that maps `call<"fire">` to the target's `fire`, and the
 `api` that exposes `call<"fire">` as `p.fire(3)`, are mechanical, and
-reflection writes both. The facade itself can be written as the interface
-it describes:
+reflection writes both. The facade itself is written as the interface it
+describes:
 
 ```cpp
 struct animal_api {
   void speak() const;
 };
 
-struct animal : facade<animal, animal_api> {};
+struct animal : reflected_facade<animal, animal_api> {};
 
 consteval auto corvid_proxy_spec(animal*, dog*) {
   return make_proxy_spec<animal, dog>();
@@ -2225,21 +2321,25 @@ consteval auto corvid_proxy_spec(animal*, dog*) {
 
 That is the whole of it: an interface, a facade naming it, and one
 registration line per conforming type. `p.speak()` dispatches through the
-same table as `p.call<"speak">()`. Nothing is hand-forwarded, nothing is
-pasted from `codegen`, and `validate_api` has nothing left to check.
+same table as `p.call<"speak">()`, and compiles to the same instructions
+(checked on gcc at `-O2`: the two spellings produce identical code for a
+view and for an owning proxy).
 
 The C++23 spellings all remain. A facade may still list `method<>` entries
 and hand-write its `api` and `boilerplate`, and every registration tier
 (carried impl, partial override, `members<>`) keeps working, with the
 reflected pieces slotting in underneath rather than replacing the tiers.
+A base facade written one way composes with a derived facade written the
+other, because a derived facade is an ordinary `facade<...>` under either
+spelling.
 
-### Api-first facades
+### Interface-first facades (`reflected_facade`)
 
 The interface struct holds plain member function declarations, never
-defined and never called; they are the specification, read by
-reflection. The declaration grammar carries everything a `method<>`
-entry does: `void f() const` is a const method, `noexcept` is honored, and
-two declarations of one name are an overload set. So
+defined and never called; they are the specification, read by reflection.
+The declaration grammar carries everything a `method<>` entry does:
+`void f() const` is a const method, `noexcept` is honored, and two
+declarations of one name are an overload set. So
 
 ```cpp
 struct gunslinger_api {
@@ -2254,113 +2354,195 @@ struct gunslinger_api {
 is exactly `facade<name<"gunslinger">, method<"fire", void(int)>,
 method<"fire", int(int, int)>, method<"reload", bool() noexcept>,
 method<"count", int&()>, method<"count", int() const>>`, and the two
-spellings yield the same flattened slot list (the test pins this).
+spellings yield the same name and the same flattened slot list (the test
+pins both with `static_assert`).
 
-The spec is what `members_of` reports as the struct's non-static, named,
-non-special member functions, in declaration order. Static members,
-constructors, operators, data members, and templates are not methods.
-That last one matters: a deducing-this forwarder
+The spec is what `members_of` reports as the struct's public, non-static,
+named, non-special member functions, in declaration order. Static
+members, constructors, operators, data members, and templates are not
+methods. That last one matters: a deducing-this forwarder
 (`void speak(this const auto& self)`) is a function template and has no
-type to reflect, and an explicit-object non-template reflects with its
-object parameter as an ordinary parameter, so neither can serve as a
-spec. Declarations take no `this` parameter; constness is spelled with
-the `const` qualifier.
+type to reflect, so it declares nothing (see "Limits").
+
+The interface need not be written for the purpose. Any class serves,
+since the spec is just its public member functions, so
+`reflected_facade<lawman_facade, lawman>` is a facade over `lawman`'s
+whole public interface, `jams` included, which `lawman` itself conforms
+to by registration alone, and so does any type with the same public
+methods. The bodies are ignored, and so are the data members, exactly as
+for an interface written on purpose; the one difference is that every
+public member function becomes a method, wanted or not.
 
 The facade's name comes from its own identifier (`identifier_of(^^animal)`
 is "animal"), so the `name<>` entry is not needed. It stays available as
 an override, for the case the identifier does not serve (two facades
 sharing an identifier across namespaces, which must not collide in a
-composition). `extends<Base>` entries are listed alongside as before:
-`facade<marshal, marshal_api, extends<gunslinger>>`.
+composition), and it is required for a facade that has no identifier: a
+class template specialization (`repeater<int>`) is unnamed to reflection,
+so `reflected_facade<repeater<Round>, gunslinger_api, name<"repeater">>`
+spells the name, and leaving it out is a `static_assert` saying so.
+`extends<Base>` entries are listed alongside as before:
+`reflected_facade<marshal, marshal_api, extends<gunslinger>>`, and a
+chain can be interface-first at every level.
 
-The derivation is a consteval enumeration of the interface's members into
-a pack of reflections, and then type-level formation of the entries by
-pack expansion (a key per member from its identifier, a signature per
-member from `type_of`), because that split is what gcc 16 compiles; see
-"gcc 16 notes". The derived facade is an ordinary `facade<...>`, so the
-rest of the machinery is unaware of where the entries came from.
+`reflected_facade` is an alias, expanding at the base clause to the
+`facade<...>` it derives, so the portable `facade` parser is untouched and
+a bad interface errors at the line the author wrote. Teaching `facade`
+itself to take `facade<animal, animal_api>` was considered and rejected:
+it needs two customization points in the portable header that only this
+layer specializes, plus a rework of name selection, and errors would
+surface at the first handle use instead.
 
-### The reflected boilerplate
+How the derivation runs: one consteval function enumerates the interface
+and collects the member reflections into a vector; `substitute` lifts
+that vector into a pack; and a class template over that pack forms the
+entries by pack expansion, `method<key_v<M>, signature_t<M>>...`, where
+`key_v<M>` is a `fixed_string` built from `identifier_of(M)` and
+`signature_t<M>` is the spliced `type_of(M)`. The split, a loop that only
+collects and a pack expansion that forms every key and type, is what gcc
+16 compiles; see "gcc 16 notes".
 
-`reflected_impl<T>` is a binding class like any other: its `on` for a
-key enumerates `T`'s members with that identifier, hands the candidates to
-the same synthetic overload set `resolve` uses (`rank_set`, so the
-compiler ranks promotions, conversions, and the object parameter exactly
-as it does for `call<>`), and invokes the winner through its member
-pointer, `&[:m:]`, with `std::invoke`, the way `member_impl` invokes a
-`members<>` binding. The target parameter is deduced, so constness flows
-through, and the result type and `noexcept` come from the declaration
-alone, so a conformance probe instantiates no body. A `noexcept` method
-stays `noexcept` through `call<>`, a const pair splits by handle
-constness, and an overload set resolves per call.
+### The reflected boilerplate (`reflected_impl`)
+
+`reflected_impl<T>` is a binding class like any other, and it does for
+every key what a hand-written boilerplate's `on(method_key<"fire">, T& t,
+int n) { return t.fire(n); }` does for one. Its `on` for a key enumerates
+`T`'s non-static member functions with that identifier (own members
+first, then bases, closely approximating the name hiding an ordinary member
+call applies; see "Limits" for the two gaps), hands the candidates to the same
+synthetic overload set `resolve` uses (`rank_set`, so the compiler ranks
+promotions, conversions, and the object parameter exactly as it does for
+`call<>`), and invokes the winner through its member pointer, `&[: m :]`, with
+`std::invoke`, the way `member_impl` invokes a `members<>` binding.
+
+The target parameter is deduced, so constness flows through, and the result
+type and `noexcept` come from the member's declaration, so a conformance
+probe instantiates no body. A `noexcept` method stays `noexcept` through
+`call<>`, a const pair splits by handle constness, an overload set resolves
+per call, and a key with no viable member is unbound, which conformance
+reports as it would for any other binding class. A `noexcept` facade method
+over a target whose member is not `noexcept` therefore does not conform;
+the hand-written boilerplate could add a terminate boundary, the reflected
+one reports the target as it is.
 
 It is the bottom tier, in the position the facade's nested `boilerplate`
-holds today, and the precedence is unchanged: a registration-carried impl
-outranks it, a facade that hand-writes a nested `boilerplate` keeps it,
-`members<>` routes every unlisted key to it, and a partial-override
-binding class inherits it, re-exposes its `on` with a using-declaration,
-and adds the one binding that needs a body. Conformance for a type whose
-names line up is therefore the registration line alone, and a type whose
-names diverge on one method registers one `member<>` and leaves the rest
-derived. There is no all-or-nothing choice between reflection and manual
-binding.
+holds on the portable route, and the precedence is unchanged: a
+registration-carried impl outranks it, a facade that hand-writes a nested
+`boilerplate` keeps it, `members<>` routes every unlisted key to it, and a
+partial-override binding class inherits it, re-exposes its `on` with a
+using-declaration, and adds the one binding that needs a body.
+Conformance for a type whose names line up is therefore the registration
+line alone, and a type whose names diverge on one method registers one
+`member<>`, or one override, and leaves the rest derived. Because an impl
+binds by name, the same override serves a facade whichever way it was
+written.
 
 Private members follow the rule `members<>` already has: a private member
 binds when the registering hook can name it. The enumeration runs under
-the hook's own access context, obtained through a defaulted
-`std::meta::access_context::current()` template argument, which is
-evaluated where the template-id is written (like
-`std::source_location::current()`). A hidden-friend hook inside the type
-therefore binds its private members; a namespace-scope hook sees only the
-public ones. The member-pointer call is not access-checked by the
-language, so a hook that can enumerate a member can bind it; a hook that
-cannot enumerate it never learns it exists. `access_context::unchecked()`
-is not used by the library.
+the access context captured where `reflected_impl<T>` is spelled, through
+its defaulted `access_context::current()` argument. Spelled by the
+library, for a plain registration, that is the library's context and only
+public members bind; spelled in a hidden-friend hook of `T`, or in a
+binding class nested in `T`, it is the friend's context and private
+members bind too.
 
-### The reflected api
+A hook that can enumerate a member can bind it (forming
+`&[: m :]` is not access-checked), and a hook that cannot enumerate it
+never learns it exists. The library never uses `access_context::unchecked()`.
 
-P2996 can define a class with computed data members (`define_aggregate`)
-but cannot declare a member function with a computed name; that is token
-injection (P3294), a C++29 target. The `api` is therefore built as a
+### The reflected sugar API
+
+P2996 can define a class with computed data members but cannot declare a
+member function with a computed name. The `api` is therefore built as a
 class with one empty `[[no_unique_address]]` data member per distinct
-method name, each of a per-key callable type whose `operator()` recovers
-the enclosing handle from its own address and forwards to `call<Key>`.
-`p.fire(3)` is then `p.fire`, a data member, followed by `(3)`, its call
-operator. All the members are empty and of distinct types, so they share
-the api's address, the api is an empty base, and the handle keeps its
-size. The offsets are computed by reflection (`offset_of` on the member
-and on the base) and asserted zero rather than assumed.
+method name, each of a per-key callable type (`reflected_sugar<F, H,
+Key>`) whose `operator()` recovers the enclosing handle from its own
+address and forwards to `call<Key>`. `p.fire(3)` is then `p.fire`, a data
+member, followed by `(3)`, its call operator. All the members are empty
+and of distinct types, so they share the sugar API's address, the API is an
+empty base, and the handle keeps its size (a view is still two pointers).
+
+The offsets, of the member within the API and of the API within the
+handle, are computed by reflection (`offset_of` on the member and along
+the handle's base chain, since the views and shared handles inherit the
+sugar API through `view_base` and `shared_base`) rather than assumed, the first
+time an operator is instantiated, which is when the handle is complete.
 
 Deep const holds: a const handle reaches only the const `operator()`,
 which forwards to the const `call`, so a const handle has no mutable
 `fire` at all. Overloads and const pairs resolve inside `call<>`, which
 ranks with the compiler's rules, so the sugar cannot disagree with the
 core spelling; `noexcept` propagates; a method returning `int&` returns
-`int&`.
+`int&`. The optimizer sees through all of it: the empty member, the
+offset arithmetic (which resolves to zero), and the forwarding fold away,
+and the sugar's instructions are the core spelling's.
 
 What differs from a hand-written forwarder, and is accepted: `p.fire`
 without parentheses is a valid expression (an empty object), and
 `&handle::fire` is a pointer to a data member rather than to a member
-function. The construction is isolated in one class template so that the
-P3294 form, real member functions, replaces it without touching callers.
+function. And `p.fire` copies: `auto f = p.fire; f(3)` is undefined
+behavior, a dangling forwarder, since the copy recovers its owner from its
+own address, where there is no handle. The member forwards only in place,
+and it cannot be made non-copyable without making every handle non-copyable.
+The construction is isolated in one class template so that the P3294 form,
+real member functions, replaces it without touching callers.
 
-The api needs the handle type, to name the `call` it forwards to. The
+The sugar API needs the handle type, to name the `call` it forwards to. The
 hand-written `api` never did, since its forwarders deduce `this`. So the
 handles inherit their sugar base by handle type as well as facade
-(`api_base<F, H>`, CRTP), which is the one change the reflection layer
-asks of the portable headers. A facade that defines an `api` keeps it; the
+(`api_base<F, H>`, CRTP). A facade that defines an `api` keeps it; the
 reflected one applies only when it does not.
+
+The one combination that does not validate is a hand-written `api` over a
+reflected boilerplate. `validate_api` drives the probe target's `api`
+forwarders through the boilerplate by natural name, and those forwarders
+are deducing-this templates, which reflection does not see as members, so
+the reflected impl never serves the probe. Such a facade registers with
+`api_check::off`, which the registration's own diagnostic asks for.
+
+### What the layer asked of the portable headers
+
+Two seams, both in C++23 code that builds everywhere:
+
+- `api_base<F, H>`: the sugar base takes the handle type, as above. The
+  views and shared handles pass the flavor their `Access` selects
+  (`details::view_t<F, Access>`, `details::shared_t<F, Access>`), the
+  owning `proxy` passes itself, and a hand-written `api` ignores it.
+- `details::default_impl<F, T>`: the bottom binding tier, the facade's
+  `boilerplate<T>` when it has one. The library's `proxy_impl` partial
+  for a plain registration and `member_impl`'s fall-through for unlisted
+  keys both go through it, where before they named `F::boilerplate<T>`
+  directly and nothing outside the facade could stand in for it. The
+  reflection header adds one constrained partial (no `boilerplate`, so
+  `reflected_impl<T>`), and both routes serve it.
+
+Everything else in the layer is a specialization or an alias over the
+portable machinery, which is unaware of where a facade's entries or a
+pair's bindings came from.
 
 ### Portability and testing
 
 The layer lives in one header, "proxy_reflect.h", gated on
-`__cpp_impl_reflection >= 202506L`, and its test is one target compiled
-only under gcc 16 or newer, with `-std=c++2c -freflection` on that target
-alone. Everything else stays C++23 and builds as before; "proxy_test.cpp"
-is unchanged. The reflection test mirrors the fixtures of "proxy_test.cpp"
-rather than inventing new ones, and pins agreement directly: the reflected
-facade's flattened slot list is the hand-written facade's, and
-`prox::codegen` prints the same text for both.
+`__cpp_impl_reflection >= 202506L`, and "proxy.h" includes it, so on any
+compiler the whole system is one include and the gate decides what is
+inside. The gcc leg builds with `-freflection` throughout, so the layer is
+live in every translation unit there, the portable suite included, which
+is how the C++23 spellings are verified to keep working alongside it; on
+other compilers the header is empty past its includes. Its test,
+"proxy_reflect_test.cpp", sits in the portable bucket like any other and
+carries the same gate: on gcc it runs the reflected cases, and on every
+other compiler (and to an editor's clang) it is empty past its includes
+but for one case, outside the gate, that reports the layer as unavailable.
+
+The reflection test mirrors the fixtures of "proxy_test.cpp" rather than
+inventing new ones: the `gunslinger` family with the facades stripped to
+their method lists, the same conforming types on the same registration
+routes, and the interface-first spellings alongside. It pins agreement
+directly (the interface-first `gunslinger` has the hand-written one's
+name and flattened slot list), the layout claims (empty sugar API,
+two-pointer view, deep const), and the negative cases (a private member
+behind a plain hook, a non-`noexcept` member against a `noexcept` facade,
+a non-class target, a deducing-this interface).
 
 gcc is the only compiler with reflection semantics today (clang 23 parses
 the operators without implementing them; cl has nothing). When clang
@@ -2369,10 +2551,35 @@ workaround below is standard C++26, so clang will compile it, and each
 lives in a small named helper with the wart it dodges in the comment, so
 a clang pass reshapes one helper at a time.
 
+### Limits
+
+- Member function templates are not members to reflection, so a
+  deducing-this method (`void speak(this auto&& self)`) neither declares
+  a method in an interface nor binds on a target. On a target, such a
+  method takes a hand-written binding (`members<>` cannot name it either,
+  since a template has no address; a binding class with an `on` that
+  calls it can). Whether `substitute` on the template can lift this is
+  an open question; see "Later".
+- Name hiding is approximated from what `members_of` reports. A
+  using-declaration is not a member to it, so a base overload that
+  `using base::fire;` un-hides beside the class's own `fire` is not a
+  candidate, and the pair does not conform on that key (it takes a
+  `members<>` binding or an override). In the other direction, a
+  non-function member named `fire` does not hide a base's `fire()` here,
+  though it does in the language. Both are on the list in "Later".
+- Static members, data members, operators, and constructors are never
+  methods, on either side. `members<>` still binds a data member by
+  pointer where that is wanted.
+- A hand-written `api` over a reflected boilerplate registers with
+  `api_check::off`, as above.
+- A binding class deriving from `reflected_impl<T>` is defined at
+  namespace scope or nested in `T`, never local to a registration hook;
+  see the last gcc note.
+
 ### gcc 16 notes
 
-Facts about the gcc 16 snapshot (16.0.1, 2026-03) that shaped the
-patterns, each verified by a probe:
+Facts about gcc 16 (the 16.0.1 snapshot of 2026-03, then 16.2.0) that
+shaped the patterns, each verified by a probe:
 
 - The flag is `-freflection`; the gate macro is `__cpp_impl_reflection`
   (not `__cpp_reflection`), defined only under the flag.
@@ -2385,8 +2592,8 @@ patterns, each verified by a probe:
   signatures name only class template-ids. An `info` or `access_context`
   NTTP on a class template mangles fine.
 - `define_aggregate` runs only inside a `consteval {}` block, and the
-  block must sit in a scope enclosing the class it defines, so the api is
-  a nested `struct type;` of a class template whose body holds the block,
+  block must sit in a scope enclosing the class it defines, so the sugar API
+  is a nested `struct type;` of a class template whose body holds the block,
   defined on first naming.
 - `substitute` inside a loop over reflected members fails from the second
   iteration; the loop only collects reflections into a pack, and keys and
@@ -2395,28 +2602,43 @@ patterns, each verified by a probe:
   through an alias template. A spliced type in template-argument position
   needs `typename`. `^^alias` reflects the alias, so `dealias` before
   comparing types.
+- A requires-expression outside a template is ill-formed rather than
+  false; the tests use concepts for their negative checks.
 - Under `-fsanitize=undefined`, a consteval `std::string{string_view}` is
   not a constant expression; the string is built by `push_back`.
+- `access_context::current()` evaluated inside a function whose return type
+  is still being deduced (a `consteval auto` registration hook) makes gcc
+  try to deduce that function to describe the scope, and it warns
+  (`-Wsfinae-incomplete`, an error under `-Werror`) once a class carrying
+  the context is instantiated there. So a binding class deriving from
+  `reflected_impl<T>` is defined at namespace scope or nested in `T`, never
+  local to the hook; merely naming `reflected_impl<T>` as the carried impl
+  inside the hook is fine, since that instantiates nothing.
+- Tooling: clang-format guesses the language of a `.h` file, and a
+  splice reads to it as an Objective-C message send, after which it
+  silently formats in its default style. The repo's ".clang-format"
+  therefore carries an Objective-C section identical to the C++ one.
 
-### Steps
+### Later
 
-0. Build the `.cpp` suite as C++26 on every compiler, with the code
-   staying C++23 (the `.cu` bucket stays at C++23, nvcc's ceiling).
-1. `api_base<F, H>`: the handles pass their own type to the sugar base.
-   Portable change; the existing suite verifies it.
-2. `reflected_impl<T>` in "proxy_reflect.h", the registration route to it
-   when the facade has no boilerplate, and the gcc-only test target
-   mirroring the conformance fixtures. Prerequisite: `cleanbuild.sh gcc`
-   green under gcc 16, which needs a few `-Werror` fixes unrelated to
-   reflection.
-3. Api-first facades and the name derivation, with the agreement asserts
-   against the hand-written fixtures.
-4. The reflected api, with the sugar fixtures.
-5. Documentation: this section becomes the description of the result, and
-   the codegen section notes that it serves the portable route.
-
-Later: a clang pass when clang implements reflection; the P3294 form of
-the api when a compiler offers token injection.
+- A clang pass when clang implements reflection.
+- The P3294 form of the sugar API, real member functions, when a compiler
+  offers token injection.
+- Deducing-this members. An explicit-object non-template already reflects
+  (its type shows the object parameter first), so a rule that reads the
+  first parameter as the object parameter would admit those on both
+  sides; a deducing-this template might be reached by `substitute` with a
+  concrete object type, and then the same rule. The target side is the
+  one that matters, since an interface can always be written as plain
+  declarations.
+- Name hiding through using-declarations. The base overload can be found
+  by walking the bases whenever the class's own set does not resolve, but
+  nothing in P2996 says whether a `using` made it visible, and a member
+  pointer call does not check hiding, so that walk would also admit an
+  overload the language hides. The fix wants the language's own rules (a
+  call expression on the name, once a splice can spell one) and belongs
+  with the deducing-this gap, since both are candidates reflection cannot
+  enumerate; the data-member hiding gap falls out of the same fix.
 
 ## Future work
 
@@ -2441,4 +2663,3 @@ the api when a compiler offers token injection.
   `std::copyable` with no runtime condition (the shape of ngcpp's
   `support_copy`). `clone()`/`can_clone()` cover the need at runtime, so
   this waits for a use case that wants the compile-time guarantee.
-

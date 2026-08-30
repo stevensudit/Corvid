@@ -428,25 +428,28 @@ namespace details {
 // The stand-in API base for facades that define no member-call sugar.
 struct no_api {};
 
-// `api_base` is the sugar base for handles of facade `F`.
+// `api_base` is the sugar base for handles of type `H` over facade `F`.
 //
 // Yields the facade's nested `api` when it defines one, and the empty stand-in
 // otherwise. The selection has to be lazy (a specialization rather than a
 // `std::conditional_t`), because naming `F::api` when it does not exist is
 // ill-formed.
-template<typename F>
+//
+// `H` is the complete handle type, for an `api` whose forwarders must name the
+// handle they forward to. A hand-written `api` deduces `this` and ignores it.
+template<typename F, typename H>
 struct api_base {
   using type = no_api;
 };
 
-template<typename F>
+template<typename F, typename H>
 requires(requires { typename F::api; })
-struct api_base<F> {
+struct api_base<F, H> {
   using type = F::api;
 };
 
-template<typename F>
-using api_base_t = api_base<F>::type;
+template<typename F, typename H>
+using api_base_t = api_base<F, H>::type;
 
 } // namespace details
 
@@ -739,6 +742,28 @@ namespace details {
 template<typename F, typename T>
 using registered_impl_t = registered_spec_t<F, T>::impl_t;
 
+// `default_impl` is the binding class a registered pair falls back on when
+// its registration names none: facade `F`'s `boilerplate<T>`, when the facade
+// defines one.
+//
+// It is the bottom tier of binding. The library installs it as the pair's
+// `proxy_impl` for a plain registration, and `members<>` routes its unlisted
+// keys to it. The primary has no `type`, so a pair with no default impl is
+// detected by `requires { typename default_impl_t<F, T>; }`. A further
+// source of default impls adds a constrained partial specialization, which
+// is how "proxy_reflect.h" serves a facade that has no `boilerplate`.
+template<typename F, typename T>
+struct default_impl {};
+
+template<typename F, typename T>
+requires(requires { typename F::template boilerplate<T>; })
+struct default_impl<F, T> {
+  using type = F::template boilerplate<T>;
+};
+
+template<typename F, typename T>
+using default_impl_t = default_impl<F, T>::type;
+
 } // namespace details
 
 // `proxy_impl` is the library-provided delegation to a registration-carried
@@ -752,8 +777,8 @@ template<Facade F, typename T>
 requires SpecCarriesImpl<F, T>
 struct proxy_impl<F, T>: details::registered_impl_t<F, T> {};
 
-// `proxy_impl` is the library-provided delegation to a facade-hosted
-// boilerplate impl.
+// `proxy_impl` is the library-provided delegation to the pair's default impl
+// (see `default_impl`), which is the facade-hosted boilerplate.
 //
 // When a facade defines a nested `boilerplate` class template and the
 // (facade, type) pair is registered, this serves as the pair's `proxy_impl`,
@@ -765,8 +790,8 @@ struct proxy_impl<F, T>: details::registered_impl_t<F, T> {};
 // by the ordinary specialization-ordering rules.
 template<Facade F, typename T>
 requires(ProxyRegistered<F, T> && !SpecCarriesImpl<F, T> &&
-         requires { typename F::template boilerplate<T>; })
-struct proxy_impl<F, T>: F::template boilerplate<T> {};
+         requires { typename details::default_impl_t<F, T>; })
+struct proxy_impl<F, T>: details::default_impl_t<F, T> {};
 
 // `proxy_spec_v` is the central access point for the registered spec,
 // mirroring `enum_spec_v`.
@@ -2122,6 +2147,16 @@ class const_weak_proxy;
 
 namespace details {
 
+// The view flavor with access mode `Access` over facade `F`.
+template<Facade F, access_mode Access>
+using view_t = std::conditional_t<(Access == access_mode::as_const),
+    const_proxy_view<F>, proxy_view<F>>;
+
+// The shared-owning flavor with access mode `Access` over facade `F`.
+template<Facade F, access_mode Access>
+using shared_t = std::conditional_t<(Access == access_mode::as_const),
+    const_shared_proxy<F>, shared_proxy<F>>;
+
 // Facade of a proxy handle type, or `void` for any other type.
 template<typename T>
 struct handle_facade {
@@ -2201,27 +2236,25 @@ using member_for_t = member_for<Key, Ms...>::type;
 template<fixed_string Key, typename... Ms>
 constexpr inline auto bound_pointer_v = member_for_t<Key, Ms...>::pointer_v;
 
-// Forward a binding to facade `F`'s `boilerplate<T>`, when the facade has one
-// and it binds `Key` for these arguments.
+// Forward a binding to the pair's default impl (see `default_impl`), when
+// the pair has one and it binds `Key` for these arguments.
 //
 // A function template with `F` and `T` as its own parameters, so that the
-// boilerplate is named only where the name is dependent: spelled directly
+// default impl is named only where the name is dependent: spelled directly
 // inside `member_impl`, it would be looked up as soon as that class is
-// instantiated, and a facade without a boilerplate would be an error rather
-// than an unbound key.
+// instantiated, and a pair without one would be an error rather than an
+// unbound key.
 template<typename F, typename T, fixed_string Key, typename Self,
     typename... Args>
 requires requires(Self& self, Args&&... args) {
-  F::template boilerplate<T>::on(method_key<Key>{}, self,
+  default_impl_t<F, T>::on(method_key<Key>{}, self,
       std::forward<Args>(args)...);
 }
-constexpr auto boilerplate_on(method_key<Key> key, Self& self,
-    Args&&... args) noexcept(noexcept(F::template boilerplate<T>::on(key, self,
-    std::forward<Args>(args)...)))
-    -> decltype(F::template boilerplate<T>::on(key, self,
-        std::forward<Args>(args)...)) {
-  return F::template boilerplate<T>::on(key, self,
-      std::forward<Args>(args)...);
+constexpr auto default_on(method_key<Key> key, Self& self,
+    Args&&... args) noexcept(noexcept(default_impl_t<F, T>::on(key, self,
+    std::forward<Args>(args)...))) -> decltype(default_impl_t<F, T>::on(key,
+    self, std::forward<Args>(args)...)) {
+  return default_impl_t<F, T>::on(key, self, std::forward<Args>(args)...);
 }
 
 // `member_impl` is the impl synthesized for a registration carrying
@@ -2231,9 +2264,10 @@ constexpr auto boilerplate_on(method_key<Key> key, Self& self,
 // invokes that member on the target, through `std::invoke`, so a member
 // function is called and a data member is read (as a reference, which a
 // facade method returning one serves directly). Any other key forwards to
-// the facade's `boilerplate<T>`, when there is one and it binds the key. A
-// key bound by neither is not bound at all, which conformance reports as it
-// would for a binding class with no `on` for it.
+// the pair's default impl (the facade's `boilerplate<T>`; see
+// `default_impl`), when there is one and it binds the key. A key bound by
+// neither is not bound at all, which conformance reports as it would for a
+// binding class with no `on` for it.
 //
 // The target parameter is deduced, so a const target reaches the member as
 // const and a mutable one as mutable; whether the member accepts that is
@@ -2270,14 +2304,13 @@ struct member_impl {
   requires(
       !binds_key_v<Key, Ms...> &&
       requires(Self& self, Args&&... args) {
-        boilerplate_on<F, T>(method_key<Key>{}, self,
-            std::forward<Args>(args)...);
+        default_on<F, T>(method_key<Key>{}, self, std::forward<Args>(args)...);
       })
-  static constexpr auto on(method_key<Key> key, Self& self,
-      Args&&... args) noexcept(noexcept(boilerplate_on<F, T>(key, self,
-      std::forward<Args>(args)...))) -> decltype(boilerplate_on<F, T>(key,
-      self, std::forward<Args>(args)...)) {
-    return boilerplate_on<F, T>(key, self, std::forward<Args>(args)...);
+  static constexpr auto
+  on(method_key<Key> key, Self& self, Args&&... args) noexcept(
+      noexcept(default_on<F, T>(key, self, std::forward<Args>(args)...)))
+      -> decltype(default_on<F, T>(key, self, std::forward<Args>(args)...)) {
+    return default_on<F, T>(key, self, std::forward<Args>(args)...);
   }
 };
 
@@ -2388,7 +2421,7 @@ using strict_return_t = std::conditional_t<std::is_void_v<R>, void,
 // `has_exact_args`), and the result converts only to exactly the declared
 // result type. Never constructed or executed; it exists to be type-checked.
 template<Facade F>
-struct api_probe: api_base_t<F> {
+struct api_probe: api_base_t<F, api_probe<F>> {
   template<fixed_string Key, typename... Args>
   requires(vtbuild_t<F>::template has_exact_args<Key, access_mode::as_mutable,
       Args...>())

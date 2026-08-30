@@ -46,19 +46,13 @@ namespace details {
 // empty table, which is the one piece of behavior a moved-from shared handle
 // has. Copies are the defaults: a copy shares the one target.
 template<Facade F, access_mode Access>
-class shared_base: public api_base_t<F> {
+class shared_base: public api_base_t<F, shared_t<F, Access>> {
 protected:
   using vtable_t = vtbuild_t<F>::vtable_t;
   using target_t = conditional_const_t<Access, void>;
   using shared_ptr_t = std::shared_ptr<target_t>;
   template<typename T>
   using typed_t = conditional_const_t<Access, T>;
-
-  // The shared-owning flavor with this access mode over facade `D`, which is
-  // what the transferring `try_downcast` returns.
-  template<Facade D>
-  using shared_t = std::conditional_t<(Access == access_mode::as_const),
-      const_shared_proxy<D>, shared_proxy<D>>;
 
 public:
   using facade_t = F;
@@ -131,10 +125,10 @@ public:
   }
   template<Facade D>
   requires Extends<D, F>
-  [[nodiscard]] shared_t<D> try_downcast() && noexcept {
+  [[nodiscard]] shared_t<D, Access> try_downcast() && noexcept {
     const auto* table = find_downcast_table<D, F>(vtable_);
     if (!table) return {};
-    shared_t<D> result{std::move(target_), table};
+    shared_t<D, Access> result{std::move(target_), table};
     vtable_ = empty_vtable;
     return result;
   }
@@ -187,11 +181,6 @@ protected:
   using vtable_t = vtbuild_t<F>::vtable_t;
   using weak_ptr_t = std::weak_ptr<conditional_const_t<Access, void>>;
 
-  // The shared-owning flavor with this access mode over `F`, which is what
-  // `lock` returns.
-  using shared_t = std::conditional_t<(Access == access_mode::as_const),
-      const_shared_proxy<F>, shared_proxy<F>>;
-
 public:
   // Whether the target is already gone.
   //
@@ -201,8 +190,8 @@ public:
 
   // Lock to regain shared ownership by creating a shared handle over the
   // target, or an empty one when every owner is gone.
-  [[nodiscard]] shared_t lock() const noexcept {
-    return shared_t{target_.lock(), vtable_};
+  [[nodiscard]] shared_t<F, Access> lock() const noexcept {
+    return shared_t<F, Access>{target_.lock(), vtable_};
   }
 
 protected:
