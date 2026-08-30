@@ -45,8 +45,7 @@
 //
 // The reflected sugar API gives every handle of a facade that lacks a
 // hand-written `api` its member-call sugar, `p.speak()` for
-// `p.call<"speak">()`. All of the C++23 spellings keep working alongside; see
-// "Reflection (C++26)" in "proxy.md".
+// `p.call<"speak">()`. All of the C++23 spellings keep working alongside.
 //
 // Gated on `__cpp_impl_reflection`, so the header is empty (beyond the proxy
 // system it includes) on a compiler without P2996. Each helper below states
@@ -87,9 +86,14 @@ struct info_pack {};
 //
 // `implicit` is a function with no explicit object parameter. Of the rest,
 // `as_const` takes a const lvalue of its class (`this const C&`, or `this C`
-// by value), `as_mutable` takes only a mutable one (`this C&`), and `unbound`
-// takes no lvalue at all (`this C&&`).
-enum class object_param : uint8_t { implicit, as_mutable, as_const, unbound };
+// by value), `as_mutable` takes only a mutable one (`this C&`), and
+// `rvalue_only` takes no lvalue at all (`this C&&`).
+enum class object_param : uint8_t {
+  implicit,
+  as_mutable,
+  as_const,
+  rvalue_only
+};
 
 // Classify the object parameter of function `fn`.
 //
@@ -98,19 +102,21 @@ enum class object_param : uint8_t { implicit, as_mutable, as_const, unbound };
 // parameter's own class decides the lvalue it takes. The relation of that
 // class to the target is checked where the pointer binds.
 consteval object_param object_param_of(std::meta::info fn) {
-  const auto ps = std::meta::parameters_of(fn);
-  if (ps.empty() || !std::meta::is_explicit_object_parameter(ps[0]))
+  const auto params = std::meta::parameters_of(fn);
+  if (params.empty() || !std::meta::is_explicit_object_parameter(params[0]))
     return object_param::implicit;
 
-  const auto p = std::meta::dealias(std::meta::type_of(ps[0]));
-  const auto c = std::meta::remove_cvref(p);
-  if (!std::meta::is_class_type(c)) return object_param::unbound;
+  const auto obj_type = std::meta::dealias(std::meta::type_of(params[0]));
+  const auto obj_class = std::meta::remove_cvref(obj_type);
+  if (!std::meta::is_class_type(obj_class)) return object_param::rvalue_only;
   if (std::meta::is_convertible_type(
-          std::meta::add_lvalue_reference(std::meta::add_const(c)), p))
+          std::meta::add_lvalue_reference(std::meta::add_const(obj_class)),
+          obj_type))
     return object_param::as_const;
-  if (std::meta::is_convertible_type(std::meta::add_lvalue_reference(c), p))
+  if (std::meta::is_convertible_type(
+          std::meta::add_lvalue_reference(obj_class), obj_type))
     return object_param::as_mutable;
-  return object_param::unbound;
+  return object_param::rvalue_only;
 }
 
 // `deduce_object` determines the function that reflection `m` stands for in a
@@ -148,10 +154,12 @@ deduce_object(std::meta::info m, std::meta::info self) {
 
   const auto cls = std::meta::remove_cvref(self);
   if (!std::meta::can_substitute(m, {cls})) return {};
-  const auto ps = std::meta::parameters_of(std::meta::substitute(m, {cls}));
-  if (ps.empty() || !std::meta::is_explicit_object_parameter(ps[0])) return {};
+  const auto params =
+      std::meta::parameters_of(std::meta::substitute(m, {cls}));
+  if (params.empty() || !std::meta::is_explicit_object_parameter(params[0]))
+    return {};
 
-  const auto shape = std::meta::dealias(std::meta::type_of(ps[0]));
+  const auto shape = std::meta::dealias(std::meta::type_of(params[0]));
   std::meta::info arg;
   if (std::meta::is_rvalue_reference_type(shape)) {
     // `const auto&&` is not a forwarding reference and binds no lvalue.
@@ -197,16 +205,16 @@ consteval std::vector<std::meta::info> named_functions(std::meta::info cls,
   std::vector<std::meta::info> out;
   if (!std::meta::is_class_type(cls)) return out;
 
-  bool declared = false;
+  auto declared = false;
   for (const auto m : std::meta::members_of(cls, ctx)) {
     if (!std::meta::has_identifier(m) || std::meta::identifier_of(m) != name)
       continue;
-    const bool function =
+    const auto is_function =
         std::meta::is_function(m) && !std::meta::is_static_member(m);
-    if (!function && !std::meta::is_function_template(m)) continue;
+    if (!is_function && !std::meta::is_function_template(m)) continue;
     declared = true;
-    if (const auto f = deduce_object(m, self); f != std::meta::info{})
-      out.push_back(f);
+    if (const auto fn = deduce_object(m, self); fn != std::meta::info{})
+      out.push_back(fn);
   }
 
   if (!declared)
@@ -280,7 +288,7 @@ struct object_signature<R(P, Args...) noexcept, object_param::as_const> {
 };
 
 template<typename Sig>
-struct object_signature<Sig, object_param::unbound> {
+struct object_signature<Sig, object_param::rvalue_only> {
   using result_t = signature_traits<Sig>::result_t;
   using type = result_t(rank_poison);
 };
@@ -447,18 +455,19 @@ consteval std::meta::info method_pack(std::meta::info api) {
       std::meta::members_of(api, std::meta::access_context::unprivileged()))
   {
     if (!std::meta::has_identifier(m)) continue;
-    const bool function =
+    const auto is_function =
         std::meta::is_function(m) && !std::meta::is_static_member(m) &&
         !std::meta::is_special_member_function(m);
-    const bool function_template =
+    const auto is_function_template =
         std::meta::is_function_template(m) &&
         !std::meta::is_constructor_template(m);
-    if (!function && !function_template) continue;
+    if (!is_function && !is_function_template) continue;
 
-    auto f = deduce_object(m, std::meta::add_const(api));
-    if (f == std::meta::info{}) f = deduce_object(m, api);
-    if (f != std::meta::info{} && object_param_of(f) != object_param::unbound)
-      ms.push_back(std::meta::reflect_constant(f));
+    auto fn = deduce_object(m, std::meta::add_const(api));
+    if (fn == std::meta::info{}) fn = deduce_object(m, api);
+    if (fn != std::meta::info{} &&
+        object_param_of(fn) != object_param::rvalue_only)
+      ms.push_back(std::meta::reflect_constant(fn));
   }
 
   return std::meta::substitute(^^info_pack, ms);
@@ -598,7 +607,7 @@ using reflected_facade = details::facade_maker<F,
 // inherits it, re-exposes `on` with a using-declaration, and adds the one
 // binding that needs a body, as it would over a hand-written boilerplate.
 // On gcc 16 such a class is defined at namespace scope or nested in `T`, not
-// local to the hook; see "gcc 16 notes" in "proxy.md".
+// local to the hook.
 //
 // The following are never bound, because reflection does not see them as
 // member functions: member function templates other than deducing-this ones,
@@ -658,8 +667,7 @@ struct reflected_api;
 // through `view_base` or `shared_base` for the rest), so the offset
 // accumulates along the chain. `^^alias` reflects the alias, so both sides
 // are `dealias`ed before comparing.
-consteval std::ptrdiff_t
-api_offset_of(std::meta::info cls, std::meta::info api) {
+consteval ptrdiff_t api_offset_of(std::meta::info cls, std::meta::info api) {
   for (const auto b :
       std::meta::bases_of(cls, std::meta::access_context::unprivileged()))
   {
@@ -707,9 +715,9 @@ struct reflected_sugar {
 
 private:
   // Byte offset of this member from the start of `H`.
-  static consteval std::ptrdiff_t offset() {
+  static consteval ptrdiff_t offset() {
     using api_t = reflected_api<F, H>::type;
-    std::ptrdiff_t member = -1;
+    ptrdiff_t member = -1;
     for (const auto m : std::meta::nonstatic_data_members_of(^^api_t,
              std::meta::access_context::unprivileged()))
       if (std::meta::identifier_of(m) == Key.view())
