@@ -64,6 +64,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -82,38 +83,136 @@ namespace details {
 template<std::meta::info... Ms>
 struct info_pack {};
 
-// `named_functions` finds the non-static member functions of `cls` named
-// `name`, as seen from `ctx`, or none when `cls` is not a class type.
+// How the explicit object parameter of a function admits an lvalue.
 //
-// Searches the class's own members first and its bases only when it declares
-// no function by that name, which is the name hiding that an ordinary member
-// call `t.name(...)` applies, with two gaps (see "Limits" in "proxy.md"): a
-// using-declaration is not a member to `members_of`, so a base overload it
-// un-hides is not a candidate beside the class's own; and a non-function
-// member by that name does not hide the base's functions here, though it does
-// in the language. Two bases each contributing one leaves both in the set, so
-// the call is ambiguous, as it would be in the language.
+// `implicit` is a function with no explicit object parameter. Of the rest,
+// `as_const` takes a const lvalue of its class (`this const C&`, or `this C`
+// by value), `as_mutable` takes only a mutable one (`this C&`), and `unbound`
+// takes no lvalue at all (`this C&&`).
+enum class object_param : uint8_t { implicit, as_mutable, as_const, unbound };
+
+// Classify the object parameter of function `fn`.
+//
+// `parameters_of` lists a function's parameters, the explicit object
+// parameter first when it has one. Convertibility from an lvalue of the
+// parameter's own class decides the lvalue it takes. The relation of that
+// class to the target is checked where the pointer binds.
+consteval object_param object_param_of(std::meta::info fn) {
+  const auto ps = std::meta::parameters_of(fn);
+  if (ps.empty() || !std::meta::is_explicit_object_parameter(ps[0]))
+    return object_param::implicit;
+
+  const auto p = std::meta::dealias(std::meta::type_of(ps[0]));
+  const auto c = std::meta::remove_cvref(p);
+  if (!std::meta::is_class_type(c)) return object_param::unbound;
+  if (std::meta::is_convertible_type(
+          std::meta::add_lvalue_reference(std::meta::add_const(c)), p))
+    return object_param::as_const;
+  if (std::meta::is_convertible_type(std::meta::add_lvalue_reference(c), p))
+    return object_param::as_mutable;
+  return object_param::unbound;
+}
+
+// `deduce_object` determines the function that reflection `m` stands for in a
+// call on an lvalue of type `self`.
+//
+// It returns `m` itself for a function. For a member function template, it
+// returns the specialization that deduction would choose for that object. And
+// it returns null reflection for a template that does not deduce for it.
+//
+// A member function template has no signature until it is specialized, and
+// `substitute` specializes it on explicit template arguments where a call
+// would deduce them. Deduction is reconstructed in two steps.
+//
+// First the template is specialized on the class of `self` itself, which
+// reveals the declared shape of the object parameter (`auto&&` shows as `C&&`,
+// `auto&` as `C&`, `auto` as `C`), then on the argument deduction derives for
+// an lvalue of `self` from that shape: `self&` for a forwarding reference,
+// `self` for an lvalue reference, and the class type by value.
+//
+// A constraint on the object parameter takes part through `can_substitute`, as
+// it would in deduction. A template with further template parameters, which a
+// call would deduce from its arguments, does not specialize on the object type
+// alone, so it is not a candidate.
+//
+// The shape is read on the class of `self` rather than on the template's own
+// class because gcc 16.2 instantiates the body of a specialization as
+// `substitute` forms it, and a body need only be well-formed for the class
+// it is called on (an `api` forwarder's `self.call<...>()` exists on the
+// handle, not on the `api`). The one specialization this forms beyond the
+// deduced one is the rvalue-object one of a forwarding reference.
+consteval std::meta::info
+deduce_object(std::meta::info m, std::meta::info self) {
+  if (std::meta::is_function(m)) return m;
+  if (!std::meta::is_function_template(m)) return {};
+
+  const auto cls = std::meta::remove_cvref(self);
+  if (!std::meta::can_substitute(m, {cls})) return {};
+  const auto ps = std::meta::parameters_of(std::meta::substitute(m, {cls}));
+  if (ps.empty() || !std::meta::is_explicit_object_parameter(ps[0])) return {};
+
+  const auto shape = std::meta::dealias(std::meta::type_of(ps[0]));
+  std::meta::info arg;
+  if (std::meta::is_rvalue_reference_type(shape)) {
+    // `const auto&&` is not a forwarding reference and binds no lvalue.
+    if (std::meta::is_const_type(std::meta::remove_reference(shape)))
+      return {};
+    arg = std::meta::add_lvalue_reference(self);
+  } else if (std::meta::is_lvalue_reference_type(shape)) {
+    arg = self;
+  } else {
+    arg = std::meta::remove_cvref(self);
+  }
+
+  if (!std::meta::can_substitute(m, {arg})) return {};
+  return std::meta::substitute(m, {arg});
+}
+
+// `named_functions` finds the non-static member functions of `cls` named
+// `name` that a call on an lvalue of type `self` can reach, as seen from
+// `ctx`, or none when `cls` is not a class type.
+//
+// A deducing-this member counts through the specialization `deduce_object`
+// derives for `self`, and an explicit-object member through itself. Searches
+// the class's own members first and its bases only when it declares no
+// function or function template by that name, which is the name hiding that
+// an ordinary member call `t.name(...)` applies, with two documented gaps.
+//
+// The first is that a using-declaration is not a member to `members_of`, so a
+// base overload it un-hides is not a candidate beside the class's own. The
+// second is that a non-function member by that name does not hide the base's
+// functions here, though it does in the language. Two bases each contributing
+// one leaves both in the set, so the call is ambiguous, as it would be in the
+// language.
 //
 // `members_of` walks a class's direct members under an access context, each
 // as an `info`, the compile-time handle to an entity. `has_identifier` guards
 // `identifier_of`, which is ill-formed on unnamed members (constructors,
-// operators). A member function template is a template, not a function, so
-// `is_function` excludes it: a deducing-this member cannot be reflected into
-// a binding.
+// operators). A member function template is a template to it, not a
+// function, and one that turns out to have no deducing object parameter (a
+// static member template, or an ordinary function template) still hides.
 consteval std::vector<std::meta::info> named_functions(std::meta::info cls,
-    std::string_view name, std::meta::access_context ctx) {
+    std::string_view name, std::meta::access_context ctx,
+    std::meta::info self) {
   std::vector<std::meta::info> out;
   if (!std::meta::is_class_type(cls)) return out;
 
-  for (const auto m : std::meta::members_of(cls, ctx))
-    if (std::meta::is_function(m) && !std::meta::is_static_member(m) &&
-        std::meta::has_identifier(m) && std::meta::identifier_of(m) == name)
-      out.push_back(m);
+  bool declared = false;
+  for (const auto m : std::meta::members_of(cls, ctx)) {
+    if (!std::meta::has_identifier(m) || std::meta::identifier_of(m) != name)
+      continue;
+    const bool function =
+        std::meta::is_function(m) && !std::meta::is_static_member(m);
+    if (!function && !std::meta::is_function_template(m)) continue;
+    declared = true;
+    if (const auto f = deduce_object(m, self); f != std::meta::info{})
+      out.push_back(f);
+  }
 
-  if (out.empty())
+  if (!declared)
     for (const auto b : std::meta::bases_of(cls, ctx)) {
       const auto found = named_functions(
-          std::meta::dealias(std::meta::type_of(b)), name, ctx);
+          std::meta::dealias(std::meta::type_of(b)), name, ctx, self);
       out.insert(out.end(), found.begin(), found.end());
     }
 
@@ -133,24 +232,78 @@ consteval std::meta::info as_pack(const std::vector<std::meta::info>& ms) {
   return std::meta::substitute(^^info_pack, args);
 }
 
-// The candidate set for `Key` on `T`, as seen from `Ctx`.
-template<typename T, fixed_string Key, std::meta::access_context Ctx>
-using reflected_candidates_t = [:as_pack(
-                                     named_functions(^^T, Key.view(), Ctx)):];
+// The candidate set for `Key` on `T` in a call on `Self&`, as seen from
+// `Ctx`.
+template<typename T, fixed_string Key, std::meta::access_context Ctx,
+    typename Self>
+using reflected_candidates_t = [:as_pack(named_functions(^^T, Key.view(), Ctx,
+                                     ^^Self)):];
+
+// The function type of reflected function `M`, qualifiers included.
+//
+// `type_of` on a member function is its function type, and a type splice
+// (`[:t:]`) spells that type. An alias, because gcc 16 rejects a type splice
+// directly under a pack expansion.
+template<std::meta::info M>
+using signature_t = [:std::meta::type_of(M):];
+
+// `object_signature` is the method signature of function type `Sig`, whose
+// first parameter is an explicit object parameter admitting `Obj`.
+//
+// The object parameter leaves the parameter list, and the lvalue it admits
+// becomes the const qualifier, so the signature reads as the plain
+// declaration of the same method. A function admitting no lvalue keeps its
+// result and takes `rank_poison`, which no ranking call satisfies.
+template<typename Sig, object_param Obj>
+struct object_signature {
+  using type = Sig;
+};
+
+template<typename R, typename P, typename... Args>
+struct object_signature<R(P, Args...), object_param::as_mutable> {
+  using type = R(Args...);
+};
+
+template<typename R, typename P, typename... Args>
+struct object_signature<R(P, Args...) noexcept, object_param::as_mutable> {
+  using type = R(Args...) noexcept;
+};
+
+template<typename R, typename P, typename... Args>
+struct object_signature<R(P, Args...), object_param::as_const> {
+  using type = R(Args...) const;
+};
+
+template<typename R, typename P, typename... Args>
+struct object_signature<R(P, Args...) noexcept, object_param::as_const> {
+  using type = R(Args...) const noexcept;
+};
+
+template<typename Sig>
+struct object_signature<Sig, object_param::unbound> {
+  using result_t = signature_traits<Sig>::result_t;
+  using type = result_t(rank_poison);
+};
+
+// The method signature reflected function `M` declares, which is its
+// function type with an explicit object parameter folded into the
+// qualifiers, so that `signature_traits` decomposes an explicit-object
+// member as if it had been declared the plain way.
+template<std::meta::info M>
+using method_signature_t =
+    object_signature<signature_t<M>, object_param_of(M)>::type;
 
 #pragma endregion
 #pragma region Ranking
 
 // The synthetic overload standing in for candidate `M` at index `Ndx`.
 //
-// `type_of` on a member function is its function type, qualifiers included,
-// and a type splice (`[:t:]`) spells that type, so `signature_traits`
-// decomposes it as if it had been written. The probe is `rank_probe`, the
-// same synthetic overload `resolve` ranks for a facade's own overload sets.
+// The probe is `rank_probe`, the same synthetic overload `resolve` ranks for
+// a facade's own overload sets, over the candidate's method signature.
 template<std::meta::info M, size_t Ndx>
-using reflected_probe_t = rank_probe<Ndx,
-    signature_traits<typename[:std::meta::type_of(M):]>::const_qualifier,
-    typename signature_traits<typename[:std::meta::type_of(M):]>::args_t>;
+using reflected_probe_t =
+    rank_probe<Ndx, signature_traits<method_signature_t<M>>::const_qualifier,
+        typename signature_traits<method_signature_t<M>>::args_t>;
 
 // Rank a candidate set for a call on `Self&` with `Args`.
 //
@@ -197,13 +350,14 @@ struct reflected_ranker<info_pack<Ms...>> {
 #pragma endregion
 #pragma region Binding
 
-// The member pointer for reflection `M`.
+// The pointer for reflection `M`, where `M` is a member of a class template.
 //
 // `&[:M:]` is the address of the spliced member, an ordinary pointer to
-// member. Formed in a class template's static member so that no splice
-// appears in a function signature (gcc 16 cannot mangle one there). Forming
-// the pointer is not access-checked, so any member the enumeration could see
-// can be bound.
+// member, or a plain function pointer for an explicit-object member, whose
+// object is its first argument either way under `std::invoke`. Formed in a
+// class template's static member so that no splice appears in a function
+// signature (gcc 16 cannot mangle one there). Forming the pointer is not
+// access-checked, so any member the enumeration could see can be bound.
 template<std::meta::info M>
 struct reflected_member {
   static constexpr auto ptr_v = &[:M:];
@@ -216,9 +370,9 @@ struct reflected_member {
 // resolve, and binds when the resolved member is also invocable on `Self&`
 // (which a member of an inaccessible base is not).
 //
-// A class template rather than a consteval function, so that `on` names only
-// class template-ids in its signature: gcc 16 cannot mangle a consteval call
-// carrying reflection values there.
+// It is a class template rather than a consteval function, so that `on` names
+// only class template-ids in its signature. Needed because gcc 16 cannot
+// mangle a consteval call carrying reflection values there.
 template<typename T, std::meta::access_context Ctx, fixed_string Key,
     typename Self, typename... Args>
 struct reflected_binding {
@@ -227,10 +381,10 @@ struct reflected_binding {
 
 template<typename T, std::meta::access_context Ctx, fixed_string Key,
     typename Self, typename... Args>
-requires(reflected_ranker<
-    reflected_candidates_t<T, Key, Ctx>>::template resolves_v<Self, Args...>)
+requires(reflected_ranker<reflected_candidates_t<T, Key, Ctx,
+        Self>>::template resolves_v<Self, Args...>)
 struct reflected_binding<T, Ctx, Key, Self, Args...> {
-  using ranker_t = reflected_ranker<reflected_candidates_t<T, Key, Ctx>>;
+  using ranker_t = reflected_ranker<reflected_candidates_t<T, Key, Ctx, Self>>;
   static constexpr auto ptr_v =
       reflected_member<ranker_t::template pick<Self, Args...>()>::ptr_v;
   using ptr_t = decltype(ptr_v);
@@ -255,41 +409,57 @@ struct reflected_call {
 #pragma endregion
 #pragma region Interface-first facades
 
-// The key of reflected member `M`, as a `fixed_string` sized by its
-// identifier.
+// The name of reflected member `M`, which for the specialization of a
+// deducing-this member is its template's, since a specialization has no
+// identifier of its own.
+consteval std::string_view name_of(std::meta::info m) {
+  return std::meta::identifier_of(
+      std::meta::has_identifier(m) ? m : std::meta::template_of(m));
+}
+
+// The key of reflected member `M`, as a `fixed_string` sized by its name.
 //
-// A variable template rather than a consteval function, so that each key is
-// its own constant evaluation: gcc 16 rejects a class NTTP built from a
-// pointer inside a consteval loop.
+// This is a variable template rather than a consteval function, so that each
+// key is its own constant evaluation. Needed because gcc 16 rejects a class
+// NTTP built from a pointer inside a consteval loop.
 template<std::meta::info M>
-constexpr inline size_t key_len_v = std::meta::identifier_of(M).size();
+constexpr inline size_t key_len_v = name_of(M).size();
 
 template<std::meta::info M>
-constexpr inline auto key_v = fixed_string{std::meta::identifier_of(M).data(),
+constexpr inline auto key_v = fixed_string{name_of(M).data(),
     std::integral_constant<size_t, key_len_v<M>>{}};
 
-// The function type of reflected member `M`, qualifiers included.
-//
-// An alias, because gcc 16 rejects a type splice directly under a pack
-// expansion.
-template<std::meta::info M>
-using signature_t = [:std::meta::type_of(M):];
-
 // The methods interface `api` declares, as an `info_pack` in declaration
-// order: its public, non-static, named, non-special member functions.
+// order: its public, non-static, named, non-special member functions, and
+// the deducing-this members that deduce for an lvalue of the interface.
+//
+// A deducing-this member is tried on a const interface object first, so
+// that one taking a const object (a forwarding, by-value, or `const auto&`
+// object parameter) declares a const method, and one constrained to a
+// mutable object declares a mutable one. An explicit-object member admitting
+// no lvalue declares nothing.
 //
 // `is_special_member_function` drops constructors and the like, which may
-// carry an identifier; operators and conversion functions have none. A
-// member function template is not a function, so a deducing-this member is
-// not a method.
+// carry an identifier; operators and conversion functions have none.
 consteval std::meta::info method_pack(std::meta::info api) {
   std::vector<std::meta::info> ms;
   for (const auto m :
       std::meta::members_of(api, std::meta::access_context::unprivileged()))
-    if (std::meta::is_function(m) && !std::meta::is_static_member(m) &&
-        std::meta::has_identifier(m) &&
-        !std::meta::is_special_member_function(m))
-      ms.push_back(std::meta::reflect_constant(m));
+  {
+    if (!std::meta::has_identifier(m)) continue;
+    const bool function =
+        std::meta::is_function(m) && !std::meta::is_static_member(m) &&
+        !std::meta::is_special_member_function(m);
+    const bool function_template =
+        std::meta::is_function_template(m) &&
+        !std::meta::is_constructor_template(m);
+    if (!function && !function_template) continue;
+
+    auto f = deduce_object(m, std::meta::add_const(api));
+    if (f == std::meta::info{}) f = deduce_object(m, api);
+    if (f != std::meta::info{} && object_param_of(f) != object_param::unbound)
+      ms.push_back(std::meta::reflect_constant(f));
+  }
 
   return std::meta::substitute(^^info_pack, ms);
 }
@@ -314,14 +484,14 @@ struct facade_maker;
 template<typename F, std::meta::info... Ms, typename... Es>
 requires has_name_entry_v<Es...>
 struct facade_maker<F, info_pack<Ms...>, Es...> {
-  using type = facade<method<key_v<Ms>, signature_t<Ms>>..., Es...>;
+  using type = facade<method<key_v<Ms>, method_signature_t<Ms>>..., Es...>;
 };
 
 template<typename F, std::meta::info... Ms, typename... Es>
 requires(!has_name_entry_v<Es...> && std::meta::has_identifier(^^F))
 struct facade_maker<F, info_pack<Ms...>, Es...> {
-  using type =
-      facade<name<key_v<^^F>>, method<key_v<Ms>, signature_t<Ms>>..., Es...>;
+  using type = facade<name<key_v<^^F>>,
+      method<key_v<Ms>, method_signature_t<Ms>>..., Es...>;
 };
 
 // The diagnostic partial, for no `name` entry and no identifier to stand in
@@ -335,8 +505,8 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
   static_assert(false,
       "this facade has no identifier to serve as its name (a class template "
       "specialization has none); add a name<> entry");
-  using type =
-      facade<name<"unnamed">, method<key_v<Ms>, signature_t<Ms>>..., Es...>;
+  using type = facade<name<"unnamed">,
+      method<key_v<Ms>, method_signature_t<Ms>>..., Es...>;
 };
 
 #pragma endregion
@@ -350,12 +520,19 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 // machinery takes as it would a hand-written one.
 //
 // The `Api` interface holds plain member function declarations, which are
-// never defined and never called. They are just the specification. The
-// declaration grammar carries everything a `method<>` entry does: `void f()
-// const` is a const method, `noexcept` is honored, and two declarations of one
-// name are an overload set. Static members, constructors, operators, data
-// members, and templates are not methods, and a deducing-this forwarder is a
-// template, so it cannot serve as a spec.
+// never defined and never called. They are just the specification.
+//
+// The declaration grammar carries everything a `method<>` entry does: `void
+// f() const` is a const method, `noexcept` is honored, and two declarations of
+// one name are an overload set.
+//
+// A deducing-this member declares the method its object parameter admits:
+// const when it takes a const interface object (a forwarding, by-value, or
+// `const auto&` object parameter), mutable when it takes only a mutable one,
+// and nothing when it takes no lvalue.
+//
+// Static members, constructors, operators, data members, and other templates
+// are not methods.
 //
 // For example:
 //
@@ -366,8 +543,8 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 //
 // is equivalent to `facade<name<"animal">, method<"speak", void() const>>`.
 //
-// The interface need not be written for the purpose: any class serves, its
-// public member functions being the spec, so `reflected_facade<F, lawman>` is
+// The interface need not be written for the purpose: any class serves. Its
+// public member functions become the spec, so `reflected_facade<F, lawman>` is
 // a facade over `lawman`'s whole public interface, bodies ignored.
 //
 // The name is `F`'s own identifier. A `name<>` entry among `Es` overrides it,
@@ -391,14 +568,19 @@ using reflected_facade = details::facade_maker<F,
 // `on` for a key enumerates `T`'s non-static member functions with that name
 // (own members first, then bases, with the name hiding of an ordinary member
 // call), has the compiler rank them for the call as `call<>` ranks a facade's
-// overloads, and invokes the winner through its member pointer with
-// `std::invoke`. The target parameter is deduced, so constness flows
-// through: a const target reaches only const members, and a const pair
-// splits by handle constness. The result type and `noexcept` come from the
-// declaration alone, so a conformance probe instantiates no body, and a
-// `noexcept` member stays `noexcept` through `call<>`. A key with no viable
-// member is unbound, which conformance reports as it would for any other
-// binding class.
+// overloads, and invokes the winner through its pointer with `std::invoke`.
+//
+// A deducing-this member is a candidate as the specialization the call would
+// deduce for the target, and an explicit-object member as itself, each with
+// the constness its object parameter admits. The target parameter is
+// deduced, so constness flows through: a const target reaches only const
+// members, and a const pair splits by handle constness.
+//
+// The result type and `noexcept` come from the declaration alone, so a
+// conformance probe instantiates no body (a deducing-this member's aside,
+// which gcc 16.2 compiles as its specialization forms), and a `noexcept`
+// member stays `noexcept` through `call<>`. A key with no viable member is
+// unbound, which conformance reports as it would for any other binding class.
 //
 // `Ctx` is the access context the enumeration runs under. It defaults to the
 // context where the template-id is written (`access_context::current()` is
@@ -419,12 +601,12 @@ using reflected_facade = details::facade_maker<F,
 // local to the hook; see "gcc 16 notes" in "proxy.md".
 //
 // The following are never bound, because reflection does not see them as
-// member functions: member function templates (a deducing-this member is one),
+// member functions: member function templates other than deducing-this ones,
 // static members, data members, and anything on a non-class target. Nor is a
 // base overload that a using-declaration un-hides beside the class's own
 // (`using base::fire;` next to a `fire` of the class), since `members_of`
 // does not report the using-declaration; such a key takes a `members<>`
-// binding or an override. See "Limits" in "proxy.md".
+// binding or an override.
 template<typename T,
     std::meta::access_context Ctx = std::meta::access_context::current()>
 struct reflected_impl: proxy_impl_base {
@@ -441,12 +623,6 @@ struct reflected_impl: proxy_impl_base {
 
 namespace details {
 
-// Whether `T` is the `validate_api` probe.
-template<typename T>
-constexpr inline bool is_api_probe_v = false;
-template<Facade F>
-constexpr inline bool is_api_probe_v<api_probe<F>> = true;
-
 // The reflected impl as the default impl of a pair whose facade has no
 // `boilerplate`.
 //
@@ -454,14 +630,12 @@ constexpr inline bool is_api_probe_v<api_probe<F>> = true;
 // library's access context and this route binds public members only. A
 // private member binds through a hook that names `reflected_impl<T>` itself.
 //
-// Does not work with a `validate_api` probe, since `api` forwarders are
-// templates that reflection does not see as members. A facade with a
-// hand-written `api` and no `boilerplate` therefore registers with
-// `api_check::off`, which the registration's own diagnostic asks for.
+// The `validate_api` probe is a target like any other: its `api` forwarders
+// are deducing-this members, which bind by name, so a hand-written `api`
+// over a reflected boilerplate validates at registration as one over a
+// hand-written boilerplate does.
 template<Facade F, typename T>
-requires(!requires {
-  typename F::template boilerplate<T>;
-} && !is_api_probe_v<T>)
+requires(!requires { typename F::template boilerplate<T>; })
 struct default_impl<F, T> {
   using type = reflected_impl<T>;
 };

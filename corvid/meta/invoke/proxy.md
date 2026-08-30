@@ -2142,12 +2142,15 @@ letter), `lawman_facade` is a facade over the concrete `lawman`'s whole
 public interface, `battery` and `hair_trigger` are interface-first from
 the start,
 `marshal` extends the hand-written `gunslinger` and `ranger` extends
-`marshal`, so the chain is interface-first at two levels, and `census` keeps a
-hand-written `api` over a reflected boilerplate. The conforming types are
-the same ones on the same routes, plus `recluse` (a private member behind
-a plain hook, not proxiable), `marksman` (`noexcept` members), `cannon`
-(overloads and a const pair), `constable` and `texas_ranger` (the chain),
-and `mute` (a deducing-this interface, which declares nothing).
+`marshal`, so the chain is interface-first at two levels, `crier` is
+interface-first over deducing-this declarations, and `roster` and `census`
+keep a hand-written `api` over a reflected boilerplate (validated, and opted
+out for a forwarder that deviates). The conforming types are the same ones
+on the same routes, plus `recluse` (a private member behind a plain hook,
+not proxiable), `marksman` (`noexcept` members), `cannon` (overloads and a
+const pair), `constable` and `texas_ranger` (the chain), `bushwhacker` and
+`road_agent` (deducing-this and explicit-object members, inherited by the
+latter), and `abacus` (a by-value object parameter, over `tally`).
 
 Four fixtures are deliberately missing from the conformance edges.
 `cowboy` has the right shape and no registration, so nominal conformance
@@ -2282,7 +2285,10 @@ template-id, which a splice then names. It is the bridge from "a list I
 computed" back into template-land, and the layer crosses it once per
 derivation: it collects the member reflections it wants into a vector,
 substitutes them into a pack, and then does everything else with ordinary
-pack expansion.
+pack expansion. The same call specializes a function template: given a
+deducing-this member and the object type a call would deduce for it,
+`substitute` yields the specialization that call would name, which then
+sits in a candidate set like any other member.
 
 **`define_aggregate` defines a struct.** Given the reflection of a
 declared-but-undefined class and a list of `data_member_spec`s (type,
@@ -2358,11 +2364,17 @@ spellings yield the same name and the same flattened slot list (the test
 pins both with `static_assert`).
 
 The spec is what `members_of` reports as the struct's public, non-static,
-named, non-special member functions, in declaration order. Static
-members, constructors, operators, data members, and templates are not
-methods. That last one matters: a deducing-this forwarder
-(`void speak(this const auto& self)`) is a function template and has no
-type to reflect, so it declares nothing (see "Limits").
+named, non-special member functions, in declaration order, and its
+deducing-this members. A deducing-this member
+(`void speak(this const auto& self)`) is a function template, with no type
+until it is specialized, so the layer specializes it on the interface as a
+call would deduce it, and it declares the method its object parameter
+admits: const when it takes a const interface object (a forwarding,
+by-value, or `const auto&` object parameter), mutable when it takes only a
+mutable one, and nothing when it takes no lvalue (`this C&&`). An
+explicit-object non-template (`void growl(this const C& self) noexcept`)
+declares the same way. Static members, constructors, operators, data
+members, and other templates are not methods.
 
 The interface need not be written for the purpose. Any class serves,
 since the spec is just its public member functions, so
@@ -2493,12 +2505,12 @@ handles inherit their sugar base by handle type as well as facade
 (`api_base<F, H>`, CRTP). A facade that defines an `api` keeps it; the
 reflected one applies only when it does not.
 
-The one combination that does not validate is a hand-written `api` over a
-reflected boilerplate. `validate_api` drives the probe target's `api`
-forwarders through the boilerplate by natural name, and those forwarders
-are deducing-this templates, which reflection does not see as members, so
-the reflected impl never serves the probe. Such a facade registers with
-`api_check::off`, which the registration's own diagnostic asks for.
+A hand-written `api` over a reflected boilerplate validates like any other.
+`validate_api` drives the probe target's `api` forwarders through the
+boilerplate by natural name, and those forwarders are deducing-this
+members, which the reflected impl binds on the probe as on any target. An
+`api` that deliberately deviates registers with `api_check::off`, as it
+would over a hand-written boilerplate.
 
 ### What the layer asked of the portable headers
 
@@ -2542,7 +2554,7 @@ directly (the interface-first `gunslinger` has the hand-written one's
 name and flattened slot list), the layout claims (empty sugar API,
 two-pointer view, deep const), and the negative cases (a private member
 behind a plain hook, a non-`noexcept` member against a `noexcept` facade,
-a non-class target, a deducing-this interface).
+a non-class target, an explicit-object member that takes no lvalue).
 
 gcc is the only compiler with reflection semantics today (clang 23 parses
 the operators without implementing them; cl has nothing). When clang
@@ -2553,13 +2565,14 @@ a clang pass reshapes one helper at a time.
 
 ### Limits
 
-- Member function templates are not members to reflection, so a
-  deducing-this method (`void speak(this auto&& self)`) neither declares
-  a method in an interface nor binds on a target. On a target, such a
-  method takes a hand-written binding (`members<>` cannot name it either,
-  since a template has no address; a binding class with an `on` that
-  calls it can). Whether `substitute` on the template can lift this is
-  an open question; see "Later".
+- A member function template is a candidate only as a deducing-this
+  member, specialized on the object type as a call would deduce it. One
+  with further template parameters
+  (`template<typename U> void f(this auto&& self, U)`), which a call
+  deduces from its arguments, is not a candidate, and neither is any other
+  member function template; such a member takes a hand-written binding (a
+  binding class with an `on` that calls it, since `members<>` cannot name
+  a template either).
 - Name hiding is approximated from what `members_of` reports. A
   using-declaration is not a member to it, so a base overload that
   `using base::fire;` un-hides beside the class's own `fire` is not a
@@ -2570,8 +2583,6 @@ a clang pass reshapes one helper at a time.
 - Static members, data members, operators, and constructors are never
   methods, on either side. `members<>` still binds a data member by
   pointer where that is wanted.
-- A hand-written `api` over a reflected boilerplate registers with
-  `api_check::off`, as above.
 - A binding class deriving from `reflected_impl<T>` is defined at
   namespace scope or nested in `T`, never local to a registration hook;
   see the last gcc note.
@@ -2595,9 +2606,24 @@ shaped the patterns, each verified by a probe:
   block must sit in a scope enclosing the class it defines, so the sugar API
   is a nested `struct type;` of a class template whose body holds the block,
   defined on first naming.
-- `substitute` inside a loop over reflected members fails from the second
-  iteration; the loop only collects reflections into a pack, and keys and
-  signatures are formed at the type level from that pack.
+- `substitute` of a class template on `fixed_string` arguments inside a
+  loop over reflected members fails from the second iteration; the loop
+  only collects reflections into a pack, and keys and signatures are formed
+  at the type level from that pack. A function template substituted on a
+  type argument specializes fine inside the loop, which is how the
+  candidate enumeration specializes deducing-this members.
+- gcc 16.2 instantiates the body of a function template specialization as
+  `substitute` (or `can_substitute`) forms it, where the 16.0 snapshot
+  formed the declaration alone. Specializing a deducing-this member is
+  therefore compiling it, so the layer specializes one only on the class
+  the call is on, never on the template's own class (an `api` forwarder's
+  body is ill-formed on the `api` itself), and every candidate a key's
+  enumeration specializes for a target has its body compiled, the losers of
+  the ranking and the rvalue-object shape of a forwarding reference
+  included.
+- A function template specialization has no identifier (`has_identifier`
+  is false, as for a class template specialization); its name is its
+  template's, through `template_of`.
 - A type splice directly under a pack expansion is rejected; it goes
   through an alias template. A spliced type in template-argument position
   needs `typename`. `^^alias` reflects the alias, so `dealias` before
@@ -2624,21 +2650,13 @@ shaped the patterns, each verified by a probe:
 - A clang pass when clang implements reflection.
 - The P3294 form of the sugar API, real member functions, when a compiler
   offers token injection.
-- Deducing-this members. An explicit-object non-template already reflects
-  (its type shows the object parameter first), so a rule that reads the
-  first parameter as the object parameter would admit those on both
-  sides; a deducing-this template might be reached by `substitute` with a
-  concrete object type, and then the same rule. The target side is the
-  one that matters, since an interface can always be written as plain
-  declarations.
 - Name hiding through using-declarations. The base overload can be found
   by walking the bases whenever the class's own set does not resolve, but
   nothing in P2996 says whether a `using` made it visible, and a member
   pointer call does not check hiding, so that walk would also admit an
   overload the language hides. The fix wants the language's own rules (a
-  call expression on the name, once a splice can spell one) and belongs
-  with the deducing-this gap, since both are candidates reflection cannot
-  enumerate; the data-member hiding gap falls out of the same fix.
+  call expression on the name, once a splice can spell one); the
+  data-member hiding gap falls out of the same fix.
 
 ## Future work
 

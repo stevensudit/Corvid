@@ -116,6 +116,57 @@ struct deputy: public lawman {
   }
 };
 
+// `bushwhacker` takes `this` explicitly throughout: a deducing-this template
+// per object-parameter shape, and two explicit-object non-templates. Each
+// binds as the plain member it stands for.
+struct bushwhacker {
+  int fire(this auto&& self, int rounds) {
+    self.rounds_fired += rounds;
+    return self.rounds_fired;
+  }
+  [[nodiscard]] std::string describe(this const bushwhacker& self) {
+    (void)self;
+    return "bushwhacker";
+  }
+  void reload(this auto& self) { self.rounds_fired = 0; }
+  int& shots(this bushwhacker& self) { return self.rounds_fired; }
+
+  int rounds_fired{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, bushwhacker*) {
+  return prox::make_proxy_spec<gunslinger, bushwhacker>();
+}
+
+// A `road_agent` is a `bushwhacker` with its own `describe`. The inherited
+// templates deduce the derived type, and the inherited explicit-object
+// `shots` binds through a pointer taking the base.
+struct road_agent: public bushwhacker {
+  // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
+  [[nodiscard]] std::string describe(this const road_agent& self) {
+    (void)self;
+    return "road agent";
+  }
+};
+
+// A by-value object parameter (`this auto self`) binds as a const method
+// that works on a copy, as the language has it.
+struct tally_api {
+  int bump() const;
+};
+
+struct tally: prox::reflected_facade<tally, tally_api> {};
+
+struct abacus {
+  int bump(this auto self) { return ++self.beads; }
+
+  int beads{};
+};
+
+consteval auto corvid_proxy_spec(tally*, abacus*) {
+  return prox::make_proxy_spec<tally, abacus>();
+}
+
 // `sheriff` lines up except that `fire` is spelled `shoot`. Its registration
 // carries an impl that inherits the reflected impl, re-exposes its `on`, and
 // overrides the one divergent binding.
@@ -378,18 +429,25 @@ consteval auto corvid_proxy_spec(F*, texas_ranger*) {
   return prox::make_proxy_spec<F, texas_ranger>();
 }
 
-// A deducing-this forwarder is a function template, which reflection does
-// not see as a function, so an interface written that way declares nothing.
-struct forwarder_api {
+// A deducing-this member declares the method its object parameter admits:
+// const when it takes a const interface object, mutable when it takes only a
+// mutable one, and nothing when it takes no lvalue.
+struct crier_api {
   void speak(this const auto& self);
+  void shout(this auto&& self);
+  int volume(this auto self);
+  void whisper(this auto& self)
+  requires(!std::is_const_v<std::remove_reference_t<decltype(self)>>);
+  void growl(this const crier_api& self) noexcept;
+  void bark(this crier_api&& self);
 };
 
-struct mute: prox::reflected_facade<mute, forwarder_api> {};
+struct crier: prox::reflected_facade<crier, crier_api> {};
 
-// `census` defines its own `api`, which the reflected one yields to. A
-// hand-written `api` over a reflected boilerplate cannot be validated (the
-// reflected impl cannot drive the probe's forwarder templates), so the
-// registration opts out, as its diagnostic asks.
+// `census` defines its own `api`, which the reflected one yields to. The
+// registration validates it over the reflected boilerplate as it would over
+// a hand-written one, and this `api` deliberately deviates (its forwarder
+// adds to the result), so the registration opts out.
 struct census
     : prox::facade<prox::name<"census">, //
           prox::method<"describe", std::string() const>> {
@@ -402,6 +460,24 @@ struct census
 
 consteval auto corvid_proxy_spec(census*, lawman*) {
   return prox::make_proxy_spec<census, lawman, prox::api_check::off>();
+}
+
+// `roster` is a hand-written `api` over a reflected boilerplate. Its
+// forwarders are deducing-this members, which bind on the validation probe
+// as on any target, so the registration validates it as it would over a
+// hand-written boilerplate.
+struct roster
+    : prox::facade<prox::name<"roster">, //
+          prox::method<"describe", std::string() const>> {
+  struct api {
+    std::string describe(this const auto& self) {
+      return self.template call<"describe">();
+    }
+  };
+};
+
+consteval auto corvid_proxy_spec(roster*, lawman*) {
+  return prox::make_proxy_spec<roster, lawman>();
 }
 
 // `till` over a non-class target: there are no members to reflect, so a
@@ -473,8 +549,21 @@ using ranger_build = prox::details::vtbuild_t<ranger>;
 static_assert(ranger_build::name_v.view() == "ranger");
 static_assert(ranger_build::count_v == 6);
 
-// The documented limit: a deducing-this forwarder declares no method.
-static_assert(prox::details::vtbuild_t<mute>::count_v == 0);
+// A deducing-this interface: each member declares the method its object
+// parameter admits, and the one taking no lvalue declares nothing.
+using crier_build = prox::details::vtbuild_t<crier>;
+static_assert(crier_build::name_v.view() == "crier");
+static_assert(crier_build::count_v == 5);
+static_assert(std::is_same_v<crier_build::slot_t<0>::method_t,
+    prox::method<"speak", void() const>>);
+static_assert(std::is_same_v<crier_build::slot_t<1>::method_t,
+    prox::method<"shout", void() const>>);
+static_assert(std::is_same_v<crier_build::slot_t<2>::method_t,
+    prox::method<"volume", int() const>>);
+static_assert(std::is_same_v<crier_build::slot_t<3>::method_t,
+    prox::method<"whisper", void()>>);
+static_assert(std::is_same_v<crier_build::slot_t<4>::method_t,
+    prox::method<"growl", void() const noexcept>>);
 
 #pragma endregion
 #pragma region Sugar layout
@@ -527,6 +616,10 @@ static_assert(prox::Proxiable<turncoat, gunslinger>);
 static_assert(prox::Proxiable<safecracker, gunslinger>);
 static_assert(prox::Proxiable<cannon, battery>);
 static_assert(prox::Proxiable<marksman, hair_trigger>);
+static_assert(prox::Proxiable<bushwhacker, gunslinger>);
+static_assert(prox::Proxiable<road_agent, gunslinger>);
+static_assert(prox::Proxiable<abacus, tally>);
+static_assert(prox::Proxiable<lawman, roster>);
 
 static_assert(!prox::Proxiable<recluse, gunslinger>);
 static_assert(!prox::Proxiable<cowboy, gunslinger>);
@@ -703,7 +796,9 @@ TEST_CASE("Reflected sugar on every handle flavor", "[proxy_reflect]") {
   static_assert(!noexcept(pb.fire(1)));
   CHECK(pb.reload());
 
-  // A facade's own `api` serves as before.
+  // A facade's own `api` serves as before, validated or opted out.
+  proxy_view<roster> pr{l};
+  CHECK(pr.describe() == "lawman"s);
   proxy_view<census> pc{l};
   CHECK(pc.describe() == "counted lawman"s);
 }
@@ -794,6 +889,43 @@ TEST_CASE("Noexcept members satisfy a noexcept facade", "[proxy_reflect]") {
   CHECK(!pv.call<"jams">());
   static_assert(noexcept(pv.call<"fire">(2)));
   static_assert(noexcept(pv.call<"jams">()));
+}
+
+TEST_CASE("Deducing-this members bind as the members they stand for",
+    "[proxy_reflect]") {
+  bushwhacker b;
+  proxy_view<gunslinger> pv{b};
+  CHECK(pv.call<"fire">(3) == 3);
+  CHECK(b.rounds_fired == 3);
+  CHECK(pv.call<"describe">() == "bushwhacker"s);
+  CHECK(pv.call<"shots">() == 3);
+  pv.call<"reload">();
+  CHECK(b.rounds_fired == 0);
+
+  // The sugar spelling and the const view take the same route.
+  CHECK(pv.fire(2) == 2);
+  const_proxy_view<gunslinger> cv{b};
+  CHECK(cv.call<"describe">() == "bushwhacker"s);
+  CHECK(cv.describe() == "bushwhacker"s);
+}
+
+TEST_CASE("Inherited deducing-this members deduce the derived type",
+    "[proxy_reflect]") {
+  road_agent r;
+  proxy_view<gunslinger> pv{r};
+  CHECK(pv.call<"describe">() == "road agent"s);
+  CHECK(pv.call<"fire">(4) == 4);
+  CHECK(pv.call<"shots">() == 4);
+  pv.call<"reload">();
+  CHECK(r.rounds_fired == 0);
+}
+
+TEST_CASE("A by-value object parameter works on a copy", "[proxy_reflect]") {
+  abacus a;
+  const_proxy_view<tally> cv{a};
+  CHECK(cv.call<"bump">() == 1);
+  CHECK(cv.bump() == 1);
+  CHECK(a.beads == 0);
 }
 
 #pragma endregion
