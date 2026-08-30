@@ -20,9 +20,10 @@
 #include "corvid/meta/invoke/proxy_reflect.h"
 #include "catch2_main.h"
 
-// Gated like the header, so that a compiler without P2996 (clangd's clang,
-// when it indexes this file) sees an empty translation unit rather than the
-// reflection operators.
+// Gated like the header, so that a compiler without P2996 (clang, cl, and
+// clangd when it indexes this file) sees none of the reflection operators.
+// The one case outside the gate, at the end, reports which mode the run is
+// in.
 #if __cpp_impl_reflection >= 202506L
 
 using namespace std::literals;
@@ -36,7 +37,7 @@ using namespace corvid::meta::prox::literals;
 // The fixtures mirror the `gunslinger` family of "proxy_test.cpp", with the
 // facades stripped to their method lists: no `boilerplate`, no `api`. The
 // reflected impl is what serves them. `gunslinger` itself stays spelled the
-// traditional way, as the reference the api-first spelling is held to.
+// traditional way, as the reference the interface-first spelling is held to.
 
 struct gunslinger
     : prox::facade<prox::name<"gunslinger">,             //
@@ -45,8 +46,8 @@ struct gunslinger
           prox::method<"reload", void()>,                //
           prox::method<"shots", int&()>> {};
 
-// The same facade, api-first: the interface is written as declarations, and
-// the facade derives from it. The `name` entry overrides the identifier so
+// The same facade, interface-first: the interface is written as declarations,
+// and the facade derives from it. The `name` entry overrides the identifier so
 // that the two facades agree to the letter (see "Agreement" below).
 struct gunslinger_api {
   int fire(int);
@@ -86,6 +87,15 @@ consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
 }
 consteval auto corvid_proxy_spec(gunslinger2*, lawman*) {
   return prox::make_proxy_spec<gunslinger2, lawman>();
+}
+
+// The interface need not be written for the purpose: any class serves, its
+// public member functions being the spec. `lawman_facade` is a facade over
+// `lawman`'s whole public interface, `jams` included.
+struct lawman_facade: prox::reflected_facade<lawman_facade, lawman> {};
+
+consteval auto corvid_proxy_spec(lawman_facade*, lawman*) {
+  return prox::make_proxy_spec<lawman_facade, lawman>();
 }
 
 // A `deputy` is a `lawman` with its own `describe`. The reflected impl for a
@@ -132,8 +142,8 @@ consteval auto corvid_proxy_spec(gunslinger*, sheriff*) {
   return prox::make_proxy_spec<gunslinger, sheriff, sheriff_as_gunslinger>();
 }
 
-// The same override serves the api-first spelling of the facade: the impl
-// binds by name, so it is agnostic to how the facade was written.
+// The same override serves the interface-first spelling of the facade: the
+// impl binds by name, so it is agnostic to how the facade was written.
 consteval auto corvid_proxy_spec(gunslinger2*, sheriff*) {
   return prox::make_proxy_spec<gunslinger2, sheriff, sheriff_as_gunslinger>();
 }
@@ -302,7 +312,7 @@ consteval auto corvid_proxy_spec(hair_trigger*, marksman*) {
   return prox::make_proxy_spec<hair_trigger, marksman>();
 }
 
-// `marshal` composes: an api-first facade extending the hand-written
+// `marshal` composes: an interface-first facade extending the hand-written
 // `gunslinger`, with `constable` registered for the whole chain by one hook.
 struct marshal_api {
   bool arrest(int);
@@ -326,10 +336,11 @@ consteval auto corvid_proxy_spec(F*, constable*) {
   return prox::make_proxy_spec<F, constable>();
 }
 
-// `ranger` is the second level of the chain, api-first over api-first: it
-// extends `marshal`, itself derived from `marshal_api`, so a `ranger` handle
-// reaches methods declared in three interfaces, two of them written as
-// declarations. `texas_ranger` conforms to the whole chain by one hook.
+// `ranger` is the second level of the chain, interface-first over
+// interface-first: it extends `marshal`, itself derived from `marshal_api`, so
+// a `ranger` handle reaches methods declared in three interfaces, two of them
+// written as declarations. `texas_ranger` conforms to the whole chain by one
+// hook.
 struct ranger_api {
   int track() const;
 };
@@ -411,9 +422,9 @@ concept ConstCanFire = requires(const H& h) { h.fire(1); };
 #pragma endregion
 #pragma region Agreement
 
-// The api-first spelling yields the hand-written facade to the letter: the
-// same name and the same flattened slot list, so the two are interchangeable
-// everywhere the library reads a facade.
+// The interface-first spelling yields the hand-written facade to the letter:
+// the same name and the same flattened slot list, so the two are
+// interchangeable everywhere the library reads a facade.
 using gunslinger_build = prox::details::vtbuild_t<gunslinger>;
 using gunslinger2_build = prox::details::vtbuild_t<gunslinger2>;
 static_assert(
@@ -431,6 +442,14 @@ static_assert(std::is_same_v<battery_build::slot_t<3>::method_t,
 static_assert(std::is_same_v<battery_build::slot_t<4>::method_t,
     prox::method<"reload", bool() noexcept>>);
 
+// A concrete class as the interface: every public member function is a
+// method, and nothing else is.
+using lawman_facade_build = prox::details::vtbuild_t<lawman_facade>;
+static_assert(lawman_facade_build::name_v.view() == "lawman_facade");
+static_assert(lawman_facade_build::count_v == 5);
+static_assert(std::is_same_v<lawman_facade_build::slot_t<4>::method_t,
+    prox::method<"jams", bool() const>>);
+
 // Composition flattens the base's slots behind the own ones, as for any
 // facade.
 using marshal_build = prox::details::vtbuild_t<marshal>;
@@ -446,7 +465,7 @@ static_assert(prox::details::vtbuild_t<mute>::count_v == 0);
 #pragma endregion
 #pragma region Sugar layout
 
-// The reflected api is an empty base of empty members, so a handle keeps
+// The reflected sugar API is an empty base of empty members, so a handle keeps
 // its size, and every dispatching flavor carries it.
 using gunslinger_view_api =
     prox::details::api_base_t<gunslinger, proxy_view<gunslinger>>;
@@ -478,6 +497,8 @@ static_assert(!ConstCanFire<proxy<gunslinger>>);
 // Conformance is pinned at file scope, so a regression names the pair.
 static_assert(prox::Proxiable<lawman, gunslinger>);
 static_assert(prox::Proxiable<lawman, gunslinger2>);
+static_assert(prox::Proxiable<lawman, lawman_facade>);
+static_assert(prox::Proxiable<deputy, lawman_facade>);
 static_assert(prox::Proxiable<constable, marshal>);
 static_assert(prox::Proxiable<constable, gunslinger>);
 static_assert(prox::Proxiable<texas_ranger, ranger>);
@@ -530,7 +551,7 @@ TEST_CASE("Reflected impl through registration", "[proxy_reflect]") {
   CHECK(shared.call<"fire">(5) == 5);
 }
 
-TEST_CASE("Api-first facade dispatches as the hand-written one",
+TEST_CASE("Interface-first facade dispatches as the hand-written one",
     "[proxy_reflect]") {
   lawman l;
   proxy_view<gunslinger2> pv{l};
@@ -542,7 +563,7 @@ TEST_CASE("Api-first facade dispatches as the hand-written one",
   CHECK(l.rounds_fired == 0);
 }
 
-TEST_CASE("Api-first facade composes", "[proxy_reflect]") {
+TEST_CASE("Interface-first facade composes", "[proxy_reflect]") {
   constable c;
   proxy_view<marshal> pv{c};
   CHECK(pv.arrest(2));
@@ -555,7 +576,22 @@ TEST_CASE("Api-first facade composes", "[proxy_reflect]") {
   CHECK(base.fire(1) == 4);
 }
 
-TEST_CASE("Api-first facades compose over api-first facades",
+TEST_CASE("A concrete class serves as the interface", "[proxy_reflect]") {
+  lawman l;
+  proxy_view<lawman_facade> pv{l};
+  CHECK(pv.fire(2) == 2);
+  CHECK(pv.describe() == "lawman"s);
+  CHECK(!pv.jams());
+  const_proxy_view<lawman_facade> cv{l};
+  CHECK(!cv.jams());
+
+  // A type with the same public methods conforms too.
+  deputy d;
+  proxy_view<lawman_facade> pd{d};
+  CHECK(pd.describe() == "deputy"s);
+}
+
+TEST_CASE("Interface-first facades compose over interface-first facades",
     "[proxy_reflect]") {
   texas_ranger t;
   proxy_view<ranger> pv{t};
@@ -594,7 +630,8 @@ TEST_CASE("Api-first facades compose over api-first facades",
   CHECK(shared.track() == 0);
 }
 
-TEST_CASE("Per-method overrides over an api-first facade", "[proxy_reflect]") {
+TEST_CASE("Per-method overrides over an interface-first facade",
+    "[proxy_reflect]") {
   // A binding class inheriting the reflected impl, with one override.
   sheriff s;
   proxy_view<gunslinger2> ps{s};
@@ -625,7 +662,8 @@ TEST_CASE("Reflected sugar on every handle flavor", "[proxy_reflect]") {
   const_proxy_view<gunslinger> cv{l};
   CHECK(cv.describe() == "lawman"s);
 
-  // The owner is recovered at whatever depth the handle inherits the api.
+  // The owner is recovered at whatever depth the handle inherits the sugar
+  // API.
   auto owned = make_proxy<gunslinger, lawman>();
   CHECK(owned.fire(4) == 4);
   const auto& cowned = owned;
@@ -749,3 +787,13 @@ TEST_CASE("Noexcept members satisfy a noexcept facade", "[proxy_reflect]") {
 // NOLINTEND(readability-function-cognitive-complexity)
 
 #endif
+
+TEST_CASE("Reflection layer gate", "[proxy_reflect]") {
+#if __cpp_impl_reflection >= 202506L
+  SUCCEED("C++26 reflection is enabled; the reflected cases ran");
+#else
+  SUCCEED(
+      "C++26 reflection is unavailable here; the reflected cases are "
+      "compiled out");
+#endif
+}

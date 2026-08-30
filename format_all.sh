@@ -27,19 +27,7 @@ find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.cu" -o -name "*.cuh" 
   -not -path "*/.local/*" \
   -print0 | while IFS= read -r -d '' file; do
   echo "Formatting: $file"
-  if [[ "$file" == *.h ]]; then
-    # clang-format guesses a .h file's language, and a C++26 reflection
-    # splice (`[: ... :]`) reads to it as an Objective-C message send, which
-    # the repo style does not cover, so it silently falls back to its default
-    # style. Formatting through stdin under an assumed .cpp name pins C++.
-    # The style file is still found from the assumed name's directory.
-    tmp="$(mktemp)"
-    "$CLANG_FORMAT" --style=file --assume-filename="${file%.h}.cpp" \
-      < "$file" > "$tmp" && cat "$tmp" > "$file"
-    rm -f "$tmp"
-  else
-    "$CLANG_FORMAT" -i "$file"
-  fi
+  "$CLANG_FORMAT" -i "$file"
 done
 
 echo "Done formatting all files."

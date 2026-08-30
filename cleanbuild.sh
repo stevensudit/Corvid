@@ -317,11 +317,11 @@ fi
 # typo gets a clear error rather than ninja's "unknown target".
 if [[ -n "$test_name" ]]; then
   found=false
-  for bucket in portable linux reflection cuda; do
+  for bucket in portable linux cuda; do
     [[ -f "tests/$bucket/$test_name" ]] && found=true
   done
   if ! $found; then
-    echo "$0: test source '$test_name' not found under tests/{portable,linux,reflection,cuda}/" >&2
+    echo "$0: test source '$test_name' not found under tests/{portable,linux,cuda}/" >&2
     exit 1
   fi
 fi

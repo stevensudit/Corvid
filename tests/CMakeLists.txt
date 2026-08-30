@@ -153,6 +153,15 @@ elseif(USE_LIBSTDCPP)
         # so they cannot be suppressed at the source. Keep them as warnings
         # but do not fail the build on them.
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=array-bounds")
+        # gcc 16 and newer implement C++26 reflection (P2996). Enable it for
+        # the whole leg, so the reflection layer of the proxy system
+        # (corvid/meta/invoke/proxy_reflect.h, gated on __cpp_impl_reflection)
+        # is live in every translation unit, and user code needs only the same
+        # gate. Other compilers see the gate closed, and a test of the layer
+        # compiles down to its gate-reporting case. See crossplatform.md.
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -freflection")
+        endif()
     endif()
     # clang with libstdc++ builds as C++26 too, on the container's patched
     # <format> (.devcontainer/libstdcxx-format-clang.patch): stock libstdc++ 16
@@ -745,21 +754,11 @@ if(WIN32)
     file(GLOB WINDOWS_SOURCES CONFIGURE_DEPENDS "windows/*.cpp")
     list(APPEND SOURCES ${WINDOWS_SOURCES})
 endif()
-# The reflection bucket exercises the C++26 reflection layer
-# (corvid/meta/invoke/proxy_reflect.h), which needs a compiler with P2996
-# semantics: gcc 16 or newer, under -freflection (added per target in the
-# loop below). Every other compiler skips the bucket. See crossplatform.md.
-set(CORVID_HAS_REFLECTION FALSE)
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
-    set(CORVID_HAS_REFLECTION TRUE)
-    file(GLOB REFLECTION_SOURCES CONFIGURE_DEPENDS "reflection/*.cpp")
-    list(APPEND SOURCES ${REFLECTION_SOURCES})
-endif()
 
 if(TEST_NAME)
     # Locate the single requested source in whichever bucket holds it.
     set(FILTERED_SOURCE "")
-    set(_buckets portable linux reflection cuda)
+    set(_buckets portable linux cuda)
     if(WIN32)
         # Windows-only buckets: plain-C++ SDL tests (windows/) and CUDA graphics
         # targets (cuda/windows/). See crossplatform.md s11.
@@ -790,12 +789,6 @@ if(TEST_NAME)
         if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
             message(FATAL_ERROR
                 "Requested Linux-only source '${TEST_NAME}' on ${CMAKE_SYSTEM_NAME}")
-        endif()
-        set(SOURCES "${FILTERED_SOURCE}")
-    elseif(FILTERED_SOURCE MATCHES "/reflection/")
-        if(NOT CORVID_HAS_REFLECTION)
-            message(FATAL_ERROR
-                "Requested reflection source '${TEST_NAME}' needs gcc 16 or newer (cleanbuild.sh gcc)")
         endif()
         set(SOURCES "${FILTERED_SOURCE}")
     else()
@@ -879,13 +872,6 @@ foreach(SOURCE_FILE ${SOURCES})
         if(_uses_d3d11)
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE d3d11 dxgi)
         endif()
-    endif()
-
-    # Reflection-bucket targets enable P2996 on gcc; the flag is per target so
-    # the rest of the suite builds with the reflection operators unavailable,
-    # which is what the headers' feature-test gates expect elsewhere.
-    if(SOURCE_FILE MATCHES "/reflection/")
-        target_compile_options(${EXECUTABLE_NAME} PRIVATE -freflection)
     endif()
 
     if(NOT USE_LIBSTDCPP AND NOT WIN32)

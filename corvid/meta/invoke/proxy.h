@@ -30,8 +30,9 @@
 // - proxy_view.h: `proxy_view` and `const_proxy_view`.
 // - shared_proxy.h: `shared_proxy` and `const_shared_proxy`, with their
 //   observers `weak_proxy` and `const_weak_proxy`.
-// - proxy_reflect.h: C++26 reflection layer, deriving facades and impls from
-//   the target type and its member declarations.
+// - proxy_reflect.h: C++26 reflection layer, deriving a facade from an
+//   interface's declarations, and its bindings and sugar API from the target
+//   type and the facade.
 //
 // Does not include `proxy_codegen.h`, since it's used only for development.
 //

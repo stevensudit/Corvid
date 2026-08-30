@@ -34,8 +34,8 @@
 //    p.speak();
 //
 // `reflected_facade` derives the facade's name and method list from the
-// declarations. It replaces `facade`, which requires a hand-written `name<>`
-// and `method<>` list.
+// declarations, expanding to the `facade<...>` with the `name<>` and
+// `method<>` list that would otherwise be written by hand.
 //
 // `reflected_impl<T>` replaces the `boilerplate<T>` that a facade author would
 // write by hand to map facade members to the target's members. It enumerates
@@ -43,8 +43,9 @@
 // facade has none, the tier `members<>` falls through to, and an ordinary base
 // for a partial override.
 //
-// The reflected api gives every handle of a facade that lacks a hand-written
-// `api` its member-call sugar, `p.speak()` for `p.call<"speak">()`. All of
+// The reflected sugar API gives every handle of a facade that lacks a
+// hand-written `api` its member-call sugar, `p.speak()` for
+// `p.call<"speak">()`. All of
 // the C++23 spellings keep working alongside; see "Reflection (C++26)" in
 // "proxy.md".
 //
@@ -71,8 +72,7 @@
 #include <utility>
 #include <vector>
 
-namespace corvid {
-inline namespace meta {
+namespace corvid { inline namespace meta {
 namespace prox {
 
 namespace details {
@@ -80,7 +80,8 @@ namespace details {
 #pragma region Enumeration
 
 // `info_pack` is a pack of reflections carried as a type.
-template <std::meta::info... Ms> struct info_pack {};
+template<std::meta::info... Ms>
+struct info_pack {};
 
 // `named_functions` finds the non-static member functions of `cls` named
 // `name`, as seen from `ctx`, or none when `cls` is not a class type.
@@ -96,12 +97,10 @@ template <std::meta::info... Ms> struct info_pack {};
 // operators). A member function template is a template, not a function, so
 // `is_function` excludes it: a deducing-this member cannot be reflected into
 // a binding.
-consteval std::vector<std::meta::info>
-named_functions(std::meta::info cls, std::string_view name,
-                std::meta::access_context ctx) {
+consteval std::vector<std::meta::info> named_functions(std::meta::info cls,
+    std::string_view name, std::meta::access_context ctx) {
   std::vector<std::meta::info> out;
-  if (!std::meta::is_class_type(cls))
-    return out;
+  if (!std::meta::is_class_type(cls)) return out;
 
   for (const auto m : std::meta::members_of(cls, ctx))
     if (std::meta::is_function(m) && !std::meta::is_static_member(m) &&
@@ -110,8 +109,8 @@ named_functions(std::meta::info cls, std::string_view name,
 
   if (out.empty())
     for (const auto b : std::meta::bases_of(cls, ctx)) {
-      const auto found =
-          named_functions(std::meta::dealias(std::meta::type_of(b)), name, ctx);
+      const auto found = named_functions(
+          std::meta::dealias(std::meta::type_of(b)), name, ctx);
       out.insert(out.end(), found.begin(), found.end());
     }
 
@@ -125,16 +124,14 @@ named_functions(std::meta::info cls, std::string_view name,
 // wrapped by `reflect_constant`, because a template argument is a value, and
 // a bare `info` element would be read as the entity it reflects rather than
 // as itself.
-consteval std::meta::info as_pack(const std::vector<std::meta::info> &ms) {
+consteval std::meta::info as_pack(const std::vector<std::meta::info>& ms) {
   std::vector<std::meta::info> args;
-  for (const auto m : ms)
-    args.push_back(std::meta::reflect_constant(m));
-
+  for (const auto m : ms) args.push_back(std::meta::reflect_constant(m));
   return std::meta::substitute(^^info_pack, args);
 }
 
 // The candidate set for `Key` on `T`, as seen from `Ctx`.
-template <typename T, fixed_string Key, std::meta::access_context Ctx>
+template<typename T, fixed_string Key, std::meta::access_context Ctx>
 using reflected_candidates_t = [:as_pack(
                                      named_functions(^^T, Key.view(), Ctx)):];
 
@@ -147,9 +144,9 @@ using reflected_candidates_t = [:as_pack(
 // and a type splice (`[:t:]`) spells that type, so `signature_traits`
 // decomposes it as if it had been written. The probe is `rank_probe`, the
 // same synthetic overload `resolve` ranks for a facade's own overload sets.
-template <std::meta::info M, size_t Ndx>
-using reflected_probe_t = rank_probe<
-    Ndx, signature_traits<typename[:std::meta::type_of(M):]>::const_qualifier,
+template<std::meta::info M, size_t Ndx>
+using reflected_probe_t = rank_probe<Ndx,
+    signature_traits<typename[:std::meta::type_of(M):]>::const_qualifier,
     typename signature_traits<typename[:std::meta::type_of(M):]>::args_t>;
 
 // Rank a candidate set for a call on `Self&` with `Args`.
@@ -159,34 +156,37 @@ using reflected_probe_t = rank_probe<
 // `call<>`: promotions, conversion ranks, and the object parameter's
 // constness all weigh as they would in `t.name(args...)`. An empty set
 // resolves nothing.
-template <typename Cands> struct reflected_ranker {
-  template <typename Self, typename... Args>
+template<typename Cands>
+struct reflected_ranker {
+  template<typename Self, typename... Args>
   static constexpr bool resolves_v = false;
 };
 
-template <std::meta::info... Ms>
-  requires(sizeof...(Ms) > 0)
+template<std::meta::info... Ms>
+requires(sizeof...(Ms) > 0)
 struct reflected_ranker<info_pack<Ms...>> {
   static constexpr auto count_v = sizeof...(Ms);
   static constexpr std::array<std::meta::info, count_v> members_v{Ms...};
 
-  template <size_t... Ndxs>
+  template<size_t... Ndxs>
   static auto make_set(std::index_sequence<Ndxs...>)
       -> rank_set<reflected_probe_t<Ms, Ndxs>...>;
   using set_t = decltype(make_set(std::make_index_sequence<count_v>{}));
 
-  template <typename Self>
-  using probe_t = std::conditional_t<std::is_const_v<Self>, const set_t, set_t>;
+  template<typename Self>
+  using probe_t =
+      std::conditional_t<std::is_const_v<Self>, const set_t, set_t>;
 
-  template <typename Self, typename... Args>
-  static constexpr bool resolves_v =
-      requires(probe_t<Self> &s) { s(std::declval<Args>()...); };
+  template<typename Self, typename... Args>
+  static constexpr bool resolves_v = requires(probe_t<Self>& s) {
+    s(std::declval<Args>()...);
+  };
 
   // The candidate the call resolves to, given that it resolves.
-  template <typename Self, typename... Args>
-    requires resolves_v<Self, Args...>
+  template<typename Self, typename... Args>
+  requires resolves_v<Self, Args...>
   static consteval std::meta::info pick() noexcept {
-    return members_v[decltype(std::declval<probe_t<Self> &>()(
+    return members_v[decltype(std::declval<probe_t<Self>&>()(
         std::declval<Args>()...))::value];
   }
 };
@@ -201,7 +201,8 @@ struct reflected_ranker<info_pack<Ms...>> {
 // appears in a function signature (gcc 16 cannot mangle one there). Forming
 // the pointer is not access-checked, so any member the enumeration could see
 // can be bound.
-template <std::meta::info M> struct reflected_member {
+template<std::meta::info M>
+struct reflected_member {
   static constexpr auto ptr_v = &[:M:];
 };
 
@@ -215,22 +216,22 @@ template <std::meta::info M> struct reflected_member {
 // A class template rather than a consteval function, so that `on` names only
 // class template-ids in its signature: gcc 16 cannot mangle a consteval call
 // carrying reflection values there.
-template <typename T, std::meta::access_context Ctx, fixed_string Key,
-          typename Self, typename... Args>
+template<typename T, std::meta::access_context Ctx, fixed_string Key,
+    typename Self, typename... Args>
 struct reflected_binding {
   static constexpr bool bound_v = false;
 };
 
-template <typename T, std::meta::access_context Ctx, fixed_string Key,
-          typename Self, typename... Args>
-  requires(reflected_ranker<reflected_candidates_t<T, Key, Ctx>>::
-               template resolves_v<Self, Args...>)
+template<typename T, std::meta::access_context Ctx, fixed_string Key,
+    typename Self, typename... Args>
+requires(reflected_ranker<
+    reflected_candidates_t<T, Key, Ctx>>::template resolves_v<Self, Args...>)
 struct reflected_binding<T, Ctx, Key, Self, Args...> {
   using ranker_t = reflected_ranker<reflected_candidates_t<T, Key, Ctx>>;
   static constexpr auto ptr_v =
       reflected_member<ranker_t::template pick<Self, Args...>()>::ptr_v;
   using ptr_t = decltype(ptr_v);
-  static constexpr bool bound_v = std::is_invocable_v<ptr_t, Self &, Args...>;
+  static constexpr bool bound_v = std::is_invocable_v<ptr_t, Self&, Args...>;
 };
 
 // The resolved call of a bound key, as its result type and whether the
@@ -238,18 +239,18 @@ struct reflected_binding<T, Ctx, Key, Self, Args...> {
 //
 // Separate from `reflected_binding` so that they are formed only for a key
 // that binds.
-template <typename T, std::meta::access_context Ctx, fixed_string Key,
-          typename Self, typename... Args>
+template<typename T, std::meta::access_context Ctx, fixed_string Key,
+    typename Self, typename... Args>
 struct reflected_call {
   using binding_t = reflected_binding<T, Ctx, Key, Self, Args...>;
   using result_t =
-      std::invoke_result_t<typename binding_t::ptr_t, Self &, Args...>;
+      std::invoke_result_t<typename binding_t::ptr_t, Self&, Args...>;
   static constexpr bool nothrow_v =
-      std::is_nothrow_invocable_v<typename binding_t::ptr_t, Self &, Args...>;
+      std::is_nothrow_invocable_v<typename binding_t::ptr_t, Self&, Args...>;
 };
 
 #pragma endregion
-#pragma region Api-first facades
+#pragma region Interface-first facades
 
 // The key of reflected member `M`, as a `fixed_string` sized by its
 // identifier.
@@ -257,19 +258,19 @@ struct reflected_call {
 // A variable template rather than a consteval function, so that each key is
 // its own constant evaluation: gcc 16 rejects a class NTTP built from a
 // pointer inside a consteval loop.
-template <std::meta::info M>
+template<std::meta::info M>
 constexpr inline size_t key_len_v = std::meta::identifier_of(M).size();
 
-template <std::meta::info M>
-constexpr inline auto key_v =
-    fixed_string{std::meta::identifier_of(M).data(),
-                 std::integral_constant<size_t, key_len_v<M>>{}};
+template<std::meta::info M>
+constexpr inline auto key_v = fixed_string{std::meta::identifier_of(M).data(),
+    std::integral_constant<size_t, key_len_v<M>>{}};
 
 // The function type of reflected member `M`, qualifiers included.
 //
 // An alias, because gcc 16 rejects a type splice directly under a pack
 // expansion.
-template <std::meta::info M> using signature_t = [:std::meta::type_of(M):];
+template<std::meta::info M>
+using signature_t = [:std::meta::type_of(M):];
 
 // The methods interface `api` declares, as an `info_pack` in declaration
 // order: its public, non-static, named, non-special member functions.
@@ -281,7 +282,7 @@ template <std::meta::info M> using signature_t = [:std::meta::type_of(M):];
 consteval std::meta::info method_pack(std::meta::info api) {
   std::vector<std::meta::info> ms;
   for (const auto m :
-       std::meta::members_of(api, std::meta::access_context::unprivileged()))
+      std::meta::members_of(api, std::meta::access_context::unprivileged()))
     if (std::meta::is_function(m) && !std::meta::is_static_member(m) &&
         std::meta::has_identifier(m) &&
         !std::meta::is_special_member_function(m))
@@ -291,7 +292,7 @@ consteval std::meta::info method_pack(std::meta::info api) {
 }
 
 // Whether the entries `Es` include a `name` entry.
-template <typename... Es>
+template<typename... Es>
 constexpr inline bool has_name_entry_v = (entry_name<Es>::is_name || ...);
 
 // `facade_maker` forms the `facade<...>` of facade type `F` from the method
@@ -301,12 +302,12 @@ constexpr inline bool has_name_entry_v = (entry_name<Es>::is_name || ...);
 // consteval enumeration only collected reflections; every key and signature
 // is formed here, at the type level, by pack expansion (gcc 16 rejects
 // `substitute` inside a loop over reflected members).
-template <typename F, typename Methods, typename... Es> struct facade_maker;
+template<typename F, typename Methods, typename... Es>
+struct facade_maker;
 
-template <typename F, std::meta::info... Ms, typename... Es>
+template<typename F, std::meta::info... Ms, typename... Es>
 struct facade_maker<F, info_pack<Ms...>, Es...> {
-  using type = std::conditional_t<
-      has_name_entry_v<Es...>,
+  using type = std::conditional_t<has_name_entry_v<Es...>,
       facade<method<key_v<Ms>, signature_t<Ms>>..., Es...>,
       facade<name<key_v<^^F>>, method<key_v<Ms>, signature_t<Ms>>..., Es...>>;
 };
@@ -315,19 +316,19 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 
 } // namespace details
 
-#pragma region API-first facades
+#pragma region Interface-first facades
 
 // `reflected_facade` is the facade base for `F` spelled by the declarations
 // of interface `Api`, creating an ordinary `facade<...>` that the rest of the
 // machinery takes as it would a hand-written one.
 //
-// The `Api` interface holds plain member function declarations, which are never
-// defined and never called. They are just the specification. The declaration
-// grammar carries everything a `method<>` entry does: `void f() const` is a
-// const method, `noexcept` is honored, and two declarations of one name are an
-// overload set. Static members, constructors, operators, data members, and
-// templates are not methods, and a deducing-this forwarder is a template, so it
-// cannot serve as a spec.
+// The `Api` interface holds plain member function declarations, which are
+// never defined and never called. They are just the specification. The
+// declaration grammar carries everything a `method<>` entry does: `void f()
+// const` is a const method, `noexcept` is honored, and two declarations of one
+// name are an overload set. Static members, constructors, operators, data
+// members, and templates are not methods, and a deducing-this forwarder is a
+// template, so it cannot serve as a spec.
 //
 // For example:
 //
@@ -338,15 +339,18 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 //
 // is equivalent to `facade<name<"animal">, method<"speak", void() const>>`.
 //
+// The interface need not be written for the purpose: any class serves, its
+// public member functions being the spec, so `reflected_facade<F, lawman>` is
+// a facade over `lawman`'s whole public interface, bodies ignored.
+//
 // The name is `F`'s own identifier. A `name<>` entry among `Es` overrides it,
 // for a facade whose identifier does not serve (two facades sharing one across
 // namespaces, which must not collide in a composition).
 //
 // `extends<>` entries are listed in `Es` as they would be in a `facade<...>`.
-template <typename F, typename Api, typename... Es>
-using reflected_facade =
-    details::facade_maker<F,
-                          typename[:details::method_pack(^^Api):], Es...>::type;
+template<typename F, typename Api, typename... Es>
+using reflected_facade = details::facade_maker<F,
+    typename[:details::method_pack(^^Api):], Es...>::type;
 
 #pragma endregion
 #pragma region The reflected impl
@@ -388,12 +392,12 @@ using reflected_facade =
 // The following are never bound, because reflection does not see them as
 // member functions: member function templates (a deducing-this member is one),
 // static members, data members, and anything on a non-class target.
-template <typename T,
-          std::meta::access_context Ctx = std::meta::access_context::current()>
-struct reflected_impl : proxy_impl_base {
-  template <fixed_string Key, typename Self, typename... Args>
-    requires(details::reflected_binding<T, Ctx, Key, Self, Args...>::bound_v)
-  static constexpr auto on(method_key<Key>, Self &t, Args &&...args) noexcept(
+template<typename T,
+    std::meta::access_context Ctx = std::meta::access_context::current()>
+struct reflected_impl: proxy_impl_base {
+  template<fixed_string Key, typename Self, typename... Args>
+  requires(details::reflected_binding<T, Ctx, Key, Self, Args...>::bound_v)
+  static constexpr auto on(method_key<Key>, Self& t, Args&&... args) noexcept(
       details::reflected_call<T, Ctx, Key, Self, Args...>::nothrow_v)
       -> details::reflected_call<T, Ctx, Key, Self, Args...>::result_t {
     return std::invoke(
@@ -405,8 +409,10 @@ struct reflected_impl : proxy_impl_base {
 namespace details {
 
 // Whether `T` is the `validate_api` probe.
-template <typename T> constexpr inline bool is_api_probe_v = false;
-template <Facade F> constexpr inline bool is_api_probe_v<api_probe<F>> = true;
+template<typename T>
+constexpr inline bool is_api_probe_v = false;
+template<Facade F>
+constexpr inline bool is_api_probe_v<api_probe<F>> = true;
 
 // The reflected impl as the default impl of a pair whose facade has no
 // `boilerplate`.
@@ -419,9 +425,10 @@ template <Facade F> constexpr inline bool is_api_probe_v<api_probe<F>> = true;
 // templates that reflection does not see as members. A facade with a
 // hand-written `api` and no `boilerplate` therefore registers with
 // `api_check::off`, which the registration's own diagnostic asks for.
-template <Facade F, typename T>
-  requires(!requires { typename F::template boilerplate<T>; } &&
-           !is_api_probe_v<T>)
+template<Facade F, typename T>
+requires(!requires {
+  typename F::template boilerplate<T>;
+} && !is_api_probe_v<T>)
 struct default_impl<F, T> {
   using type = reflected_impl<T>;
 };
@@ -429,38 +436,39 @@ struct default_impl<F, T> {
 } // namespace details
 
 #pragma endregion
-#pragma region The reflected api
+#pragma region The reflected Sugar API
 
 namespace details {
 
 // Fwd.
-template <Facade F, typename H> struct reflected_api;
+template<Facade F, typename H>
+struct reflected_api;
 
-// Byte offset of the `api` subobject within `cls`, searching its public
+// Byte offset of the sugar API subobject within `cls`, searching its public
 // bases recursively, or -1 when `cls` has none.
 //
-// The handles inherit the api at different depths (directly for `proxy`,
+// The handles inherit the sugar API at different depths (directly for `proxy`,
 // through `view_base` or `shared_base` for the rest), so the offset
 // accumulates along the chain. `^^alias` reflects the alias, so both sides
 // are `dealias`ed before comparing.
-consteval std::ptrdiff_t api_offset_of(std::meta::info cls,
-                                       std::meta::info api) {
+consteval std::ptrdiff_t
+api_offset_of(std::meta::info cls, std::meta::info api) {
   for (const auto b :
-       std::meta::bases_of(cls, std::meta::access_context::unprivileged())) {
+      std::meta::bases_of(cls, std::meta::access_context::unprivileged()))
+  {
     const auto base = std::meta::dealias(std::meta::type_of(b));
-    if (base == api)
-      return std::meta::offset_of(b).bytes;
+    if (base == api) return std::meta::offset_of(b).bytes;
 
     const auto nested = api_offset_of(base, api);
-    if (nested >= 0)
-      return std::meta::offset_of(b).bytes + nested;
+    if (nested >= 0) return std::meta::offset_of(b).bytes + nested;
   }
   return -1;
 }
 
-// `reflected_sugar` is one member of the reflected api: an empty callable
-// standing in for the method `Key` on handle `H`, so that `h.key(args...)`
-// is `h.key`, a data member, followed by `(args...)`, its call operator.
+// `reflected_sugar` is one member of the reflected sugar API: an empty
+// callable standing in for the method `Key` on handle `H`, so that
+// `h.key(args...)` is `h.key`, a data member, followed by `(args...)`, its
+// call operator.
 //
 // The call operator forwards to `H::call<Key>`, deep const included: a
 // const handle reaches only the const operator, which forwards to the const
@@ -468,24 +476,25 @@ consteval std::ptrdiff_t api_offset_of(std::meta::info cls,
 // overloads, const pairs, and `noexcept` resolve inside `call<>`.
 //
 // The handle is recovered from the member's own address, by the offset of the
-// member within the api and of the api within the handle, both computed
-// from reflection when the operator is first instantiated (the handle is
-// complete by then, where it is not when the api is defined).
-template <Facade F, typename H, fixed_string Key> struct reflected_sugar {
-  template <typename... Args>
-  constexpr auto operator()(Args &&...args) noexcept(noexcept(
-      std::declval<H &>().template call<Key>(std::forward<Args>(args)...)))
-      -> decltype(std::declval<H &>().template call<Key>(
+// member within the sugar API and of the sugar API within the handle, both
+// computed from reflection when the operator is first instantiated (the handle
+// is complete by then, where it is not when the sugar API is defined).
+template<Facade F, typename H, fixed_string Key>
+struct reflected_sugar {
+  template<typename... Args>
+  constexpr auto operator()(Args&&... args) noexcept(noexcept(
+      std::declval<H&>().template call<Key>(std::forward<Args>(args)...)))
+      -> decltype(std::declval<H&>().template call<Key>(
           std::forward<Args>(args)...)) {
     return owner().template call<Key>(std::forward<Args>(args)...);
   }
 
-  template <typename... Args>
-  constexpr auto operator()(Args &&...args) const
-      noexcept(noexcept(std::declval<const H &>().template call<Key>(
+  template<typename... Args>
+  constexpr auto operator()(Args&&... args) const noexcept(
+      noexcept(std::declval<const H&>().template call<Key>(
           std::forward<Args>(args)...)))
-          -> decltype(std::declval<const H &>().template call<Key>(
-              std::forward<Args>(args)...)) {
+      -> decltype(std::declval<const H&>().template call<Key>(
+          std::forward<Args>(args)...)) {
     return owner().template call<Key>(std::forward<Args>(args)...);
   }
 
@@ -494,25 +503,22 @@ private:
   static consteval std::ptrdiff_t offset() {
     using api_t = reflected_api<F, H>::type;
     std::ptrdiff_t member = -1;
-    for (const auto m : std::meta::nonstatic_data_members_of(
-             ^^api_t, std::meta::access_context::unprivileged()))
+    for (const auto m : std::meta::nonstatic_data_members_of(^^api_t,
+             std::meta::access_context::unprivileged()))
       if (std::meta::identifier_of(m) == Key.view())
         member = std::meta::offset_of(m).bytes;
     const auto base = api_offset_of(^^H, std::meta::dealias(^^api_t));
-    if (member < 0)
-      throw "reflected api member not found";
-
-    if (base < 0)
-      throw "reflected api base not found";
+    if (member < 0) throw "reflected api member not found";
+    if (base < 0) throw "reflected api base not found";
     return member + base;
   }
 
-  H &owner() noexcept {
-    return *reinterpret_cast<H *>(reinterpret_cast<char *>(this) - offset());
+  H& owner() noexcept {
+    return *reinterpret_cast<H*>(reinterpret_cast<char*>(this) - offset());
   }
-  const H &owner() const noexcept {
-    return *reinterpret_cast<const H *>(reinterpret_cast<const char *>(this) -
-                                        offset());
+  const H& owner() const noexcept {
+    return *reinterpret_cast<const H*>(
+        reinterpret_cast<const char*>(this) - offset());
   }
 };
 
@@ -523,26 +529,20 @@ private:
 // arguments; the key is `reflect_constant` of the slot's `fixed_string`, a
 // structural type, so it rides through as an NTTP. `data_member_spec` then
 // describes the member: its type, its name, and `no_unique_address`.
-template <Facade F, typename H, typename... Ss>
-consteval std::vector<std::meta::info> sugar_specs(std::tuple<Ss...> *) {
+template<Facade F, typename H, typename... Ss>
+consteval std::vector<std::meta::info> sugar_specs(std::tuple<Ss...>*) {
   std::vector<std::string_view> seen;
   std::vector<std::meta::info> specs;
   const auto add = [&]<typename S>() {
     const auto name = S::name_v.view();
-    if (std::ranges::find(seen, name) != seen.end())
-      return;
-
+    if (std::ranges::find(seen, name) != seen.end()) return;
     seen.push_back(name);
-    const auto type = std::meta::substitute(
-        ^^reflected_sugar,
-        {
-            ^^F, ^^H, std::meta::reflect_constant(S::name_v)});
+    const auto type = std::meta::substitute(^^reflected_sugar,
+        {^^F, ^^H, std::meta::reflect_constant(S::name_v)});
     // Built by `push_back`: under `-fsanitize=undefined`, gcc 16 rejects a
     // consteval `std::string{name}` as non-constant.
     std::string member_name;
-    for (const auto c : name)
-      member_name.push_back(c);
-
+    for (const auto c : name) member_name.push_back(c);
     std::meta::data_member_options opts;
     opts.name = std::move(member_name);
     opts.no_unique_address = true;
@@ -552,30 +552,31 @@ consteval std::vector<std::meta::info> sugar_specs(std::tuple<Ss...> *) {
   return specs;
 }
 
-// `reflected_api` is the api for facade `F` on handle `H`, as its nested
+// `reflected_api` is the sugar API for facade `F` on handle `H`, as its nested
 // `type`: an empty class of empty `reflected_sugar` members, one per method
 // name, defined when `type` is first named.
 //
-// Every member is empty and of a distinct type, so they all share the api's
-// address, the api is an empty base, and the handle keeps its size.
+// Every member is empty and of a distinct type, so they all share the API's
+// address, the API is an empty base, and the handle keeps its size.
 //
 // `define_aggregate` runs only inside a `consteval {}` block, and the block
-// must sit in a scope enclosing the class it defines (gcc 16), so the api
-// is the nested class of a class template whose body holds the block, which
-// runs at instantiation.
-template <Facade F, typename H> struct reflected_api {
+// must sit in a scope enclosing the class it defines (gcc 16), so the API is
+// the nested class of a class template whose body holds the block, which runs
+// at instantiation.
+template<Facade F, typename H>
+struct reflected_api {
   struct type;
   consteval {
     using slots_t = vtbuild_t<F>::flat_slots_t;
-    std::meta::define_aggregate(
-        ^^type, sugar_specs<F, H>(static_cast<slots_t *>(nullptr)));
+    std::meta::define_aggregate(^^type,
+        sugar_specs<F, H>(static_cast<slots_t*>(nullptr)));
   }
 };
 
-// The reflected api as the sugar base of every handle of a facade that
+// The reflected sugar API as the sugar base of every handle of a facade that
 // defines no `api` of its own.
-template <Facade F, typename H>
-  requires(!requires { typename F::api; })
+template<Facade F, typename H>
+requires(!requires { typename F::api; })
 struct api_base<F, H> {
   using type = reflected_api<F, H>::type;
 };
@@ -594,7 +595,6 @@ using prox::reflected_impl;
 
 #pragma endregion
 
-} // namespace meta
-} // namespace corvid
+}} // namespace corvid::meta
 
 #endif
