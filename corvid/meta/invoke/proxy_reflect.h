@@ -18,27 +18,54 @@
 
 // C++26 reflection layer of the proxy system.
 //
-// `reflected_impl<T>` is the boilerplate a facade author would write by hand,
-// derived by enumerating `T`'s members: conformance for a type whose member
-// names line up with the method list becomes the registration line alone,
-// and a facade needs no `boilerplate` at all. It is the default impl of
-// every registered pair whose facade has none, the tier `members<>` falls
-// through to, and an ordinary base for a partial override; see `reflected_impl`
-// and "Reflection (C++26)" in "proxy.md".
+// A facade is written as the interface it describes, a struct of plain
+// member function declarations, and everything else derives from it:
+//
+//    struct animal_api {
+//      void speak() const;
+//    };
+//    struct animal: reflected_facade<animal, animal_api> {};
+//
+//    consteval auto corvid_proxy_spec(animal*, dog*) {
+//      return make_proxy_spec<animal, dog>();
+//    }
+//
+//    proxy_view<animal> p{my_dog};
+//    p.speak();
+//
+// `reflected_facade` derives the facade's name and method list from the
+// declarations. It replaces `facade`, which requires a hand-written `name<>`
+// and `method<>` list.
+//
+// `reflected_impl<T>` replaces the `boilerplate<T>` that a facade author would
+// write by hand to map facade members to the target's members. It enumerates
+// `T`'s members, and serves as the default impl of every registered pair whose
+// facade has none, the tier `members<>` falls through to, and an ordinary base
+// for a partial override.
+//
+// The reflected api gives every handle of a facade that lacks a hand-written
+// `api` its member-call sugar, `p.speak()` for `p.call<"speak">()`. All of
+// the C++23 spellings keep working alongside; see "Reflection (C++26)" in
+// "proxy.md".
 //
 // Gated on `__cpp_impl_reflection`, so the header is empty (beyond the proxy
 // system it includes) on a compiler without P2996. Each helper below states
 // the gcc 16 limitation that shaped it, so a later compiler can reshape one
 // helper at a time.
-#include "proxy.h"
+#include "owning_proxy.h"
+#include "proxy_common.h"
+#include "proxy_view.h"
+#include "shared_proxy.h"
 
 #if __cpp_impl_reflection >= 202506L
 
 #include <meta>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -55,8 +82,8 @@ namespace details {
 // `info_pack` is a pack of reflections carried as a type.
 template <std::meta::info... Ms> struct info_pack {};
 
-// The non-static member functions of `cls` named `name`, as seen from `ctx`,
-// or none when `cls` is not a class type.
+// `named_functions` finds the non-static member functions of `cls` named
+// `name`, as seen from `ctx`, or none when `cls` is not a class type.
 //
 // Searches the class's own members first and its bases only when it declares
 // none by that name, which is the name hiding an ordinary member call
@@ -125,7 +152,7 @@ using reflected_probe_t = rank_probe<
     Ndx, signature_traits<typename[:std::meta::type_of(M):]>::const_qualifier,
     typename signature_traits<typename[:std::meta::type_of(M):]>::args_t>;
 
-// `reflected_ranker` ranks a candidate set for a call on `Self&` with `Args`.
+// Rank a candidate set for a call on `Self&` with `Args`.
 //
 // The compiler does the ranking, through a real call expression against a
 // `rank_set` of the candidates' probes, exactly as `resolve` does for
@@ -167,7 +194,7 @@ struct reflected_ranker<info_pack<Ms...>> {
 #pragma endregion
 #pragma region Binding
 
-// `reflected_member` is the member pointer for reflection `M`.
+// The member pointer for reflection `M`.
 //
 // `&[:M:]` is the address of the spliced member, an ordinary pointer to
 // member. Formed in a class template's static member so that no splice
@@ -178,8 +205,8 @@ template <std::meta::info M> struct reflected_member {
   static constexpr auto ptr_v = &[:M:];
 };
 
-// `reflected_binding` is whether `Key` on `T` binds for a call on `Self&`
-// with `Args`, as seen from `Ctx`, and the member pointer it binds to.
+// The `reflected_binding` determines whether `Key` on `T` binds for a call on
+// `Self&` with `Args`, as seen from `Ctx`, and the member pointer it binds to.
 //
 // The primary is the unbound case. The partial applies when the candidates
 // resolve, and binds when the resolved member is also invocable on `Self&`
@@ -222,14 +249,111 @@ struct reflected_call {
 };
 
 #pragma endregion
+#pragma region Api-first facades
+
+// The key of reflected member `M`, as a `fixed_string` sized by its
+// identifier.
+//
+// A variable template rather than a consteval function, so that each key is
+// its own constant evaluation: gcc 16 rejects a class NTTP built from a
+// pointer inside a consteval loop.
+template <std::meta::info M>
+constexpr inline size_t key_len_v = std::meta::identifier_of(M).size();
+
+template <std::meta::info M>
+constexpr inline auto key_v =
+    fixed_string{std::meta::identifier_of(M).data(),
+                 std::integral_constant<size_t, key_len_v<M>>{}};
+
+// The function type of reflected member `M`, qualifiers included.
+//
+// An alias, because gcc 16 rejects a type splice directly under a pack
+// expansion.
+template <std::meta::info M> using signature_t = [:std::meta::type_of(M):];
+
+// The methods interface `api` declares, as an `info_pack` in declaration
+// order: its public, non-static, named, non-special member functions.
+//
+// `is_special_member_function` drops constructors and the like, which may
+// carry an identifier; operators and conversion functions have none. A
+// member function template is not a function, so a deducing-this member is
+// not a method.
+consteval std::meta::info method_pack(std::meta::info api) {
+  std::vector<std::meta::info> ms;
+  for (const auto m :
+       std::meta::members_of(api, std::meta::access_context::unprivileged()))
+    if (std::meta::is_function(m) && !std::meta::is_static_member(m) &&
+        std::meta::has_identifier(m) &&
+        !std::meta::is_special_member_function(m))
+      ms.push_back(std::meta::reflect_constant(m));
+
+  return std::meta::substitute(^^info_pack, ms);
+}
+
+// Whether the entries `Es` include a `name` entry.
+template <typename... Es>
+constexpr inline bool has_name_entry_v = (entry_name<Es>::is_name || ...);
+
+// `facade_maker` forms the `facade<...>` of facade type `F` from the method
+// pack of its interface, followed by the extra entries `Es`.
+//
+// The name is `F`'s own identifier unless `Es` carries a `name` entry. The
+// consteval enumeration only collected reflections; every key and signature
+// is formed here, at the type level, by pack expansion (gcc 16 rejects
+// `substitute` inside a loop over reflected members).
+template <typename F, typename Methods, typename... Es> struct facade_maker;
+
+template <typename F, std::meta::info... Ms, typename... Es>
+struct facade_maker<F, info_pack<Ms...>, Es...> {
+  using type = std::conditional_t<
+      has_name_entry_v<Es...>,
+      facade<method<key_v<Ms>, signature_t<Ms>>..., Es...>,
+      facade<name<key_v<^^F>>, method<key_v<Ms>, signature_t<Ms>>..., Es...>>;
+};
+
+#pragma endregion
 
 } // namespace details
 
+#pragma region API-first facades
+
+// `reflected_facade` is the facade base for `F` spelled by the declarations
+// of interface `Api`, creating an ordinary `facade<...>` that the rest of the
+// machinery takes as it would a hand-written one.
+//
+// The `Api` interface holds plain member function declarations, which are never
+// defined and never called. They are just the specification. The declaration
+// grammar carries everything a `method<>` entry does: `void f() const` is a
+// const method, `noexcept` is honored, and two declarations of one name are an
+// overload set. Static members, constructors, operators, data members, and
+// templates are not methods, and a deducing-this forwarder is a template, so it
+// cannot serve as a spec.
+//
+// For example:
+//
+//    struct animal_api {
+//      void speak() const;
+//    };
+//    struct animal: reflected_facade<animal, animal_api> {};
+//
+// is equivalent to `facade<name<"animal">, method<"speak", void() const>>`.
+//
+// The name is `F`'s own identifier. A `name<>` entry among `Es` overrides it,
+// for a facade whose identifier does not serve (two facades sharing one across
+// namespaces, which must not collide in a composition).
+//
+// `extends<>` entries are listed in `Es` as they would be in a `facade<...>`.
+template <typename F, typename Api, typename... Es>
+using reflected_facade =
+    details::facade_maker<F,
+                          typename[:details::method_pack(^^Api):], Es...>::type;
+
+#pragma endregion
 #pragma region The reflected impl
 
 // `reflected_impl` is the binding class reflection derives for target `T`:
-// the boilerplate a facade author would write by hand, for a type whose
-// member names line up with the method list.
+// the boilerplate a facade author would have had to write by hand, for a type
+// whose member names line up with the method list.
 //
 // `on` for a key enumerates `T`'s non-static member functions with that name
 // (own members first, then bases, with the name hiding of an ordinary member
@@ -261,9 +385,9 @@ struct reflected_call {
 // On gcc 16 such a class is defined at namespace scope or nested in `T`, not
 // local to the hook; see "gcc 16 notes" in "proxy.md".
 //
-// Never bound, because reflection does not see them as member functions:
-// member function templates (a deducing-this member is one), static members,
-// data members, and anything on a non-class target.
+// The following are never bound, because reflection does not see them as
+// member functions: member function templates (a deducing-this member is one),
+// static members, data members, and anything on a non-class target.
 template <typename T,
           std::meta::access_context Ctx = std::meta::access_context::current()>
 struct reflected_impl : proxy_impl_base {
@@ -280,16 +404,180 @@ struct reflected_impl : proxy_impl_base {
 
 namespace details {
 
+// Whether `T` is the `validate_api` probe.
+template <typename T> constexpr inline bool is_api_probe_v = false;
+template <Facade F> constexpr inline bool is_api_probe_v<api_probe<F>> = true;
+
 // The reflected impl as the default impl of a pair whose facade has no
 // `boilerplate`.
 //
 // Spelled here, at namespace scope, so the enumeration runs under the
 // library's access context and this route binds public members only. A
 // private member binds through a hook that names `reflected_impl<T>` itself.
+//
+// Does not work with a `validate_api` probe, since `api` forwarders are
+// templates that reflection does not see as members. A facade with a
+// hand-written `api` and no `boilerplate` therefore registers with
+// `api_check::off`, which the registration's own diagnostic asks for.
 template <Facade F, typename T>
-  requires(!requires { typename F::template boilerplate<T>; })
+  requires(!requires { typename F::template boilerplate<T>; } &&
+           !is_api_probe_v<T>)
 struct default_impl<F, T> {
   using type = reflected_impl<T>;
+};
+
+} // namespace details
+
+#pragma endregion
+#pragma region The reflected api
+
+namespace details {
+
+// Fwd.
+template <Facade F, typename H> struct reflected_api;
+
+// Byte offset of the `api` subobject within `cls`, searching its public
+// bases recursively, or -1 when `cls` has none.
+//
+// The handles inherit the api at different depths (directly for `proxy`,
+// through `view_base` or `shared_base` for the rest), so the offset
+// accumulates along the chain. `^^alias` reflects the alias, so both sides
+// are `dealias`ed before comparing.
+consteval std::ptrdiff_t api_offset_of(std::meta::info cls,
+                                       std::meta::info api) {
+  for (const auto b :
+       std::meta::bases_of(cls, std::meta::access_context::unprivileged())) {
+    const auto base = std::meta::dealias(std::meta::type_of(b));
+    if (base == api)
+      return std::meta::offset_of(b).bytes;
+
+    const auto nested = api_offset_of(base, api);
+    if (nested >= 0)
+      return std::meta::offset_of(b).bytes + nested;
+  }
+  return -1;
+}
+
+// `reflected_sugar` is one member of the reflected api: an empty callable
+// standing in for the method `Key` on handle `H`, so that `h.key(args...)`
+// is `h.key`, a data member, followed by `(args...)`, its call operator.
+//
+// The call operator forwards to `H::call<Key>`, deep const included: a
+// const handle reaches only the const operator, which forwards to the const
+// `call`, and both operators are constrained on the forward compiling, so
+// overloads, const pairs, and `noexcept` resolve inside `call<>`.
+//
+// The handle is recovered from the member's own address, by the offset of the
+// member within the api and of the api within the handle, both computed
+// from reflection when the operator is first instantiated (the handle is
+// complete by then, where it is not when the api is defined).
+template <Facade F, typename H, fixed_string Key> struct reflected_sugar {
+  template <typename... Args>
+  constexpr auto operator()(Args &&...args) noexcept(noexcept(
+      std::declval<H &>().template call<Key>(std::forward<Args>(args)...)))
+      -> decltype(std::declval<H &>().template call<Key>(
+          std::forward<Args>(args)...)) {
+    return owner().template call<Key>(std::forward<Args>(args)...);
+  }
+
+  template <typename... Args>
+  constexpr auto operator()(Args &&...args) const
+      noexcept(noexcept(std::declval<const H &>().template call<Key>(
+          std::forward<Args>(args)...)))
+          -> decltype(std::declval<const H &>().template call<Key>(
+              std::forward<Args>(args)...)) {
+    return owner().template call<Key>(std::forward<Args>(args)...);
+  }
+
+private:
+  // Byte offset of this member from the start of `H`.
+  static consteval std::ptrdiff_t offset() {
+    using api_t = reflected_api<F, H>::type;
+    std::ptrdiff_t member = -1;
+    for (const auto m : std::meta::nonstatic_data_members_of(
+             ^^api_t, std::meta::access_context::unprivileged()))
+      if (std::meta::identifier_of(m) == Key.view())
+        member = std::meta::offset_of(m).bytes;
+    const auto base = api_offset_of(^^H, std::meta::dealias(^^api_t));
+    if (member < 0)
+      throw "reflected api member not found";
+
+    if (base < 0)
+      throw "reflected api base not found";
+    return member + base;
+  }
+
+  H &owner() noexcept {
+    return *reinterpret_cast<H *>(reinterpret_cast<char *>(this) - offset());
+  }
+  const H &owner() const noexcept {
+    return *reinterpret_cast<const H *>(reinterpret_cast<const char *>(this) -
+                                        offset());
+  }
+};
+
+// One `data_member_spec` per distinct method name in the flattened slot
+// list `Ss` (an overload set or a const pair is one name, so one member).
+//
+// `substitute` forms `reflected_sugar<F, H, Key>` from reflections of its
+// arguments; the key is `reflect_constant` of the slot's `fixed_string`, a
+// structural type, so it rides through as an NTTP. `data_member_spec` then
+// describes the member: its type, its name, and `no_unique_address`.
+template <Facade F, typename H, typename... Ss>
+consteval std::vector<std::meta::info> sugar_specs(std::tuple<Ss...> *) {
+  std::vector<std::string_view> seen;
+  std::vector<std::meta::info> specs;
+  const auto add = [&]<typename S>() {
+    const auto name = S::name_v.view();
+    if (std::ranges::find(seen, name) != seen.end())
+      return;
+
+    seen.push_back(name);
+    const auto type = std::meta::substitute(
+        ^^reflected_sugar,
+        {
+            ^^F, ^^H, std::meta::reflect_constant(S::name_v)});
+    // Built by `push_back`: under `-fsanitize=undefined`, gcc 16 rejects a
+    // consteval `std::string{name}` as non-constant.
+    std::string member_name;
+    for (const auto c : name)
+      member_name.push_back(c);
+
+    std::meta::data_member_options opts;
+    opts.name = std::move(member_name);
+    opts.no_unique_address = true;
+    specs.push_back(std::meta::data_member_spec(type, opts));
+  };
+  (add.template operator()<Ss>(), ...);
+  return specs;
+}
+
+// `reflected_api` is the api for facade `F` on handle `H`, as its nested
+// `type`: an empty class of empty `reflected_sugar` members, one per method
+// name, defined when `type` is first named.
+//
+// Every member is empty and of a distinct type, so they all share the api's
+// address, the api is an empty base, and the handle keeps its size.
+//
+// `define_aggregate` runs only inside a `consteval {}` block, and the block
+// must sit in a scope enclosing the class it defines (gcc 16), so the api
+// is the nested class of a class template whose body holds the block, which
+// runs at instantiation.
+template <Facade F, typename H> struct reflected_api {
+  struct type;
+  consteval {
+    using slots_t = vtbuild_t<F>::flat_slots_t;
+    std::meta::define_aggregate(
+        ^^type, sugar_specs<F, H>(static_cast<slots_t *>(nullptr)));
+  }
+};
+
+// The reflected api as the sugar base of every handle of a facade that
+// defines no `api` of its own.
+template <Facade F, typename H>
+  requires(!requires { typename F::api; })
+struct api_base<F, H> {
+  using type = reflected_api<F, H>::type;
 };
 
 } // namespace details
@@ -301,6 +589,7 @@ struct default_impl<F, T> {
 #pragma region Exports
 
 // Call-site vocabulary, exported to `corvid::meta`; see proxy_common.h.
+using prox::reflected_facade;
 using prox::reflected_impl;
 
 #pragma endregion

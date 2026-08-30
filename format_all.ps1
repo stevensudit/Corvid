@@ -29,7 +29,22 @@ Get-ChildItem -Path $PSScriptRoot -Recurse -File -Include *.cpp, *.h, *.cu, *.cu
   Where-Object { $_.FullName -notmatch $exclude } |
   ForEach-Object {
     Write-Host "Formatting: $($_.FullName)"
-    & $clangFormat -i $_.FullName
+    if ($_.Extension -eq '.h') {
+      # clang-format guesses a .h file's language, and a C++26 reflection
+      # splice (`[: ... :]`) reads to it as an Objective-C message send, which
+      # the repo style does not cover, so it silently falls back to its default
+      # style. Formatting through stdin under an assumed .cpp name pins C++.
+      # The style file is still found from the assumed name's directory. cmd
+      # does the redirection so the bytes pass through untouched.
+      $assumed = [System.IO.Path]::ChangeExtension($_.FullName, '.cpp')
+      $tmp = [System.IO.Path]::GetTempFileName()
+      & cmd /c "`"$clangFormat`" --style=file `"--assume-filename=$assumed`" < `"$($_.FullName)`" > `"$tmp`""
+      if ($LASTEXITCODE -ne 0) { throw "clang-format failed on $($_.FullName)" }
+      Copy-Item -Path $tmp -Destination $_.FullName -Force
+      Remove-Item $tmp
+    } else {
+      & $clangFormat -i $_.FullName
+    }
   }
 
 Write-Host 'Done formatting all files.'
