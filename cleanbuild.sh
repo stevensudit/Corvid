@@ -217,8 +217,14 @@ fi
 # apply to nvcc, and those flags would break the g++-15-driven CUDA link.
 CUDA_OPTION=""
 if [[ -z "$sanitizer" ]] && ! $use_coverage && ! $use_scan; then
-  if command -v nvcc >/dev/null 2>&1 && command -v g++-15 >/dev/null 2>&1; then
-    CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+  if command -v nvcc >/dev/null 2>&1; then
+    if command -v g++-15 >/dev/null 2>&1; then
+      CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+    else
+      # nvcc without its host compiler means a broken container image, not a
+      # non-CUDA machine, so say so rather than dropping the bucket silently.
+      echo "$0: warning: nvcc found but g++-15 is missing; skipping CUDA targets" >&2
+    fi
   fi
 fi
 
@@ -251,21 +257,49 @@ if [[ "$compiler" == "gcc" && "$choice" == "libcxx" ]]; then
   exit 1
 fi
 
+# The clang version is chosen in one place: the update-alternatives links the
+# Dockerfile installs (/usr/bin/clang -> /usr/bin/clang-NN). Nothing below
+# names a version; the compiler is reached through those links, and the LLVM
+# tools that have no unversioned link (analyze-build, llvm-profdata, llvm-cov)
+# are reached through the bin directory of that same install. Discovery is
+# unconditional, but only the clang-dependent paths (the clang compiler
+# choice, scan, coverage) require it, so the gcc path works without clang.
+clang_path="$(command -v clang || true)"
+clangxx_path="$(command -v clang++ || true)"
+llvm_bin=""
+if [[ -n "$clang_path" ]]; then
+  llvm_bin="$(dirname "$(readlink -f "$clang_path")")"
+fi
+require_clang() {
+  if [[ -z "$clang_path" || -z "$clangxx_path" ]]; then
+    echo "$0: clang and clang++ not both found on PATH" >&2
+    exit 1
+  fi
+}
+
 if [[ "$choice" == "libstdcpp" ]]; then
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=ON"
   if [[ "$compiler" == "gcc" ]]; then
     echo "Using gcc with libstdc++"
-    export CC="$(command -v gcc)"
-    export CXX="$(command -v g++)"
+    gcc_path="$(command -v gcc || true)"
+    gxx_path="$(command -v g++ || true)"
+    if [[ -z "$gcc_path" || -z "$gxx_path" ]]; then
+      echo "$0: gcc and g++ not both found on PATH" >&2
+      exit 1
+    fi
+    export CC="$gcc_path"
+    export CXX="$gxx_path"
   else
     echo "Using clang with libstdc++"
-    export CC="$(command -v clang)"
-    export CXX="$(command -v clang++)"
+    require_clang
+    export CC="$clang_path"
+    export CXX="$clangxx_path"
   fi
 else
   echo "Using clang with libc++"
-  export CC="/usr/bin/clang-22"
-  export CXX="/usr/bin/clang++-22"
+  require_clang
+  export CC="$clang_path"
+  export CXX="$clangxx_path"
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=OFF"
 fi
 
@@ -314,6 +348,7 @@ else
 fi
 
 if $use_coverage; then
+  require_clang
   echo "Coverage: source-based instrumentation"
   COV_OPTION="-DCOVERAGE=ON"
 else
@@ -410,13 +445,14 @@ fi
 # than annotate every site twice with `[[clang::suppress]]`; the scan mode
 # stays for the rare cross-procedural finding tidy might miss.
 if $use_scan; then
+  require_clang
   scanReports="$buildRoot/csa-reports"
   rm -rf "$scanReports"
   echo
   echo "Running Clang Static Analyzer (analyze-build) ..."
-  analyze-build-22 \
+  "$llvm_bin/analyze-build" \
     --cdb "$buildRoot/compile_commands.json" \
-    --use-analyzer /usr/bin/clang-22 \
+    --use-analyzer "$llvm_bin/clang" \
     --exclude tests/.fetchcontent \
     --analyze-headers \
     --output "$scanReports"
@@ -555,7 +591,7 @@ if $use_coverage; then
     exit 1
   fi
   merged="$covDir/merged.profdata"
-  llvm-profdata-22 merge -sparse "${profraws[@]}" -o "$merged"
+  "$llvm_bin/llvm-profdata" merge -sparse "${profraws[@]}" -o "$merged"
 
   # Collect every test binary (skip notest_* since they don't run). Pass the
   # first as the positional binary and the rest via -object= so llvm-cov sees
@@ -591,10 +627,10 @@ if $use_coverage; then
 
   echo
   echo "Coverage report (scope: corvid/ headers):"
-  llvm-cov-22 report "${cov_common[@]}"
+  "$llvm_bin/llvm-cov" report "${cov_common[@]}"
 
   htmlDir="$covDir/html"
-  llvm-cov-22 show "${cov_common[@]}" \
+  "$llvm_bin/llvm-cov" show "${cov_common[@]}" \
     -format=html -output-dir="$htmlDir" \
     -show-line-counts-or-regions -show-branches=count
   echo

@@ -244,28 +244,24 @@ iterable type that should print as a summary rather than a sequence (`interval`,
 range-backed `strong_type`), and "forward to the underlying type's formatter"
 (`fixed_string`, `strong_type`, `interned_value`, `optional_ptr`).
 
-#### Status: paused pending a forwarding helper
+#### Status: the tail is served
 
-Stage 2 is paused here. Every Corvid type that materially benefits now formats:
+Stage 2 stops here. Every Corvid type that materially benefits now formats:
 the string wrappers and `fixed_string`, the enum formatter, `interval`,
 `fixed_bitset`, `strong_type`, `interned_value`, `optional_ptr`, and the
 indirect keys, with `circular_buffer` and `enum_vector` coming along as
 ranges.
 
-What is left is a long tail of small wrappers whose formatter would all be the
-same trivial shape: forward an underlying scalar to its std formatter. For
-example, `os_file` ([../../filesys/os_file.h](../filesys/os_file.h)) is an
-owning fd wrapper whose handle is an `int`, so its formatter would just forward
-that number to the integer formatter. Each one is only a few lines, but they
-are near-identical lines, and one hand-written `std::formatter` specialization
-per type does not scale.
-
-So before adding more, build the "forward to the underlying type's formatter"
-helper noted just above: a small CRTP base or generator that, given an
-accessor, synthesizes the inherit-and-forward formatter, reducing a new
-forwarder to a single declaration instead of a full specialization. Factor the
-`format_kind`-disabling pattern at the same time. Revisit this tail once that
-helper exists, or sooner if a specific type needs to print.
+The long tail of small wrappers no longer needs a hand-written
+specialization each: the bases in
+[../meta/formatting.h](../meta/formatting.h) reduce one to a single
+declaration. `forwarding_formatter<U, CharT>` serves a wrapper that formats
+exactly like an underlying `U`, `nullable_formatter` a pointer-like wrapper
+with a null sentinel, and `self_rendering_formatter` a type that renders
+itself through `format_to_spec` (`os_file` is its first user, rendering
+`fd=<handle>` / `fd=closed`). The `format_kind`-disabling pattern for
+summary-not-sequence types is factored alongside. A new wrapper picks the
+base that fits and is done.
 
 ### 3. Retire concat_join (done)
 
@@ -344,6 +340,30 @@ extension. Key lookup also does not reach through a variant: a variant
 holding a map formats whole, through the std map formatter, so to look up by
 key, extract the map with `std::get` and wrap that (behavior pinned in the
 test).
+
+### 5. Formatter bridge for proxy handles (intended)
+
+`format_with_spec` in [enable_format.h](enable_format.h) is the
+type-erasure move a `std::formatter` on an erased handle needs: keep the
+spec tail as text at parse time, and at format time run the target's own
+formatter under it through a synthetic parse context. The proxy handles in
+`meta/invoke` want exactly that (see the formatter bridge under "Future
+work" in [../meta/invoke/proxy.md](../meta/invoke/proxy.md)), and `meta`
+is L0, so the helper has to move down to
+[../meta/formatting.h](../meta/formatting.h), next to the
+`nullable_formatter` machinery it was extracted from.
+
+The move is not free of entanglement: `enable_format.h` includes
+[string_literals.h](string_literals.h), so whatever the moved code needs
+from that header (the band's std-literals import, `position`/`npos`,
+`as_view`) either comes down to `meta` with it or is dropped from the
+moved part. Whether the whole of `enable_format.h` moves or only
+`format_with_spec` is the first question to settle; the wrappers
+themselves have no reason to leave `strings`.
+
+Then the proxy side: an opt-in facade marker that adds a format slot to the
+dispatch table, and one formatter base serving every handle flavor. That
+half is a proxy feature and is recorded there.
 
 ## Deferred / decided against
 

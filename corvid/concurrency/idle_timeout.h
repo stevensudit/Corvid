@@ -19,7 +19,7 @@
 #include <memory>
 #include <utility>
 
-#include "../meta/fixed_function.h"
+#include "../meta/invoke/fixed_function.h"
 #include "../infra/relaxed_atomic.h"
 #include "../infra/scope_exit.h"
 #include "timeout_sweeper.h"
@@ -62,7 +62,7 @@ public:
   using callback_t = Sweeper::callback_t;
 
   // Cancellation action invoked when the idle timer expires.
-  using cancel_action_t = meta::fixed_function<32, void()>;
+  using cancel_action_t = meta::fixed_function<void(), 32>;
 
 #pragma endregion
 #pragma region Construction

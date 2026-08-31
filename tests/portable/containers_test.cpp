@@ -746,13 +746,7 @@ struct RangeKey {
   size_t end{};
 };
 
-enum class QueryType : std::uint8_t {
-  None,
-  Retrieve,
-  Range,
-  OtherRange,
-  Status
-};
+enum class QueryType : uint8_t { None, Retrieve, Range, OtherRange, Status };
 
 using QueryVariant = enum_variant<QueryType, std::monostate, RetrievalKey,
     RangeKey, RangeKey, std::string>;
@@ -918,12 +912,25 @@ TEST_CASE("Basic", "[EnumVariant]") {
 
 #pragma endregion
 
-enum class ThrowKind : std::uint8_t { value, thrower };
+enum class ThrowKind : uint8_t { value, thrower };
 
 // The value constructor throws, to manufacture a valueless variant.
+//
+// The move constructor is potentially throwing so that `emplace` has to
+// construct in place: given a nothrow-movable alternative, libstdc++ builds it
+// on the side and the variant never goes valueless.
 struct ThrowOnConstruct {
   ThrowOnConstruct() = default;
   explicit ThrowOnConstruct(int) { throw std::runtime_error{"boom"}; }
+  ThrowOnConstruct(const ThrowOnConstruct&) = default;
+  // NOLINTNEXTLINE(bugprone-unsafe-to-allow-exceptions): throwing by design
+  ThrowOnConstruct(ThrowOnConstruct&&) noexcept(false) {}
+  ThrowOnConstruct& operator=(const ThrowOnConstruct&) = default;
+  // NOLINTNEXTLINE(bugprone-unsafe-to-allow-exceptions): throwing by design
+  ThrowOnConstruct& operator=(ThrowOnConstruct&&) noexcept(false) {
+    return *this;
+  }
+  ~ThrowOnConstruct() = default;
 };
 
 using ThrowVariant = enum_variant<ThrowKind, int, ThrowOnConstruct>;

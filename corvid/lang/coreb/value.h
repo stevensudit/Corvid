@@ -129,7 +129,7 @@ struct primitive;
 class environment;
 
 // Discriminator for the alternatives a `value` can hold.
-enum class kind : std::uint8_t {
+enum class kind : uint8_t {
   nil,
   boolean,
   integer,
@@ -689,7 +689,7 @@ public:
     return list;
   }
   [[nodiscard]] value list_of(std::initializer_list<value> elems) {
-    return list_of(std::span<const value>{elems.begin(), elems.size()});
+    return list_of(std::span<const value>(elems.begin(), elems.size()));
   }
 
   // Allocate a string.
@@ -837,7 +837,7 @@ private:
 //   rt.collect(); // `v` survives; unpinned garbage does not.
 class gc_pin final {
 public:
-  gc_pin(runtime_core& rt, const value& v) : rt_{rt}, vals_{&v, 1} {
+  gc_pin(runtime_core& rt, const value& v) : rt_{rt}, vals_(&v, 1) {
     rt_.do_pin(*this);
   }
 

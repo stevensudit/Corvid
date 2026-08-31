@@ -26,5 +26,6 @@
 #include "meta/forwarding_address.h"
 #include "meta/maybe.h"
 #include "meta/padding.h"
-#include "meta/fixed_function.h"
+#include "meta/invoke/flexi_function.h"
+#include "meta/invoke/fixed_function.h"
 #include "meta/fixed_string.h"

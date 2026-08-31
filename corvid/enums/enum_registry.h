@@ -39,7 +39,7 @@ namespace corvid { inline namespace enums {
 // - `none`: No limiting; values outside the valid range are allowed.
 // - `limit`: Values are wrapped (for sequence enums) or clipped (for bitmask
 //   enums) to stay within the valid range.
-enum class wrapclip : std::uint8_t { none, limit };
+enum class wrapclip : uint8_t { none, limit };
 
 #pragma endregion
 

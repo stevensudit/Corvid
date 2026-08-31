@@ -73,7 +73,10 @@ for domain in \
     "copilot-proxy.githubusercontent.com" \
     "vscode.blob.core.windows.net" \
     "update.code.visualstudio.com"\
-    "embeddings.vscode-cdn.net"; do
+    "embeddings.vscode-cdn.net" \
+    "en.cppreference.com" \
+    "gcc.gnu.org" \
+    "godbolt.org"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then

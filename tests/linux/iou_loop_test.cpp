@@ -1472,10 +1472,10 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
 
 TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
   // Probe the storage each (cb, ep) combination would need if `completion_fn`
-  // were replaced with `fixed_function<SZ, slot_retention(completion_id,
-  // iou_res, iou_cqe_flags)>`.  The wrapping lambda in `wrap_completion_fn`
-  // captures `cb` and `ep` by value, so:
-  //   required SZ = sizeof(wrapping_lambda) + 2*sizeof(void*)
+  // were replaced with `fixed_function<slot_retention(completion_id,
+  // iou_res, iou_cqe_flags), Size>`.  The wrapping lambda in
+  // `wrap_completion_fn` captures `cb` and `ep` by value, so:
+  //   required Size = sizeof(wrapping_lambda) + 2*sizeof(void*)
   //
   // Callback categories and which submit functions use them:
   //
@@ -1556,7 +1556,7 @@ TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
   const size_t all[]{sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
   const size_t max_sz = *std::ranges::max_element(all);
   CHECK(max_sz == 400U);
-// Sounds like SZ = 384 works.
+// Sounds like Size = 384 works.
 #if 0
   TEST_MSG("direct_fn=%zu raw+bt=%zu raw+bewt=%zu raw+buf=%zu  max=%zu",
       sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf, max_sz);

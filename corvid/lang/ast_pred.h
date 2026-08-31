@@ -45,7 +45,7 @@ using key_or_value = std::variant<std::monostate, std::string, any_value>;
 #pragma region operation
 
 // Operations for AST predicates.
-enum class operation : std::uint8_t {
+enum class operation : uint8_t {
   undefined,
   always_false,
   always_true,

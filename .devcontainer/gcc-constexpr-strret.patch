@@ -1,0 +1,61 @@
+gcc 16.2.0: fix constexpr folding of memchr/strchr/strrchr/strstr on an
+argument that carries an offset (corvid, 2026-08-29; not yet upstream, the
+block is identical on trunk).
+
+cxx_eval_builtin_function_call re-bases the folded result of these builtins
+(the ones that return a pointer into their first argument) on the original
+first argument, to undo the &STRING_CST substitution it may have made above.
+It does so unconditionally. When no substitution happened and the argument
+was `a + 1`, fold_builtin_call_array has already merged that offset into the
+result (`(a + 1) + 9` folds to `a + 10`), so re-basing on `a + 1` yields
+`(a + 1) + 10`: the offset is counted twice. `&a[1]` survives because an
+ADDR_EXPR is not merged. Observable as std::string_view::find(c, pos) on a
+constant haystack returning the right index plus pos wherever the front end
+folds the call, which C++26 makes routine (P2738 lets the void* cast in
+char_traits<char>::find constant-evaluate). The fix records whether the
+substitution happened and re-bases only then.
+
+--- a/gcc/cp/constexpr.cc
++++ b/gcc/cp/constexpr.cc
+@@ -2546,6 +2546,9 @@
+ 
+   int strops = 0;
+   int strret = 0;
++  /* Set when argument STRRET-1 is replaced by the address of a STRING_CST
++     below, so the folded result has to be re-based on the original.  */
++  tree strret_op = NULL_TREE;
+   if (fndecl_built_in_p (fun, BUILT_IN_NORMAL))
+     switch (DECL_FUNCTION_CODE (fun))
+       {
+@@ -2638,7 +2641,11 @@
+ 	  if (TREE_CODE (arg) == CONSTRUCTOR)
+ 	    arg = braced_lists_to_strings (TREE_TYPE (arg), arg);
+ 	  if (TREE_CODE (arg) == STRING_CST)
+-	    arg = build_address (arg);
++	    {
++	      arg = build_address (arg);
++	      if (strret && i == strret - 1)
++		strret_op = oarg;
++	    }
+ 	  else
+ 	    arg = oarg;
+ 	}
+@@ -2718,11 +2725,15 @@
+       return t;
+     }
+ 
+-  if (strret)
++  if (strret_op)
+     {
+       /* memchr returns a pointer into the first argument, but we replaced the
+-	 argument above with a STRING_CST; put it back it now.  */
+-      tree op = CALL_EXPR_ARG (t, strret-1);
++	 argument above with a STRING_CST; put it back now.  Only when the
++	 replacement happened: otherwise the folded result is already relative
++	 to the evaluated argument, and fold may have merged an offset that
++	 argument carried into the result's offset, so re-basing it on the
++	 original argument would count that offset twice.  */
++      tree op = strret_op;
+       STRIP_NOPS (new_call);
+       if (TREE_CODE (new_call) == POINTER_PLUS_EXPR)
+ 	TREE_OPERAND (new_call, 0) = op;

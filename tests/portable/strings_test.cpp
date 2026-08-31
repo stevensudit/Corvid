@@ -710,7 +710,7 @@ TEST_CASE("AsViews", "[StringUtilsTest]") {
 #pragma region Locate
 
 TEST_CASE("Locate", "[StringUtilsTest]") {
-  using location = corvid::strings::location;
+  using corvid::strings::location;
   if (true) {
     constexpr auto s = "abcdefghij"sv;
     constexpr auto l = s.size();
@@ -806,7 +806,7 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
     CHECK(pos == npos);
   }
   if (true) {
-    using location = corvid::strings::location;
+    using corvid::strings::location;
     constexpr auto s1 = "abaac"sv;
     const auto ab = {'a', 'b'};
     CHECK(strings::rlocate_not(s1, ab) == location{4U, 2U});
@@ -1062,7 +1062,7 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
 #pragma region RLocate
 
 TEST_CASE("RLocate", "[StringUtilsTest]") {
-  using location = corvid::strings::location;
+  using corvid::strings::location;
   // These tests are abbreviated because we only want to confirm algorithmic
   // correctness, not test for all those tricky overloads.
   if (true) {
@@ -1096,7 +1096,7 @@ TEST_CASE("RLocate", "[StringUtilsTest]") {
     CHECK(strings::rlocate(s, "a", 10U) == 10U);
     CHECK(strings::rlocate(s, "a", 1U) == 0U);
     // Mirrors the corvid call it is compared against.
-    // NOLINTNEXTLINE(performance-faster-string-find)
+    // NOLINTNEXTLINE(performance-prefer-single-char-overloads)
     CHECK(s.rfind("a", 0U) == 0U);
     CHECK(strings::rlocate(s, "a", 0U) == 0U);
     CHECK(strings::rlocate(s, {'i', 'j'}) == location{19U, 1U});
@@ -1126,7 +1126,7 @@ TEST_CASE("RLocate", "[StringUtilsTest]") {
 #pragma region LocateEdges
 
 TEST_CASE("LocateEdges", "[StringUtilsTest]") {
-  using location = corvid::strings::location;
+  using corvid::strings::location;
   // Test for using size as npos.
   if (true) {
     constexpr auto s = "abcdefghijabcdefghij"sv;
@@ -1182,7 +1182,7 @@ TEST_CASE("LocateEdges", "[StringUtilsTest]") {
   if (true) {
     constexpr auto s = "abcdefghijabcdefghij"sv;
     // Mirrors the corvid call it is compared against.
-    // NOLINTNEXTLINE(performance-faster-string-find)
+    // NOLINTNEXTLINE(performance-prefer-single-char-overloads)
     CHECK(s.find("a") == 0U);
     CHECK(strings::locate(s, "a") == 0U);
     CHECK(s.find("") == 0U);
@@ -1196,8 +1196,8 @@ TEST_CASE("LocateEdges", "[StringUtilsTest]") {
 #pragma region LocateUtilities
 
 TEST_CASE("LocateUtilities", "[StringUtilsTest]") {
-  using location = corvid::strings::location;
-  using pos_range = corvid::strings::pos_range;
+  using corvid::strings::location;
+  using corvid::strings::pos_range;
   constexpr auto s = "abxcdef"sv;
   const auto vals = std::array{"ab"sv, "cd"sv};
 
@@ -2603,7 +2603,7 @@ TEST_CASE("AppendNum", "[StringUtilsTest]") {
     // silently append nothing.
     const auto big = strings::num_as_string<std::chars_format::fixed>(1e300);
     CHECK(big.size() == 301U);
-    CHECK(big.starts_with("1"));
+    CHECK(big.starts_with('1'));
     CHECK((strings::num_as_string<std::chars_format::fixed, 100>(1.5)) ==
           "1.5" + std::string(99, '0'));
   }

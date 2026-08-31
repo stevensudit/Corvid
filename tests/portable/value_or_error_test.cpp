@@ -236,7 +236,7 @@ TEST_CASE("VoeErrorValue", "[ValueOrErrorTest]") {
 
   // A domain with its own reason type supplies its own default: anything
   // explicitly convertible to that type.
-  enum class wire_errc : std::uint8_t { unknown, timeout };
+  enum class wire_errc : uint8_t { unknown, timeout };
   using wire_result = value_or_error<int,
       error_value<struct WireDefaultTag, wire_errc, wire_errc::unknown>>;
   wire_result w = {};

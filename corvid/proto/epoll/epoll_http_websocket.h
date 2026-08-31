@@ -107,11 +107,11 @@ struct ws_frame_header {
 // Lightweight, non-owning wrapper around `ws_frame_header` for parsing and
 // updating fields, along with related utilities. Used as `ws_frame_lens` or
 // `ws_frame_view`, depending on mutability.
-template<access ACCESS = access::as_mutable>
+template<access_mode ACCESS = access_mode::as_mutable>
 class ws_frame_wrapper {
 #pragma region Types
 public:
-  static constexpr bool mutable_v = (ACCESS == access::as_mutable);
+  static constexpr bool mutable_v = (ACCESS == access_mode::as_mutable);
   using header_t =
       std::conditional_t<mutable_v, ws_frame_header, const ws_frame_header>;
   using char_ptr_t = std::conditional_t<mutable_v, char*, const char*>;
@@ -121,11 +121,11 @@ public:
   ws_frame_wrapper() = default;
 
   // Const-safe copy constructor.
-  template<access OTHER_ACCESS>
+  template<access_mode OTHER_ACCESS>
   ws_frame_wrapper(const ws_frame_wrapper<OTHER_ACCESS>& other) noexcept
   requires(ACCESS == OTHER_ACCESS ||
-              (ACCESS == access::as_const &&
-                  OTHER_ACCESS == access::as_mutable))
+              (ACCESS == access_mode::as_const &&
+                  OTHER_ACCESS == access_mode::as_mutable))
       : header_{other.header_}, header_length_{other.header_length_},
         payload_length_{other.payload_length_}, mask_{other.mask_} {}
 
@@ -147,7 +147,7 @@ public:
 
   // Construct over `frame`. Use `is_complete` before `parse`.
   explicit ws_frame_wrapper(std::string_view frame) noexcept
-  requires(ACCESS == access::as_const)
+  requires(ACCESS == access_mode::as_const)
       : header_{reinterpret_cast<header_t*>(frame.data())},
         header_length_{frame.size()} {}
 
@@ -520,10 +520,10 @@ private:
 };
 
 // Read-only view.
-using ws_frame_view = ws_frame_wrapper<access::as_const>;
+using ws_frame_view = ws_frame_wrapper<access_mode::as_const>;
 
 // Mutable lens.
-using ws_frame_lens = ws_frame_wrapper<access::as_mutable>;
+using ws_frame_lens = ws_frame_wrapper<access_mode::as_mutable>;
 #pragma endregion
 
 #pragma region epoll_http_websocket

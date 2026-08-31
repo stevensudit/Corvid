@@ -112,8 +112,8 @@ std::unique_ptr<http3_client_stream> make_request(http3_method method,
     for (auto off = 0UZ; off < body.size(); off += piece) {
       const size_t len = std::min(piece, body.size() - off);
       stream->send_queue().append(std::vector<uint8_t>(
-          body.begin() + static_cast<std::ptrdiff_t>(off),
-          body.begin() + static_cast<std::ptrdiff_t>(off + len)));
+          body.begin() + static_cast<ptrdiff_t>(off),
+          body.begin() + static_cast<ptrdiff_t>(off + len)));
     }
   }
   return stream;
@@ -217,7 +217,7 @@ int curl(int argc, char** argv) {
         std::cout << "\n[" << out->body_bytes << " body bytes]\n";
         const auto ok =
             !out->failed && !out->status.empty() &&
-            out->status.starts_with("2");
+            out->status.starts_with('2');
         rc = ok ? 0 : 1;
         return true;
       }))

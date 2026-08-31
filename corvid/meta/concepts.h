@@ -17,6 +17,7 @@
 #pragma once
 #include <concepts>
 #include <cstddef>
+#include <optional>
 #include <ostream>
 #include <ranges>
 #include <span>
@@ -222,10 +223,14 @@ template<typename T>
 concept Range = std::ranges::range<T>;
 
 // `T` must be `std::optional` or act like it.
+//
+// `std::optional` itself qualifies outright; the look-alike test excludes
+// ranges, which `std::optional` became in C++26.
 template<typename T>
 concept OptionalLike =
-    Dereferenceable<T> && (!ScopedEnum<T>) && (!StringViewConvertible<T>) &&
-    (!Range<T>);
+    is_specialization_of_v<std::remove_cvref_t<T>, std::optional> ||
+    (Dereferenceable<T> && (!ScopedEnum<T>) && (!StringViewConvertible<T>) &&
+        (!Range<T>));
 
 #pragma endregion
 #pragma region Pairs and tuples
@@ -322,10 +327,13 @@ template<typename T, typename U>
 concept Comparable = std::totally_ordered_with<T, U>;
 
 // `U` must act as a view for `T`.
+//
+// The comparison is checked on the decayed `U`, so a string literal compares
+// as a pointer (C++26 removed array-to-array comparison).
 template<typename T, typename U>
 concept Viewable =
     Makeable<std::remove_cvref_t<T>, std::remove_cvref_t<U>> &&
-    Comparable<std::remove_cvref_t<T>, std::remove_cvref_t<U>>;
+    Comparable<std::remove_cvref_t<T>, std::decay_t<U>>;
 
 #pragma endregion
 #pragma region Callables
@@ -352,6 +360,15 @@ template<class FN>
 concept MoveConsumable =
     !std::is_lvalue_reference_v<FN> &&
     !std::is_const_v<std::remove_reference_t<FN>>;
+
+// Concept for a parameter that can be consumed by moving it, or by copying
+// it when its decayed type is trivially copyable (a function pointer, a
+// member pointer, a lambda whose captures are all trivially copyable). Such a
+// copy costs what the move would, and cannot be the accidental deep copy
+// that `MoveConsumable` refuses to bind to.
+template<class FN>
+concept Consumable =
+    MoveConsumable<FN> || std::is_trivially_copyable_v<std::decay_t<FN>>;
 
 #pragma endregion
 

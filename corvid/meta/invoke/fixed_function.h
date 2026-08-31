@@ -1,0 +1,124 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#pragma once
+#include <cstddef>
+
+#include "flexi_function.h"
+#include "invocable_policy.h"
+#include "../padding.h"
+
+namespace corvid { inline namespace meta {
+namespace flexi {
+
+namespace details {
+
+// The thunk pair every `flexi_function` keeps ahead of its buffer: two
+// pointers.
+inline constexpr size_t thunk_pair_size = 2 * sizeof(void*);
+
+// Not defined: naming it in a constant expression is how
+// `fixed_storage_size` rejects its argument.
+void must_hold_the_thunk_pair();
+
+// The buffer that leaves a `fixed_function` instance of `size` bytes after
+// the thunk pair, at the `fixed` policy's alignment, with `size` first rounded
+// up to that alignment. A `size` that cannot hold the pair is rejected at
+// compile time; one that holds nothing more yields an empty buffer, so the
+// wrapper serves only `direct` targets.
+consteval size_t fixed_storage_size(size_t size) noexcept {
+  constexpr auto align = invocable_policy::fixed.inline_align;
+  const auto total = padded_size(size, align);
+  const auto header = padded_size(thunk_pair_size, align);
+  if (total < header) must_hold_the_thunk_pair();
+  return total - header;
+}
+
+} // namespace details
+
+#pragma region fixed_function
+
+// `fixed_function<RP(Args...), Size>` is a move-only, zero-allocation
+// type-erased callable: like `std::move_only_function`, but with a fixed
+// instance size `Size` and no dynamic allocation. It is the `inline_only`
+// `flexi_function`, which is where the behavior is documented.
+//
+// This is also similar in principle to the proposed
+// `stdext::inplace_function`, but a bit more specific.
+//
+// `Size` is the total instance size in bytes, rounded up to the storage
+// alignment, `alignof(std::max_align_t)`, since a smaller instance would
+// occupy the padded size anyway; `sizeof` reports the result. The buffer is
+// what remains after the two thunk pointers, so the stored callable must fit
+// within `Size - 2*sizeof(void*)` bytes and have alignment <=
+// `alignof(std::max_align_t)`; if it doesn't fit, a `static_assert` fires. A
+// `Size` of exactly the two pointers leaves no buffer, and such a wrapper
+// stores only `direct` targets (a `constant_fn`, a captureless lambda).
+// Without `Size`, the instance is the default policy's size, which matches
+// `std::function`'s small buffer.
+//
+// `fixed_function` is an alias for a `flexi_function`, not a class of its
+// own, so it interoperates with every `flexi_function` of the same signature,
+// whatever the policy. They move-construct and move-assign from one another,
+// transplanting the stored callable rather than nesting the wrapper.
+//
+// The one refusal is a target that cannot hold the source. Assigning into a
+// `fixed_function` whose buffer is too small throws `std::length_error` and
+// leaves both sides intact, and `can_adopt` is the up-front check. Between
+// instances that differ only in `Size`, a same-size or upsizing assignment
+// therefore always succeeds.
+template<class Sig,
+    size_t Size = padded_size(details::thunk_pair_size,
+                      invocable_policy::fixed.inline_align) +
+                  invocable_policy::fixed.inline_size>
+using fixed_function =
+    flexi_function<Sig, invocable_policy::fixed.with_storage_size(
+                            details::fixed_storage_size(Size))>;
+
+// Determine whether `T` is a `fixed_function`, that is, a `flexi_function`
+// whose policy is `inline_only`.
+template<typename T>
+constexpr inline bool is_fixed_function_v = false;
+
+template<class Sig, invocable_policy Policy>
+requires(Policy.storage == storage_policy::inline_only)
+constexpr inline bool is_fixed_function_v<flexi_function<Sig, Policy>> = true;
+
+#pragma endregion
+#pragma region fixed_function_of
+
+// `fixed_function_of<Size>` pins the storage size and leaves the signature
+// open, letting a single size constant be shared across a family of aliases.
+//
+// Example:
+//   using my_fns     = fixed_function_of<64>;
+//   using callback_t = my_fns::type<void(int)>;
+//   using pred_t     = my_fns::type<bool(int)>;
+template<size_t Size>
+struct fixed_function_of {
+  template<class Sig>
+  using type = fixed_function<Sig, Size>;
+};
+
+#pragma endregion
+} // namespace flexi
+
+#pragma region Exports
+using flexi::fixed_function;
+using flexi::fixed_function_of;
+using flexi::is_fixed_function_v;
+#pragma endregion
+}} // namespace corvid::meta

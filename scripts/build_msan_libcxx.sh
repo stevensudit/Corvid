@@ -95,8 +95,8 @@ fi
 echo "Configuring libc++ build with MSAN instrumentation ..."
 cmake -G Ninja -S "$SRC_DIR/runtimes" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=/usr/bin/clang-22 \
-    -DCMAKE_CXX_COMPILER=/usr/bin/clang++-22 \
+    -DCMAKE_C_COMPILER=/usr/bin/clang \
+    -DCMAKE_CXX_COMPILER=/usr/bin/clang++ \
     "${CCACHE_LAUNCHER_FLAGS[@]}" \
     -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
     -DLLVM_USE_SANITIZER=MemoryWithOrigins \

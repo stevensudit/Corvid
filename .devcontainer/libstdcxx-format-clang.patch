@@ -1,0 +1,156 @@
+libstdc++ 16 <format>: let clang constant-evaluate the dynamic width and
+precision checks in C++26 mode (corvid, 2026-08-29; not yet upstream, the
+layout is the same in 16.2.0 and on trunk).
+
+Applies to the PPA snapshot's copy in /usr/include/c++/16, the one the
+clang + libstdc++ leg reads. If a newer snapshot makes it fail to apply,
+check whether upstream restructured check_dynamic_spec; retire the patch
+and libstdcxx_format_check.cpp together if so.
+
+Two problems, both only visible to clang:
+
+1. LLVM issue 73232 (CWG2497): clang instantiates a constexpr function
+   template at its first use and cannot instantiate during constant
+   evaluation. basic_format_parse_context::__check_dynamic_spec is declared
+   in the class but defined out of class near the end of the header, since
+   its body needs _Scanner, _Arg_t and __to_arg_t_enum, all defined in
+   between. The explicit specialization formatter<char, wchar_t> has a
+   non-template parse, so clang instantiates _M_parse -> _M_parse_width ->
+   _S_parse_width_or_precision -> check_dynamic_spec_integral ->
+   __check_dynamic_spec<int, ...> there, while the last is still undefined.
+   Every later constant evaluation of a format string with a dynamic width
+   or precision ("{:{}}") then fails with "undefined function
+   __check_dynamic_spec cannot be used in a constant expression". gcc, EDG
+   and MSVC instantiate on demand. Fix: opaque-declare _Arg_t before the
+   class, keep _M_types in basic_format_parse_context itself (it used to
+   live in _Scanner::_Parse_context), and have check_dynamic_spec_integral
+   and check_dynamic_spec_string call non-template constexpr helpers that
+   are declared before the class and defined right after the enum; clang is
+   fine with a non-template that is defined later than its first use. The
+   generic __check_dynamic_spec<Ts...> stays out of class; only user
+   formatters reach it, after the header is complete.
+
+2. check_dynamic_spec<Ts...> static_asserts on a call to the non-static
+   consteval member __valid_types_for_check_dynamic_spec, an implicit use
+   of `this` in a constant expression outside a constexpr member call,
+   which clang rejects ([expr.const]); gcc accepts. Fix: make it static.
+
+--- a/format
++++ b/format
+@@ -285,6 +285,18 @@
+   using wformat_parse_context = basic_format_parse_context<wchar_t>;
+ #endif
+ 
++namespace __format {
++  enum class _Arg_t : unsigned char;
++  // Non-template helpers for basic_format_parse_context::check_dynamic_spec_*.
++  // Declared here and defined after _Arg_t so that the check_dynamic_spec_*
++  // members, which explicit formatter specializations instantiate before the
++  // end of this header, depend on no template that is still undefined at
++  // that point (clang cannot instantiate during constant evaluation,
++  // LLVM #73232).
++  constexpr bool __is_dynamic_spec_integral(_Arg_t) noexcept;
++  constexpr bool __is_dynamic_spec_string(_Arg_t) noexcept;
++}
++
+   template<typename _CharT>
+     class basic_format_parse_context
+     {
+@@ -352,8 +364,10 @@
+       check_dynamic_spec_integral(size_t __id) noexcept
+       {
+ 	if consteval {
+-	  __check_dynamic_spec<int, unsigned, long long,
+-			       unsigned long long>(__id);
++	  if (__id >= _M_num_args)
++	    __format::__invalid_arg_id_in_format_string();
++	  if (_M_types && !__format::__is_dynamic_spec_integral(_M_types[__id]))
++	    __invalid_dynamic_spec("arg(id) type does not match");
+ 	}
+       }
+ 
+@@ -361,7 +375,10 @@
+       check_dynamic_spec_string(size_t __id) noexcept
+       {
+ 	if consteval {
+-	  __check_dynamic_spec<const _CharT*, basic_string_view<_CharT>>(__id);
++	  if (__id >= _M_num_args)
++	    __format::__invalid_arg_id_in_format_string();
++	  if (_M_types && !__format::__is_dynamic_spec_string(_M_types[__id]))
++	    __invalid_dynamic_spec("arg(id) type does not match");
+ 	}
+       }
+ 
+@@ -371,7 +388,7 @@
+ 	static constexpr bool __once = (is_same_v<_Tp, _Ts> + ...) == 1;
+ 
+       template<typename... _Ts>
+-	consteval bool
++	static consteval bool
+ 	__valid_types_for_check_dynamic_spec()
+ 	{
+ 	  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+@@ -409,6 +426,7 @@
+       static void __invalid_dynamic_spec(const char*);
+ 
+       friend __format::_Scanner<_CharT>;
++      const __format::_Arg_t* _M_types = nullptr;
+ #endif
+ 
+       // This constructor should only be used by the implementation.
+@@ -4083,6 +4101,16 @@
+   };
+   using enum _Arg_t;
+ 
++#if __cpp_lib_format >= 202305L
++  constexpr bool
++  __is_dynamic_spec_integral(_Arg_t __t) noexcept
++  { return __t == _Arg_i || __t == _Arg_u || __t == _Arg_ll || __t == _Arg_ull; }
++
++  constexpr bool
++  __is_dynamic_spec_string(_Arg_t __t) noexcept
++  { return __t == _Arg_str || __t == _Arg_sv; }
++#endif
++
+   template<typename _Context>
+     struct _Arg_value
+     {
+@@ -4994,9 +5022,16 @@
+       struct _Parse_context : basic_format_parse_context<_CharT>
+       {
+ 	using basic_format_parse_context<_CharT>::basic_format_parse_context;
+-	const _Arg_t* _M_types = nullptr;
+       } _M_pc;
+ 
++#if __cpp_lib_format >= 202305L
++    protected:
++      constexpr void
++      _M_set_types(const _Arg_t* __types) noexcept
++      { _M_pc._M_types = __types; }
++    public:
++#endif
++
+       constexpr explicit
+       _Scanner(basic_string_view<_CharT> __str, size_t __nargs = (size_t)-1)
+       : _M_pc(__str, __nargs)
+@@ -5179,7 +5214,7 @@
+       : _Scanner<_CharT>(__str, sizeof...(_Args))
+       {
+ #if __cpp_lib_format >= 202305L
+-	this->_M_pc._M_types = _M_types.data();
++	this->_M_set_types(_M_types.data());
+ #endif
+       }
+ 
+@@ -5350,8 +5385,9 @@
+ 	  __format::__invalid_arg_id_in_format_string();
+ 	if constexpr (sizeof...(_Ts) != 0)
+ 	  {
+-	    using _Parse_ctx = __format::_Scanner<_CharT>::_Parse_context;
+-	    auto __arg = static_cast<_Parse_ctx*>(this)->_M_types[__id];
++	    if (!_M_types)
++	      return;
++	    auto __arg = _M_types[__id];
+ 	    __format::_Arg_t __types[] = {
+ 	      __format::__to_arg_t_enum<_CharT, _Ts>()...
+ 	    };

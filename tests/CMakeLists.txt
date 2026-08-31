@@ -27,10 +27,22 @@ option(CORVID_DISABLE_ASSERTS "Define NDEBUG to strip asserts" OFF)
 option(IDE_DEBUG "Un-optimized -O0 -g single-file build for the IDE" OFF)
 set(TEST_NAME "" CACHE STRING "Build only the named test source file")
 
-# Set the C++ standard to C++23
-set(CMAKE_CXX_STANDARD 23)
+# Build as C++26 on every host compiler. The library code itself stays C++23
+# (C++26 features live only behind feature-test gates, so the headers still
+# compile as C++23 elsewhere); the .cu bucket stays at C++23, nvcc's ceiling.
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT DEFINED CMAKE_CXX26_STANDARD_COMPILE_OPTION)
+    # CMake 3.28's gcc table stops at C++23. Supply the dialect flags, and
+    # carry them into try_compile projects (Catch2's compiler-flag checks),
+    # which otherwise see only the table and reject the dialect.
+    set(CMAKE_CXX26_STANDARD_COMPILE_OPTION "-std=c++26")
+    set(CMAKE_CXX26_EXTENSION_COMPILE_OPTION "-std=gnu++26")
+    list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES
+        CMAKE_CXX26_STANDARD_COMPILE_OPTION
+        CMAKE_CXX26_EXTENSION_COMPILE_OPTION)
+endif()
 
 # On Codex, default to libstdc++ unless explicitly overridden.
 if(DEFINED ENV{CODEX_PROXY_CERT} AND NOT USE_LIBSTDCPP)
@@ -44,10 +56,15 @@ else()
     endif()
 endif()
 
-# Default libc++ prefix is the system clang-22 install. SANITIZER=msan
-# overrides this to the locally built MSAN-instrumented libc++ so that the
-# C++ stdlib code MSAN's instrumentation observes is itself instrumented.
-set(LIBCXX_PREFIX "/usr/lib/llvm-22")
+# Default libc++ prefix is the LLVM install of the clang doing the build:
+# /usr/bin/clang++ is an update-alternatives link (the Dockerfile picks the
+# version) that resolves to /usr/lib/llvm-NN/bin/clang++, so the prefix is two
+# directories up from the resolved binary. Only the libc++ branch below reads
+# it. SANITIZER=msan overrides this to the locally built MSAN-instrumented
+# libc++ so that the C++ stdlib code MSAN's instrumentation observes is itself
+# instrumented.
+get_filename_component(_corvid_cxx_real "${CMAKE_CXX_COMPILER}" REALPATH)
+get_filename_component(LIBCXX_PREFIX "${_corvid_cxx_real}/../.." ABSOLUTE)
 if(SANITIZER STREQUAL "msan")
     if(USE_LIBSTDCPP)
         message(FATAL_ERROR "SANITIZER=msan requires libc++ (USE_LIBSTDCPP=OFF)")
@@ -68,7 +85,7 @@ if(WIN32)
     # same driver and warning flags as Linux clang, which also keeps clangd's
     # parsing aligned. cl is the conformance-mode second compiler. (The CUDA
     # bucket also uses clang++, because nvcc's MSVC device frontend has no C++23
-    # dialect; see the CUDA section.) The libc++/clang-22 knobs in the Linux
+    # dialect; see the CUDA section.) The libc++/clang knobs in the Linux
     # branches (-nostdinc++, the libc++ include prefix, -march=native,
     # -fexperimental-library, the libc++ link options) have no MSVC-ABI analog,
     # so none apply here. The Linux network stack is excluded at the
@@ -76,17 +93,20 @@ if(WIN32)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         # clang++ (GNU-like driver, MSVC ABI). Plain -Wall -Wextra -Werror as on
         # Linux (no /clang: escape, unlike the retired clang-cl path); CMake's
-        # CMAKE_CXX_STANDARD=23 yields a plain -std=c++23 that clangd parses
+        # CMAKE_CXX_STANDARD=26 yields a plain -std=c++26 that clangd parses
         # correctly. -fms-runtime-lib=dll selects the dynamic (/MD) CRT to match
         # the .cu bucket and keep ASAN's dynamic runtime usable; clang++ would
         # otherwise default to the static (/MT) CRT.
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -fms-runtime-lib=dll")
     else()
-        # MSVC cl, the conformance-mode second compiler. cl has no /std:c++23, so
-        # request C++23 as /std:c++latest (overriding CMake's default), which cl
+        # MSVC cl, the conformance-mode second compiler. cl has no /std:c++26, so
+        # request C++26 as /std:c++latest (overriding CMake's default), which cl
         # accepts. clang++ above needs no such override.
-        set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "/std:c++latest")
-        set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "/std:c++latest")
+        set(CMAKE_CXX26_STANDARD_COMPILE_OPTION "/std:c++latest")
+        set(CMAKE_CXX26_EXTENSION_COMPILE_OPTION "/std:c++latest")
+        list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES
+            CMAKE_CXX26_STANDARD_COMPILE_OPTION
+            CMAKE_CXX26_EXTENSION_COMPILE_OPTION)
         # /W4 with warnings as errors (cl rejects the /clang: escape).
         # /permissive- turns on conformance mode (proper two-phase template name
         # lookup among other things), without which cl misses the operators that
@@ -116,23 +136,54 @@ if(WIN32)
     # separate debug (/Od) path.
 elseif(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -std=c++23")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        # At -O3, gcc raises false-positive -Wmaybe-uninitialized and
-        # -Warray-bounds from inside libstdc++ and Catch2 template
-        # instantiations, not from Corvid code, so they cannot be suppressed at
-        # the source. Keep them as warnings but do not fail the build on them.
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=array-bounds")
+        # gcc builds as C++26; the dialect override near the top of this file
+        # supplies the flag CMake 3.28 lacks. That needs the container's
+        # patched gcc: stock gcc 16.2.0's constexpr evaluator counts a nonzero
+        # offset twice in the pointer memchr/strchr/strrchr/strstr return,
+        # which C++26 exposes through `string_view::find` on constant
+        # haystacks (strings_test and quic_conn_test fail at run time). See
+        # .devcontainer/gcc-constexpr-strret.patch and crossplatform.md.
+        #
+        # At -O3, gcc raises false-positive -Wmaybe-uninitialized,
+        # -Wuninitialized (libstdc++'s move_only_function copying its storage
+        # bytes for a stateless callable), and -Warray-bounds from inside
+        # libstdc++ and Catch2 template instantiations, not from Corvid code,
+        # so they cannot be suppressed at the source. Keep them as warnings
+        # but do not fail the build on them.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=array-bounds")
+        # gcc 16 and newer implement C++26 reflection (P2996). Enable it for
+        # the whole leg, so the reflection layer of the proxy system
+        # (corvid/meta/invoke/proxy_reflect.h, gated on __cpp_impl_reflection)
+        # is live in every translation unit, and user code needs only the same
+        # gate. Other compilers see the gate closed, and a test of the layer
+        # compiles down to its gate-reporting case. See crossplatform.md.
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -freflection")
+        endif()
     endif()
+    # clang with libstdc++ builds as C++26 too, on the container's patched
+    # <format> (.devcontainer/libstdcxx-format-clang.patch): stock libstdc++ 16
+    # trips LLVM issue 73232, so clang cannot constant-evaluate any format
+    # string with a dynamic width or precision (`{:{}}`). See crossplatform.md.
 else()
-    # Use Clang 22 and avoid pulling in GCC.
-    set(CMAKE_CXX_COMPILER "/usr/bin/clang++-22")
+    # This branch is clang-only (-nostdinc++, the libc++ prefix, compiler-rt,
+    # lld). The drivers (cleanbuild.sh, comprehensive.cmake, ide_build.sh,
+    # start_sim.sh) export CC/CXX to the alternatives-linked clang; a bare
+    # cmake invocation would pick up the default c++, which is g++ here.
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR
+            "The libc++ configuration needs clang, got ${CMAKE_CXX_COMPILER_ID} "
+            "(${CMAKE_CXX_COMPILER}). Export CXX=clang++ or pass -DUSE_LIBSTDCPP=ON.")
+    endif()
+    message(STATUS "libc++ prefix: ${LIBCXX_PREFIX}")
     set(CMAKE_CXX_COMPILER_TARGET "x86_64-pc-linux-gnu")
     # `-fexperimental-library` unlocks libc++'s tzdb / utc_clock / zoned_time
     # headers (gated behind `_LIBCPP_HAS_EXPERIMENTAL_TZDB`); the matching
     # runtime lives in libc++experimental, which must come before libc++ in
     # the link order because it references symbols from libc++.
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++23 -fexperimental-library")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++26 -fexperimental-library")
     # These are libc++/clang link flags. We add them with add_link_options
     # guarded by $<LINK_LANGUAGE:CXX> rather than the global
     # CMAKE_EXE_LINKER_FLAGS so that only CXX-linked targets see them. CUDA
@@ -380,7 +431,7 @@ set(NGTCP2_INCLUDE_DIR "${NGTCP2_INSTALL_DIR}/include")
 set(_ngtcp2_san_args "")
 if(SANITIZER STREQUAL "msan")
     set(_ngtcp2_san_args
-        "-DCMAKE_C_COMPILER=clang-22"
+        "-DCMAKE_C_COMPILER=clang"
         "-DCMAKE_C_FLAGS=-fsanitize=memory -fno-omit-frame-pointer -g")
 endif()
 
@@ -465,7 +516,7 @@ set(NGHTTP3_INCLUDE_DIR "${NGHTTP3_INSTALL_DIR}/include")
 set(_nghttp3_san_args "")
 if(SANITIZER STREQUAL "msan")
     set(_nghttp3_san_args
-        "-DCMAKE_C_COMPILER=clang-22"
+        "-DCMAKE_C_COMPILER=clang"
         "-DCMAKE_C_FLAGS=-fsanitize=memory -fno-omit-frame-pointer -g")
 endif()
 
@@ -504,7 +555,7 @@ add_dependencies(nghttp3_static nghttp3_external)
 endif() # CMAKE_SYSTEM_NAME STREQUAL "Linux" (io_uring / QUIC / HTTP/3 deps)
 
 if(USE_CLANG_TIDY)
-    find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy)
     if(CLANG_TIDY_EXE)
         message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
         # Hardcode disabling StackAddressEscape explicitly
@@ -533,10 +584,12 @@ if(CORVID_ENABLE_CUDA)
         # sm_NN: clang-CUDA's `native` detection does not work there.
         set(CMAKE_CUDA_ARCHITECTURES native)
     endif()
-    # CMake 3.28 cannot map CUDA_STANDARD 23 (it rejects the dialect as
-    # unsupported by nvcc), though nvcc 13.3 accepts -std=c++23. Clear CMake's
-    # default standard flag and pass c++23 ourselves so the compiler command
-    # carries a single -std (no "incompatible redefinition for option 'std'").
+    # The .cu bucket stays at C++23 while the .cpp suite builds as C++26:
+    # c++23 is the top of nvcc 13.3's --std list. CMake 3.28 cannot map
+    # CUDA_STANDARD 23 (it rejects the dialect as unsupported by nvcc), though
+    # nvcc 13.3 accepts -std=c++23. Clear CMake's default standard flag and
+    # pass c++23 ourselves so the compiler command carries a single -std (no
+    # "incompatible redefinition for option 'std'").
     set(CMAKE_CUDA_STANDARD_DEFAULT "")
     if(WIN32)
         # Windows compiles the CUDA bucket with clang (clang++), not nvcc: nvcc
@@ -546,7 +599,7 @@ if(CORVID_ENABLE_CUDA)
         # device together. -fms-runtime-lib=dll picks the dynamic (/MD) CRT to
         # match the FetchContent Catch2 (clang defaults to the static /MT one);
         # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
-        # than clang 22's last fully supported toolkit (codegen is unaffected).
+        # than clang's last fully supported toolkit (codegen is unaffected).
         # -gline-tables-only is the clang analog of the Linux side's -lineinfo:
         # it embeds the SASS<->source line mapping (.nv_debug_line_sass) that
         # compute-sanitizer (./cleanbuild.ps1 cudacheck) and Nsight attribute

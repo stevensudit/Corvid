@@ -34,7 +34,7 @@ using namespace corvid::sequence;
 
 // A registered sequence enum, to check that an interval of enums prints names
 // in regular mode and the underlying numbers in debug.
-enum class hue : std::uint8_t { red, green, blue };
+enum class hue : uint8_t { red, green, blue };
 consteval auto corvid_enum_spec(hue*) {
   return corvid::enums::sequence::make_sequence_enum_spec<hue,
       "red,green,blue">();

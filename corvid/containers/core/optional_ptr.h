@@ -36,6 +36,10 @@ inline namespace optional_ptrs {
 // smart pointer. It satisfies the requirements of NullablePointer, per
 // https://en.cppreference.com/w/cpp/named_req/NullablePointer.
 //
+// In C++26, `std::optional<T&>` will replace this class, as it is implemented
+// in terms of a single pointer and supports the full `std::optional`
+// interface.
+//
 // The sole purpose of this class is to be used as a lightweight return value,
 // not a parameter, member, or long-lived local. This makes it ideal for
 // lookups and test-and-access accessors, where the caller binds the result

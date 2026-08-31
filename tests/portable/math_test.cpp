@@ -109,8 +109,8 @@ TEST_CASE("CeilDivMixedSign", "[MathTest]") {
 
 TEST_CASE("CeilDivNoOverflow", "[MathTest]") {
   // The `(n + d - 1)` idiom would wrap uint32_t here; ceil_div must not.
-  constexpr auto max32 = std::numeric_limits<std::uint32_t>::max();
-  CHECK(ceil_div(max32, std::uint32_t{2}) == (max32 / 2) + 1);
+  constexpr auto max32 = std::numeric_limits<uint32_t>::max();
+  CHECK(ceil_div(max32, uint32_t{2}) == (max32 / 2) + 1);
 }
 
 #pragma endregion
@@ -167,8 +167,8 @@ TEST_CASE("RoundUpNoDivisionOverflow", "[MathTest]") {
   // The underlying ceil_div avoids the (n + m - 1) wraparound, so rounding the
   // maximum up to a multiple of one stays exact (the multiply by one cannot
   // overflow).
-  constexpr auto max32 = std::numeric_limits<std::uint32_t>::max();
-  CHECK(round_up_to_multiple(max32, std::uint32_t{1}) == max32);
+  constexpr auto max32 = std::numeric_limits<uint32_t>::max();
+  CHECK(round_up_to_multiple(max32, uint32_t{1}) == max32);
 }
 
 #pragma endregion
@@ -200,10 +200,10 @@ TEST_CASE("SaturateCast", "[MathTest]") {
 
 TEST_CASE("ExtractByte", "[MathTest]") {
   // Index 0 is the low byte, counting up from there.
-  CHECK(extract_byte<0>(std::uint16_t{0x2001}) == 0x01);
-  CHECK(extract_byte<1>(std::uint16_t{0x2001}) == 0x20);
-  CHECK(extract_byte<0>(std::uint16_t{}) == 0);
-  CHECK(extract_byte<1>(std::uint16_t{}) == 0);
+  CHECK(extract_byte<0>(uint16_t{0x2001}) == 0x01);
+  CHECK(extract_byte<1>(uint16_t{0x2001}) == 0x20);
+  CHECK(extract_byte<0>(uint16_t{}) == 0);
+  CHECK(extract_byte<1>(uint16_t{}) == 0);
 }
 
 #pragma endregion
@@ -212,13 +212,13 @@ TEST_CASE("ExtractByte", "[MathTest]") {
 TEST_CASE("ExtractByteAddressesEveryByte", "[MathTest]") {
   // Every byte of a wider value is reachable by its own index, most
   // significant last.
-  constexpr auto addr = std::uint32_t{0xc0a80101};
+  constexpr auto addr = uint32_t{0xc0a80101};
   CHECK(extract_byte<3>(addr) == 0xc0);
   CHECK(extract_byte<2>(addr) == 0xa8);
   CHECK(extract_byte<1>(addr) == 0x01);
   CHECK(extract_byte<0>(addr) == 0x01);
-  CHECK(extract_byte<7>(std::uint64_t{0xfedc'ba98'7654'3210}) == 0xfe);
-  CHECK(extract_byte<0>(std::uint8_t{0x42}) == 0x42);
+  CHECK(extract_byte<7>(uint64_t{0xfedc'ba98'7654'3210}) == 0xfe);
+  CHECK(extract_byte<0>(uint8_t{0x42}) == 0x42);
 }
 
 #pragma endregion
@@ -226,8 +226,8 @@ TEST_CASE("ExtractByteAddressesEveryByte", "[MathTest]") {
 
 TEST_CASE("ExtractByteConstexpr", "[MathTest]") {
   // Usable in constant expressions.
-  static_assert(extract_byte<1>(std::uint16_t{0xbeef}) == 0xbe);
-  static_assert(extract_byte<0>(std::uint16_t{0xbeef}) == 0xef);
+  static_assert(extract_byte<1>(uint16_t{0xbeef}) == 0xbe);
+  static_assert(extract_byte<0>(uint16_t{0xbeef}) == 0xef);
 }
 
 #pragma endregion
@@ -237,7 +237,7 @@ TEST_CASE("ExtractByteConstexpr", "[MathTest]") {
 
 TEST_CASE("ExtractByteOutOfRange", "[MathTest]") {
   // A byte the type does not have is a compile error, not a zero.
-  CHECK(extract_byte<2>(std::uint16_t{0x2001}) == 0);
+  CHECK(extract_byte<2>(uint16_t{0x2001}) == 0);
 }
 
 #pragma endregion
@@ -247,10 +247,9 @@ TEST_CASE("ExtractByteOutOfRange", "[MathTest]") {
 
 TEST_CASE("CombineBytes", "[MathTest]") {
   // Least significant first, so the first argument is the low byte.
-  CHECK(combine_bytes<std::uint16_t>(std::uint8_t{0x01}, std::uint8_t{0x20}) ==
-        0x2001);
-  CHECK(combine_bytes<std::uint32_t>(std::uint8_t{0x01}, std::uint8_t{0x01},
-            std::uint8_t{0xa8}, std::uint8_t{0xc0}) == 0xc0a80101);
+  CHECK(combine_bytes<uint16_t>(uint8_t{0x01}, uint8_t{0x20}) == 0x2001);
+  CHECK(combine_bytes<uint32_t>(uint8_t{0x01}, uint8_t{0x01}, uint8_t{0xa8},
+            uint8_t{0xc0}) == 0xc0a80101);
 }
 
 #pragma endregion
@@ -258,10 +257,9 @@ TEST_CASE("CombineBytes", "[MathTest]") {
 
 TEST_CASE("CombineBytesRoundTrips", "[MathTest]") {
   // The inverse of `extract_byte`.
-  constexpr auto addr = std::uint32_t{0xc0a80101};
-  CHECK(combine_bytes<std::uint32_t>(extract_byte<0>(addr),
-            extract_byte<1>(addr), extract_byte<2>(addr),
-            extract_byte<3>(addr)) == addr);
+  constexpr auto addr = uint32_t{0xc0a80101};
+  CHECK(combine_bytes<uint32_t>(extract_byte<0>(addr), extract_byte<1>(addr),
+            extract_byte<2>(addr), extract_byte<3>(addr)) == addr);
 }
 
 #pragma endregion
@@ -270,10 +268,9 @@ TEST_CASE("CombineBytesRoundTrips", "[MathTest]") {
 TEST_CASE("CombineBytesSpellsItsZeros", "[MathTest]") {
   // Every byte is supplied, so a mostly-empty value states the zeros rather
   // than leaving them off.
-  constexpr std::uint8_t z{};
-  CHECK(combine_bytes<std::uint32_t>(std::uint8_t{0xff}, z, z, z) == 0xff);
-  CHECK(
-      combine_bytes<std::uint32_t>(z, z, z, std::uint8_t{0xff}) == 0xff000000);
+  constexpr uint8_t z{};
+  CHECK(combine_bytes<uint32_t>(uint8_t{0xff}, z, z, z) == 0xff);
+  CHECK(combine_bytes<uint32_t>(z, z, z, uint8_t{0xff}) == 0xff000000);
 }
 
 #pragma endregion
@@ -281,8 +278,7 @@ TEST_CASE("CombineBytesSpellsItsZeros", "[MathTest]") {
 
 TEST_CASE("CombineBytesUsesOnlyTheLowByte", "[MathTest]") {
   // A wider argument contributes its low byte and nothing else.
-  CHECK(combine_bytes<std::uint16_t>(std::uint16_t{0xbeef}, std::uint8_t{}) ==
-        0x00ef);
+  CHECK(combine_bytes<uint16_t>(uint16_t{0xbeef}, uint8_t{}) == 0x00ef);
 }
 
 #pragma endregion
@@ -290,17 +286,16 @@ TEST_CASE("CombineBytesUsesOnlyTheLowByte", "[MathTest]") {
 
 TEST_CASE("CombineBytesDeducesItsWidth", "[MathTest]") {
   // With no type named, the byte count picks the result type.
-  constexpr std::uint8_t z{};
-  static_assert(std::is_same_v<decltype(combine_bytes(z)), std::uint8_t>);
-  static_assert(std::is_same_v<decltype(combine_bytes(z, z)), std::uint16_t>);
-  static_assert(
-      std::is_same_v<decltype(combine_bytes(z, z, z, z)), std::uint32_t>);
+  constexpr uint8_t z{};
+  static_assert(std::is_same_v<decltype(combine_bytes(z)), uint8_t>);
+  static_assert(std::is_same_v<decltype(combine_bytes(z, z)), uint16_t>);
+  static_assert(std::is_same_v<decltype(combine_bytes(z, z, z, z)), uint32_t>);
   static_assert(std::is_same_v<decltype(combine_bytes(z, z, z, z, z, z, z, z)),
-      std::uint64_t>);
+      uint64_t>);
 
-  CHECK(combine_bytes(std::uint8_t{0x01}, std::uint8_t{0x20}) == 0x2001);
-  CHECK(combine_bytes(std::uint8_t{0x10}, z, z, z, z, z, z,
-            std::uint8_t{0xfe}) == 0xfe00'0000'0000'0010);
+  CHECK(combine_bytes(uint8_t{0x01}, uint8_t{0x20}) == 0x2001);
+  CHECK(combine_bytes(uint8_t{0x10}, z, z, z, z, z, z, uint8_t{0xfe}) ==
+        0xfe00'0000'0000'0010);
 }
 
 #pragma endregion
@@ -312,9 +307,9 @@ TEST_CASE("ExtractAndCombine128", "[MathTest]") {
   // Where the compiler has a 128-bit type, the pair reaches it too. Note that
   // libstdc++ outside GNU mode does not report `__uint128_t` as integral, so
   // this rests on the library-independent `UnsignedWord`.
-  constexpr std::uint8_t z{};
-  const auto v = combine_bytes(std::uint8_t{0x10}, z, z, z, z, z, z, z, z, z,
-      z, z, z, z, z, std::uint8_t{0xfe});
+  constexpr uint8_t z{};
+  const auto v = combine_bytes(uint8_t{0x10}, z, z, z, z, z, z, z, z, z, z, z,
+      z, z, z, uint8_t{0xfe});
   static_assert(std::is_same_v<decltype(v), const __uint128_t>);
   CHECK(extract_byte<0>(v) == 0x10);
   CHECK(extract_byte<15>(v) == 0xfe);
@@ -328,9 +323,9 @@ TEST_CASE("ExtractAndCombine128", "[MathTest]") {
 
 TEST_CASE("CombineBytesDeducedMatchesSpelled", "[MathTest]") {
   // Naming the type is allowed and must agree with the count.
-  constexpr std::uint8_t lo{0xef};
-  constexpr std::uint8_t hi{0xbe};
-  CHECK(combine_bytes<std::uint16_t>(lo, hi) == combine_bytes(lo, hi));
+  constexpr uint8_t lo{0xef};
+  constexpr uint8_t hi{0xbe};
+  CHECK(combine_bytes<uint16_t>(lo, hi) == combine_bytes(lo, hi));
 }
 
 #pragma endregion
@@ -339,8 +334,7 @@ TEST_CASE("CombineBytesDeducedMatchesSpelled", "[MathTest]") {
 TEST_CASE("CombineBytesConstexpr", "[MathTest]") {
   // Usable in constant expressions.
   static_assert(
-      combine_bytes<std::uint16_t>(std::uint8_t{0xef}, std::uint8_t{0xbe}) ==
-      0xbeef);
+      combine_bytes<uint16_t>(uint8_t{0xef}, uint8_t{0xbe}) == 0xbeef);
 }
 
 #pragma endregion
@@ -350,11 +344,10 @@ TEST_CASE("CombineBytesConstexpr", "[MathTest]") {
 
 TEST_CASE("CombineBytesWrongCount", "[MathTest]") {
   // A named type must match the count exactly, in both directions.
-  CHECK(combine_bytes<std::uint16_t>(std::uint8_t{1}, std::uint8_t{2},
-            std::uint8_t{3}) == 0);
-  CHECK(combine_bytes<std::uint32_t>(std::uint8_t{1}) == 0);
+  CHECK(combine_bytes<uint16_t>(uint8_t{1}, uint8_t{2}, uint8_t{3}) == 0);
+  CHECK(combine_bytes<uint32_t>(uint8_t{1}) == 0);
   // Deducing needs a count some standard width matches.
-  CHECK(combine_bytes(std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{3}) == 0);
+  CHECK(combine_bytes(uint8_t{1}, uint8_t{2}, uint8_t{3}) == 0);
 }
 
 #pragma endregion

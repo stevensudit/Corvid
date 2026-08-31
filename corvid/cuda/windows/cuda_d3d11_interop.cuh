@@ -43,7 +43,7 @@ namespace corvid::cuda {
 
 template<typename T>
 using com_ptr = win32::com_ptr<T>;
-using hr_status = win32::hr_status;
+using win32::hr_status;
 
 #pragma region cuda_interop_adapter
 

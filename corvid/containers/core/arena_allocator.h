@@ -246,7 +246,7 @@ class arena_allocator {
 public:
   using value_type = T;
   using size_type = size_t;
-  using difference_type = std::ptrdiff_t;
+  using difference_type = ptrdiff_t;
   using propagate_on_container_move_assignment = std::true_type;
 
 #pragma endregion

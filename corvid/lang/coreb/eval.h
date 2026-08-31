@@ -189,7 +189,7 @@ private:
   //
   // Maps a `value` `result` to a `step` result.
   [[nodiscard]] static result<step> finish_step(result<value> r) {
-    if (!r) return std::move(r);
+    if (!r) return r;
     return step::make_evaluated(*r);
   }
 

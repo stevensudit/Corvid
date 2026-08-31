@@ -264,9 +264,9 @@ public:
 
   // Contiguous iterators over components; see `contiguous_storage_iterator`.
   using iterator =
-      contiguous_storage_iterator<component_storage, access::as_mutable>;
+      contiguous_storage_iterator<component_storage, access_mode::as_mutable>;
   using const_iterator =
-      contiguous_storage_iterator<component_storage, access::as_const>;
+      contiguous_storage_iterator<component_storage, access_mode::as_const>;
 
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }

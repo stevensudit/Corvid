@@ -31,13 +31,13 @@ using namespace corvid::enums::sequence;
 using namespace corvid::enums::bitmask;
 
 // A registered sequence enum: formats by name.
-enum class hue : std::uint8_t { red, green, blue };
+enum class hue : uint8_t { red, green, blue };
 consteval auto corvid_enum_spec(hue*) {
   return make_sequence_enum_spec<hue, "red,green,blue">();
 }
 
 // A registered bitmask enum: formats as its "a + b + c" combination.
-enum class rgb : std::uint8_t {
+enum class rgb : uint8_t {
   black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -50,17 +50,17 @@ consteval auto corvid_enum_spec(rgb*) {
 }
 
 // An unregistered scoped enum: formats as its numeric underlying value.
-enum class plain : std::int8_t { zero, one, two };
+enum class plain : int8_t { zero, one, two };
 
 // A sequence enum whose names contain characters that the debug spec escapes:
 // an embedded quote, backslash, and tab (internal, so trimming keeps it).
-enum class weird : std::uint8_t { norm, quote, slash, tab };
+enum class weird : uint8_t { norm, quote, slash, tab };
 consteval auto corvid_enum_spec(weird*) {
   return make_sequence_enum_spec<weird, "ok,q\"x,b\\y,a\tb">();
 }
 
 // A value-form (nameless) sequence enum: formats as its numeric value.
-enum class dial : std::uint8_t {};
+enum class dial : uint8_t {};
 consteval auto corvid_enum_spec(dial*) {
   return make_sequence_enum_spec<dial, dial{255}>();
 }

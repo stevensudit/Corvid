@@ -336,7 +336,7 @@ public:
         const auto& missing = w.missing();
         if (!missing) throw std::format_error{"enable_format: key not found"};
         return corvid::strings::format_with_spec(
-            wrap_variants(std::span<const mapped_type>{&*missing, 1}),
+            wrap_variants(std::span<const mapped_type>(&*missing, 1)),
             spec_tail_, ctx);
       }
       return corvid::strings::format_with_spec(wrap_variants(values),

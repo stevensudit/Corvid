@@ -104,7 +104,7 @@ if [[ "$FLAVOR" == "msan" ]]; then
     # templated TUs) plus frame pointers and `-g` for readable traces. `no-asm`
     # is the load-bearing flag (see header comment). Trailing flag arguments
     # are appended to OpenSSL's CFLAGS by Configure.
-    export CC=clang-22
+    export CC=clang
     config_args+=(
         no-asm
         linux-x86_64

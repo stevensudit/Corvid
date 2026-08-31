@@ -1500,6 +1500,7 @@ TEST_CASE("SendStringBatchOverflow", "[IouStreamConn]") {
       return recv_bytes.load(std::memory_order::acquire) >= expected;
     }));
     CHECK(recv_bytes.load() == expected);
+    // NOLINTNEXTLINE(performance-inefficient-string-concatenation): test-only.
     CHECK(payload == (chunk_a + chunk_b + chunk_c));
   }
 }

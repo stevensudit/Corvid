@@ -974,6 +974,7 @@ private:
     bool appended{};
     ((!bufs.empty() &&
          (send_queue_.push_back(std::forward<Bufs>(bufs)),
+             // NOLINTNEXTLINE(bugprone-assignment-in-selection-statement)
              (void)iov_sender_.append(send_queue_.back()), (appended = true))),
         ...);
     if (!appended) return false;

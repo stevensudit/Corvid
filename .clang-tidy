@@ -5,13 +5,16 @@ Checks: >
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-invalid-enum-default-initialization,
+  -bugprone-signed-bitwise,
   modernize-*,
   -modernize-concat-nested-namespaces,
   -modernize-use-trailing-return-type,
   -modernize-avoid-c-arrays,
   -modernize-use-designated-initializers,
   -modernize-avoid-c-style-cast,
+  -modernize-use-string-view,
   performance-*,
+  -performance-faster-string-find,
   readability-*,
   -readability-identifier-length,
   -readability-braces-around-statements,
@@ -28,6 +31,11 @@ Checks: >
   -readability-redundant-access-specifiers,
   -readability-avoid-unconditional-preprocessor-if,
   -readability-inconsistent-ifelse-braces,
+  -readability-redundant-parentheses,
+  -readability-trailing-comma,
+  -readability-redundant-lambda-parameter-list,
+  -readability-redundant-nested-if,
+  -readability-trivial-switch,
   misc-unused-parameters
 WarningsAsErrors: ''
 # Both separators: on Windows a header reached through a relative include comes

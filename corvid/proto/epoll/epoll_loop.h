@@ -42,7 +42,7 @@
 #include "../../filesys/epoll.h"
 #include "../../filesys/os_event.h"
 #include "../net_socket.h"
-#include "../../meta/fixed_function.h"
+#include "../../meta/invoke/fixed_function.h"
 
 namespace corvid { inline namespace proto {
 

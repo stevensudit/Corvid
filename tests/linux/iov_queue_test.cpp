@@ -456,7 +456,7 @@ TEST_CASE("tidy compacts freed slots, live bytes survive", "[iov_queue]") {
 
 TEST_CASE("tidy(release) rebases watermarks on a chunk boundary",
     "[iov_queue]") {
-  using corvid::proto::deallocation_policy;
+  using corvid::deallocation_policy;
   iov_queue<> q;
   CHECK(q.append(bytes({1, 2})));
   CHECK(q.append(bytes({3, 4})));
@@ -478,7 +478,7 @@ TEST_CASE("tidy(release) rebases watermarks on a chunk boundary",
 }
 
 TEST_CASE("tidy(release) rebases watermarks mid-chunk", "[iov_queue]") {
-  using corvid::proto::deallocation_policy;
+  using corvid::deallocation_policy;
   iov_queue<> q;
   CHECK(q.append(bytes({1, 2})));
   CHECK(q.append(bytes({3, 4})));
