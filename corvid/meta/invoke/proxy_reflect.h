@@ -119,46 +119,65 @@ consteval object_param object_param_of(std::meta::info fn) {
   return object_param::rvalue_only;
 }
 
+// The result of a candidate search.
+//
+// `is_declared` is whether the searched subtree declares the name at all,
+// candidate or not. A data member declares without contributing a
+// candidate, which hides and makes merges ambiguous.
+struct named_search {
+  std::vector<std::meta::info> candidates;
+  bool is_declared{};
+};
+
 // `named_candidates` finds the members of `cls` named `name` that a call
 // could select, as seen from `ctx`, or none when `cls` is not a class type.
 //
 // A candidate is a non-static member function or member function template,
-// carried as declared. It searches the class's own members first and its bases
-// only when it declares nothing by that name. Any member hides, function or
-// not, which is the name hiding that an ordinary member call `t.name(...)`
-// applies, with one documented gap.
+// carried as declared. It searches the class's own members first and its
+// bases only when it declares nothing by that name. Any member hides,
+// function or not, which is the name hiding that an ordinary member call
+// `t.name(...)` applies, with one documented gap. The gap is that a
+// using-declaration is not a member to `members_of`, so a base overload it
+// un-hides is not a candidate beside the class's own.
 //
-// The gap is that a using-declaration is not a member to `members_of`, so a
-// base overload it un-hides is not a candidate beside the class's own. Two
-// bases each contributing one leaves both in the set, so the call is
-// ambiguous, as it would be in the language.
+// A name declared under more than one base is an ambiguous merge, which the
+// language rejects before it ever weighs viability, so the set comes back
+// empty and the key is unbound. Declaring counts even without contributing
+// a candidate, so a data member in one base beside a function in the other
+// is ambiguous, not a resolution. A virtual base reached through two bases
+// reads as two, so a diamond is unbound here where the language would merge
+// the one subobject.
 //
 // `members_of` walks a class's direct members under an access context, each
-// as an `info`, the compile-time handle to an entity. `has_identifier` guards
-// `identifier_of`, which is ill-formed on unnamed members (constructors,
-// operators).
-consteval std::vector<std::meta::info> named_candidates(std::meta::info cls,
+// as an `info`, the compile-time handle to an entity. `has_identifier`
+// guards `identifier_of`, which is ill-formed on unnamed members
+// (constructors, operators).
+consteval named_search named_candidates(std::meta::info cls,
     std::string_view name, std::meta::access_context ctx) {
-  std::vector<std::meta::info> out;
+  named_search out;
   if (!std::meta::is_class_type(cls)) return out;
 
-  auto declared = false;
   for (const auto m : std::meta::members_of(cls, ctx)) {
     if (!std::meta::has_identifier(m) || std::meta::identifier_of(m) != name)
       continue;
-    declared = true;
+    out.is_declared = true;
     if ((std::meta::is_function(m) || std::meta::is_function_template(m)) &&
         !std::meta::is_static_member(m))
-      out.push_back(m);
+      out.candidates.push_back(m);
   }
+  if (out.is_declared) return out;
 
-  if (!declared)
-    for (const auto b : std::meta::bases_of(cls, ctx)) {
-      const auto found = named_candidates(
-          std::meta::dealias(std::meta::type_of(b)), name, ctx);
-      out.insert(out.end(), found.begin(), found.end());
-    }
-
+  size_t declaring{};
+  for (const auto b : std::meta::bases_of(cls, ctx)) {
+    const auto sub =
+        named_candidates(std::meta::dealias(std::meta::type_of(b)), name, ctx);
+    if (!sub.is_declared) continue;
+    ++declaring;
+    out.candidates.insert(out.candidates.end(), sub.candidates.begin(),
+        sub.candidates.end());
+  }
+  out.is_declared = (declaring > 0);
+  if (declaring > 1) out.candidates.clear();
   return out;
 }
 
@@ -177,8 +196,8 @@ consteval std::meta::info as_pack(const std::vector<std::meta::info>& ms) {
 
 // The candidate set for `Key` on `T`, as seen from `Ctx`.
 template<typename T, fixed_string Key, std::meta::access_context Ctx>
-using reflected_candidates_t = [:as_pack(
-                                     named_candidates(^^T, Key.view(), Ctx)):];
+using reflected_candidates_t =
+[:as_pack(named_candidates(^^T, Key.view(), Ctx).candidates):];
 
 // The function type of reflected function `M`, qualifiers included.
 //

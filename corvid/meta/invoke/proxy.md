@@ -2616,17 +2616,23 @@ a clang pass reshapes one helper at a time.
   const probe that admits constrained members cannot tell a forwarding
   reference from `const auto&&`; spell it `const auto&`, which declares the
   const method. And a template that deduces from its call arguments is
-  declined by comparing the const and mutable substitutions, which catches
-  a concrete object parameter beside a deducible argument, but a template
-  parameter that no argument uses is undetectable and misdeclares. A
-  member missing from the facade shows up as a call on the key failing its
-  "no matching signature" assertion while the interface accepts the same
-  call, with the derived facade's slot count short by one.
+  declined by comparing a substitution pair, which catches a concrete
+  object parameter beside a deducible argument, but a template parameter
+  that no argument uses is undetectable and misdeclares. A member missing
+  from the facade shows up as a call on the key failing its "no matching
+  signature" assertion while the interface accepts the same call, with the
+  derived facade's slot count short by one.
 - Name hiding is approximated from what `members_of` reports. A
   using-declaration is not a member to it, so a base overload that
   `using base::fire;` un-hides beside the class's own `fire` is not a
   candidate, and the pair does not conform on that key (it takes a
   `members<>` binding or an override). This is on the list in "Later".
+- A name declared under more than one base is an ambiguous merge and the
+  key is unbound, as the language rejects it at lookup, before viability;
+  a data member in one base beside a function in the other is ambiguous
+  the same way. The approximation reads a virtual base reached through
+  two bases as two subtrees, so a diamond is unbound here where the
+  language would merge the one subobject.
 - Static members, data members, operators, and constructors are never
   methods, on either side. `members<>` still binds a data member by
   pointer where that is wanted.

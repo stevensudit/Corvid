@@ -489,6 +489,32 @@ consteval auto corvid_proxy_spec(gunslinger*, arsonist*) {
   return prox::make_proxy_spec<gunslinger, arsonist>();
 }
 
+// `saboteur` reaches `fire` under both bases, a data member in one and the
+// `lawman` functions in the other. The language rejects that merge at name
+// lookup, so the key is unbound and the pair is not conformant.
+struct powder_keg {
+  int fire{};
+};
+
+struct saboteur: public powder_keg, public lawman {};
+
+consteval auto corvid_proxy_spec(gunslinger*, saboteur*) {
+  return prox::make_proxy_spec<gunslinger, saboteur>();
+}
+
+// `vigilante` reaches a `fire` function under each base. Only the `lawman`
+// ones are viable for the facade's arguments, but the merge is ambiguous
+// before viability is ever weighed, as the language rules it.
+struct signalman {
+  int fire(const char* pattern) { return pattern ? 1 : 0; }
+};
+
+struct vigilante: public signalman, public lawman {};
+
+consteval auto corvid_proxy_spec(gunslinger*, vigilante*) {
+  return prox::make_proxy_spec<gunslinger, vigilante>();
+}
+
 // `battery` carries an overload set, a const pair, and a `noexcept` method,
 // all spelled as declarations, and takes its name from its identifier.
 struct battery_api {
@@ -819,6 +845,8 @@ static_assert(prox::Proxiable<squatter, claim>);
 static_assert(!prox::Proxiable<recluse, gunslinger>);
 static_assert(!prox::Proxiable<cowboy, gunslinger>);
 static_assert(!prox::Proxiable<arsonist, gunslinger>);
+static_assert(!prox::Proxiable<saboteur, gunslinger>);
+static_assert(!prox::Proxiable<vigilante, gunslinger>);
 static_assert(!prox::Proxiable<lawman, hair_trigger>);
 static_assert(!prox::Proxiable<int, till>);
 static_assert(!prox::Proxiable<any_doubler, halver>);
