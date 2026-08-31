@@ -2453,6 +2453,10 @@ constraint on a template parameter, and the tie a non-template wins all
 behave as they would in `t.name(args...)`. A deducing-this template
 deduces its object parameter the same way.
 
+A non-class object parameter (`this int self`) is admitted through the
+conversion an lvalue of the class supplies, and one that no lvalue
+converts to (`this int&`) does not bind, as in the language.
+
 The target parameter is deduced, so constness flows through, and the result
 type and `noexcept` come from the member's declaration, so a conformance
 probe instantiates no body; a template candidate's body is compiled only

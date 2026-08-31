@@ -85,9 +85,10 @@ struct info_pack {};
 // How the explicit object parameter of a function admits an lvalue.
 //
 // `implicit` is a function with no explicit object parameter. Of the rest,
-// `as_const` takes a const lvalue of its class (`this const C&`, or `this C`
-// by value), `as_mutable` takes only a mutable one (`this C&`), and
-// `rvalue_only` takes no lvalue at all (`this C&&`).
+// `as_const` takes a const lvalue (`this const C&`, `this C` by value, or a
+// non-class type a const lvalue converts to), `as_mutable` takes only a
+// mutable one (`this C&`), and `rvalue_only` takes no lvalue at all
+// (`this C&&`).
 enum class object_param : uint8_t {
   implicit,
   as_mutable,
@@ -95,20 +96,26 @@ enum class object_param : uint8_t {
   rvalue_only
 };
 
-// Classify the object parameter of function `fn`.
+// `object_param_of` classifies the object parameter of function `fn`.
 //
 // `parameters_of` lists a function's parameters, the explicit object
 // parameter first when it has one. Convertibility from an lvalue of the
 // parameter's own class decides the lvalue it takes. The relation of that
 // class to the target is checked where the pointer binds.
+//
+// A non-class object parameter (`this int self`) takes its lvalue through a
+// conversion, so the enclosing class stands in as the source, and the same
+// convertibility test decides. That also declines `this int&`, whose
+// parameter no conversion result can bind, as the language does.
 consteval object_param object_param_of(std::meta::info fn) {
   const auto params = std::meta::parameters_of(fn);
   if (params.empty() || !std::meta::is_explicit_object_parameter(params[0]))
     return object_param::implicit;
 
   const auto obj_type = std::meta::dealias(std::meta::type_of(params[0]));
-  const auto obj_class = std::meta::remove_cvref(obj_type);
-  if (!std::meta::is_class_type(obj_class)) return object_param::rvalue_only;
+  auto obj_class = std::meta::remove_cvref(obj_type);
+  if (!std::meta::is_class_type(obj_class))
+    obj_class = std::meta::parent_of(fn);
   if (std::meta::is_convertible_type(
           std::meta::add_lvalue_reference(std::meta::add_const(obj_class)),
           obj_type))

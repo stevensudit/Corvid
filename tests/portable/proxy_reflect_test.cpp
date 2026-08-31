@@ -169,6 +169,28 @@ consteval auto corvid_proxy_spec(tally*, abacus*) {
   return prox::make_proxy_spec<tally, abacus>();
 }
 
+// `nickel` answers `bump()` through its conversion to `int`: a non-class
+// object parameter takes its lvalue through the conversion, and the member
+// binds as the const method it folds to. `slug` declines, as the language
+// does, since no conversion result binds an lvalue reference.
+struct nickel {
+  operator int() const { return 5; }
+  int bump(this int self) { return self + 1; }
+};
+
+consteval auto corvid_proxy_spec(tally*, nickel*) {
+  return prox::make_proxy_spec<tally, nickel>();
+}
+
+struct slug {
+  operator int() const { return 5; }
+  int bump(this int& self) { return self; }
+};
+
+consteval auto corvid_proxy_spec(tally*, slug*) {
+  return prox::make_proxy_spec<tally, slug>();
+}
+
 // `any_doubler` offers `double_it` only as a member function template.
 //
 // The candidate is the template itself, and the call splice deduces `T`
@@ -951,6 +973,8 @@ static_assert(prox::Proxiable<marksman, hair_trigger>);
 static_assert(prox::Proxiable<bushwhacker, gunslinger>);
 static_assert(prox::Proxiable<road_agent, gunslinger>);
 static_assert(prox::Proxiable<abacus, tally>);
+static_assert(prox::Proxiable<nickel, tally>);
+static_assert(!prox::Proxiable<slug, tally>);
 static_assert(prox::Proxiable<lawman, roster>);
 static_assert(prox::Proxiable<any_doubler, doubler>);
 static_assert(prox::Proxiable<smelter, refinery>);
@@ -1275,6 +1299,11 @@ TEST_CASE("A by-value object parameter works on a copy", "[proxy_reflect]") {
   CHECK(cv.call<"bump">() == 1);
   CHECK(cv.bump() == 1);
   CHECK(a.beads == 0);
+
+  // A non-class object parameter dispatches through the conversion.
+  nickel n;
+  proxy_view<tally> pn{n};
+  CHECK(pn.call<"bump">() == 6);
 }
 
 TEST_CASE("Member function templates bind through the call splice",
