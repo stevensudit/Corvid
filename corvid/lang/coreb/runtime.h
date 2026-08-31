@@ -48,7 +48,9 @@ namespace corvid { inline namespace lang { namespace coreb {
 class runtime final: public runtime_core {
 public:
   runtime()
-      : sym_quote{intern("quote")}, sym_if{intern("if")},
+      : sym_quote{intern("quote")}, sym_unquote{intern("unquote")},
+        sym_unquote_splicing{intern("unquote_splicing")},
+        sym_unquote_literal{intern("%unquote")}, sym_if{intern("if")},
         sym_define{intern("define")}, sym_lambda{intern("lambda")},
         sym_begin{intern("begin")}, sym_plus{intern("+")},
         sym_minus{intern("-")}, sym_times{intern("*")},
@@ -56,15 +58,19 @@ public:
         sym_lt{intern("<")}, sym_le{intern("<=")}, sym_gt{intern(">")},
         sym_ge{intern(">=")}, sym_cons{intern("cons")},
         sym_list{intern("list")}, sym_head{intern("head")},
-        sym_tail{intern("tail")}, sym_nil_p{intern("nil?")} {}
+        sym_tail{intern("tail")}, sym_nil_p{intern("nil?")},
+        sym_append{intern("append")}, sym_gensym{intern("gensym")} {}
 
-  // The special forms.
-  symbol sym_quote, sym_if, sym_define, sym_lambda, sym_begin;
+  // The special forms, and the template marks the reader spells inside a
+  // quote (special to the expander rather than the evaluator).
+  symbol sym_quote, sym_unquote, sym_unquote_splicing, sym_unquote_literal;
+  symbol sym_if, sym_define, sym_lambda, sym_begin;
 
   // The builtin primitives.
   symbol sym_plus, sym_minus, sym_times, sym_divide;
   symbol sym_eq, sym_ne, sym_lt, sym_le, sym_gt, sym_ge;
   symbol sym_cons, sym_list, sym_head, sym_tail, sym_nil_p;
+  symbol sym_append, sym_gensym;
 };
 
 #pragma endregion

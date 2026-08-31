@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -39,6 +40,7 @@
 #include "../../enums/sequence_enum.h"
 #include "../../meta/concepts.h"
 #include "../../strings/cases.h"
+#include "../../strings/builder.h"
 #include "../../strings/conversion.h"
 
 namespace corvid { inline namespace lang { namespace coreb {
@@ -556,9 +558,7 @@ public:
   // Append the display form, "#<primitive name>". Primitives have no
   // readable form.
   bool append(std::string& out) const {
-    out += "#<primitive ";
-    out += name.name();
-    out += '>';
+    strings::shared_builder{out} << "#<primitive " << name.name() << '>';
     return true;
   }
 
@@ -641,6 +641,34 @@ public:
   [[nodiscard]] symbol intern(std::string_view name) {
     if (const auto found = find_opt(syms_, name)) return symbol{*found};
     return symbol{*syms_.emplace(name).first};
+  }
+
+  // Intern a fresh symbol spelled `%base_N`, distinct from every symbol so
+  // far.
+  //
+  // The `%` prefix marks it kernel-generated (see "coreb.md"), so no source
+  // definition can bind the name, and N is drawn from a counter, skipping any
+  // spelling the table already holds, so a `%` name read from source cannot
+  // collide either. `base` must be a word spelling; the callers enforce that.
+  [[nodiscard]] symbol gensym(std::string_view base) {
+    std::string name;
+    do {
+      name.clear();
+      strings::shared_builder{name} << '%' << base << '_';
+      strings::append_num(name, ++gensyms_);
+    } while (syms_.contains(name));
+    const auto sym = symbol{*syms_.emplace(std::move(name)).first};
+    gensym_names_.insert(&sym.name());
+    return sym;
+  }
+
+  // Whether `s` was minted by `gensym`.
+  //
+  // This is what exempts a fresh name from the `%`-reservation policing at
+  // binding time: a macro's gensym-made temporary is bindable, while a
+  // hand-spelled `%` name stays the kernel's.
+  [[nodiscard]] bool is_gensym(symbol s) const noexcept {
+    return gensym_names_.contains(&s.name());
   }
 
   // Construct a cell.
@@ -781,8 +809,10 @@ private:
   std::vector<std::unique_ptr<primitive>> primitives_;
   std::vector<std::unique_ptr<environment>> envs_;
   std::vector<const gc_pin*> pins_;
+  std::unordered_set<const std::string*> gensym_names_;
   size_t gen_{};
   size_t allocs_{};
+  size_t gensyms_{};
 
 #pragma endregion
 };

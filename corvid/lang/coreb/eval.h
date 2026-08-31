@@ -349,7 +349,9 @@ private:
 
   // Whether `name` may be bound, returning the objection if not.
   [[nodiscard]] std::optional<std::string> check_bindable(symbol name) const {
-    if (name.name().starts_with('%'))
+    // A gensym-minted name is the exception: fresh temporaries exist to be
+    // bound.
+    if (name.name().starts_with('%') && !rt_.is_gensym(name))
       return "'%' names are reserved for the kernel: " + name.name();
     if (is_special(name)) return "cannot rebind special form: " + name.name();
     if (is_literal_word(name.name()))
@@ -646,6 +648,23 @@ private:
     return rt.list_of(args);
   }
 
+  // The `append` builtin: concatenate lists, so `(append)` is nil.
+  //
+  // Every argument but the last must be a proper list and is copied; the
+  // last becomes the tail of the result as-is, so it may be anything, a
+  // non-list making the result dotted. This is the classic Lisp contract,
+  // and what the expander builds spliced templates with.
+  static prim_result
+  prim_append(runtime_core& rt, std::span<const value> args) {
+    if (args.empty()) return value{};
+    std::vector<value> elems;
+    for (const auto& arg : args.first(args.size() - 1)) {
+      if (!arg.append_elements(elems))
+        return "expects proper lists, got: " + arg.print();
+    }
+    return rt.list_of(elems, args.back());
+  }
+
   // The `head` and `tail` builtins: the halves of a cell.
   static prim_result prim_head(runtime_core&, std::span<const value> args) {
     if (args.size() != 1) return "expects 1 argument"s;
@@ -667,6 +686,21 @@ private:
     return value{args[0].is_nil()};
   }
 
+  // The `gensym` builtin: a fresh kernel symbol, `%g_N` by default or
+  // `%base_N` given a string `base`, which must spell a word symbol so the
+  // result re-reads from its printed form.
+  static prim_result
+  prim_gensym(runtime_core& rt, std::span<const value> args) {
+    if (args.size() > 1) return "expects 0 or 1 arguments"s;
+    if (args.empty()) return value{rt.gensym("g")};
+    if (!args[0].is_string())
+      return "expects a string, got: " + args[0].print();
+    const auto& base = args[0].as_string();
+    if (!is_word_symbol(base))
+      return "expects a word spelling, got: " + args[0].print();
+    return value{rt.gensym(base)};
+  }
+
   // Bind the kernel's primitive functions into the global environment,
   // skipping any name already bound.
   void register_builtins() {
@@ -684,9 +718,11 @@ private:
     register_builtin(rt_.sym_ge, prim_ge);
     register_builtin(rt_.sym_cons, prim_cons);
     register_builtin(rt_.sym_list, prim_list);
+    register_builtin(rt_.sym_append, prim_append);
     register_builtin(rt_.sym_head, prim_head);
     register_builtin(rt_.sym_tail, prim_tail);
     register_builtin(rt_.sym_nil_p, prim_nil);
+    register_builtin(rt_.sym_gensym, prim_gensym);
   }
 
   void register_builtin(symbol s, primitive::fn_t fn) {

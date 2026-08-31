@@ -48,29 +48,40 @@ namespace corvid { inline namespace lang { namespace coreb {
 // The grammar:
 // - Lists are parenthesized, whitespace-separated, and may end with a dotted
 //   tail: "(a b . c)". "()" reads as nil.
+//
 // - "nil", "true", and "false" are literals, not symbols.
+//
 // - A token starting with a digit, or with a sign or '.' followed by a digit,
 //   is a number: first tried as a 64-bit integer, then as a double, so an
 //   integer too large for int64 falls back to floating point.
-// - (quote x) may be written 'x.
+//
+// - (quote x) may be written 'x. A quoted form is a template, and the marks
+//   inside it read the same way: $x is (unquote x), a hole filled with the
+//   value of x; $@x is (unquote_splicing x), a hole filled with the elements
+//   of x; and $$x is (%unquote x), the escape that makes the literal form
+//   (unquote x) data. The marks are read sugar only: the long forms print as
+//   themselves.
+//
 // - Strings are double-quoted; the escapes are \" \\ \n \t \r, plus \u{hex}
 //   denoting a byte by value.
+//
 // - Any other token must spell a symbol in the shared token classes (see
 //   "token_classes.h"): a word symbol, an operator symbol, or the '%' kernel
 //   prefix on a word symbol; anything else is an error, so blends such as
 //   "comb-over" do not read. '%' symbols are reserved for kernel-generated
-//   forms (see "coreb.md"); the reader accepts them, and definition is
-//   policed by the evaluator.
+//   forms; the reader accepts them, and definition is policed by the
+//   evaluator.
+//
 // - ';' starts a comment running to end of line. Comments and whitespace are
 //   dropped entirely for now; representing them for round-tripping is a
-//   deferred goal (see "coreb.md").
+//   deferred goal.
 //
 // The same grammar in EBNF ("{x}" repetition, "[x]" option, "|" alternation):
 //
 //   unit    ::= trivia { expr trivia }
-//   expr    ::= list | string | quote | atom
+//   expr    ::= list | string | prefix | atom
 //   list    ::= "(" trivia { expr trivia } [ "." trivia expr trivia ] ")"
-//   quote   ::= "'" trivia expr
+//   prefix  ::= ( "'" | "$" | "$@" | "$$" ) trivia expr
 //   string  ::= '"' { plain | escape } '"'
 //   escape  ::= "\" ( '"' | "\" | "n" | "t" | "r" | "u{" hex { hex } "}" )
 //   atom    ::= char { char }
@@ -78,11 +89,11 @@ namespace corvid { inline namespace lang { namespace coreb {
 //   comment ::= ";" { not-newline }
 //
 // where "plain" is any character but '"' or '\', "char" is any character that
-// is not a delimiter (whitespace, parentheses, '"', ';', '\''), a dotted tail
-// requires at least one preceding element, and the "." must stand alone as a
-// token. A lone "." is dotted-tail punctuation only, not an atom, so anywhere
-// else it is an error. `read_one` accepts a single trivia-surrounded `expr`;
-// `read_all` accepts `unit`.
+// is not a delimiter (whitespace, parentheses, '"', ';', and the four prefix
+// marks), a dotted tail requires at least one preceding element, and the "."
+// must stand alone as a token. A lone "." is dotted-tail punctuation only, not
+// an atom, so anywhere else it is an error. `read_one` accepts a single
+// trivia-surrounded `expr`; `read_all` accepts `unit`.
 //
 // Failure is reported by value as a `source_error`, whose `incomplete_input`
 // cause is how the REPL keeps reading a multi-line form instead of reporting;
@@ -142,7 +153,7 @@ private:
     // NUL is a delimiter, matching what `peek` returns for end of input.
     [[nodiscard]] static constexpr bool is_delimiter(char c) noexcept {
       return c == '\0' || strings::is_space(c) || c == '(' || c == ')' ||
-             c == '"' || c == ';' || c == '\'';
+             c == '"' || c == ';' || c == '\'' || c == '$';
     }
 
     // Skip whitespace and ';' line comments.
@@ -170,13 +181,27 @@ private:
       return r;
     }
 
-    // Parse a ' quotation, which is syntactic sugar for `(quote expr)`.
-    [[nodiscard]] result<value> parse_quote() {
-      take('\'');
+    // Parse the operand of a prefix mark already taken, yielding the sugar's
+    // long form `(form operand)`.
+    [[nodiscard]] result<value> parse_prefix(symbol form) {
       skip_trivia();
-      auto quoted = parse_value();
-      if (!quoted) return quoted;
-      return rt.cons(value{rt.sym_quote}, rt.cons(*quoted, value{}));
+      auto operand = parse_value();
+      if (!operand) return operand;
+      return rt.cons(value{form}, rt.cons(*operand, value{}));
+    }
+
+    // Parse a '$', '$@', or '$$' template mark.
+    [[nodiscard]] result<value> parse_unquote() {
+      take('$');
+      if (peek() == '@') {
+        take();
+        return parse_prefix(rt.sym_unquote_splicing);
+      }
+      if (peek() == '$') {
+        take();
+        return parse_prefix(rt.sym_unquote_literal);
+      }
+      return parse_prefix(rt.sym_unquote);
     }
 
     // Whether the upcoming token is the lone '.' of a dotted tail.
@@ -308,7 +333,8 @@ private:
       case '(': return parse_list();
       case ')': return fail("unmatched ')'");
       case '"': return parse_string();
-      case '\'': return parse_quote();
+      case '\'': take(); return parse_prefix(rt.sym_quote);
+      case '$': return parse_unquote();
       default: return parse_atom();
       }
     }

@@ -206,6 +206,17 @@ TEST_CASE("CoreB symbols", "[coreb]") {
   CHECK(v.is_symbol());
   CHECK(v.as_symbol() == foo);
   CHECK(v.print() == "foo");
+
+  // A gensym is a fresh kernel-prefixed symbol every time, and a spelling
+  // already in the table, however it got there, is skipped over.
+  CHECK(rt.gensym("tmp").name() == "%tmp_1");
+  CHECK(rt.gensym("tmp").name() == "%tmp_2");
+  const auto taken = rt.intern("%tmp_3");
+  const auto fresh = rt.gensym("tmp");
+  CHECK(fresh != taken);
+  CHECK(fresh.name() == "%tmp_4");
+  // The counter is shared across bases.
+  CHECK(rt.gensym("g").name() == "%g_5");
 }
 
 #pragma endregion
@@ -303,6 +314,15 @@ TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
 
   CHECK(echo(rt, "'x") == "(quote x)");
   CHECK(echo(rt, "'(1 2)") == "(quote (1 2))");
+  // The template marks read the same way, to their long forms.
+  CHECK(echo(rt, "$x") == "(unquote x)");
+  CHECK(echo(rt, "$@x") == "(unquote_splicing x)");
+  CHECK(echo(rt, "$$x") == "(%unquote x)");
+  CHECK(echo(rt, "'(a $b $@c $$d)") ==
+        "(quote (a (unquote b) (unquote_splicing c) (%unquote d)))");
+  CHECK(echo(rt, "' $ x") == "(quote (unquote x))");
+  // The marks delimit, so they need no space before them.
+  CHECK(echo(rt, "(a'b$c)") == "(a (quote b) (unquote c))");
   CHECK(echo(rt, "; leading comment\n 42 ; trailing comment") == "42");
 
   auto all = hall_reader::read_all(rt, "1 2 (3 4) ; done");
@@ -367,6 +387,9 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK(err(R"("abc)").incomplete());
   CHECK(err("").incomplete());
   CHECK(err("'").incomplete());
+  CHECK(err("$").incomplete());
+  CHECK(err("$@").incomplete());
+  CHECK(err("$$").incomplete());
   CHECK_FALSE(err(")").incomplete());
   CHECK_FALSE(err("1abc").incomplete());
 
@@ -651,6 +674,16 @@ TEST_CASE("CoreB eval lists", "[coreb]") {
 
   CHECK(run_err(rt, ev, "(head 5)") == "head: expects a cell, got: 5");
   CHECK(run_err(rt, ev, "(tail 5)") == "tail: expects a cell, got: 5");
+
+  // gensym mints a fresh kernel symbol, named by an optional word base.
+  CHECK(run(rt, ev, "(gensym)") == "%g_1");
+  CHECK(run(rt, ev, R"((gensym "tmp"))") == "%tmp_2");
+  CHECK(run(rt, ev, "(list (gensym) (gensym))") == "(%g_3 %g_4)");
+  CHECK(run_err(rt, ev, "(gensym 5)") == "gensym: expects a string, got: 5");
+  CHECK(run_err(rt, ev, R"((gensym "a-b"))") ==
+        R"(gensym: expects a word spelling, got: "a-b")");
+  CHECK(run_err(rt, ev, R"((gensym "a" "b"))") ==
+        "gensym: expects 0 or 1 arguments");
 }
 
 #pragma endregion
@@ -689,6 +722,275 @@ TEST_CASE("CoreB eval errors", "[coreb]") {
   CHECK(run_err(rt, ev, "(+ 1 . 2)") == "improper form: (+ 1 . 2)");
   // Errors propagate out of nested evaluation.
   CHECK(run_err(rt, ev, "(+ 1 (head 2))") == "head: expects a cell, got: 2");
+}
+
+#pragma endregion
+#pragma region CoreB expander templates
+
+namespace {
+
+// Read one form and return its expansion's printed form.
+std::string expand(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto form = hall_reader::read_one(rt, src);
+  REQUIRE(form.has_value());
+  expander ex(rt);
+  auto code = ex.expand(*form);
+  REQUIRE(code.has_value());
+  return code->print();
+}
+
+// Read one form and return its expansion's error message.
+std::string expand_err(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto form = hall_reader::read_one(rt, src);
+  REQUIRE(form.has_value());
+  expander ex(rt);
+  auto code = ex.expand(*form);
+  REQUIRE_FALSE(code.has_value());
+  return code.as_error().reason;
+}
+
+// Read every form in `src`, expand and evaluate each in order, returning the
+// last value's printed form.
+std::string run_expanded(runtime& rt, evaluator& ev, std::string_view src) {
+  CAPTURE(src);
+  auto forms = hall_reader::read_all(rt, src);
+  REQUIRE(forms.has_value());
+  REQUIRE_FALSE(forms->empty());
+  auto pending = *std::move(forms);
+  // Each expansion replaces its form in place, so the pin covers both.
+  gc_pin pin(rt, pending);
+  expander ex(rt);
+  value last;
+  for (auto& form : pending) {
+    auto code = ex.expand(form);
+    REQUIRE(code.has_value());
+    form = *code;
+    auto v = ev.eval(form);
+    REQUIRE(v.has_value());
+    last = *v;
+  }
+  return last.print();
+}
+
+} // namespace
+
+TEST_CASE("CoreB expander templates", "[coreb]") {
+  runtime rt;
+  evaluator ev(rt);
+
+  // The job of the expander is to convert a template into code that builds the
+  // contents of the template, so that the holes can be filled in. This is a
+  // mechanical transformation in which the elements of the input are wrapped
+  // in `list`, `quote`, and perhaps `append` forms to create that build code.
+  //
+  // However, when there are no holes or gensyms, there's no reason to do this:
+  // the data itself is already in its final form, so the expander just passes
+  // it through unchanged.
+  //
+  // When there are holes, the expander has to convert the input to code that
+  // evaluates those holes later and fills them in. In the process, it replaces
+  // the quoted template input with unquoted code that generates its contents.
+
+  // What makes something a template is that it's code being treated as data.
+  // Specifically, this means that it's a quote form encountered by the
+  // expander in the context of code. So if we're already inside a quote and
+  // encounter a quote, that's just data, not a template. Therefore, we don't
+  // expand that inner quote (even if it has `unquote`s or other holes in it).
+
+  // For example, a quote with no holes is the literal it always was,
+  // untouched; so is everything that is not a template.
+  CHECK(expand(rt, "'(a b c)") == "(quote (a b c))"); // template
+  CHECK(expand(rt, "'x") == "(quote x)");             // template
+  CHECK(expand(rt, "(+ 1 2)") == "(+ 1 2)");          // non-template
+  CHECK(expand(rt, "42") == "42");                    // non-template
+
+  // If it's not data, it's not a template, so it's not expanded.
+  //
+  // The `$` is short for `unquote`, just as the `'` is short for `quote`. When
+  // spoken, '$' is pronounced "unquote" or "dollar". Note how the `$` syntax
+  // mirrors shell/template-string interpolation.
+  CHECK(expand(rt, "$x") == "(unquote x)"); // non-template
+  // The following, shown as cells, is:
+  // `[a | [[unquote | [x | nil]] | nil]]`.
+  CHECK(expand(rt, "(a $x)") == "(a (unquote x))"); // non-template
+
+  // If it's a template, it's a quote whose content has holes (such as those
+  // marked by an unquote form), so it cannot stand for itself. Instead, the
+  // expander rewrites it as code that will build the template while filling in
+  // the unquoted holes with evaluations.
+  //
+  // Concretely, the contents are placed in a `list` and each element that
+  // wasn't marked as `unquote` is quoted. It multiplies the `quote` against
+  // each element in the data, which cancels out when it hits an `unquote`.
+  CHECK(expand(rt, "'$x") == "x"); // Template with a single hole.
+  CHECK(expand(rt, "'(a $x)") ==
+        "(list (quote a) x)"); // template with a hole in a proper list
+
+  // Note how the `(+ 1 2)` is unquoted by `$`, which means if this were a
+  // macro definition, it would be evaluated when the macro was applied, not
+  // when its expansion runs, so the expansion would contain a `3` there.
+  CHECK(expand(rt, "'(a $(+ 1 2) \"s\" 7 nil true)") ==
+        "(list (quote a) (+ 1 2) \"s\" 7 nil true)"); // template with hole
+
+  // Nesting: A hole can be in a sublist (so long as that sublist itself is not
+  // quoted). When this is expanded, the input as a whole is wrapped in a
+  // `list`, as usual, while the elements that have no holes are quoted instead
+  // of being replaced by code that builds them.
+  CHECK(expand(rt, "'(a (b $x) (c d))") ==
+        "(list (quote a) (list (quote b) x) (quote (c d)))");
+
+  // A splice is a hole marked by `$@`, which is short for `unquote_splicing`.
+  // When spoken, it's pronounced "splice" or "dollar at".
+  //
+  // It expands to a list that's merged in (as opposed to becoming a sublist).
+  // The generated code uses `append`, and runs of plain elements become `list`
+  // segments with `quote` inside. Each splice is its own segment, which
+  // `append` joins. In other words, it concatenates a list of lists to build
+  // the output as opposed to just building a list.
+  CHECK(expand(rt, "'(a $@xs b)") ==
+        "(append (list (quote a)) xs (list (quote b)))");
+  CHECK(expand(rt, "'($@xs)") == "xs");
+  CHECK(expand(rt, "'($@xs $@ys)") == "(append xs ys)");
+
+  // An interesting special case is a hole in the dotted tail, such as in
+  // `'(a . $x)`. This turns out to be identical to the "classic" expression,
+  // `'(a unquote x)`.
+  //
+  // To understand why, consider that a proper list spends a cell per item,
+  // where the last cell ends in nil, while a dot instructs the reader to use
+  // this object as the tail.
+  //
+  // Since `$x` reads as the list `(unquote x)`, dotting it makes its cells the
+  // rest of the spine. In contrast, `(a $x)` would have put them as the head
+  // of a new cell. So if you look at the actual transformations, you can see
+  // that the dotted-tail hole naturally reads as a proper list, but with
+  // `unquote` in front of the hole instead of nesting it:
+  //
+  //   `(a x)`      `[a | [x | nil]]`
+  //   `(a . x)`    `[a | x]`
+  //   `(a $x)`     `[a | [[unquote | [x | nil]] | nil]]`
+  //   `(a . $x)`   `[a | [unquote | [x | nil]]]`
+  //
+  // The last example is still a proper list, just flattened, and its canonical
+  // printed form is `(a unquote x)`, so the flat spelling has the same cells
+  // and reads the same way.
+  //
+  // The expanded code has to use `append` in order to put the hole in the
+  // tail, since `list` generates proper lists, not dot-tailed ones.
+  CHECK(expand(rt, "'(a $x)") == "(list (quote a) x)"); // For contrast.
+  CHECK(expand(rt, "'(a . $x)") ==
+        "(append (list (quote a)) x)"); // Dotted-tail syntax.
+  CHECK(expand(rt, "'(a unquote x)") ==
+        "(append (list (quote a)) x)"); // Same same!
+
+  // The `$$` is an escape that maps directly to `%unquote`. When spoken, it's
+  // pronounced "dollar dollar" or "double dollar", but could also be called
+  // "quoted unquote" or even "escaped dollar".
+  //
+  // It allows a template to output `unquote` itself, without the expander
+  // interpreting it as a hole marker. This is useful for a macro that
+  // generates a macro. As in the example below, the result of its expansion
+  // shows up as `(quote unquote)`.
+  CHECK(expand(rt, "'(a . $$x)") ==
+        "(append (list (quote a)) (list (quote unquote) (quote x)))");
+
+  // A splice can work with a dotted-tail literal: the expander has to switch
+  // to `append` of `list`s, instead of a single `list`, because `append`
+  // allows creating a dotted tail.
+  CHECK(
+      expand(rt, "'(a $@xs . b)") == "(append (list (quote a)) xs (quote b))");
+
+  // Normally, a quote inside a template is data, so it would not be expanded.
+  // But if a quote is unquoted with `$`, then it's no longer the trivial
+  // passthrough case. Instead, the entire template is replaced with code that
+  // builds the template, with the holes filled in.
+  //
+  // In the example below, the output is the same as for `'(a (b $x))`, as
+  // though the `$` cancelled out the `'` that followed. However, it's not
+  // identical in general, because it creates two templates, which means that
+  // the gensyms would be distinct.
+  //
+  // The `$` opens a hole and its contents are interpreted as code. Since that
+  // code begins with a quote, it's a template. Therefore, the expander leaves
+  // the outer template and expands the contents of the hole much as if they
+  // had been encountered at the top level. The code is then dropped into the
+  // outer template's `list` as an element.
+  //
+  // The big picture is that `quote` marks data while `unquote` marks code. The
+  // odd case is `$$` (aka `%unquote`), which lets you enter the symbol
+  // `unquote` as data (where the build renders it as `(quote unquote)`). It
+  // is to `$` what the C `\\` is to `\`: an escape that makes the mode-switch
+  // symbol a plain one, while its operand stays a template like everything
+  // around it.
+  CHECK(expand(rt, "'(a $'(b $x))") == "(list (quote a) (list (quote b) x))");
+
+  // A quote nested inside a template is data, holes and all: it neither
+  // counts as a hole nor gets built.
+  CHECK(expand(rt, "'(a '(b $x))") == "(quote (a (quote (b (unquote x)))))");
+  CHECK(expand(rt, "'(a $x '(b $y))") ==
+        "(list (quote a) x (quote (quote (b (unquote y)))))");
+
+  // The escape yields the literal unquote form as data, its operand a
+  // template.
+  CHECK(expand(rt, "'(a $$x)") ==
+        "(list (quote a) (list (quote unquote) (quote x)))");
+  CHECK(expand(rt, "'(a $$(b $x))") ==
+        "(list (quote a) (list (quote unquote) (list (quote b) x)))");
+  // Templates are found anywhere in code.
+  CHECK(expand(rt, "(define f (lambda (x) '(a $x)))") ==
+        "(define f (lambda (x) (list (quote a) x)))");
+
+  // Evaluated, the construction code yields the filled template.
+  CHECK(run_expanded(rt, ev, "(define x 5) '(a $x)") == "(a 5)");
+  CHECK(run_expanded(rt, ev, "(define xs '(1 2)) '(a $@xs b $x)") ==
+        "(a 1 2 b 5)");
+  CHECK(run_expanded(rt, ev, "'(a (b $(* x 2)) (c d))") == "(a (b 10) (c d))");
+  CHECK(run_expanded(rt, ev, "'(a . $x)") == "(a . 5)");
+  CHECK(run_expanded(rt, ev, "'(a $$x)") == "(a (unquote x))");
+  CHECK(run_expanded(rt, ev, "'($@xs)") == "(1 2)");
+  CHECK(run_expanded(rt, ev, "'()") == "nil");
+
+  // Auto-gensym: a `%` name in a built template becomes one fresh symbol
+  // per template, every sighting in that template the same one, and even a
+  // hole-free template containing one is built.
+  CHECK(expand(rt, "'(f %tmp %tmp $x)") ==
+        "(list (quote f) (quote %tmp_1) (quote %tmp_1) x)");
+  CHECK(expand(rt, "'(f %tmp)") == "(list (quote f) (quote %tmp_2))");
+  // Distinct auto-gensym names in one template stay distinct.
+  CHECK(expand(rt, "'(f %a %b $x)") ==
+        "(list (quote f) (quote %a_3) (quote %b_4) x)");
+  // The rename reaches a hole-free subtree of a built template.
+  CHECK(expand(rt, "'(a (b %tmp) $x)") ==
+        "(list (quote a) (list (quote b) (quote %tmp_5)) x)");
+  // A nested quote keeps its `%` names for its own later expansion.
+  CHECK(expand(rt, "'(%tmp '(f %tmp) $x)") ==
+        "(list (quote %tmp_6) (quote (quote (f %tmp))) x)");
+  // The fresh names are bindable, being gensym-minted (the spelling is the
+  // same interned symbol however it is typed); hand-spelled `%` names stay
+  // reserved.
+  CHECK(run_expanded(rt, ev, "(define fresh '(%t $(+ 2 3))) (head fresh)") ==
+        "%t_7");
+  CHECK(run_expanded(rt, ev, "(define %t_7 42) %t_7") == "42");
+  CHECK(run_err(rt, ev, "(define %tmp 1)") ==
+        "'%' names are reserved for the kernel: %tmp");
+
+  // Malformed templates.
+  CHECK(expand_err(rt, "'(a (unquote))") == "unquote: expects 1 argument");
+  CHECK(expand_err(rt, "'(a (unquote x y))") == "unquote: expects 1 argument");
+  CHECK(expand_err(rt, "'$@xs") == "unquote_splicing: outside a list");
+  CHECK(expand_err(rt, "'(a . $@xs)") == "unquote_splicing: outside a list");
+  CHECK(expand_err(rt, "'(a (%unquote))") == "%unquote: expects 1 argument");
+  // Expansion is depth-guarded like every other pass. The reader's guard is
+  // the tighter one, so the deep template is built by hand.
+  value deep = rt.list_of({value{rt.sym_unquote}, value{rt.intern("x")}});
+  for (size_t ndx = 0; ndx < max_depth; ++ndx) deep = rt.cons(deep, value{});
+  deep = rt.list_of({value{rt.sym_quote}, deep});
+  expander ex(rt);
+  const auto code = ex.expand(deep);
+  REQUIRE_FALSE(code.has_value());
+  CHECK(code.as_error().reason == "expansion too deep");
 }
 
 #pragma endregion

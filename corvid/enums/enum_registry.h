@@ -24,7 +24,7 @@
 #include <type_traits>
 
 #include "../meta/concepts.h"
-#include "../meta/enums.h"
+#include "../meta/enum_math.h"
 
 // Note: This does not need to be directly included by the user because it's
 // in both "bitmask_enum.h" and "sequence_enum.h".

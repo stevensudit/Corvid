@@ -779,6 +779,9 @@ TEST_CASE("Monty unparser", "[coreb]") {
   // Escapes: shapes with no Monty spelling.
   CHECK(up("(define f (lambda (n)))") == "f = %(lambda (n))");
   CHECK(up("(quote x)") == "%(quote x)");
+  // The template marks await the same surface ruling as quote.
+  CHECK(up("'(a $b $@c $$d)") ==
+        "%(quote (a (unquote b) (unquote_splicing c) (%unquote d)))");
   CHECK(up("(define 5 6)") == "%(define 5 6)");
   CHECK(up("((lambda (n) n) 5)") == "%(lambda (n) n)(5)");
   CHECK(up("(f (quote x))") == "f(%(quote x))");

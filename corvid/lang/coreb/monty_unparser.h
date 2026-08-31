@@ -27,6 +27,7 @@
 
 #include "../../containers/core/scoped_value.h"
 #include "../../strings/cases.h"
+#include "../../strings/builder.h"
 #include "runtime.h"
 #include "token_classes.h"
 #include "value.h"
@@ -215,8 +216,8 @@ private:
 
     // Emit one expression in its natural spelling, unparenthesized.
     [[nodiscard]] emitted emit(const value& v) {
-      if (const auto sym = v.maybe_symbol()) {
-        const auto& name = (*sym).name();
+      if (const auto sym_ptr = v.maybe_symbol()) {
+        const auto& name = sym_ptr->name();
         // Every operator spells as its mention, `=` and `:=` included; a
         // `%` kernel symbol renders as-is, having no Monty spelling.
         if (is_operator_symbol(name)) return {"(" + name + ")", band::tight};
@@ -233,22 +234,25 @@ private:
       scoped_value guard(depth, depth + 1);
       std::vector<value> elems;
       if (!v.append_elements(elems)) return escape(v);
-      if (const auto head = elems[0].maybe_symbol()) {
-        if (*head == rt.sym_if && elems.size() == 4)
+
+      if (const auto head_ptr = elems[0].maybe_symbol()) {
+        const auto& head = *head_ptr;
+        if (head == rt.sym_if && elems.size() == 4)
           return {
               as_chain_operand(elems[2]) + " if " +
                   as_chain_operand(elems[1]) + " else " + as_expr(elems[3]),
               band::expr};
-        if (*head == rt.sym_list)
+        if (head == rt.sym_list)
           return {"[" + join_exprs(std::span{elems}.subspan(1)) + "]",
               band::tight};
         // A `begin` head deliberately falls through to the call emission:
         // the call spelling is the ruled sequencer.
-        if (*head == rt.sym_quote || *head == rt.sym_lambda ||
-            *head == rt.sym_define || *head == rt.sym_if)
+        if (head == rt.sym_quote || head == rt.sym_unquote ||
+            head == rt.sym_unquote_splicing ||
+            head == rt.sym_unquote_literal || head == rt.sym_lambda ||
+            head == rt.sym_define || head == rt.sym_if)
           return escape(v);
-        if (auto e = emit_operator((*head).name(), elems))
-          return *std::move(e);
+        if (auto e = emit_operator(head.name(), elems)) return *std::move(e);
       }
       return {as_callee(elems[0]) + "(" +
                   join_exprs(std::span{elems}.subspan(1)) + ")",
@@ -270,26 +274,20 @@ private:
       if (is_arithmetic(op->kind) && elems.size() == 3) {
         const auto family =
             op->kind == operator_kind::additive ? band::add : band::mul;
-        auto text = as_arith_operand(elems[1], family, true);
-        text += ' ';
-        text += name;
-        text += ' ';
-        text += as_arith_operand(elems[2], family, false);
-        return emitted{std::move(text), family};
+        strings::builder text;
+        text << as_arith_operand(elems[1], family, true) << ' ' << name << ' '
+             << as_arith_operand(elems[2], family, false);
+        return emitted{std::move(text.str()), family};
       }
       if (op->kind == operator_kind::comparison &&
           (op->chains ? elems.size() >= 3 : elems.size() == 3))
       {
-        std::string text;
+        strings::builder text;
         for (const auto& elem : elems.subspan(1)) {
-          if (!text.empty()) {
-            text += ' ';
-            text += name;
-            text += ' ';
-          }
-          text += as_cmp_operand(elem);
+          if (!text.str().empty()) text << ' ' << name << ' ';
+          text << as_cmp_operand(elem);
         }
-        return emitted{std::move(text), band::chain};
+        return emitted{std::move(text.str()), band::chain};
       }
       return std::nullopt;
     }
@@ -300,8 +298,7 @@ private:
     // Append one line at `indent` levels of two-space indentation.
     void emit_line(size_t indent, std::string_view text) {
       out.append(indent * 2, ' ');
-      out += text;
-      out += '\n';
+      strings::shared_builder{out} << text << '\n';
     }
 
     // Emit one form as a statement: a definition, a `fun` block, an
@@ -323,21 +320,24 @@ private:
       scoped_value guard(depth, depth + 1);
       std::vector<value> elems;
       if (!v.append_elements(elems)) return false;
-      const auto head = elems[0].maybe_symbol();
-      if (!head) return false;
-      if (*head == rt.sym_define && elems.size() == 3) {
+      const auto head_ptr = elems[0].maybe_symbol();
+      if (!head_ptr) return false;
+      const auto& head = *head_ptr;
+      if (head == rt.sym_define && elems.size() == 3) {
         if (emit_fun(elems[1], elems[2], indent)) return true;
-        const auto name = elems[1].maybe_symbol();
-        if (!name || !is_bindable_word((*name).name())) return false;
-        emit_line(indent, (*name).name() + " = " + as_expr(elems[2]));
+        const auto name_ptr = elems[1].maybe_symbol();
+        if (!name_ptr) return false;
+        const auto& name = name_ptr->name();
+        if (!is_bindable_word(name)) return false;
+        emit_line(indent, name + " = " + as_expr(elems[2]));
         return true;
       }
-      if (*head == rt.sym_begin && elems.size() >= 2) {
+      if (head == rt.sym_begin && elems.size() >= 2) {
         for (const auto& elem : std::span{elems}.subspan(1))
           emit_statement(elem, indent);
         return true;
       }
-      return *head == rt.sym_if && emit_if(elems, indent);
+      return head == rt.sym_if && emit_if(elems, indent);
     }
 
     // Emit `(define name (lambda params body...))` as a `fun` block when
@@ -346,16 +346,16 @@ private:
     // and a nonempty body.
     [[nodiscard]] bool
     emit_fun(const value& name_v, const value& lambda_v, size_t indent) {
-      const auto name = name_v.maybe_symbol();
-      if (!name) return false;
-      const auto& fname = (*name).name();
+      const auto name_ptr = name_v.maybe_symbol();
+      if (!name_ptr) return false;
+      const auto& fname = name_ptr->name();
       const auto word = is_bindable_word(fname);
       if (!word && !is_operator_symbol(fname)) return false;
       std::vector<value> lam;
       if (!lambda_v.is_cell() || !lambda_v.append_elements(lam)) return false;
       if (lam.size() < 3) return false;
-      if (const auto head = lam[0].maybe_symbol();
-          !head || *head != rt.sym_lambda)
+      if (const auto head_ptr = lam[0].maybe_symbol();
+          !head_ptr || *head_ptr != rt.sym_lambda)
         return false;
       std::vector<value> params;
       if (!lam[1].is_nil() &&
@@ -363,10 +363,12 @@ private:
         return false;
       std::string line = word ? "fun " + fname + "(" : "fun (" + fname + ")(";
       for (const auto& param : params) {
-        const auto sym = param.maybe_symbol();
-        if (!sym || !is_bindable_word((*sym).name())) return false;
+        const auto sym_ptr = param.maybe_symbol();
+        if (!sym_ptr) return false;
+        const auto& name = sym_ptr->name();
+        if (!is_bindable_word(name)) return false;
         if (line.back() != '(') line += ", ";
-        line += (*sym).name();
+        line += name;
       }
       line += "):";
       emit_line(indent, line);
@@ -402,8 +404,8 @@ private:
         std::vector<value> nested;
         if (!else_arm.is_cell() || !else_arm.append_elements(nested))
           return false;
-        const auto head = nested[0].maybe_symbol();
-        if (!head || *head != rt.sym_if) return false;
+        const auto head_ptr = nested[0].maybe_symbol();
+        if (!head_ptr || *head_ptr != rt.sym_if) return false;
         cur = std::move(nested);
       }
       for (size_t ndx = 0; ndx < arms.size(); ++ndx) {
@@ -424,8 +426,8 @@ private:
         const value& v) const {
       std::vector<value> elems;
       if (!v.is_cell() || !v.append_elements(elems)) return std::nullopt;
-      if (const auto head = elems[0].maybe_symbol();
-          !head || *head != rt.sym_begin || elems.size() < 2)
+      if (const auto head_ptr = elems[0].maybe_symbol();
+          !head_ptr || *head_ptr != rt.sym_begin || elems.size() < 2)
         return std::nullopt;
       elems.erase(elems.begin());
       return elems;
