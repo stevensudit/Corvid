@@ -810,10 +810,10 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   //
   // The `$` is short for `unquote`, just as the `'` is short for `quote`. When
   // spoken, '$' is pronounced "unquote" or "dollar". Note how the `$` syntax
-  // mirrors replaceable parameters in format strings.
+  // mirrors shell/template-string interpolation.
   CHECK(expand(rt, "$x") == "(unquote x)"); // non-template
-  // The following, shown as cells is:
-  // `[quote | [a | [[unquote | [x | nil]] | nil]]]`.
+  // The following, shown as cells, is:
+  // `[a | [[unquote | [x | nil]] | nil]]`.
   CHECK(expand(rt, "(a $x)") == "(a (unquote x))"); // non-template
 
   // If it's a template, it's a quote whose content has holes (such as those
@@ -821,19 +821,18 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   // expander rewrites it as code that will build the template while filling in
   // the unquoted holes with evaluations.
   //
-  // Concretely, the contents are placed in a `list` and each segment that
+  // Concretely, the contents are placed in a `list` and each element that
   // wasn't marked as `unquote` is quoted. It multiplies the `quote` against
   // each element in the data, which cancels out when it hits an `unquote`.
   CHECK(expand(rt, "'$x") == "x"); // Template with a single hole.
   CHECK(expand(rt, "'(a $x)") ==
-        "(list (quote a) x)"); // Template with a hole in a proper list.
+        "(list (quote a) x)"); // template with a hole in a proper list
 
-  // Note how the `(+ 1 2)` is unquoted by '$', which means if it this were a
-  // macro definition, it would be evaluated when the macro was applied so as
-  // to generate a function, not when that function runs. In other words, the
-  // generated function would contain a `3` there.
+  // Note how the `(+ 1 2)` is unquoted by `$`, which means if this were a
+  // macro definition, it would be evaluated when the macro was applied, not
+  // when its expansion runs, so the expansion would contain a `3` there.
   CHECK(expand(rt, "'(a $(+ 1 2) \"s\" 7 nil true)") ==
-        "(list (quote a) (+ 1 2) \"s\" 7 nil true)"); // template with hole.
+        "(list (quote a) (+ 1 2) \"s\" 7 nil true)"); // template with hole
 
   // Nesting: A hole can be in a sublist (so long as that sublist itself is not
   // quoted). When this is expanded, the input as a whole is wrapped in a
@@ -846,8 +845,9 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   // When spoken, it's pronounced "splice" or "dollar at".
   //
   // It expands to a list that's merged in (as opposed to becoming a sublist).
-  // The generated code uses `append`, and each segment becomes a `list` with
-  // `quote` inside. In other words, it concatenates a list of lists to build
+  // The generated code uses `append`, and runs of plain elements become `list`
+  // segments with `quote` inside. Each splice is its own segment, which
+  // `append` joins. In other words, it concatenates a list of lists to build
   // the output as opposed to just building a list.
   CHECK(expand(rt, "'(a $@xs b)") ==
         "(append (list (quote a)) xs (list (quote b)))");
@@ -865,7 +865,7 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   // Since `$x` reads as the list `(unquote x)`, dotting it makes its cells the
   // rest of the spine. In contrast, `(a $x)` would have put them as the head
   // of a new cell. So if you look at the actual transformations, you can see
-  // that the dotted-tail hole naturally expands into a proper list, but with
+  // that the dotted-tail hole naturally reads as a proper list, but with
   // `unquote` in front of the hole instead of nesting it:
   //
   //   `(a x)`      `[a | [x | nil]]`
