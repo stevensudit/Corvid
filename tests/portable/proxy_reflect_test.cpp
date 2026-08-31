@@ -785,6 +785,16 @@ struct mirage_api {
 
 struct mirage: prox::reflected_facade<mirage, mirage_api> {};
 
+// `mime` derives from an interface whose members all decline (an
+// rvalue-only member and a static one), pinning the zero-method pack
+// through the whole derivation.
+struct mime_api {
+  void gesture(this mime_api&& self);
+  static void breathe();
+};
+
+struct mime: prox::reflected_facade<mime, mime_api> {};
+
 // `census` defines its own `api`, which the reflected one yields to. The
 // registration validates it over the reflected boilerplate as it would over
 // a hand-written one, and this `api` deliberately deviates (its forwarder
@@ -918,6 +928,12 @@ static_assert(std::is_same_v<mirage_build::slot_t<0>::method_t,
     prox::method<"shimmer", void() const>>);
 static_assert(std::is_same_v<mirage_build::slot_t<1>::method_t,
     prox::method<"haze", void() const>>);
+
+// The zero-method facade: every member declines, and the empty pack still
+// derives a facade with its name.
+using mime_build = prox::details::vtbuild_t<mime>;
+static_assert(mime_build::name_v.view() == "mime");
+static_assert(mime_build::count_v == 0);
 
 #pragma endregion
 #pragma region Sugar layout
