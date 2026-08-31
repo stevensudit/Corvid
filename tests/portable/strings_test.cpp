@@ -1669,7 +1669,7 @@ TEST_CASE("Print", "[StringUtilsTest]") {
 }
 
 #pragma endregion
-#pragma region Trim
+#pragma region Concat
 
 TEST_CASE("Concat", "[StringUtilsTest]") {
   std::string s = "a";
@@ -1720,6 +1720,9 @@ TEST_CASE("Concat", "[StringUtilsTest]") {
   static_assert(!std::is_default_constructible_v<strings::shared_builder>);
   static_assert(!std::is_constructible_v<strings::builder, std::string&>);
 }
+
+#pragma endregion
+#pragma region Trim
 
 TEST_CASE("Trim", "[StringUtilsTest]") {
   if (true) {

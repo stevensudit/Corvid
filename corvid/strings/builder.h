@@ -74,10 +74,10 @@ constexpr auto& concat_with_to(std::string& target, delim d,
 // Where `std::string::operator+=` cannot be chained without parentheses,
 // `builder{} << "a" << 'b' << sv` appends in order.
 //
-//  The ownership parameter selects the target: `unique` builds into a string
-//  the builder owns, while `shared` builds into a `std::string&` supplied at
-//  construction, so an existing buffer can be appended to in place. Either
-//  way, `str()` exposes the string being built.
+// The ownership parameter selects the target: `unique` builds into a string
+// the builder owns, while `shared` builds into a `std::string&` supplied at
+// construction, so an existing buffer can be appended to in place. Either
+// way, `str()` exposes the string being built.
 template<ownership_type Ownership>
 class basic_builder {
   static constexpr bool owning = (Ownership == ownership_type::unique);

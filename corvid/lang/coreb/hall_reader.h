@@ -48,23 +48,23 @@ namespace corvid { inline namespace lang { namespace coreb {
 // The grammar:
 // - Lists are parenthesized, whitespace-separated, and may end with a dotted
 //   tail: "(a b . c)". "()" reads as nil.
-
+//
 // - "nil", "true", and "false" are literals, not symbols.
 //
 // - A token starting with a digit, or with a sign or '.' followed by a digit,
 //   is a number: first tried as a 64-bit integer, then as a double, so an
 //   integer too large for int64 falls back to floating point.
 //
-// - (quote x) may be written 'x. A quoted form is a template , and the marks
+// - (quote x) may be written 'x. A quoted form is a template, and the marks
 //   inside it read the same way: $x is (unquote x), a hole filled with the
 //   value of x; $@x is (unquote_splicing x), a hole filled with the elements
 //   of x; and $$x is (%unquote x), the escape that makes the literal form
 //   (unquote x) data. The marks are read sugar only: the long forms print as
 //   themselves.
-
+//
 // - Strings are double-quoted; the escapes are \" \\ \n \t \r, plus \u{hex}
 //   denoting a byte by value.
-
+//
 // - Any other token must spell a symbol in the shared token classes (see
 //   "token_classes.h"): a word symbol, an operator symbol, or the '%' kernel
 //   prefix on a word symbol; anything else is an error, so blends such as
