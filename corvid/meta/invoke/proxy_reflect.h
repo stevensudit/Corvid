@@ -596,6 +596,14 @@ substitutes_into_arguments(std::meta::info m, std::meta::info cls) {
 // the one argument; `substitutes_into_arguments` catches those whose object
 // parameter is concrete, where the class would land in an argument slot.
 //
+// Two shapes remain indistinguishable from the deduced pattern and
+// misdeclare instead of declining: an object parameter wrapped in a
+// non-deduced context (`this std::type_identity_t<T> self`), and a template
+// parameter that no parameter uses. Each declares the method its
+// substituted shape suggests, though no call deduction would select the
+// member; a concrete target binds that method as usual, a template target
+// cannot.
+//
 // gcc 16.2 instantiates the body of a specialization as `substitute` forms
 // it, which is harmless on a body-less declaration. An interface member
 // template that carries a body must compile it for the interface itself.

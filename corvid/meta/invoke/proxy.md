@@ -2629,19 +2629,25 @@ a clang pass reshapes one helper at a time.
   declaration on the interface's own type, and gcc 16.2 compiles a body at
   that point, so an interface member template that has a body must compile
   for the interface itself.
-- The interface derivation reconstructs deduction by substitution, and two
-  corners of that reconstruction fall short of a real call. A forwarding
-  reference gated to const by its constraint (`this auto&& self` with a
-  requires clause demanding a const `self`) declares nothing, because the
-  const probe that admits constrained members cannot tell a forwarding
-  reference from `const auto&&`; spell it `const auto&`, which declares the
-  const method. And a template that deduces from its call arguments is
-  declined by comparing a substitution pair, which catches a concrete
-  object parameter beside a deducible argument, but a template parameter
-  that no argument uses is undetectable and misdeclares. A member missing
-  from the facade shows up as a call on the key failing its "no matching
-  signature" assertion while the interface accepts the same call, with the
-  derived facade's slot count short by one.
+- The interface derivation reconstructs deduction by substitution, and a
+  few corners of that reconstruction fall short of a real call. A
+  forwarding reference gated to const by its constraint (`this auto&& self`
+  with a requires clause demanding a const `self`) declares nothing,
+  because the const probe that admits constrained members cannot tell a
+  forwarding reference from `const auto&&`; spell it `const auto&`, which
+  declares the const method. A template that deduces from its call
+  arguments is declined by comparing a substitution pair, which catches a
+  concrete object parameter beside a deducible argument.
+  Two shapes are indistinguishable from the deduced pattern by substitution
+  and misdeclare rather than decline: an object parameter wrapped in a
+  non-deduced context (`this std::type_identity_t<T> self`), and a
+  template parameter that no parameter uses. Each declares the method its
+  substituted shape suggests, though no call deduction would select the
+  member; a concrete target binds that method as usual, a template target
+  cannot. A member missing from the facade shows up as a call on the key
+  failing its "no matching signature" assertion while the interface
+  accepts the same call, with the derived facade's slot count short by
+  one.
 - Name hiding is approximated from what `members_of` reports, including
   the names an unscoped member enum or an anonymous union injects, which
   it reports only indirectly. A using-declaration is not a member to it,

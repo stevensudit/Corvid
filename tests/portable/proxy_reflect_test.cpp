@@ -747,6 +747,22 @@ struct crier_api {
 
 struct crier: prox::reflected_facade<crier, crier_api> {};
 
+// `mirage` pins two misdeclares the derivation cannot detect, as a tripwire
+// we want tripped: if these members stop declaring, the derivation got
+// smarter, and the asserts should flip to pin the new declines.
+//
+// No call deduction would select either member. `shimmer` wraps its object
+// parameter in a non-deduced context, and `haze` never uses its template
+// parameter. Each declares the method its substituted shape suggests.
+struct mirage_api {
+  template<typename T>
+  void shimmer(this std::type_identity_t<T> self);
+  template<typename U>
+  void haze(this const mirage_api& self);
+};
+
+struct mirage: prox::reflected_facade<mirage, mirage_api> {};
+
 // `census` defines its own `api`, which the reflected one yields to. The
 // registration validates it over the reflected boilerplate as it would over
 // a hand-written one, and this `api` deliberately deviates (its forwarder
@@ -870,6 +886,16 @@ static_assert(std::is_same_v<crier_build::slot_t<4>::method_t,
     prox::method<"peek", void() const>>);
 static_assert(std::is_same_v<crier_build::slot_t<5>::method_t,
     prox::method<"growl", void() const noexcept>>);
+
+// The `mirage` tripwire: these pin behavior we WANT to lose. If they fail
+// because `shimmer` and `haze` now declare nothing, that is the derivation
+// improving; flip the asserts to pin the declines.
+using mirage_build = prox::details::vtbuild_t<mirage>;
+static_assert(mirage_build::count_v == 2);
+static_assert(std::is_same_v<mirage_build::slot_t<0>::method_t,
+    prox::method<"shimmer", void() const>>);
+static_assert(std::is_same_v<mirage_build::slot_t<1>::method_t,
+    prox::method<"haze", void() const>>);
 
 #pragma endregion
 #pragma region Sugar layout
