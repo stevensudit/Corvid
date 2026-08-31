@@ -298,16 +298,6 @@ using method_signature_t =
 #pragma endregion
 #pragma region Ranking
 
-// The synthetic overload standing in for candidate function `M` at index
-// `Ndx`.
-//
-// The probe is `rank_probe`, the same synthetic overload `resolve` ranks for
-// a facade's own overload sets, over the candidate's method signature.
-template<std::meta::info M, size_t Ndx>
-using reflected_probe_t =
-    rank_probe<Ndx, signature_traits<method_signature_t<M>>::const_qualifier,
-        typename signature_traits<method_signature_t<M>>::args_t>;
-
 // `splice_probe` is the synthetic overload standing in for candidate template
 // `M` at index `Ndx`, in a call on `Self`.
 //
@@ -349,9 +339,11 @@ concept DecomposableMethod = requires {
 
 // The probe for candidate `M` at index `Ndx`, in a call on `Self`.
 //
-// Constrained partials rather than `std::conditional_t`, which would form
-// the signature probe of a template (ill-formed, a template has no
-// signature) while choosing the other arm.
+// A function's probe is `rank_probe`, the same synthetic overload `resolve`
+// ranks for a facade's own overload sets, over the candidate's method
+// signature. Constrained partials rather than `std::conditional_t`, which
+// would form the signature probe of a template (ill-formed, a template has
+// no signature) while choosing the other arm.
 //
 // A function whose signature does not decompose (a C-variadic member) takes
 // the poisoned probe: never viable, so a sibling overload still binds and a
@@ -363,7 +355,9 @@ struct candidate_probe;
 template<std::meta::info M, size_t Ndx, typename Self>
 requires(std::meta::is_function(M) && DecomposableMethod<M>)
 struct candidate_probe<M, Ndx, Self> {
-  using type = reflected_probe_t<M, Ndx>;
+  using traits_t = signature_traits<method_signature_t<M>>;
+  using type =
+      rank_probe<Ndx, traits_t::const_qualifier, typename traits_t::args_t>;
 };
 
 template<std::meta::info M, size_t Ndx, typename Self>
@@ -455,6 +449,9 @@ struct reflected_member {
 // template; the dispatch is a call splice of `member_v`, whose deduction the
 // probe has already checked, so it is bound outright.
 //
+// Each bound partial names its flavor as `by_pointer_v`, the one fact
+// `reflected_call` tests to split the same way.
+//
 // It is a class template rather than a consteval function, so that `on` names
 // only class template-ids in its signature. Needed because gcc 16 cannot
 // mangle a consteval call carrying reflection values there.
@@ -471,6 +468,7 @@ requires(
     std::meta::is_function(
         reflected_ranker_t<T, Key, Ctx>::template pick<Self, Args...>()))
 struct reflected_binding<T, Ctx, Key, Self, Args...> {
+  static constexpr bool by_pointer_v = true;
   using ranker_t = reflected_ranker_t<T, Key, Ctx>;
   static constexpr auto ptr_v =
       reflected_member<ranker_t::template pick<Self, Args...>()>::ptr_v;
@@ -485,6 +483,7 @@ requires(
     std::meta::is_function_template(
         reflected_ranker_t<T, Key, Ctx>::template pick<Self, Args...>()))
 struct reflected_binding<T, Ctx, Key, Self, Args...> {
+  static constexpr bool by_pointer_v = false;
   using ranker_t = reflected_ranker_t<T, Key, Ctx>;
   static constexpr auto member_v = ranker_t::template pick<Self, Args...>();
   static constexpr bool bound_v = true;
@@ -494,28 +493,44 @@ struct reflected_binding<T, Ctx, Key, Self, Args...> {
 // whether the invocation is nothrow.
 //
 // Separate from `reflected_binding` so that they are formed only for a key
-// that binds. The partials split on the binding's flavor: a function's
-// result and `noexcept` come through its member pointer, a template's from
-// the spliced call expression, unevaluated, so its declaration is
-// instantiated and its body is not (a deduced return type is the exception,
-// taking the body for its type).
+// that binds. The partials split on the binding's `by_pointer_v`. A function's
+// result and `noexcept` come through its member pointer, a template's from the
+// spliced call expression, unevaluated, so its declaration is instantiated and
+// its body is not (a deduced return type is the exception, taking the body for
+// its type).
+//
+// Each partial also carries `dispatch`, the evaluated call beside the
+// unevaluated pair it must mirror, so the two cannot drift apart unseen.
+// The splice stays in the body, since gcc 16 cannot mangle one in a
+// function signature.
 template<typename T, std::meta::access_context Ctx, fixed_string Key,
     typename Self, typename... Args>
 struct reflected_call;
 
 template<typename T, std::meta::access_context Ctx, fixed_string Key,
     typename Self, typename... Args>
-requires(requires { reflected_binding<T, Ctx, Key, Self, Args...>::ptr_v; })
+requires(requires {
+  requires reflected_binding<T, Ctx, Key, Self, Args...>::by_pointer_v;
+})
 struct reflected_call<T, Ctx, Key, Self, Args...> {
-  using ptr_t = reflected_binding<T, Ctx, Key, Self, Args...>::ptr_t;
+  static constexpr auto ptr_v =
+      reflected_binding<T, Ctx, Key, Self, Args...>::ptr_v;
+  using ptr_t = decltype(ptr_v);
   using result_t = std::invoke_result_t<ptr_t, Self&, Args...>;
   static constexpr bool nothrow_v =
       std::is_nothrow_invocable_v<ptr_t, Self&, Args...>;
+
+  static constexpr auto dispatch(Self& t, Args&&... args) noexcept(nothrow_v)
+      -> result_t {
+    return std::invoke(ptr_v, t, std::forward<Args>(args)...);
+  }
 };
 
 template<typename T, std::meta::access_context Ctx, fixed_string Key,
     typename Self, typename... Args>
-requires(requires { reflected_binding<T, Ctx, Key, Self, Args...>::member_v; })
+requires(requires {
+  requires !reflected_binding<T, Ctx, Key, Self, Args...>::by_pointer_v;
+})
 struct reflected_call<T, Ctx, Key, Self, Args...> {
   static constexpr auto member_v =
       reflected_binding<T, Ctx, Key, Self, Args...>::member_v;
@@ -523,6 +538,11 @@ struct reflected_call<T, Ctx, Key, Self, Args...> {
       std::declval<Args>()...));
   static constexpr bool nothrow_v = noexcept(
       std::declval<Self&>().template[:member_v:](std::declval<Args>()...));
+
+  static constexpr auto dispatch(Self& t, Args&&... args) noexcept(nothrow_v)
+      -> result_t {
+    return t.template[:member_v:](std::forward<Args>(args)...);
+  }
 };
 
 #pragma endregion
@@ -872,11 +892,8 @@ struct reflected_impl: proxy_impl_base {
   static constexpr auto on(method_key<Key>, Self& t, Args&&... args) noexcept(
       details::reflected_call<T, Ctx, Key, Self, Args...>::nothrow_v)
       -> details::reflected_call<T, Ctx, Key, Self, Args...>::result_t {
-    using binding_t = details::reflected_binding<T, Ctx, Key, Self, Args...>;
-    if constexpr (requires { binding_t::ptr_v; })
-      return std::invoke(binding_t::ptr_v, t, std::forward<Args>(args)...);
-    else
-      return t.template[:binding_t::member_v:](std::forward<Args>(args)...);
+    return details::reflected_call<T, Ctx, Key, Self, Args...>::dispatch(t,
+        std::forward<Args>(args)...);
   }
 };
 
