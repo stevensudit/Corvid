@@ -515,6 +515,44 @@ consteval auto corvid_proxy_spec(gunslinger*, vigilante*) {
   return prox::make_proxy_spec<gunslinger, vigilante>();
 }
 
+// `pyromaniac` injects `fire` as an enumerator of an unscoped member enum,
+// which hides the `lawman` functions as a data member would, so the pair is
+// not conformant.
+struct pyromaniac: public lawman {
+  enum { fire = 1 };
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, pyromaniac*) {
+  return prox::make_proxy_spec<gunslinger, pyromaniac>();
+}
+
+// `quartermaster` injects `fire` as an anonymous-union member, which hides
+// the same way.
+struct quartermaster: public lawman {
+  union {
+    int fire{};
+    long powder;
+  };
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, quartermaster*) {
+  return prox::make_proxy_spec<gunslinger, quartermaster>();
+}
+
+// `drill_sergeant` pins the negative controls: a scoped enumerator injects
+// nothing, and a named union object injects only its own name, so `fire`
+// still reaches `lawman`'s and the pair conforms.
+struct drill_sergeant: public lawman {
+  enum class drill { fire };
+  union {
+    int fire;
+  } load{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, drill_sergeant*) {
+  return prox::make_proxy_spec<gunslinger, drill_sergeant>();
+}
+
 // `battery` carries an overload set, a const pair, and a `noexcept` method,
 // all spelled as declarations, and takes its name from its identifier.
 struct battery_api {
@@ -847,6 +885,9 @@ static_assert(!prox::Proxiable<cowboy, gunslinger>);
 static_assert(!prox::Proxiable<arsonist, gunslinger>);
 static_assert(!prox::Proxiable<saboteur, gunslinger>);
 static_assert(!prox::Proxiable<vigilante, gunslinger>);
+static_assert(!prox::Proxiable<pyromaniac, gunslinger>);
+static_assert(!prox::Proxiable<quartermaster, gunslinger>);
+static_assert(prox::Proxiable<drill_sergeant, gunslinger>);
 static_assert(!prox::Proxiable<lawman, hair_trigger>);
 static_assert(!prox::Proxiable<int, till>);
 static_assert(!prox::Proxiable<any_doubler, halver>);

@@ -2622,11 +2622,13 @@ a clang pass reshapes one helper at a time.
   from the facade shows up as a call on the key failing its "no matching
   signature" assertion while the interface accepts the same call, with the
   derived facade's slot count short by one.
-- Name hiding is approximated from what `members_of` reports. A
-  using-declaration is not a member to it, so a base overload that
-  `using base::fire;` un-hides beside the class's own `fire` is not a
-  candidate, and the pair does not conform on that key (it takes a
-  `members<>` binding or an override). This is on the list in "Later".
+- Name hiding is approximated from what `members_of` reports, including
+  the names an unscoped member enum or an anonymous union injects, which
+  it reports only indirectly. A using-declaration is not a member to it,
+  so a base overload that `using base::fire;` un-hides beside the class's
+  own `fire` is not a candidate, and the pair does not conform on that key
+  (it takes a `members<>` binding or an override). This is on the list in
+  "Later".
 - A name declared under more than one base is an ambiguous merge and the
   key is unbound, as the language rejects it at lookup, before viability;
   a data member in one base beside a function in the other is ambiguous

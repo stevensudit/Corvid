@@ -129,6 +129,36 @@ struct named_search {
   bool is_declared{};
 };
 
+// Whether member `m` injects `name` into its class's scope, the way an
+// unscoped member enum injects its enumerators and an anonymous union
+// injects its members.
+//
+// Both hide a base's members under the injected name without contributing a
+// candidate, and neither appears in `members_of` under it: the enum is
+// reported under its own spelling and the anonymous union as an unnamed
+// member of union type. A scoped enum injects nothing, and a named union
+// object injects only its own name.
+consteval bool injects_name(std::meta::info m, std::string_view name,
+    std::meta::access_context ctx) {
+  if (std::meta::is_type(m) && std::meta::is_enum_type(m) &&
+      !std::meta::is_scoped_enum_type(m))
+  {
+    for (const auto e : std::meta::enumerators_of(m))
+      if (std::meta::identifier_of(e) == name) return true;
+    return false;
+  }
+  if (std::meta::is_nonstatic_data_member(m) && !std::meta::has_identifier(m))
+  {
+    const auto t = std::meta::dealias(std::meta::type_of(m));
+    if (!std::meta::is_union_type(t)) return false;
+    for (const auto um : std::meta::members_of(t, ctx))
+      if (std::meta::has_identifier(um) &&
+          std::meta::identifier_of(um) == name)
+        return true;
+  }
+  return false;
+}
+
 // `named_candidates` finds the members of `cls` named `name` that a call
 // could select, as seen from `ctx`, or none when `cls` is not a class type.
 //
@@ -139,6 +169,9 @@ struct named_search {
 // `t.name(...)` applies, with one documented gap. The gap is that a
 // using-declaration is not a member to `members_of`, so a base overload it
 // un-hides is not a candidate beside the class's own.
+//
+// Injected names hide too, checked by `injects_name` inside the members
+// that carry them.
 //
 // A name declared under more than one base is an ambiguous merge, which the
 // language rejects before it ever weighs viability, so the set comes back
@@ -158,6 +191,7 @@ consteval named_search named_candidates(std::meta::info cls,
   if (!std::meta::is_class_type(cls)) return out;
 
   for (const auto m : std::meta::members_of(cls, ctx)) {
+    if (injects_name(m, name, ctx)) out.is_declared = true;
     if (!std::meta::has_identifier(m) || std::meta::identifier_of(m) != name)
       continue;
     out.is_declared = true;
