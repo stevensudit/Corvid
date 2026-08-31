@@ -78,8 +78,8 @@
   },
   "remoteUser": "node",
   "mounts": [
-    "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
-    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
+    "source=corvid-container-bashhistory,target=/commandhistory,type=volume",
+    "source=corvid-container-claude,target=/home/node/.claude,type=volume",
     "source=corvid-container-ssh,target=/home/node/.ssh,type=volume",
     "source=corvid-container-gh,target=/home/node/.config/gh,type=volume"
   ],
