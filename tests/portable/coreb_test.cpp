@@ -781,12 +781,12 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   evaluator ev(rt);
 
   // The job of the expander is to convert a template into code that builds the
-  // contents of the template. This is a mechanical transformation in which the
-  // elements of the input are wrapped in `list`, `quote`, and perhaps `append`
-  // forms to create that build code.
+  // contents of the template, so that the holes can be filled in. This is a
+  // mechanical transformation in which the elements of the input are wrapped
+  // in `list`, `quote`, and perhaps `append` forms to create that build code.
   //
   // However, when there are no holes or gensyms, there's no reason to do this:
-  // the data itself is already in the final form, so the expander just passes
+  // the data itself is already in its final form, so the expander just passes
   // it through unchanged.
   //
   // When there are holes, the expander has to convert the input to code that
@@ -828,16 +828,16 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   CHECK(expand(rt, "'(a $x)") ==
         "(list (quote a) x)"); // Template with a hole in a proper list.
 
-  // Note how the `(+ 1 2)` is unquoted, which means if it this were a macro
-  // definition, it would be evaluated when the macro was applied so as to
-  // generate a function, not when that function runs. In other words, the
+  // Note how the `(+ 1 2)` is unquoted by '$', which means if it this were a
+  // macro definition, it would be evaluated when the macro was applied so as
+  // to generate a function, not when that function runs. In other words, the
   // generated function would contain a `3` there.
   CHECK(expand(rt, "'(a $(+ 1 2) \"s\" 7 nil true)") ==
         "(list (quote a) (+ 1 2) \"s\" 7 nil true)"); // template with hole.
 
   // Nesting: A hole can be in a sublist (so long as that sublist itself is not
   // quoted). When this is expanded, the input as a whole is wrapped in a
-  // `list`, as usual, but the elements that have no holes are quoted instead
+  // `list`, as usual, while the elements that have no holes are quoted instead
   // of being replaced by code that builds them.
   CHECK(expand(rt, "'(a (b $x) (c d))") ==
         "(list (quote a) (list (quote b) x) (quote (c d)))");
@@ -873,8 +873,8 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   //   `(a $x)`     `[a | [[unquote | [x | nil]] | nil]]`
   //   `(a . $x)`   `[a | [unquote | [x | nil]]]`
   //
-  // The last example is still a proper list, just flattened, and `(a unquote
-  // x)` is its canonical printed form, so the flat spelling has the same cells
+  // The last example is still a proper list, just flattened, and its canonical
+  // printed form is `(a unquote x)`, so the flat spelling has the same cells
   // and reads the same way.
   //
   // The expanded code has to use `append` in order to put the hole in the
@@ -891,8 +891,8 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   //
   // It allows a template to output `unquote` itself, without the expander
   // interpreting it as a hole marker. This is useful for a macro that
-  // generates a macro. The result of its expansion shows up as `(quote
-  // unquote)`, as in the example below:
+  // generates a macro. As in the example below, the result of its expansion
+  // shows up as `(quote unquote)`.
   CHECK(expand(rt, "'(a . $$x)") ==
         "(append (list (quote a)) (list (quote unquote) (quote x)))");
 
