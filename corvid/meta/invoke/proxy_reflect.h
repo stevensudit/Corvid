@@ -701,7 +701,8 @@ using reflected_facade = details::facade_maker<F,
 // therefore does not bind even under a `Ctx` that sees it, though a private
 // function does, through its pointer. Two templates viable for one call are
 // ambiguous here, even where the language's partial ordering would pick
-// one.
+// one. Such a key takes an override, a binding `boilerplate` class whose `on`
+// spells the call by name and so gets the language's full resolution.
 template<typename T,
     std::meta::access_context Ctx = std::meta::access_context::current()>
 struct reflected_impl: proxy_impl_base {
