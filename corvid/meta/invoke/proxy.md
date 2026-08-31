@@ -2617,6 +2617,13 @@ a clang pass reshapes one helper at a time.
   `Proxiable` check or registration, not a lost ranking or a clean
   non-conformance. Declaring the return type keeps probing to the
   declaration alone.
+- A C-variadic member of a target is never a candidate: its probe is
+  poisoned, so a sibling overload binds as if the variadic one were
+  absent, and a key whose only member is variadic is unbound, where the
+  language would rank it and call through the ellipsis. A C-variadic
+  declaration in an interface errors at facade formation, exactly as a
+  hand-written `method<>` with that signature does on the portable route:
+  a method signature cannot be C-variadic on either route.
 - An interface handed to `reflected_facade` carries member function
   templates as declarations. The derivation specializes a deducing-this
   declaration on the interface's own type, and gcc 16.2 compiles a body at

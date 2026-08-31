@@ -230,6 +230,35 @@ consteval auto corvid_proxy_spec(refinery*, smelter*) {
   return prox::make_proxy_spec<refinery, smelter>();
 }
 
+// `blunderbuss` carries C-variadic overloads, implicit- and explicit-object,
+// beside a plain `fire`. A variadic member is never a candidate, so the
+// plain one binds as if it stood alone.
+struct volley_api {
+  int fire(int shots);
+};
+
+struct volley: prox::reflected_facade<volley, volley_api> {};
+
+struct blunderbuss {
+  int fire(int shots) { return shots * 2; }
+  int fire(const char*, ...) { return -1; }
+  int fire(this blunderbuss&, double, ...) { return -1; }
+};
+
+consteval auto corvid_proxy_spec(volley*, blunderbuss*) {
+  return prox::make_proxy_spec<volley, blunderbuss>();
+}
+
+// `scattergun` offers `fire` only as a C-variadic member, so the key is
+// unbound, where the language would call through the ellipsis.
+struct scattergun {
+  int fire(const char*, ...) { return -1; }
+};
+
+consteval auto corvid_proxy_spec(volley*, scattergun*) {
+  return prox::make_proxy_spec<volley, scattergun>();
+}
+
 // `mitrailleuse` overloads `fire`: a plain member takes `long`, a template
 // deduces the rest.
 //
@@ -899,6 +928,8 @@ static_assert(prox::Proxiable<abacus, tally>);
 static_assert(prox::Proxiable<lawman, roster>);
 static_assert(prox::Proxiable<any_doubler, doubler>);
 static_assert(prox::Proxiable<smelter, refinery>);
+static_assert(prox::Proxiable<blunderbuss, volley>);
+static_assert(!prox::Proxiable<scattergun, volley>);
 static_assert(prox::Proxiable<mitrailleuse, gatling>);
 static_assert(prox::Proxiable<assayer, assay>);
 static_assert(prox::Proxiable<mule_train, caravan>);
@@ -1254,13 +1285,19 @@ TEST_CASE("Template argument deduction is the language's", "[proxy_reflect]") {
   squatter s;
   proxy_view<claim> ps{s};
   CHECK(ps.call<"stake">(4) == 4);
+  CHECK(ps.call<"stake">(3) == 7);
 
   // A deduced return type dispatches like any other template; its body was
   // compiled at the probe.
   smelter sm;
   proxy_view<refinery> pr{sm};
   CHECK(pr.call<"refine">(21) == 42);
-  CHECK(ps.call<"stake">(3) == 7);
+}
+
+TEST_CASE("A C-variadic overload never binds", "[proxy_reflect]") {
+  blunderbuss b;
+  proxy_view<volley> pv{b};
+  CHECK(pv.call<"fire">(3) == 6);
 }
 
 #pragma endregion

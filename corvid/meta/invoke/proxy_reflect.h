@@ -246,8 +246,10 @@ using signature_t = [:std::meta::type_of(M):];
 //
 // The object parameter leaves the parameter list, and the lvalue it admits
 // becomes the const qualifier, so the signature reads as the plain
-// declaration of the same method. A function admitting no lvalue keeps its
-// result and takes `rank_poison`, which no ranking call satisfies.
+// declaration of the same method. A function admitting no lvalue becomes
+// `void(rank_poison)`, which no ranking call satisfies; a poisoned probe's
+// result is never read, and leaving `signature_traits` out of it keeps the
+// partial safe on a C-variadic member.
 template<typename Sig, object_param Obj>
 struct object_signature {
   using type = Sig;
@@ -275,8 +277,7 @@ struct object_signature<R(P, Args...) noexcept, object_param::as_const> {
 
 template<typename Sig>
 struct object_signature<Sig, object_param::rvalue_only> {
-  using result_t = signature_traits<Sig>::result_t;
-  using type = result_t(rank_poison);
+  using type = void(rank_poison);
 };
 
 // The method signature reflected function `M` declares, which is its
@@ -332,18 +333,36 @@ struct splice_probe {
   std::integral_constant<size_t, Ndx> operator()(Args&&...) const;
 };
 
+// Whether `signature_traits` decomposes the method signature of function
+// `M`, which it does not for a C-variadic member.
+template<std::meta::info M>
+concept DecomposableMethod = requires {
+  typename signature_traits<method_signature_t<M>>::result_t;
+};
+
 // The probe for candidate `M` at index `Ndx`, in a call on `Self`.
 //
 // Constrained partials rather than `std::conditional_t`, which would form
 // the signature probe of a template (ill-formed, a template has no
 // signature) while choosing the other arm.
+//
+// A function whose signature does not decompose (a C-variadic member) takes
+// the poisoned probe: never viable, so a sibling overload still binds and a
+// key with no other candidate is unbound. The language would rank it
+// through the ellipsis, so this is a documented divergence, not parity.
 template<std::meta::info M, size_t Ndx, typename Self>
 struct candidate_probe;
 
 template<std::meta::info M, size_t Ndx, typename Self>
-requires(std::meta::is_function(M))
+requires(std::meta::is_function(M) && DecomposableMethod<M>)
 struct candidate_probe<M, Ndx, Self> {
   using type = reflected_probe_t<M, Ndx>;
+};
+
+template<std::meta::info M, size_t Ndx, typename Self>
+requires(std::meta::is_function(M) && !DecomposableMethod<M>)
+struct candidate_probe<M, Ndx, Self> {
+  using type = rank_probe<Ndx, const_qual::none, std::tuple<rank_poison>>;
 };
 
 template<std::meta::info M, size_t Ndx, typename Self>
