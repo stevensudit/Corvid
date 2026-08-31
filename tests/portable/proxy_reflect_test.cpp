@@ -173,7 +173,9 @@ consteval auto corvid_proxy_spec(tally*, abacus*) {
 //
 // The candidate is the template itself, and the call splice deduces `T`
 // from the argument, as `t.double_it(1)` would. Its body compiles only for
-// arithmetic `T`, which guards against speculative instantiation.
+// arithmetic `T`, which guards against speculative instantiation; the
+// declared return type is what lets a probe type the call without the
+// body.
 struct doubler_api {
   int double_it(int i);
 };
@@ -205,6 +207,27 @@ struct halver: prox::reflected_facade<halver, halver_api> {};
 
 consteval auto corvid_proxy_spec(halver*, any_doubler*) {
   return prox::make_proxy_spec<halver, any_doubler>();
+}
+
+// `smelter` offers `refine` as a template with a deduced return type.
+//
+// Typing the call takes the body, so probing instantiates it, the one case
+// where a probe does. This body is valid for the facade's argument, so the
+// pair conforms; one invalid for a probed argument list would be a hard
+// error rather than a lost ranking, which is why that case cannot be
+// pinned here.
+struct refinery_api {
+  int refine(int ore);
+};
+
+struct refinery: prox::reflected_facade<refinery, refinery_api> {};
+
+struct smelter {
+  auto refine(auto ore) { return ore * 2; }
+};
+
+consteval auto corvid_proxy_spec(refinery*, smelter*) {
+  return prox::make_proxy_spec<refinery, smelter>();
 }
 
 // `mitrailleuse` overloads `fire`: a plain member takes `long`, a template
@@ -875,6 +898,7 @@ static_assert(prox::Proxiable<road_agent, gunslinger>);
 static_assert(prox::Proxiable<abacus, tally>);
 static_assert(prox::Proxiable<lawman, roster>);
 static_assert(prox::Proxiable<any_doubler, doubler>);
+static_assert(prox::Proxiable<smelter, refinery>);
 static_assert(prox::Proxiable<mitrailleuse, gatling>);
 static_assert(prox::Proxiable<assayer, assay>);
 static_assert(prox::Proxiable<mule_train, caravan>);
@@ -1230,6 +1254,12 @@ TEST_CASE("Template argument deduction is the language's", "[proxy_reflect]") {
   squatter s;
   proxy_view<claim> ps{s};
   CHECK(ps.call<"stake">(4) == 4);
+
+  // A deduced return type dispatches like any other template; its body was
+  // compiled at the probe.
+  smelter sm;
+  proxy_view<refinery> pr{sm};
+  CHECK(pr.call<"refine">(21) == 42);
   CHECK(ps.call<"stake">(3) == 7);
 }
 

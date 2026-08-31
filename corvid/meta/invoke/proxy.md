@@ -2456,14 +2456,19 @@ deduces its object parameter the same way.
 The target parameter is deduced, so constness flows through, and the result
 type and `noexcept` come from the member's declaration, so a conformance
 probe instantiates no body; a template candidate's body is compiled only
-when a bound key is dispatched, and only the winner's. A `noexcept` method
-stays `noexcept` through
-`call<>`, a const pair splits by handle constness, an overload set resolves
-per call, and a key with no viable member is unbound, which conformance
-reports as it would for any other binding class. A `noexcept` facade method
-over a target whose member is not `noexcept` therefore does not conform;
-the hand-written boilerplate could add a terminate boundary, the reflected
-one reports the target as it is.
+when a bound key is dispatched, and only the winner's.
+
+The exception is a template with a deduced return type, whose probe must
+instantiate the body to type the call, so a body that does not compile for
+the probed arguments is a hard error rather than a lost ranking; see
+"Limits".
+
+A `noexcept` method stays `noexcept` through `call<>`, a const pair splits
+by handle constness, an overload set resolves per call, and a key with no
+viable member is unbound, which conformance reports as it would for any other
+binding class. A `noexcept` facade method over a target whose member is not
+`noexcept` therefore does not conform; the hand-written boilerplate could
+add a terminate boundary, the reflected one reports the target as it is.
 
 It is the bottom tier, in the position the facade's nested `boilerplate`
 holds on the portable route, and the precedence is unchanged: a
@@ -2604,6 +2609,14 @@ a clang pass reshapes one helper at a time.
   library code, unlike a function's member pointer. And two templates
   viable for one call are ambiguous here, even where the language's
   partial ordering would pick the more specialized one.
+- A member template with a deduced return type instantiates its body when
+  its probe is evaluated, because typing the call takes the body; that is
+  the language's own rule, the same for a plain call in a
+  requires-expression. A body that does not compile for the probed
+  arguments is therefore a hard error naming `splice_probe` during a
+  `Proxiable` check or registration, not a lost ranking or a clean
+  non-conformance. Declaring the return type keeps probing to the
+  declaration alone.
 - An interface handed to `reflected_facade` carries member function
   templates as declarations. The derivation specializes a deducing-this
   declaration on the interface's own type, and gcc 16.2 compiles a body at

@@ -313,8 +313,10 @@ using reflected_probe_t =
 //
 // The pair mirrors the object the template admits: the mutable flavor is
 // viable when a mutable `Self` takes the call, the const flavor when a const
-// one does. The constraints are unevaluated, so no candidate's body
-// instantiates here.
+// one does. The constraints are unevaluated and instantiate no body, with
+// one exception: a deduced return type takes the body to type the call, so
+// a body invalid for the probed arguments is a hard error, as it is for a
+// plain call in a requires-expression.
 template<size_t Ndx, typename Self, std::meta::info M>
 struct splice_probe {
   template<typename... Args>
@@ -466,7 +468,8 @@ struct reflected_binding<T, Ctx, Key, Self, Args...> {
 // that binds. The partials split on the binding's flavor: a function's
 // result and `noexcept` come through its member pointer, a template's from
 // the spliced call expression, unevaluated, so its declaration is
-// instantiated and its body is not.
+// instantiated and its body is not (a deduced return type is the exception,
+// taking the body for its type).
 template<typename T, std::meta::access_context Ctx, fixed_string Key,
     typename Self, typename... Args>
 struct reflected_call;
@@ -783,9 +786,15 @@ using reflected_facade = details::facade_maker<F,
 //
 // The result type and `noexcept` come from the declaration alone, so a
 // conformance probe instantiates no body. A template candidate's is compiled
-// only when a bound key is dispatched, and only the winner's. A `noexcept`
-// member stays `noexcept` through `call<>`. A key with no viable member is
-// unbound, which conformance reports as it would for any other binding class.
+// only when a bound key is dispatched, and only the winner's
+//
+// The exception is a template with a deduced return type, whose probe takes
+// the body to type the call: one that does not compile for the probed
+// arguments is a hard error rather than a lost ranking, exactly as a plain
+// call would be in a requires-expression, so declare the return type where
+// that matters. A `noexcept` member stays `noexcept` through `call<>`. A key
+// with no viable member is unbound, which conformance reports as it would for
+// any other binding class.
 //
 // `Ctx` is the access context the enumeration runs under. It defaults to the
 // context where the template-id is written (`access_context::current()` is
