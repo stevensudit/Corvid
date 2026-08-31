@@ -422,6 +422,11 @@ struct reflected_ranker<info_pack<Ms...>> {
   }
 };
 
+// The ranker for `Key` on `T`, as seen from `Ctx`.
+template<typename T, fixed_string Key, std::meta::access_context Ctx>
+using reflected_ranker_t =
+    reflected_ranker<reflected_candidates_t<T, Key, Ctx>>;
+
 #pragma endregion
 #pragma region Binding
 
@@ -462,12 +467,11 @@ struct reflected_binding {
 template<typename T, std::meta::access_context Ctx, fixed_string Key,
     typename Self, typename... Args>
 requires(
-    reflected_ranker<reflected_candidates_t<T, Key, Ctx>>::template resolves_v<
-        Self, Args...> &&
-    std::meta::is_function(reflected_ranker<
-        reflected_candidates_t<T, Key, Ctx>>::template pick<Self, Args...>()))
+    reflected_ranker_t<T, Key, Ctx>::template resolves_v<Self, Args...> &&
+    std::meta::is_function(
+        reflected_ranker_t<T, Key, Ctx>::template pick<Self, Args...>()))
 struct reflected_binding<T, Ctx, Key, Self, Args...> {
-  using ranker_t = reflected_ranker<reflected_candidates_t<T, Key, Ctx>>;
+  using ranker_t = reflected_ranker_t<T, Key, Ctx>;
   static constexpr auto ptr_v =
       reflected_member<ranker_t::template pick<Self, Args...>()>::ptr_v;
   using ptr_t = decltype(ptr_v);
@@ -477,12 +481,11 @@ struct reflected_binding<T, Ctx, Key, Self, Args...> {
 template<typename T, std::meta::access_context Ctx, fixed_string Key,
     typename Self, typename... Args>
 requires(
-    reflected_ranker<reflected_candidates_t<T, Key, Ctx>>::template resolves_v<
-        Self, Args...> &&
-    std::meta::is_function_template(reflected_ranker<
-        reflected_candidates_t<T, Key, Ctx>>::template pick<Self, Args...>()))
+    reflected_ranker_t<T, Key, Ctx>::template resolves_v<Self, Args...> &&
+    std::meta::is_function_template(
+        reflected_ranker_t<T, Key, Ctx>::template pick<Self, Args...>()))
 struct reflected_binding<T, Ctx, Key, Self, Args...> {
-  using ranker_t = reflected_ranker<reflected_candidates_t<T, Key, Ctx>>;
+  using ranker_t = reflected_ranker_t<T, Key, Ctx>;
   static constexpr auto member_v = ranker_t::template pick<Self, Args...>();
   static constexpr bool bound_v = true;
 };
