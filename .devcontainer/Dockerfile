@@ -80,9 +80,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 
 # Basic development tools, toolchain, and iptables/ipset. gcc-15 is the nvcc
 # host compiler (nvcc 13.3 rejects gcc newer than 15; see cleanbuild.sh). The
-# PPA's gcc-16 snapshot stays only for its libstdc++-16-dev, which the clang +
+# PPA's gcc-16 snapshot contributes only libstdc++-16-dev, which the clang +
 # libstdc++ leg picks up from /usr/lib/gcc (its <format> gets a local patch
-# below); the gcc leg itself uses the 16.2 built in the gcc-build stage. catch2
+# below); its compilers are not installed, so the only gcc 16 is the 16.2
+# built in the gcc-build stage. catch2
 # is the system libstdc++ Catch2 that the
 # CUDA tests link against (tests/CMakeLists.txt requires it once nvcc and
 # g++-15 are both present; the .cpp suite uses its own FetchContent Catch2).
@@ -111,7 +112,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
   llvm-23 \
   ccache strace patch \
-  gcc-15 g++-15 gcc-16 g++-16 libstdc++-16-dev catch2 \
+  gcc-15 g++-15 libstdc++-16-dev catch2 \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -169,6 +170,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
 
 # SSH dir for the named volume (ownership seeds the volume on first mount).
 RUN mkdir -p /home/node/.ssh && chown node:node /home/node/.ssh && chmod 700 /home/node/.ssh
+
+# gh config dir for its named volume, same seeding. It holds the GitHub OAuth
+# token (hosts.yml), which otherwise dies with the container on every rebuild.
+RUN mkdir -p /home/node/.config/gh && chown -R node:node /home/node/.config && chmod 700 /home/node/.config/gh
 
 USER node
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global

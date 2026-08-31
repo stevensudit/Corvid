@@ -11,7 +11,7 @@ Four forms, each with one meaning:
 
 | Form                     | Meaning                                          |
 | ------------------------ | ------------------------------------------------ |
-| `int x = 5;`             | The value is the point, or braces check nothing  |
+| `string_view s = "hi";`  | The value is the point, or braces check nothing  |
 | `auto x = expr;`         | The type comes from the expression, deliberately |
 | `int x{expr};` etc.      | Value-init, narrowing check, aggregate, value    |
 | `Connection c(a, b);`    | Operational construction (active logic)          |
@@ -40,8 +40,11 @@ things apart, and the names are at fault.
 
 ## `=` with a spelled-out type: literals, plus no-narrow rulings
 
-- **Rule:** `Type x = expr;` is reserved for literal initializers where the
-  specific value is the point: `int x = 5;`.
+- **Rule:** a literal initializer where the specific value is the point
+  takes `=`. What stands on the left follows the literal ruling below:
+  `auto` when the literal's own type is obvious (`auto x = 5;`), the
+  spelled type when it needs emphasis or converts the literal
+  (`std::string_view marker = "(null)";`).
 - Loop counters follow from this: `for (auto ndx = 0; ndx <= 5; ++ndx)`. The
   initial value is a range endpoint that pairs with the bound, so it is
   spelled where an accumulator's zero would be blanked. The two rulings below
@@ -122,9 +125,12 @@ things apart, and the names are at fault.
   type is obvious, which are not in tension. What makes a type obvious is
   not restricted to a suffix: `true` and `false` name `bool` as plainly as
   `F` names `float`, so a flag whose value is the point is
-  `auto first = true;`. Note that this rule settles only which type to
-  write, never whether to spell the value at all, which the zeroish rule
-  below settles first and usually answers with `{}`. So `bool found{};`
+  `auto first = true;`. A small integer literal is as plain, `5` is `int`
+  on sight, so `auto x = 5;`, with the spelled type reserved for the
+  unusual case where the precise type wants emphasis. Note that this rule
+  settles only which type to write, never whether to spell the value at
+  all, which the zeroish rule below settles first and usually answers with
+  `{}`. So `bool found{};`
   remains better than `auto found = false;` in most cases; the latter is
   not wrong, and is what to reach for when spelling the `false` out earns
   its keep, as when it pairs with a neighboring declaration.
@@ -310,8 +316,8 @@ things apart, and the names are at fault.
   construction composes with the class-default rule and loses its braces
   too: `hash_combiner combiner;`, not `auto combiner = hash_combiner{};`.
   A typed literal follows the literal rule instead: `auto x = 5UZ;` where a
-  suffix names the type, `int x = 5;` where none does, never
-  `auto x = size_t{5};`. Exempt: structured bindings, whose syntax forces
+  suffix names the type, `auto x = 5;` where the bare literal's is obvious,
+  never `auto x = size_t{5};`. Exempt: structured bindings, whose syntax forces
   `auto`, and a variable template whose specializations vary the type
   (`enum_spec_v`), where the `auto` is the point.
 - Lean toward `const` on locals as the default posture:

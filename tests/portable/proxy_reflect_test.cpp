@@ -15,7 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "corvid/meta/invoke/proxy_reflect.h"
 #include "catch2_main.h"
@@ -115,6 +117,293 @@ struct deputy: public lawman {
     return "deputy";
   }
 };
+
+// `bushwhacker` takes `this` explicitly throughout: a deducing-this template
+// per object-parameter shape, and two explicit-object non-templates. Each
+// binds as the plain member it stands for.
+struct bushwhacker {
+  int fire(this auto&& self, int rounds) {
+    self.rounds_fired += rounds;
+    return self.rounds_fired;
+  }
+  [[nodiscard]] std::string describe(this const bushwhacker& self) {
+    (void)self;
+    return "bushwhacker";
+  }
+  void reload(this auto& self) { self.rounds_fired = 0; }
+  int& shots(this bushwhacker& self) { return self.rounds_fired; }
+
+  int rounds_fired{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, bushwhacker*) {
+  return prox::make_proxy_spec<gunslinger, bushwhacker>();
+}
+
+// A `road_agent` is a `bushwhacker` with its own `describe`. The inherited
+// templates deduce the derived type, and the inherited explicit-object
+// `shots` binds through a pointer taking the base.
+struct road_agent: public bushwhacker {
+  // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
+  [[nodiscard]] std::string describe(this const road_agent& self) {
+    (void)self;
+    return "road agent";
+  }
+};
+
+// A by-value object parameter (`this auto self`) binds as a const method
+// that works on a copy, as the language has it.
+struct tally_api {
+  int bump() const;
+};
+
+struct tally: prox::reflected_facade<tally, tally_api> {};
+
+struct abacus {
+  int bump(this auto self) { return ++self.beads; }
+
+  int beads{};
+};
+
+consteval auto corvid_proxy_spec(tally*, abacus*) {
+  return prox::make_proxy_spec<tally, abacus>();
+}
+
+// `nickel` answers `bump()` through its conversion to `int`: a non-class
+// object parameter takes its lvalue through the conversion, and the member
+// binds as the const method it folds to. `slug` declines, as the language
+// does, since no conversion result binds an lvalue reference.
+struct nickel {
+  operator int() const { return 5; }
+  int bump(this int self) { return self + 1; }
+};
+
+consteval auto corvid_proxy_spec(tally*, nickel*) {
+  return prox::make_proxy_spec<tally, nickel>();
+}
+
+struct slug {
+  operator int() const { return 5; }
+  int bump(this int& self) { return self; }
+};
+
+consteval auto corvid_proxy_spec(tally*, slug*) {
+  return prox::make_proxy_spec<tally, slug>();
+}
+
+// `any_doubler` offers `double_it` only as a member function template.
+//
+// The candidate is the template itself, and the call splice deduces `T`
+// from the argument, as `t.double_it(1)` would. Its body compiles only for
+// arithmetic `T`, which guards against speculative instantiation; the
+// declared return type is what lets a probe type the call without the
+// body.
+struct doubler_api {
+  int double_it(int i);
+};
+
+struct doubler: prox::reflected_facade<doubler, doubler_api> {};
+
+class any_doubler {
+public:
+  template<typename T>
+  T double_it(T i) {
+    return i + i;
+  }
+};
+
+consteval auto corvid_proxy_spec(doubler*, any_doubler*) {
+  return prox::make_proxy_spec<doubler, any_doubler>();
+}
+
+// `halver` asks for `double_it` with an arity the template cannot deduce.
+//
+// The pair is registered but not conformant, and since a failed deduction
+// instantiates nothing, the body that would not compile for a class-type
+// `T` stays uncompiled.
+struct halver_api {
+  int double_it(int i, int j);
+};
+
+struct halver: prox::reflected_facade<halver, halver_api> {};
+
+consteval auto corvid_proxy_spec(halver*, any_doubler*) {
+  return prox::make_proxy_spec<halver, any_doubler>();
+}
+
+// `smelter` offers `refine` as a template with a deduced return type.
+//
+// Typing the call takes the body, so probing instantiates it, the one case
+// where a probe does. This body is valid for the facade's argument, so the
+// pair conforms; one invalid for a probed argument list would be a hard
+// error rather than a lost ranking, which is why that case cannot be
+// pinned here.
+struct refinery_api {
+  int refine(int ore);
+};
+
+struct refinery: prox::reflected_facade<refinery, refinery_api> {};
+
+struct smelter {
+  auto refine(auto ore) { return ore * 2; }
+};
+
+consteval auto corvid_proxy_spec(refinery*, smelter*) {
+  return prox::make_proxy_spec<refinery, smelter>();
+}
+
+// `blunderbuss` carries C-variadic overloads, implicit- and explicit-object,
+// beside a plain `fire`. A variadic member is never a candidate, so the
+// plain one binds as if it stood alone.
+struct volley_api {
+  int fire(int shots);
+};
+
+struct volley: prox::reflected_facade<volley, volley_api> {};
+
+struct blunderbuss {
+  int fire(int shots) { return shots * 2; }
+  int fire(const char*, ...) { return -1; }
+  int fire(this blunderbuss&, double, ...) { return -1; }
+};
+
+consteval auto corvid_proxy_spec(volley*, blunderbuss*) {
+  return prox::make_proxy_spec<volley, blunderbuss>();
+}
+
+// `scattergun` offers `fire` only as a C-variadic member, so the key is
+// unbound, where the language would call through the ellipsis.
+struct scattergun {
+  int fire(const char*, ...) { return -1; }
+};
+
+consteval auto corvid_proxy_spec(volley*, scattergun*) {
+  return prox::make_proxy_spec<volley, scattergun>();
+}
+
+// `mitrailleuse` overloads `fire`: a plain member takes `long`, a template
+// deduces the rest.
+//
+// Ranking is the language's. An `int` argument deduces the template
+// exactly, beating the conversion to `long`, and a `long` argument takes
+// the plain member over the template on the tie-break.
+struct gatling_api {
+  int fire(int n);
+  int fire(long n);
+};
+
+struct gatling: prox::reflected_facade<gatling, gatling_api> {};
+
+struct mitrailleuse {
+  int fire(long n) { return static_cast<int>(n) + 100; }
+  template<typename T>
+  T fire(T n) {
+    return n + n;
+  }
+};
+
+consteval auto corvid_proxy_spec(gatling*, mitrailleuse*) {
+  return prox::make_proxy_spec<gatling, mitrailleuse>();
+}
+
+// `assayer` reports the value category deduction saw.
+//
+// A forwarding reference deduces `T&` from an lvalue and `T` from an
+// rvalue, so each slot pins what the splice call handed the template.
+struct assay_api {
+  bool from_lvalue(int& ore);
+  bool from_rvalue(int ore);
+};
+
+struct assay: prox::reflected_facade<assay, assay_api> {};
+
+struct assayer {
+  template<typename T>
+  bool from_lvalue(T&& ore) {
+    (void)ore;
+    return std::is_lvalue_reference_v<T>;
+  }
+  template<typename T>
+  bool from_rvalue(T&& ore) {
+    (void)ore;
+    return std::is_lvalue_reference_v<T>;
+  }
+};
+
+consteval auto corvid_proxy_spec(assay*, assayer*) {
+  return prox::make_proxy_spec<assay, assayer>();
+}
+
+// `mule_train` deduces `U` inside a compound parameter type.
+//
+// `brand`'s constraint takes part in deduction, so only an integral mark
+// binds.
+struct caravan_api {
+  int tote(std::vector<int> load);
+  int brand(int mark);
+};
+
+struct caravan: prox::reflected_facade<caravan, caravan_api> {};
+
+struct mule_train {
+  template<typename U>
+  int tote(std::vector<U> load) {
+    return static_cast<int>(load.size());
+  }
+  template<typename U>
+  requires std::is_integral_v<U>
+  int brand(U mark) {
+    return static_cast<int>(mark) + 1;
+  }
+};
+
+consteval auto corvid_proxy_spec(caravan*, mule_train*) {
+  return prox::make_proxy_spec<caravan, mule_train>();
+}
+
+// `no_brand` asks for a mark the constraint rejects, so the pair is
+// registered but not conformant.
+struct no_brand_api {
+  int brand(long double mark);
+};
+
+struct no_brand: prox::reflected_facade<no_brand, no_brand_api> {};
+
+consteval auto corvid_proxy_spec(no_brand*, mule_train*) {
+  return prox::make_proxy_spec<no_brand, mule_train>();
+}
+
+// `squatter` mixes a concrete object parameter with a deduced argument,
+// which deduce independently, as in a plain call.
+struct claim_api {
+  int stake(int spot);
+};
+
+struct claim: prox::reflected_facade<claim, claim_api> {};
+
+struct squatter {
+  template<typename U>
+  int stake(this squatter& self, U spot) {
+    return self.stakes += static_cast<int>(spot);
+  }
+
+  int stakes{};
+};
+
+consteval auto corvid_proxy_spec(claim*, squatter*) {
+  return prox::make_proxy_spec<claim, squatter>();
+}
+
+// `armory` hides the base's `fire` behind a static member template, which
+// hides but never binds.
+struct armory: public lawman {
+  template<typename T>
+  static int fire(T rounds);
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, armory*) {
+  return prox::make_proxy_spec<gunslinger, armory>();
+}
 
 // `sheriff` lines up except that `fire` is spelled `shoot`. Its registration
 // carries an impl that inherits the reflected impl, re-exposes its `on`, and
@@ -262,6 +551,82 @@ struct cowboy {
   int rounds_fired{};
 };
 
+// `arsonist` is a `lawman` whose own `fire` is a data member.
+//
+// A member by that name hides the base's `fire`, function or not, and a data
+// member is never a method, so the pair is registered but not conformant.
+struct arsonist: public lawman {
+  int fire{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, arsonist*) {
+  return prox::make_proxy_spec<gunslinger, arsonist>();
+}
+
+// `saboteur` reaches `fire` under both bases, a data member in one and the
+// `lawman` functions in the other. The language rejects that merge at name
+// lookup, so the key is unbound and the pair is not conformant.
+struct powder_keg {
+  int fire{};
+};
+
+struct saboteur: public powder_keg, public lawman {};
+
+consteval auto corvid_proxy_spec(gunslinger*, saboteur*) {
+  return prox::make_proxy_spec<gunslinger, saboteur>();
+}
+
+// `vigilante` reaches a `fire` function under each base. Only the `lawman`
+// ones are viable for the facade's arguments, but the merge is ambiguous
+// before viability is ever weighed, as the language rules it.
+struct signalman {
+  int fire(const char* pattern) { return pattern ? 1 : 0; }
+};
+
+struct vigilante: public signalman, public lawman {};
+
+consteval auto corvid_proxy_spec(gunslinger*, vigilante*) {
+  return prox::make_proxy_spec<gunslinger, vigilante>();
+}
+
+// `pyromaniac` injects `fire` as an enumerator of an unscoped member enum,
+// which hides the `lawman` functions as a data member would, so the pair is
+// not conformant.
+struct pyromaniac: public lawman {
+  enum { fire = 1 };
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, pyromaniac*) {
+  return prox::make_proxy_spec<gunslinger, pyromaniac>();
+}
+
+// `quartermaster` injects `fire` as an anonymous-union member, which hides
+// the same way.
+struct quartermaster: public lawman {
+  union {
+    int fire{};
+    long powder;
+  };
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, quartermaster*) {
+  return prox::make_proxy_spec<gunslinger, quartermaster>();
+}
+
+// `drill_sergeant` pins the negative controls: a scoped enumerator injects
+// nothing, and a named union object injects only its own name, so `fire`
+// still reaches `lawman`'s and the pair conforms.
+struct drill_sergeant: public lawman {
+  enum class drill { fire };
+  union {
+    int fire;
+  } load{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, drill_sergeant*) {
+  return prox::make_proxy_spec<gunslinger, drill_sergeant>();
+}
+
 // `battery` carries an overload set, a const pair, and a `noexcept` method,
 // all spelled as declarations, and takes its name from its identifier.
 struct battery_api {
@@ -378,18 +743,62 @@ consteval auto corvid_proxy_spec(F*, texas_ranger*) {
   return prox::make_proxy_spec<F, texas_ranger>();
 }
 
-// A deducing-this forwarder is a function template, which reflection does
-// not see as a function, so an interface written that way declares nothing.
-struct forwarder_api {
+// A deducing-this member declares the method its object parameter admits:
+// const when it takes a const interface object, mutable when it takes only a
+// mutable one, and nothing when it takes no lvalue.
+//
+// `peek` is mutable in form but const by constraint, and declares the const
+// method a call would deduce. `murmur`, a forwarding reference gated to
+// const, and `gossip`, a template deducing from its argument, pin the
+// documented limits by declaring nothing.
+struct crier_api {
   void speak(this const auto& self);
+  void shout(this auto&& self);
+  int volume(this auto self);
+  void whisper(this auto& self)
+  requires(!std::is_const_v<std::remove_reference_t<decltype(self)>>);
+  void peek(this auto& self)
+  requires(std::is_const_v<std::remove_reference_t<decltype(self)>>);
+  void murmur(this auto&& self)
+  requires(std::is_const_v<std::remove_reference_t<decltype(self)>>);
+  template<typename U>
+  void gossip(this const crier_api& self, U rumor);
+  void growl(this const crier_api& self) noexcept;
+  void bark(this crier_api&& self);
 };
 
-struct mute: prox::reflected_facade<mute, forwarder_api> {};
+struct crier: prox::reflected_facade<crier, crier_api> {};
 
-// `census` defines its own `api`, which the reflected one yields to. A
-// hand-written `api` over a reflected boilerplate cannot be validated (the
-// reflected impl cannot drive the probe's forwarder templates), so the
-// registration opts out, as its diagnostic asks.
+// `mirage` pins two misdeclares the derivation cannot detect, as a tripwire
+// we want tripped: if these members stop declaring, the derivation got
+// smarter, and the asserts should flip to pin the new declines.
+//
+// No call deduction would select either member. `shimmer` wraps its object
+// parameter in a non-deduced context, and `haze` never uses its template
+// parameter. Each declares the method its substituted shape suggests.
+struct mirage_api {
+  template<typename T>
+  void shimmer(this std::type_identity_t<T> self);
+  template<typename U>
+  void haze(this const mirage_api& self);
+};
+
+struct mirage: prox::reflected_facade<mirage, mirage_api> {};
+
+// `mime` derives from an interface whose members all decline (an
+// rvalue-only member and a static one), pinning the zero-method pack
+// through the whole derivation.
+struct mime_api {
+  void gesture(this mime_api&& self);
+  static void breathe();
+};
+
+struct mime: prox::reflected_facade<mime, mime_api> {};
+
+// `census` defines its own `api`, which the reflected one yields to. The
+// registration validates it over the reflected boilerplate as it would over
+// a hand-written one, and this `api` deliberately deviates (its forwarder
+// adds to the result), so the registration opts out.
 struct census
     : prox::facade<prox::name<"census">, //
           prox::method<"describe", std::string() const>> {
@@ -402,6 +811,24 @@ struct census
 
 consteval auto corvid_proxy_spec(census*, lawman*) {
   return prox::make_proxy_spec<census, lawman, prox::api_check::off>();
+}
+
+// `roster` is a hand-written `api` over a reflected boilerplate. Its
+// forwarders are deducing-this members, which bind on the validation probe
+// as on any target, so the registration validates it as it would over a
+// hand-written boilerplate.
+struct roster
+    : prox::facade<prox::name<"roster">, //
+          prox::method<"describe", std::string() const>> {
+  struct api {
+    std::string describe(this const auto& self) {
+      return self.template call<"describe">();
+    }
+  };
+};
+
+consteval auto corvid_proxy_spec(roster*, lawman*) {
+  return prox::make_proxy_spec<roster, lawman>();
 }
 
 // `till` over a non-class target: there are no members to reflect, so a
@@ -473,8 +900,40 @@ using ranger_build = prox::details::vtbuild_t<ranger>;
 static_assert(ranger_build::name_v.view() == "ranger");
 static_assert(ranger_build::count_v == 6);
 
-// The documented limit: a deducing-this forwarder declares no method.
-static_assert(prox::details::vtbuild_t<mute>::count_v == 0);
+// A deducing-this interface: each member declares the method its object
+// parameter admits, and the one taking no lvalue declares nothing. The count
+// also pins that `murmur` and `gossip` declare nothing.
+using crier_build = prox::details::vtbuild_t<crier>;
+static_assert(crier_build::name_v.view() == "crier");
+static_assert(crier_build::count_v == 6);
+static_assert(std::is_same_v<crier_build::slot_t<0>::method_t,
+    prox::method<"speak", void() const>>);
+static_assert(std::is_same_v<crier_build::slot_t<1>::method_t,
+    prox::method<"shout", void() const>>);
+static_assert(std::is_same_v<crier_build::slot_t<2>::method_t,
+    prox::method<"volume", int() const>>);
+static_assert(std::is_same_v<crier_build::slot_t<3>::method_t,
+    prox::method<"whisper", void()>>);
+static_assert(std::is_same_v<crier_build::slot_t<4>::method_t,
+    prox::method<"peek", void() const>>);
+static_assert(std::is_same_v<crier_build::slot_t<5>::method_t,
+    prox::method<"growl", void() const noexcept>>);
+
+// The `mirage` tripwire: these pin behavior we WANT to lose. If they fail
+// because `shimmer` and `haze` now declare nothing, that is the derivation
+// improving; flip the asserts to pin the declines.
+using mirage_build = prox::details::vtbuild_t<mirage>;
+static_assert(mirage_build::count_v == 2);
+static_assert(std::is_same_v<mirage_build::slot_t<0>::method_t,
+    prox::method<"shimmer", void() const>>);
+static_assert(std::is_same_v<mirage_build::slot_t<1>::method_t,
+    prox::method<"haze", void() const>>);
+
+// The zero-method facade: every member declines, and the empty pack still
+// derives a facade with its name.
+using mime_build = prox::details::vtbuild_t<mime>;
+static_assert(mime_build::name_v.view() == "mime");
+static_assert(mime_build::count_v == 0);
 
 #pragma endregion
 #pragma region Sugar layout
@@ -527,11 +986,34 @@ static_assert(prox::Proxiable<turncoat, gunslinger>);
 static_assert(prox::Proxiable<safecracker, gunslinger>);
 static_assert(prox::Proxiable<cannon, battery>);
 static_assert(prox::Proxiable<marksman, hair_trigger>);
+static_assert(prox::Proxiable<bushwhacker, gunslinger>);
+static_assert(prox::Proxiable<road_agent, gunslinger>);
+static_assert(prox::Proxiable<abacus, tally>);
+static_assert(prox::Proxiable<nickel, tally>);
+static_assert(!prox::Proxiable<slug, tally>);
+static_assert(prox::Proxiable<lawman, roster>);
+static_assert(prox::Proxiable<any_doubler, doubler>);
+static_assert(prox::Proxiable<smelter, refinery>);
+static_assert(prox::Proxiable<blunderbuss, volley>);
+static_assert(!prox::Proxiable<scattergun, volley>);
+static_assert(prox::Proxiable<mitrailleuse, gatling>);
+static_assert(prox::Proxiable<assayer, assay>);
+static_assert(prox::Proxiable<mule_train, caravan>);
+static_assert(prox::Proxiable<squatter, claim>);
 
 static_assert(!prox::Proxiable<recluse, gunslinger>);
 static_assert(!prox::Proxiable<cowboy, gunslinger>);
+static_assert(!prox::Proxiable<arsonist, gunslinger>);
+static_assert(!prox::Proxiable<saboteur, gunslinger>);
+static_assert(!prox::Proxiable<vigilante, gunslinger>);
+static_assert(!prox::Proxiable<pyromaniac, gunslinger>);
+static_assert(!prox::Proxiable<quartermaster, gunslinger>);
+static_assert(prox::Proxiable<drill_sergeant, gunslinger>);
 static_assert(!prox::Proxiable<lawman, hair_trigger>);
 static_assert(!prox::Proxiable<int, till>);
+static_assert(!prox::Proxiable<any_doubler, halver>);
+static_assert(!prox::Proxiable<mule_train, no_brand>);
+static_assert(!prox::Proxiable<armory, gunslinger>);
 
 #pragma endregion
 #pragma region Tests
@@ -703,7 +1185,9 @@ TEST_CASE("Reflected sugar on every handle flavor", "[proxy_reflect]") {
   static_assert(!noexcept(pb.fire(1)));
   CHECK(pb.reload());
 
-  // A facade's own `api` serves as before.
+  // A facade's own `api` serves as before, validated or opted out.
+  proxy_view<roster> pr{l};
+  CHECK(pr.describe() == "lawman"s);
   proxy_view<census> pc{l};
   CHECK(pc.describe() == "counted lawman"s);
 }
@@ -794,6 +1278,97 @@ TEST_CASE("Noexcept members satisfy a noexcept facade", "[proxy_reflect]") {
   CHECK(!pv.call<"jams">());
   static_assert(noexcept(pv.call<"fire">(2)));
   static_assert(noexcept(pv.call<"jams">()));
+}
+
+TEST_CASE("Deducing-this members bind as the members they stand for",
+    "[proxy_reflect]") {
+  bushwhacker b;
+  proxy_view<gunslinger> pv{b};
+  CHECK(pv.call<"fire">(3) == 3);
+  CHECK(b.rounds_fired == 3);
+  CHECK(pv.call<"describe">() == "bushwhacker"s);
+  CHECK(pv.call<"shots">() == 3);
+  pv.call<"reload">();
+  CHECK(b.rounds_fired == 0);
+
+  // The sugar spelling and the const view take the same route.
+  CHECK(pv.fire(2) == 2);
+  const_proxy_view<gunslinger> cv{b};
+  CHECK(cv.call<"describe">() == "bushwhacker"s);
+  CHECK(cv.describe() == "bushwhacker"s);
+}
+
+TEST_CASE("Inherited deducing-this members deduce the derived type",
+    "[proxy_reflect]") {
+  road_agent r;
+  proxy_view<gunslinger> pv{r};
+  CHECK(pv.call<"describe">() == "road agent"s);
+  CHECK(pv.call<"fire">(4) == 4);
+  CHECK(pv.call<"shots">() == 4);
+  pv.call<"reload">();
+  CHECK(r.rounds_fired == 0);
+}
+
+TEST_CASE("A by-value object parameter works on a copy", "[proxy_reflect]") {
+  abacus a;
+  const_proxy_view<tally> cv{a};
+  CHECK(cv.call<"bump">() == 1);
+  CHECK(cv.bump() == 1);
+  CHECK(a.beads == 0);
+
+  // A non-class object parameter dispatches through the conversion.
+  nickel n;
+  proxy_view<tally> pn{n};
+  CHECK(pn.call<"bump">() == 6);
+}
+
+TEST_CASE("Member function templates bind through the call splice",
+    "[proxy_reflect]") {
+  any_doubler d;
+  proxy_view<doubler> pv{d};
+  CHECK(pv.call<"double_it">(21) == 42);
+  CHECK(pv.double_it(21) == 42);
+}
+
+TEST_CASE("Templates and functions rank together", "[proxy_reflect]") {
+  mitrailleuse m;
+  proxy_view<gatling> pg{m};
+
+  // An `int` deduces the template exactly, beating the conversion to
+  // `long`.
+  CHECK(pg.call<"fire">(3) == 6);
+  // A `long` is exact both ways; the non-template wins the tie.
+  CHECK(pg.call<"fire">(3L) == 103);
+}
+
+TEST_CASE("Template argument deduction is the language's", "[proxy_reflect]") {
+  assayer a;
+  proxy_view<assay> pa{a};
+  auto ore = 7;
+  CHECK(pa.call<"from_lvalue">(ore));
+  CHECK_FALSE(pa.call<"from_rvalue">(7));
+
+  mule_train t;
+  proxy_view<caravan> pc{t};
+  CHECK(pc.call<"tote">(std::vector<int>{1, 2, 3}) == 3);
+  CHECK(pc.call<"brand">(41) == 42);
+
+  squatter s;
+  proxy_view<claim> ps{s};
+  CHECK(ps.call<"stake">(4) == 4);
+  CHECK(ps.call<"stake">(3) == 7);
+
+  // A deduced return type dispatches like any other template; its body was
+  // compiled at the probe.
+  smelter sm;
+  proxy_view<refinery> pr{sm};
+  CHECK(pr.call<"refine">(21) == 42);
+}
+
+TEST_CASE("A C-variadic overload never binds", "[proxy_reflect]") {
+  blunderbuss b;
+  proxy_view<volley> pv{b};
+  CHECK(pv.call<"fire">(3) == 6);
 }
 
 #pragma endregion
