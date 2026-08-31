@@ -1344,7 +1344,7 @@ TEST_CASE("Templates and functions rank together", "[proxy_reflect]") {
 TEST_CASE("Template argument deduction is the language's", "[proxy_reflect]") {
   assayer a;
   proxy_view<assay> pa{a};
-  int ore = 7;
+  auto ore = 7;
   CHECK(pa.call<"from_lvalue">(ore));
   CHECK_FALSE(pa.call<"from_rvalue">(7));
 
