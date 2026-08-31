@@ -463,6 +463,35 @@ template<std::meta::info M>
 constexpr inline auto key_v = fixed_string{name_of(M).data(),
     std::integral_constant<size_t, key_len_v<M>>{}};
 
+// Whether substituting the class into template `m` feeds an argument slot
+// rather than the object parameter.
+//
+// The class and an rvalue reference to it are substituted, where both are
+// possible, and the parameter lists compared. An argument slot that moves
+// with the substitution while the object parameter stands still marks a
+// template that deduces from its call arguments, and such a template
+// declares nothing. The pair differs by reference rather than constness,
+// because a by-value slot sheds a top-level const, which would hide the
+// movement.
+consteval bool
+substitutes_into_arguments(std::meta::info m, std::meta::info cls) {
+  const auto rcls = std::meta::add_rvalue_reference(cls);
+  if (!std::meta::can_substitute(m, {cls}) ||
+      !std::meta::can_substitute(m, {rcls}))
+    return false;
+  const auto a = std::meta::parameters_of(std::meta::substitute(m, {cls}));
+  const auto b = std::meta::parameters_of(std::meta::substitute(m, {rcls}));
+  if (a.empty() ||
+      std::meta::dealias(std::meta::type_of(a[0])) !=
+          std::meta::dealias(std::meta::type_of(b[0])))
+    return false;
+  for (auto ndx = 1UZ; ndx < a.size(); ++ndx)
+    if (std::meta::dealias(std::meta::type_of(a[ndx])) !=
+        std::meta::dealias(std::meta::type_of(b[ndx])))
+      return true;
+  return false;
+}
+
 // `deduce_object` determines the function that reflection `m` declares for
 // an interface object of type `self`.
 //
@@ -479,15 +508,18 @@ constexpr inline auto key_v = fixed_string{name_of(M).data(),
 // derives for an lvalue of `self` from that shape: `self&` for a forwarding
 // reference, `self` for an lvalue reference, and the class type by value.
 //
-// A constraint on the object parameter takes part through `can_substitute`,
-// with one divergence from deduction. The first step substitutes the bare
-// class on the const try and the mutable try alike, so a constraint
-// satisfiable only for a const object fails both, and the member declares
-// nothing where a call on a const object would deduce it.
+// A constraint on the object parameter takes part through `can_substitute`.
+// When the bare class fails it and `self` is const, a const probe stands
+// in, so a constraint satisfiable only for a const object still declares
+// its const method. The const probe cannot tell a forwarding reference from
+// `const auto&&`, so it admits only an lvalue-reference shape; a forwarding
+// reference gated to const by its constraint declares nothing, and
+// `const auto&` is the spelling that declares.
 //
-// A template with further template parameters, which a call would deduce from
-// its arguments, does not specialize on the object type alone, so it declares
-// nothing.
+// A template that deduces from its call arguments does not specialize on
+// the object type alone, so it declares nothing. Most fail substitution on
+// the one argument; `substitutes_into_arguments` catches those whose object
+// parameter is concrete, where the class would land in an argument slot.
 //
 // gcc 16.2 instantiates the body of a specialization as `substitute` forms
 // it, which is harmless on a body-less declaration. An interface member
@@ -498,27 +530,44 @@ deduce_object(std::meta::info m, std::meta::info self) {
   if (!std::meta::is_function_template(m)) return {};
 
   const auto cls = std::meta::remove_cvref(self);
-  if (!std::meta::can_substitute(m, {cls})) return {};
-  const auto params =
-      std::meta::parameters_of(std::meta::substitute(m, {cls}));
-  if (params.empty() || !std::meta::is_explicit_object_parameter(params[0]))
-    return {};
+  if (substitutes_into_arguments(m, cls)) return {};
 
-  const auto shape = std::meta::dealias(std::meta::type_of(params[0]));
-  std::meta::info arg;
-  if (std::meta::is_rvalue_reference_type(shape)) {
-    // `const auto&&` is not a forwarding reference and binds no lvalue.
-    if (std::meta::is_const_type(std::meta::remove_reference(shape)))
+  if (std::meta::can_substitute(m, {cls})) {
+    const auto params =
+        std::meta::parameters_of(std::meta::substitute(m, {cls}));
+    if (params.empty() || !std::meta::is_explicit_object_parameter(params[0]))
       return {};
-    arg = std::meta::add_lvalue_reference(self);
-  } else if (std::meta::is_lvalue_reference_type(shape)) {
-    arg = self;
-  } else {
-    arg = std::meta::remove_cvref(self);
+
+    const auto shape = std::meta::dealias(std::meta::type_of(params[0]));
+    std::meta::info arg;
+    if (std::meta::is_rvalue_reference_type(shape)) {
+      // `const auto&&` is not a forwarding reference and binds no lvalue.
+      if (std::meta::is_const_type(std::meta::remove_reference(shape)))
+        return {};
+      arg = std::meta::add_lvalue_reference(self);
+    } else if (std::meta::is_lvalue_reference_type(shape)) {
+      arg = self;
+    } else {
+      arg = cls;
+    }
+
+    if (!std::meta::can_substitute(m, {arg})) return {};
+    return std::meta::substitute(m, {arg});
   }
 
-  if (!std::meta::can_substitute(m, {arg})) return {};
-  return std::meta::substitute(m, {arg});
+  // The const probe. A by-value parameter decays constness away, so a bare
+  // failure is deduction's own answer, and an rvalue reference here could
+  // be `const auto&&`; only an lvalue-reference shape is unambiguous.
+  if (!std::meta::is_const_type(self)) return {};
+  if (!std::meta::can_substitute(m, {self})) return {};
+  const auto params =
+      std::meta::parameters_of(std::meta::substitute(m, {self}));
+  if (params.empty() || !std::meta::is_explicit_object_parameter(params[0]))
+    return {};
+  if (!std::meta::is_lvalue_reference_type(
+          std::meta::dealias(std::meta::type_of(params[0]))))
+    return {};
+  return std::meta::substitute(m, {self});
 }
 
 // The methods interface `api` declares, as an `info_pack` in declaration
@@ -526,10 +575,10 @@ deduce_object(std::meta::info m, std::meta::info self) {
 // the deducing-this members that deduce for an lvalue of the interface.
 //
 // A deducing-this member is tried on a const interface object first, so
-// that one taking a const object (a forwarding, by-value, or `const auto&`
-// object parameter) declares a const method, and one constrained to a
-// mutable object declares a mutable one. An explicit-object member admitting
-// no lvalue declares nothing.
+// that one taking a const object (a forwarding, by-value, `const auto&`, or
+// const-constrained object parameter) declares a const method, and one
+// constrained to a mutable object declares a mutable one. An explicit-object
+// member admitting no lvalue declares nothing.
 //
 // `is_special_member_function` drops constructors and the like, which may
 // carry an identifier; operators and conversion functions have none.
@@ -624,13 +673,13 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 // `const auto&` object parameter), mutable when it takes only a mutable one,
 // and nothing when it takes no lvalue.
 //
-// One shape is out of reach. An object parameter that is mutable in form but
-// const by constraint (`this auto& self` with a requires clause demanding a
-// const `self`) declares nothing, not a const method. The member is missing
-// from the facade silently. Registration still compiles, and a call on the
-// key fails with "no matching signature" even though the interface accepts
-// the same call. Spell the constness in the parameter instead, `this const
-// auto& self`, or declare a plain const member.
+// A requires clause on the object parameter takes part in that choice, so a
+// member gated to a const object (`this auto& self` with a requires clause
+// demanding a const `self`) declares a const method. The one form out of
+// reach is a forwarding reference gated to const, which declares nothing;
+// `const auto&` is the spelling that declares. A member missing from the
+// facade shows up as a call on its key failing with "no matching signature"
+// while the interface accepts the same call.
 //
 // Static members, constructors, operators, data members, and other templates
 // are not methods.

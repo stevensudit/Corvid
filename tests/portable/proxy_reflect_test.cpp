@@ -609,8 +609,10 @@ consteval auto corvid_proxy_spec(F*, texas_ranger*) {
 // const when it takes a const interface object, mutable when it takes only a
 // mutable one, and nothing when it takes no lvalue.
 //
-// `peek` is mutable in form but const by constraint, and pins the documented
-// limit that such a member declares nothing rather than a const method.
+// `peek` is mutable in form but const by constraint, and declares the const
+// method a call would deduce. `murmur`, a forwarding reference gated to
+// const, and `gossip`, a template deducing from its argument, pin the
+// documented limits by declaring nothing.
 struct crier_api {
   void speak(this const auto& self);
   void shout(this auto&& self);
@@ -619,6 +621,10 @@ struct crier_api {
   requires(!std::is_const_v<std::remove_reference_t<decltype(self)>>);
   void peek(this auto& self)
   requires(std::is_const_v<std::remove_reference_t<decltype(self)>>);
+  void murmur(this auto&& self)
+  requires(std::is_const_v<std::remove_reference_t<decltype(self)>>);
+  template<typename U>
+  void gossip(this const crier_api& self, U rumor);
   void growl(this const crier_api& self) noexcept;
   void bark(this crier_api&& self);
 };
@@ -732,10 +738,10 @@ static_assert(ranger_build::count_v == 6);
 
 // A deducing-this interface: each member declares the method its object
 // parameter admits, and the one taking no lvalue declares nothing. The count
-// also pins that `peek`, const by constraint alone, declares nothing.
+// also pins that `murmur` and `gossip` declare nothing.
 using crier_build = prox::details::vtbuild_t<crier>;
 static_assert(crier_build::name_v.view() == "crier");
-static_assert(crier_build::count_v == 5);
+static_assert(crier_build::count_v == 6);
 static_assert(std::is_same_v<crier_build::slot_t<0>::method_t,
     prox::method<"speak", void() const>>);
 static_assert(std::is_same_v<crier_build::slot_t<1>::method_t,
@@ -745,6 +751,8 @@ static_assert(std::is_same_v<crier_build::slot_t<2>::method_t,
 static_assert(std::is_same_v<crier_build::slot_t<3>::method_t,
     prox::method<"whisper", void()>>);
 static_assert(std::is_same_v<crier_build::slot_t<4>::method_t,
+    prox::method<"peek", void() const>>);
+static_assert(std::is_same_v<crier_build::slot_t<5>::method_t,
     prox::method<"growl", void() const noexcept>>);
 
 #pragma endregion

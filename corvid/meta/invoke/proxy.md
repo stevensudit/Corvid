@@ -2385,10 +2385,11 @@ until it is specialized, so the layer specializes it on the interface as a
 call would deduce it, and it declares the method its object parameter
 admits: const when it takes a const interface object (a forwarding,
 by-value, or `const auto&` object parameter), mutable when it takes only a
-mutable one, and nothing when it takes no lvalue (`this C&&`). A parameter
-that is mutable in form but const by constraint declares nothing rather
-than a const method; see "Limits". An explicit-object non-template
-(`void growl(this const C& self) noexcept`) declares the same way. Static members, constructors, operators, data
+mutable one, and nothing when it takes no lvalue (`this C&&`). A requires
+clause on the object parameter takes part in that choice, so `this auto&
+self` gated to a const `self` declares a const method; the one form out of
+reach is a forwarding reference gated to const, which declares nothing
+(see "Limits"). An explicit-object non-template (`void growl(this const C& self) noexcept`) declares the same way. Static members, constructors, operators, data
 members, and other templates are not methods.
 
 The interface need not be written for the purpose. Any class serves,
@@ -2608,18 +2609,19 @@ a clang pass reshapes one helper at a time.
   declaration on the interface's own type, and gcc 16.2 compiles a body at
   that point, so an interface member template that has a body must compile
   for the interface itself.
-- The interface derivation reconstructs deduction by substitution, and its
-  first probe substitutes the interface's bare type. An object parameter
-  that is mutable in form but const by constraint (`this auto& self` with a
-  requires clause demanding a const `self`) fails that probe on the const
-  try and the mutable try alike, so it declares nothing where a call on a
-  const interface object would deduce it. The member goes missing silently:
-  registration still compiles, the derived facade's slot count is short by
-  one, and the first loud sign is a call on the key failing its
+- The interface derivation reconstructs deduction by substitution, and two
+  corners of that reconstruction fall short of a real call. A forwarding
+  reference gated to const by its constraint (`this auto&& self` with a
+  requires clause demanding a const `self`) declares nothing, because the
+  const probe that admits constrained members cannot tell a forwarding
+  reference from `const auto&&`; spell it `const auto&`, which declares the
+  const method. And a template that deduces from its call arguments is
+  declined by comparing the const and mutable substitutions, which catches
+  a concrete object parameter beside a deducible argument, but a template
+  parameter that no argument uses is undetectable and misdeclares. A
+  member missing from the facade shows up as a call on the key failing its
   "no matching signature" assertion while the interface accepts the same
-  call. Spell the constness in the parameter instead, `this const auto&
-  self`, or declare a plain const member; both declare the const method.
-  This is on the list in "Later".
+  call, with the derived facade's slot count short by one.
 - Name hiding is approximated from what `members_of` reports. A
   using-declaration is not a member to it, so a base overload that
   `using base::fire;` un-hides beside the class's own `fire` is not a
@@ -2717,13 +2719,11 @@ shaped the patterns, each verified by a probe:
   admit each viable template independently, so two viable for one call are
   ambiguous where the language would pick the more specialized. Revisit
   when a real target trips it.
-- The const-constrained object parameter. The interface derivation's shape
-  probe substitutes the bare interface type, so `this auto& self`
-  constrained to a const object declares nothing; see "Limits". A probe
-  that falls back to const and reference shapes before giving up would
-  admit it, at the cost of more reconstruction in exactly the territory
-  the binding side handed back to the language. Revisit alongside a second
-  compiler's reflection.
+- The constraint-gated forwarding reference. The interface derivation's
+  const probe declines it as indistinguishable from `const auto&&`; see
+  "Limits". Deciding it wants the language's own deduction, once there is
+  something to deduce from. Revisit alongside a second compiler's
+  reflection.
 - Name hiding through using-declarations. The base overload can be found
   by walking the bases whenever the class's own set does not resolve, but
   nothing in P2996 says whether a `using` made it visible, and a member
