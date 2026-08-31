@@ -2389,8 +2389,10 @@ mutable one, and nothing when it takes no lvalue (`this C&&`). A requires
 clause on the object parameter takes part in that choice, so `this auto&
 self` gated to a const `self` declares a const method; the one form out of
 reach is a forwarding reference gated to const, which declares nothing
-(see "Limits"). An explicit-object non-template (`void growl(this const C& self) noexcept`) declares the same way. Static members, constructors, operators, data
-members, and other templates are not methods.
+(see "Limits"). An explicit-object non-template
+(`void growl(this const C& self) noexcept`) declares the same way. Static
+members, constructors, operators, data members, and other templates are
+not methods.
 
 The interface need not be written for the purpose. Any class serves,
 since the spec is just its public member functions, so

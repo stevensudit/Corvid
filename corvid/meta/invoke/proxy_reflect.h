@@ -844,8 +844,8 @@ using reflected_facade = details::facade_maker<F,
 // pair splits by handle constness.
 //
 // The result type and `noexcept` come from the declaration alone, so a
-// conformance probe instantiates no body. A template candidate's is compiled
-// only when a bound key is dispatched, and only the winner's
+// conformance probe instantiates no body. A template candidate's body is
+// compiled only when a bound key is dispatched, and only the winner's.
 //
 // The exception is a template with a deduced return type, whose probe takes
 // the body to type the call: one that does not compile for the probed
