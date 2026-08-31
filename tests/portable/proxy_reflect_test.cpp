@@ -15,7 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "corvid/meta/invoke/proxy_reflect.h"
 #include "catch2_main.h"
@@ -165,6 +167,168 @@ struct abacus {
 
 consteval auto corvid_proxy_spec(tally*, abacus*) {
   return prox::make_proxy_spec<tally, abacus>();
+}
+
+// `any_doubler` offers `double_it` only as a member function template.
+//
+// The candidate is the template itself, and the call splice deduces `T`
+// from the argument, as `t.double_it(1)` would. Its body compiles only for
+// arithmetic `T`, which guards against speculative instantiation.
+struct doubler_api {
+  int double_it(int i);
+};
+
+struct doubler: prox::reflected_facade<doubler, doubler_api> {};
+
+class any_doubler {
+public:
+  template<typename T>
+  T double_it(T i) {
+    return i + i;
+  }
+};
+
+consteval auto corvid_proxy_spec(doubler*, any_doubler*) {
+  return prox::make_proxy_spec<doubler, any_doubler>();
+}
+
+// `halver` asks for `double_it` with an arity the template cannot deduce.
+//
+// The pair is registered but not conformant, and since a failed deduction
+// instantiates nothing, the body that would not compile for a class-type
+// `T` stays uncompiled.
+struct halver_api {
+  int double_it(int i, int j);
+};
+
+struct halver: prox::reflected_facade<halver, halver_api> {};
+
+consteval auto corvid_proxy_spec(halver*, any_doubler*) {
+  return prox::make_proxy_spec<halver, any_doubler>();
+}
+
+// `mitrailleuse` overloads `fire`: a plain member takes `long`, a template
+// deduces the rest.
+//
+// Ranking is the language's. An `int` argument deduces the template
+// exactly, beating the conversion to `long`, and a `long` argument takes
+// the plain member over the template on the tie-break.
+struct gatling_api {
+  int fire(int n);
+  int fire(long n);
+};
+
+struct gatling: prox::reflected_facade<gatling, gatling_api> {};
+
+struct mitrailleuse {
+  int fire(long n) { return static_cast<int>(n) + 100; }
+  template<typename T>
+  T fire(T n) {
+    return n + n;
+  }
+};
+
+consteval auto corvid_proxy_spec(gatling*, mitrailleuse*) {
+  return prox::make_proxy_spec<gatling, mitrailleuse>();
+}
+
+// `assayer` reports the value category deduction saw.
+//
+// A forwarding reference deduces `T&` from an lvalue and `T` from an
+// rvalue, so each slot pins what the splice call handed the template.
+struct assay_api {
+  bool from_lvalue(int& ore);
+  bool from_rvalue(int ore);
+};
+
+struct assay: prox::reflected_facade<assay, assay_api> {};
+
+struct assayer {
+  template<typename T>
+  bool from_lvalue(T&& ore) {
+    (void)ore;
+    return std::is_lvalue_reference_v<T>;
+  }
+  template<typename T>
+  bool from_rvalue(T&& ore) {
+    (void)ore;
+    return std::is_lvalue_reference_v<T>;
+  }
+};
+
+consteval auto corvid_proxy_spec(assay*, assayer*) {
+  return prox::make_proxy_spec<assay, assayer>();
+}
+
+// `mule_train` deduces `U` inside a compound parameter type.
+//
+// `brand`'s constraint takes part in deduction, so only an integral mark
+// binds.
+struct caravan_api {
+  int tote(std::vector<int> load);
+  int brand(int mark);
+};
+
+struct caravan: prox::reflected_facade<caravan, caravan_api> {};
+
+struct mule_train {
+  template<typename U>
+  int tote(std::vector<U> load) {
+    return static_cast<int>(load.size());
+  }
+  template<typename U>
+  requires std::is_integral_v<U>
+  int brand(U mark) {
+    return static_cast<int>(mark) + 1;
+  }
+};
+
+consteval auto corvid_proxy_spec(caravan*, mule_train*) {
+  return prox::make_proxy_spec<caravan, mule_train>();
+}
+
+// `no_brand` asks for a mark the constraint rejects, so the pair is
+// registered but not conformant.
+struct no_brand_api {
+  int brand(long double mark);
+};
+
+struct no_brand: prox::reflected_facade<no_brand, no_brand_api> {};
+
+consteval auto corvid_proxy_spec(no_brand*, mule_train*) {
+  return prox::make_proxy_spec<no_brand, mule_train>();
+}
+
+// `squatter` mixes a concrete object parameter with a deduced argument,
+// which deduce independently, as in a plain call.
+struct claim_api {
+  int stake(int spot);
+};
+
+struct claim: prox::reflected_facade<claim, claim_api> {};
+
+struct squatter {
+  template<typename U>
+  int stake(this squatter& self, U spot) {
+    return self.stakes += static_cast<int>(spot);
+  }
+
+  int stakes{};
+};
+
+consteval auto corvid_proxy_spec(claim*, squatter*) {
+  return prox::make_proxy_spec<claim, squatter>();
+}
+
+// `armory` hides the base's `fire` behind a static member template, which
+// hides but never binds.
+struct armory: public lawman {
+  template<typename T>
+  static int fire(T rounds);
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, armory*) {
+  return prox::make_proxy_spec<gunslinger, armory>();
 }
 
 // `sheriff` lines up except that `fire` is spelled `shoot`. Its registration
@@ -632,12 +796,20 @@ static_assert(prox::Proxiable<bushwhacker, gunslinger>);
 static_assert(prox::Proxiable<road_agent, gunslinger>);
 static_assert(prox::Proxiable<abacus, tally>);
 static_assert(prox::Proxiable<lawman, roster>);
+static_assert(prox::Proxiable<any_doubler, doubler>);
+static_assert(prox::Proxiable<mitrailleuse, gatling>);
+static_assert(prox::Proxiable<assayer, assay>);
+static_assert(prox::Proxiable<mule_train, caravan>);
+static_assert(prox::Proxiable<squatter, claim>);
 
 static_assert(!prox::Proxiable<recluse, gunslinger>);
 static_assert(!prox::Proxiable<cowboy, gunslinger>);
 static_assert(!prox::Proxiable<arsonist, gunslinger>);
 static_assert(!prox::Proxiable<lawman, hair_trigger>);
 static_assert(!prox::Proxiable<int, till>);
+static_assert(!prox::Proxiable<any_doubler, halver>);
+static_assert(!prox::Proxiable<mule_train, no_brand>);
+static_assert(!prox::Proxiable<armory, gunslinger>);
 
 #pragma endregion
 #pragma region Tests
@@ -939,6 +1111,43 @@ TEST_CASE("A by-value object parameter works on a copy", "[proxy_reflect]") {
   CHECK(cv.call<"bump">() == 1);
   CHECK(cv.bump() == 1);
   CHECK(a.beads == 0);
+}
+
+TEST_CASE("Member function templates bind through the call splice",
+    "[proxy_reflect]") {
+  any_doubler d;
+  proxy_view<doubler> pv{d};
+  CHECK(pv.call<"double_it">(21) == 42);
+  CHECK(pv.double_it(21) == 42);
+}
+
+TEST_CASE("Templates and functions rank together", "[proxy_reflect]") {
+  mitrailleuse m;
+  proxy_view<gatling> pg{m};
+
+  // An `int` deduces the template exactly, beating the conversion to
+  // `long`.
+  CHECK(pg.call<"fire">(3) == 6);
+  // A `long` is exact both ways; the non-template wins the tie.
+  CHECK(pg.call<"fire">(3L) == 103);
+}
+
+TEST_CASE("Template argument deduction is the language's", "[proxy_reflect]") {
+  assayer a;
+  proxy_view<assay> pa{a};
+  int ore = 7;
+  CHECK(pa.call<"from_lvalue">(ore));
+  CHECK_FALSE(pa.call<"from_rvalue">(7));
+
+  mule_train t;
+  proxy_view<caravan> pc{t};
+  CHECK(pc.call<"tote">(std::vector<int>{1, 2, 3}) == 3);
+  CHECK(pc.call<"brand">(41) == 42);
+
+  squatter s;
+  proxy_view<claim> ps{s};
+  CHECK(ps.call<"stake">(4) == 4);
+  CHECK(ps.call<"stake">(3) == 7);
 }
 
 #pragma endregion

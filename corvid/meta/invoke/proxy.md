@@ -2150,7 +2150,14 @@ on the same routes, plus `recluse` (a private member behind a plain hook,
 not proxiable), `marksman` (`noexcept` members), `cannon` (overloads and a
 const pair), `constable` and `texas_ranger` (the chain), `bushwhacker` and
 `road_agent` (deducing-this and explicit-object members, inherited by the
-latter), and `abacus` (a by-value object parameter, over `tally`).
+latter), and `abacus` (a by-value object parameter, over `tally`). The
+member-function-template routes have their own group: `any_doubler` (one
+method, offered only as a template, over `doubler`), `mitrailleuse` (a
+template ranked beside a plain overload, over `gatling`), `assayer` (the
+value categories a forwarding reference deduces, over `assay`),
+`mule_train` (a compound parameter type and a constraint, over `caravan`),
+and `squatter` (a concrete object parameter beside a deduced argument,
+over `claim`).
 
 Four fixtures are deliberately missing from the conformance edges.
 `cowboy` has the right shape and no registration, so nominal conformance
@@ -2165,6 +2172,13 @@ chain). `robber`'s `hair_trigger` registration carries bindings that are
 not `noexcept`, so the pair stays non-conformant even though it is
 registered. Registration is the act of opting in, not proof of
 conformance.
+
+A further group of registered pairs is non-conformant to pin resolution
+semantics rather than opting in: `arsonist` (a data member named `fire`
+hides the base's method), `halver` (an arity the template cannot deduce,
+left cleanly unbound), `no_brand` (a constraint rejects the argument),
+and `armory` (a static member template hides the base's `fire` and never
+binds).
 
 ## Non-goals
 
@@ -2285,10 +2299,10 @@ template-id, which a splice then names. It is the bridge from "a list I
 computed" back into template-land, and the layer crosses it once per
 derivation: it collects the member reflections it wants into a vector,
 substitutes them into a pack, and then does everything else with ordinary
-pack expansion. The same call specializes a function template: given a
-deducing-this member and the object type a call would deduce for it,
-`substitute` yields the specialization that call would name, which then
-sits in a candidate set like any other member.
+pack expansion. The same call specializes a function template: the
+interface derivation gives `substitute` a deducing-this declaration and
+the object type a call would deduce for it, and it yields the
+specialization that call would name.
 
 **`define_aggregate` defines a struct.** Given the reflection of a
 declared-but-undefined class and a list of `data_member_spec`s (type,
@@ -2419,17 +2433,29 @@ collects and a pack expansion that forms every key and type, is what gcc
 `reflected_impl<T>` is a binding class like any other, and it does for
 every key what a hand-written boilerplate's `on(method_key<"fire">, T& t,
 int n) { return t.fire(n); }` does for one. Its `on` for a key enumerates
-`T`'s non-static member functions with that identifier (own members
-first, then bases, closely approximating the name hiding an ordinary member
-call applies; see "Limits" for the one gap), hands the candidates to the same
-synthetic overload set `resolve` uses (`rank_set`, so the compiler ranks
-promotions, conversions, and the object parameter exactly as it does for
-`call<>`), and invokes the winner through its member pointer, `&[: m :]`, with
-`std::invoke`, the way `member_impl` invokes a `members<>` binding.
+`T`'s non-static member functions and member function templates with that
+identifier (own members first, then bases, closely approximating the name
+hiding an ordinary member call applies; see "Limits" for the one gap) and
+hands the candidates to the same synthetic overload set `resolve` uses
+(`rank_set`, so the compiler ranks promotions, conversions, and the object
+parameter exactly as it does for `call<>`). A winning function is invoked
+through its member pointer, `&[: m :]`, with `std::invoke`, the way
+`member_impl` invokes a `members<>` binding.
+
+A member function template has no signature until a call gives it one, so
+its probe and its dispatch are a call expression on the spliced template,
+`t.template [: m :](args...)`. The language itself runs template argument
+deduction, constraint checking, and ranking: an argument deduced through a
+compound type, the value category a forwarding reference sees, a
+constraint on a template parameter, and the tie a non-template wins all
+behave as they would in `t.name(args...)`. A deducing-this template
+deduces its object parameter the same way.
 
 The target parameter is deduced, so constness flows through, and the result
 type and `noexcept` come from the member's declaration, so a conformance
-probe instantiates no body. A `noexcept` method stays `noexcept` through
+probe instantiates no body; a template candidate's body is compiled only
+when a bound key is dispatched, and only the winner's. A `noexcept` method
+stays `noexcept` through
 `call<>`, a const pair splits by handle constness, an overload set resolves
 per call, and a key with no viable member is unbound, which conformance
 reports as it would for any other binding class. A `noexcept` facade method
@@ -2460,7 +2486,11 @@ members bind too.
 
 A hook that can enumerate a member can bind it (forming
 `&[: m :]` is not access-checked), and a hook that cannot enumerate it
-never learns it exists. The library never uses `access_context::unchecked()`.
+never learns it exists. A member function template is the exception: its
+probe and dispatch are a call expression spliced in library code, which is
+access-checked there, so a private or protected template does not bind
+even for a hook that sees it. The library never uses
+`access_context::unchecked()`.
 
 ### The reflected sugar API
 
@@ -2565,14 +2595,18 @@ a clang pass reshapes one helper at a time.
 
 ### Limits
 
-- A member function template is a candidate only as a deducing-this
-  member, specialized on the object type as a call would deduce it. One
-  with further template parameters
-  (`template<typename U> void f(this auto&& self, U)`), which a call
-  deduces from its arguments, is not a candidate, and neither is any other
-  member function template; such a member takes a hand-written binding (a
-  binding class with an `on` that calls it, since `members<>` cannot name
-  a template either).
+- A member function template binds as the call deduces it, through a
+  spliced call expression, so deduction, constraints, and value categories
+  are the language's own. Two limits remain. A private or protected member
+  template does not bind, since the spliced call is access-checked in
+  library code, unlike a function's member pointer. And two templates
+  viable for one call are ambiguous here, even where the language's
+  partial ordering would pick the more specialized one.
+- An interface handed to `reflected_facade` carries member function
+  templates as declarations. The derivation specializes a deducing-this
+  declaration on the interface's own type, and gcc 16.2 compiles a body at
+  that point, so an interface member template that has a body must compile
+  for the interface itself.
 - Name hiding is approximated from what `members_of` reports. A
   using-declaration is not a member to it, so a base overload that
   `using base::fire;` un-hides beside the class's own `fire` is not a
@@ -2609,16 +2643,34 @@ shaped the patterns, each verified by a probe:
   only collects reflections into a pack, and keys and signatures are formed
   at the type level from that pack. A function template substituted on a
   type argument specializes fine inside the loop, which is how the
-  candidate enumeration specializes deducing-this members.
+  interface derivation specializes deducing-this declarations.
 - gcc 16.2 instantiates the body of a function template specialization as
   `substitute` (or `can_substitute`) forms it, where the 16.0 snapshot
-  formed the declaration alone. Specializing a deducing-this member is
-  therefore compiling it, so the layer specializes one only on the class
-  the call is on, never on the template's own class (an `api` forwarder's
-  body is ill-formed on the `api` itself), and every candidate a key's
-  enumeration specializes for a target has its body compiled, the losers of
-  the ranking and the rvalue-object shape of a forwarding reference
-  included.
+  formed the declaration alone. The binding side therefore substitutes no
+  template at all: a member function template is probed and dispatched
+  through a spliced call expression, which instantiates only the
+  specialization an evaluated call names. The interface derivation still
+  substitutes deducing-this declarations, which carry no bodies.
+- A call splice of a member function template, `t.template [: m :](args)`,
+  runs the language's template argument deduction: compound parameter
+  types, the value category a forwarding reference sees, constraints, and
+  a deducing-this object parameter all deduce as in a plain call, failure
+  is SFINAE-friendly in a requires-expression, and a body instantiates
+  only when the call is evaluated.
+- Target-typed address-of through a splice deduces (`&[: m :]<>` against a
+  pointer-to-member target, per [temp.deduct.funcaddr]) but gcc then
+  rejects the splice as an unqualified-id when forming the pointer, an
+  error only `-fpermissive` lifts; `&[: m :]<args>` with a full explicit
+  list works, and a bare `&template [: m :]` is an ICE. Both are
+  upstream-report candidates.
+- `parameters_of` on an uninstantiated function template throws a
+  catchable `std::meta::exception`; nothing inspects a template's
+  parameter list short of substituting it.
+- A class template whose base-clause names a probe carrying a concrete
+  `info` beside a dependent type parameter, where the probe's
+  requires-clause splices that `info`, ICEs. The same base with the
+  `info` flowing in as the outer template's own parameter compiles, so
+  reflections travel as template parameters.
 - A function template specialization has no identifier (`has_identifier`
   is false, as for a class template specialization); its name is its
   template's, through `template_of`.
@@ -2648,6 +2700,10 @@ shaped the patterns, each verified by a probe:
 - A clang pass when clang implements reflection.
 - The P3294 form of the sugar API, real member functions, when a compiler
   offers token injection.
+- Partial ordering between member function templates. The splice probes
+  admit each viable template independently, so two viable for one call are
+  ambiguous where the language would pick the more specialized. Revisit
+  when a real target trips it.
 - Name hiding through using-declarations. The base overload can be found
   by walking the bases whenever the class's own set does not resolve, but
   nothing in P2996 says whether a `using` made it visible, and a member
