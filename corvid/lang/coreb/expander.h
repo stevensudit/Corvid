@@ -56,9 +56,9 @@ using expand_error = error_value<struct ExpandTag>;
 
 // Expander from read forms to evaluable kernel forms.
 //
-// Every quote is a template. One with no holes is the literal it always was
-// and passes through untouched, while one containing `(unquote e)`,
-// `(unquote_splicing e)`, or `(%unquote e)` is rewritten into the `list`,
+// Every quote in code context is a template. One with no holes is the literal
+// it always was and passes through untouched, while one containing `(unquote
+// e)`, `(unquote_splicing e)`, or `(%unquote e)` is rewritten into the `list`,
 // `append`, and `quote` calls that build its value, with each hole's
 // expression expanded in turn, since it is code. A `%` name in a built
 // template is an auto-gensym: each becomes one fresh `gensym` symbol per
