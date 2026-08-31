@@ -480,9 +480,14 @@ constexpr inline auto key_v = fixed_string{name_of(M).data(),
 // reference, `self` for an lvalue reference, and the class type by value.
 //
 // A constraint on the object parameter takes part through `can_substitute`,
-// as it would in deduction. A template with further template parameters,
-// which a call would deduce from its arguments, does not specialize on the
-// object type alone, so it declares nothing.
+// with one divergence from deduction. The first step substitutes the bare
+// class on the const try and the mutable try alike, so a constraint
+// satisfiable only for a const object fails both, and the member declares
+// nothing where a call on a const object would deduce it.
+//
+// A template with further template parameters, which a call would deduce from
+// its arguments, does not specialize on the object type alone, so it declares
+// nothing.
 //
 // gcc 16.2 instantiates the body of a specialization as `substitute` forms
 // it, which is harmless on a body-less declaration. An interface member
@@ -618,6 +623,14 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 // const when it takes a const interface object (a forwarding, by-value, or
 // `const auto&` object parameter), mutable when it takes only a mutable one,
 // and nothing when it takes no lvalue.
+//
+// One shape is out of reach. An object parameter that is mutable in form but
+// const by constraint (`this auto& self` with a requires clause demanding a
+// const `self`) declares nothing, not a const method. The member is missing
+// from the facade silently. Registration still compiles, and a call on the
+// key fails with "no matching signature" even though the interface accepts
+// the same call. Spell the constness in the parameter instead, `this const
+// auto& self`, or declare a plain const member.
 //
 // Static members, constructors, operators, data members, and other templates
 // are not methods.

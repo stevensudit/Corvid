@@ -608,12 +608,17 @@ consteval auto corvid_proxy_spec(F*, texas_ranger*) {
 // A deducing-this member declares the method its object parameter admits:
 // const when it takes a const interface object, mutable when it takes only a
 // mutable one, and nothing when it takes no lvalue.
+//
+// `peek` is mutable in form but const by constraint, and pins the documented
+// limit that such a member declares nothing rather than a const method.
 struct crier_api {
   void speak(this const auto& self);
   void shout(this auto&& self);
   int volume(this auto self);
   void whisper(this auto& self)
   requires(!std::is_const_v<std::remove_reference_t<decltype(self)>>);
+  void peek(this auto& self)
+  requires(std::is_const_v<std::remove_reference_t<decltype(self)>>);
   void growl(this const crier_api& self) noexcept;
   void bark(this crier_api&& self);
 };
@@ -726,7 +731,8 @@ static_assert(ranger_build::name_v.view() == "ranger");
 static_assert(ranger_build::count_v == 6);
 
 // A deducing-this interface: each member declares the method its object
-// parameter admits, and the one taking no lvalue declares nothing.
+// parameter admits, and the one taking no lvalue declares nothing. The count
+// also pins that `peek`, const by constraint alone, declares nothing.
 using crier_build = prox::details::vtbuild_t<crier>;
 static_assert(crier_build::name_v.view() == "crier");
 static_assert(crier_build::count_v == 5);
