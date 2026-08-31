@@ -171,6 +171,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # SSH dir for the named volume (ownership seeds the volume on first mount).
 RUN mkdir -p /home/node/.ssh && chown node:node /home/node/.ssh && chmod 700 /home/node/.ssh
 
+# gh config dir for its named volume, same seeding. It holds the GitHub OAuth
+# token (hosts.yml), which otherwise dies with the container on every rebuild.
+RUN mkdir -p /home/node/.config/gh && chown -R node:node /home/node/.config && chmod 700 /home/node/.config/gh
+
 USER node
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=$PATH:/usr/local/share/npm-global/bin
