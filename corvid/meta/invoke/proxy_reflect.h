@@ -1021,7 +1021,7 @@ consteval std::vector<std::meta::info> sugar_specs(std::tuple<Ss...>*) {
   const auto add = [&]<typename S>() {
     const auto name = S::name_v.view();
     // Reserved "__" methods are dispatch-only and get no sugar member.
-    if (name.starts_with("__")) return;
+    if (is_reserved_name(name)) return;
     if (std::ranges::find(seen, name) != seen.end()) return;
     seen.push_back(name);
     const auto type = std::meta::substitute(^^reflected_sugar,

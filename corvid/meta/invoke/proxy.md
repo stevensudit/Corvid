@@ -342,7 +342,12 @@ is sound because local classes are ordinary template arguments, their static
 member functions are ordinary runtime functions even inside a consteval hook,
 and a consteval function is implicitly inline, so the local type is
 ODR-consistent across translation units. (Local classes do forgo static
-data members and member templates, which bindings do not need.)
+data members and member templates, which bindings do not need.) One
+caution: clang with MS STL fails to link a `std::format` or `format_to`
+call written inside such a local class, because it leaves the consteval
+format-string check unevaluated there and the checker has no runtime
+definition. Use `std::vformat_to` in a hook-local binding, or move the
+binding class to namespace scope.
 
 When instead nested in the type it serves, the impl can additionally reach
 the type's private members (`turncoat` in the test nests its impl). Namespace scope works too,
@@ -731,7 +736,8 @@ virtual inheritance semantics with no opt-in and no duplicated subobjects.
 
 Conformance is per facade, as with Rust supertraits.
 `Proxiable<T, marshal>` requires `marshal`'s own methods bound through
-`proxy_impl<marshal, T>` plus `Proxiable<T, gunslinger>`, and the derived
+`proxy_impl<marshal, T>` (or, for the reserved format method, through the
+library fallback) plus `Proxiable<T, gunslinger>`, and the derived
 boilerplate spells only the new methods. The alternative, one derived impl
 covering the whole flattened list, was rejected because it lets a
 directly-built `proxy_view<gunslinger>` and an upcast one dispatch
@@ -1577,7 +1583,9 @@ stay out, mirroring their lack of `call`. The formatter keeps the spec
 tail as text at parse time and dispatches `call<"__format">` at format
 time, carrying the `?` debug request along, so handles quote themselves
 inside the std range and map formatters the way their targets would. An
-empty handle renders the unquoted marker `(empty)` without dispatching.
+empty handle renders the unquoted marker `(empty)` without dispatching,
+through the bridge's own padding, so fill, align, width, and precision
+apply to it as they would to a present target.
 
 The bridge is type-erased, with the limits that brings. Compile-time
 spec checking stops at the handle; the target's grammar is enforced at
@@ -1585,8 +1593,13 @@ format time. The erased channel is the narrow `std::format_context`,
 which every `std::format` and `format_to` call reaches directly, and
 there is no wide bridge. A formatter handed some other context type
 (libc++ formats range and tuple elements through a retargeting one)
-replays the call under a canonical context and copies the text out, at
-the cost of a temporary string. And two unrelated `extends` bases that
+replays the call under a canonical context through `std::vformat_to`,
+with the caller's locale. A dynamic width or precision is resolved by
+the bridge and handed to the target as a literal, because the target
+parses at format time, when an auto `{}` can no longer claim its arg id,
+and a replayed call cannot reach the caller's args at all; that
+resolution assumes the standard spec grammar up to the precision, as
+`nullable_formatter`'s does. And two unrelated `extends` bases that
 are both formattable collide on the reserved name, as sibling same-name
 methods do, so compositions should share one formattable ancestor.
 

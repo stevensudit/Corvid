@@ -159,6 +159,17 @@ consteval storage_mode proxy_storage_mode_of(invocable_policy p) noexcept {
   return !s.contains("::");
 }
 
+// `is_reserved_name` is whether `s` carries the `"__"` prefix that marks a
+// method as a library convention. Such a method is dispatched like any other
+// but gets no sugar member and no boilerplate slot, because the library binds
+// it itself.
+[[nodiscard]] constexpr bool is_reserved_name(std::string_view s) noexcept {
+  return s.starts_with("__");
+}
+
+// The reserved name of the format method.
+inline constexpr fixed_string format_method_name = "__format";
+
 } // namespace implementation
 
 // `method` is the descriptor with the name, plus the erased signature.
@@ -877,8 +888,9 @@ struct method_traits<M, R(Args...)> {
         } noexcept;
       });
 
-  // Whether this is the reserved format method (see "proxy_format.h").
-  static constexpr bool is_format_v = (M::name_v.view() == "__format");
+  // Whether this is the reserved format method.
+  static constexpr bool is_format_v =
+      (M::name_v.view() == format_method_name.view());
 
   // Whether the library's format fallback serves this method for `T`.
   //
@@ -887,14 +899,22 @@ struct method_traits<M, R(Args...)> {
   // does exactly when `T` is formattable.
   template<typename T>
   static consteval bool has_format_fallback() noexcept {
-    if constexpr (!is_format_v)
+    if constexpr (!is_format_v) {
       return false;
-    else
+    } else {
+      // Probing an incomplete `format_binding` would read as "unbound" and
+      // fail conformance with no hint of the cause, so name it.
+      static_assert(
+          requires { sizeof(format_binding<std::remove_cv_t<T>>); },
+          "the facade declares the reserved format method, so the formatter "
+          "bridge must be visible: include \"proxy_format.h\" where the "
+          "facade is declared");
       return requires {
         {
           format_binding<std::remove_cv_t<T>>::thunk()
         } -> std::same_as<thunk_ptr_t>;
       };
+    }
   }
 
   // Whether the method is usable for the pair, whether bound by `proxy_impl`,
@@ -2409,10 +2429,11 @@ struct handle_impl {
 
 // `Proxiable` is the concept for when `T` can back facade `F`.
 //
-// Satisfied when a usable `proxy_impl<F, T>` binding exists for every method
-// of `F`, and the pair itself has opted in: it is registered, or `T` is a
-// proxy handle of `F` or of a facade extending it (the library's
-// self-conformance bindings).
+// Satisfied when every method of `F` is bound for `T` (through
+// `proxy_impl<F, T>`, or for the reserved format method through the library's
+// fallback to `T`'s own `std::formatter`), and the pair itself has opted in:
+// it is registered, or `T` is a proxy handle of `F` or of a facade extending
+// it (the library's self-conformance bindings).
 //
 // The explicit opt-in term is what keeps a facade with no own methods, a
 // name-only marker or a pure aggregation level, from being backed by every

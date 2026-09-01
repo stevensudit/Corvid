@@ -376,6 +376,38 @@ struct spec_parser: parsed_spec<CharT> {
     return out;
   }
 
+  // Rewrite the spec with every dynamic width or precision replaced by its
+  // resolved value, so a formatter parsing the result reads no args. A width
+  // that resolved to zero is dropped rather than spelled, because a leading
+  // `0` in the spec text is the zero-pad flag, not a width.
+  //
+  // Only call with the values `resolve_width` and `resolve_precision`
+  // produced for this spec.
+  [[nodiscard]] std::basic_string<CharT>
+  rewrite_spec_as_fixed(std::basic_string_view<CharT> spec, size_t width,
+      std::optional<size_t> precision) const {
+    std::array<std::optional<size_t>, 2> values{};
+    size_t got{};
+    if (width_arg.is_dynamic())
+      values[got++] = width ? std::optional{width} : std::nullopt;
+    if (precision_arg.is_dynamic()) values[got++] = precision;
+
+    std::basic_string<CharT> out;
+    out.reserve(spec.size() + (got * 20));
+    size_t next{};
+    for (auto ndx = 0UZ; ndx < spec.size(); ++ndx) {
+      if (spec[ndx] != CharT{'{'}) {
+        out.push_back(spec[ndx]);
+        continue;
+      }
+      // Skip the `{...}` field and spell its value in its place.
+      while (ndx < spec.size() && spec[ndx] != CharT{'}'}) ++ndx;
+      if (next < got)
+        if (const auto value = values[next++]) append_decimal(out, *value);
+    }
+    return out;
+  }
+
 #pragma endregion
 #pragma region Helpers
 private:
@@ -405,6 +437,7 @@ private:
 #pragma endregion
 };
 
+#pragma endregion
 #pragma region format_with_spec
 
 // Measure the nested spec at the front of `spec`, which contains the count of

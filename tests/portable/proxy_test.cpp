@@ -4032,10 +4032,12 @@ consteval auto corvid_proxy_spec(poet*, herald*) {
     static std::format_context::iterator on(method_key<"__format">,
         const herald& t, std::string_view /*spec*/, std::format_context& ctx,
         bool /*debug*/) {
-      auto out = ctx.out();
-      for (const char ch : std::string_view{"HEAR YE: "}) *out++ = ch;
-      for (const char ch : t.line) *out++ = ch;
-      return out;
+      // Spelled with `vformat_to` because clang (with MS STL) leaves the
+      // consteval format-string check of `format_to` unevaluated inside a
+      // class local to a consteval function, and the link then fails on the
+      // checker's missing runtime definition.
+      return std::vformat_to(ctx.out(), "HEAR YE: {}",
+          std::make_format_args(t.line));
     }
   };
   return prox::make_proxy_spec<poet, herald, as_poet>();
@@ -4072,10 +4074,29 @@ TEST_CASE("Formatter bridge", "[proxy]") {
   CHECK(std::format("{:.3}", pv) == "the");
   CHECK(std::format("{:?}", pv) == R"("the quick brown fox")");
 
+  // A dynamic width or precision, auto or manual, resolves through the bridge
+  // and reaches the target as a literal.
+  CHECK(std::format("{:>{}}", pv, 22) == "   the quick brown fox");
+  CHECK(std::format("{0:>{1}}", pv, 22) == "   the quick brown fox");
+  CHECK(std::format("{:.{}}", pv, 3) == "the");
+  CHECK(std::format("{:>{}.{}}", pv, 6, 3) == "   the");
+  // A width that resolves to zero is no width, not the zero-pad flag.
+  CHECK(std::format("{:>{}}", pv, 0) == "the quick brown fox");
+  // A width arg that is not an integer is rejected, as std rejects it.
+  const std::string_view not_a_width = "wide";
+  CHECK_THROWS_AS(
+      std::vformat("{:>{}}", std::make_format_args(pv, not_a_width)),
+      std::format_error);
+
   // Inside a range, handles quote themselves the way their targets would.
   const std::vector<prox::proxy_view<poet>> both{pv,
       prox::proxy_view<poet>{w}};
   CHECK(std::format("{}", both) == R"(["the quick brown fox", "jumps over"])");
+  // The element spec's dynamic width resolves through the range's args. An
+  // explicit element spec also switches off the range's debug quoting, as it
+  // does for std elements.
+  CHECK(std::format("{::>{}}", both, 13) ==
+        "[the quick brown fox,    jumps over]");
 
   // A derived facade's handle formats through the inherited method.
   verse refrain{"refrain"};
@@ -4087,6 +4108,12 @@ TEST_CASE("Formatter bridge", "[proxy]") {
   CHECK(std::format("{}", empty_view) == "(empty)");
   prox::proxy<poet> empty_proxy;
   CHECK(std::format("{}", empty_proxy) == "(empty)");
+  // The marker takes the spec's padding, so it lines up with present targets.
+  CHECK(std::format("{:>10}", empty_view) == "   (empty)");
+  CHECK(std::format("{:*^11}", empty_view) == "**(empty)**");
+  CHECK(std::format("{:.3}", empty_view) == "(em");
+  CHECK(std::format("{:>{}}", empty_view, 9) == "  (empty)");
+  CHECK(std::format("{:?}", empty_view) == "(empty)");
 
   // A registration-bound "__format" replaces the target's formatter.
   herald tc{"oyez"};

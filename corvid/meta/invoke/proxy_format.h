@@ -15,7 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <format>
@@ -36,7 +35,8 @@
 // The full spec grammar of the TARGET applies, because the handle forwards
 // the spec to the target's own `std::formatter` at format time. Inside
 // ranges and maps, handles quote themselves exactly as their targets would,
-// through the `?` debug request. An empty handle renders "(empty)".
+// through the `?` debug request. An empty handle renders "(empty)", padded
+// as the spec asks.
 //
 // Include this header where formatting facades are declared; the umbrella
 // "proxy.h" leaves it out so that `<format>` stays opt-in.
@@ -68,19 +68,23 @@ namespace corvid { inline namespace meta { namespace prox {
 //
 // The bridge is erased, so compile-time spec checking stops at the handle:
 // the target's grammar is enforced at format time, and the erased channel is
-// the narrow `std::format_context` (there is no wide bridge). Two unrelated
-// `extends` bases that are both formattable collide on the reserved name,
-// as sibling same-name methods do; compose them under a shared formattable
-// ancestor instead.
-using formattable =
-    method<"__format", std::format_context::iterator(std::string_view,
-                           std::format_context&, bool) const>;
+// the narrow `std::format_context` (there is no wide bridge). A dynamic width
+// or precision is resolved by the bridge and reaches the target as a literal,
+// which assumes the standard spec grammar up to the precision.
+//
+// Two unrelated `extends` bases that are both formattable collide on the
+// reserved name, as sibling same-name methods do; compose them under a shared
+// formattable ancestor instead.
+using formattable = method<implementation::format_method_name,
+    std::format_context::iterator(std::string_view, std::format_context&, bool)
+        const>;
 
 // Concept for a facade that declares the reserved format method, its own or
 // inherited, making its handles `std::formattable`.
 template<typename F>
 concept FormattingFacade =
-    Facade<F> && implementation::facade_declares<F, "__format">();
+    Facade<F> &&
+    implementation::facade_declares<F, implementation::format_method_name>();
 
 namespace implementation {
 
@@ -98,9 +102,9 @@ struct format_binding {
   {
     return +[](const void* target, std::string_view spec,
                 std::format_context& ctx,
-                bool debug) -> std::format_context::iterator {
+                bool is_debug) -> std::format_context::iterator {
       return corvid::meta::format_with_spec(*static_cast<const T*>(target),
-          spec, ctx, debug);
+          spec, ctx, is_debug);
     };
   }
 };
@@ -108,14 +112,14 @@ struct format_binding {
 // `erased_call` is a pending "__format" call on a handle, packaged as a
 // formattable value.
 //
-// Formatting one through `std::vformat` replays the call under a canonical
+// Formatting one through `std::vformat_to` replays the call under a canonical
 // `std::format_context`, which is how `proxy_formatter` serves a context of
 // some other type.
 template<typename Handle>
 struct erased_call {
-  const Handle* handle;
+  const Handle* handle{};
   std::string_view spec_tail;
-  bool is_debug;
+  bool is_debug{};
 };
 
 // `proxy_formatter` is the one `std::formatter` implementation behind every
@@ -126,8 +130,19 @@ struct erased_call {
 // The `?` debug request carries through `set_debug_format`, the way the std
 // range formatter asks its elements to quote themselves.
 //
-// An empty handle renders the unquoted marker "(empty)", unpadded, since
-// fill and width belong to the spec a present target serves.
+// A dynamic width or precision is the bridge's to resolve, because the target
+// parses the spec at format time, when an auto `{}` can no longer claim its
+// arg id, and a replayed call (see `dispatch`) cannot reach the caller's args
+// at all. So `parse` reads the standard grammar with the band's
+// `spec_parser` and claims any auto ids, and `format` re-presents the spec to
+// the target with the resolved values spelled as literals (the
+// `nullable_formatter` technique). A spec with no dynamic field reaches the
+// target untouched, so a target grammar that departs from the standard one
+// still works there.
+//
+// An empty handle renders the unquoted marker "(empty)" through the bridge's
+// own padding, so fill, align, width, and precision apply to it as they
+// would to a present target.
 template<typename Handle>
 struct proxy_formatter {
   constexpr auto parse(std::basic_format_parse_context<char>& ctx) {
@@ -135,40 +150,57 @@ struct proxy_formatter {
     // closing '}' the way it would under `std::format`.
     const std::string_view spec{ctx.begin(), ctx.end()};
     spec_tail_ = spec;
-    return ctx.begin() +
-           static_cast<ptrdiff_t>(corvid::meta::calc_nested_spec_size(spec));
+    spec_size_ = corvid::meta::calc_nested_spec_size(spec);
+    (void)spec_.parse(spec.substr(0, spec_size_));
+    spec_.width_arg.claim_next_automatic(ctx);
+    spec_.precision_arg.claim_next_automatic(ctx);
+    return ctx.begin() + static_cast<ptrdiff_t>(spec_size_);
   }
 
-  constexpr void set_debug_format() noexcept { is_debug_ = true; }
+  constexpr void set_debug_format() noexcept { spec_.debug = true; }
 
   // Format `h` through its target's own formatter.
+  template<typename FormatContext>
+  FormatContext::iterator format(const Handle& h, FormatContext& ctx) const {
+    const auto width = spec_.resolve_width(ctx);
+    const auto precision = spec_.resolve_precision(ctx);
+    if (!h) {
+      std::string_view marker{"(empty)"};
+      if (precision) marker = marker.substr(0, *precision);
+      return spec_.write_padded(ctx.out(), marker, width);
+    }
+    if (!spec_.is_dynamic()) return dispatch(h, spec_tail_, ctx);
+    auto fixed = spec_.rewrite_spec_as_fixed(spec_tail_.substr(0, spec_size_),
+        width, precision);
+    fixed.push_back('}');
+    return dispatch(h, fixed, ctx);
+  }
+
+private:
+  // Dispatch the call under `spec_tail`.
   //
   // The erased channel is `std::format_context`, which every `std::format`
   // and `format_to` call reaches directly. The declaration stays
   // context-generic because a formatter can be handed another context type:
   // the `std::formattable` probes use a synthetic one, and libc++ formats
   // range and tuple elements through a retargeting one. A foreign context is
-  // served by replaying the call under a canonical context and copying the
-  // text out, at the cost of a temporary string.
+  // served by replaying the call under a canonical context, through
+  // `std::vformat_to` on its own output iterator and locale.
   template<typename FormatContext>
-  FormatContext::iterator format(const Handle& h, FormatContext& ctx) const {
-    if (!h) {
-      auto out = ctx.out();
-      for (const char ch : std::string_view{"(empty)"}) *out++ = ch;
-      return out;
-    }
+  FormatContext::iterator dispatch(const Handle& h, std::string_view spec_tail,
+      FormatContext& ctx) const {
     if constexpr (std::same_as<FormatContext, std::format_context>) {
-      return h.template call<"__format">(spec_tail_, ctx, is_debug_);
+      return h.template call<format_method_name>(spec_tail, ctx, spec_.debug);
     } else {
-      const erased_call<Handle> call{&h, spec_tail_, is_debug_};
-      const auto text = std::vformat("{}", std::make_format_args(call));
-      return std::ranges::copy(text, ctx.out()).out;
+      const erased_call<Handle> call{&h, spec_tail, spec_.debug};
+      return std::vformat_to(ctx.out(), ctx.locale(), "{}",
+          std::make_format_args(call));
     }
   }
 
-private:
   std::string_view spec_tail_;
-  bool is_debug_{};
+  size_t spec_size_{};
+  corvid::meta::spec_parser<char> spec_;
 };
 
 } // namespace implementation
@@ -179,7 +211,7 @@ private:
 
 // The replay formatter behind `erased_call`.
 //
-// It is only ever reached at the top of a `std::vformat`, so it takes the
+// It is only ever reached at the top of a `std::vformat_to`, so it takes the
 // canonical context outright.
 template<typename Handle>
 struct std::formatter<corvid::meta::prox::implementation::erased_call<Handle>,
@@ -191,14 +223,24 @@ struct std::formatter<corvid::meta::prox::implementation::erased_call<Handle>,
   std::format_context::iterator
   format(const corvid::meta::prox::implementation::erased_call<Handle>& call,
       std::format_context& ctx) const {
-    return call.handle->template call<"__format">(call.spec_tail, ctx,
-        call.is_debug);
+    return call.handle->template call<
+        corvid::meta::prox::implementation::format_method_name>(call.spec_tail,
+        ctx, call.is_debug);
   }
 };
 
 // One-line `std::formatter` specializations, deriving the shared base, one
 // per dispatching handle flavor. The weak proxies stay out, mirroring their
 // lack of `call`.
+//
+// They are spelled out rather than collapsed into one bare-`H`
+// specialization constrained on `handle_facade<H>`. A program-defined
+// specialization of a std template must depend on a program-defined type,
+// and with a bare pattern that dependence lives only in the constraint,
+// which the standard libraries police differently and which has to stay
+// unambiguous against their own bare-pattern formatters (ranges, pointers).
+// The collapsed form would work on some legs at a given time; the five lines
+// work everywhere.
 
 template<corvid::meta::prox::FormattingFacade F>
 struct std::formatter<corvid::meta::prox::proxy_view<F>, char>

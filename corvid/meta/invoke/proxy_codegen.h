@@ -142,7 +142,7 @@ using codegen_path_t = decltype(do_codegen_path<F>())::type;
 template<typename S, typename P>
 consteval bool api_emits() noexcept {
   // Reserved "__" methods are dispatch-only and get no forwarder.
-  if (S::name_v.view().starts_with("__")) return false;
+  if (is_reserved_name(S::name_v.view())) return false;
   if constexpr (std::is_void_v<typename S::owner_t> || std::is_void_v<P>)
     return true;
   else
@@ -291,7 +291,7 @@ void codegen(std::ostream& os) {
   walk([&]<typename S>(size_t next) {
     // Reserved "__" methods bind through the library, not the boilerplate.
     if constexpr (std::is_void_v<typename S::owner_t> &&
-                  !S::name_v.view().starts_with("__"))
+                  !implementation::is_reserved_name(S::name_v.view()))
       implementation::emit_boilerplate_slot<S>(os, next);
   });
   os << "  };\n";

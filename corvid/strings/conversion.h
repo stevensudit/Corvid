@@ -449,8 +449,8 @@ public:
   }
 
 private:
-  std::string* target_;
-  size_t init_size_;
+  std::string* target_{};
+  size_t init_size_{};
 };
 
 // Callback that appends a single `char` and always returns true.
