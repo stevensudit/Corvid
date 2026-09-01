@@ -437,8 +437,7 @@ append_escaped_ucode(unsigned char ch, CharAppenderFn auto append_cb) {
   assert(ch < 0x20 || ch >= 0x7f);
   append_cb('\\') && append_cb('u') && append_cb('{');
   if (ch >= 0x10) append_cb(as_hex_lc_digit<char>(ch >> 4));
-  append_cb(as_hex_lc_digit<char>(ch)) && append_cb('}');
-  return true;
+  return append_cb(as_hex_lc_digit<char>(ch)) && append_cb('}');
 }
 
 // Append `ch` using `append_cb` (which must return true), escaping it if
@@ -504,9 +503,7 @@ constexpr bool append_escaped(std::string& out, std::string_view s) {
   case 'n': ch = '\n'; break;
   case 'r': ch = '\r'; break;
   case '"': ch = '"'; break;
-  case 'u':
-    if (!parse_u_code(sv, ch)) return false;
-    return true;
+  case 'u': return (parse_u_code(sv, ch));
   default: return false;
   }
   sv.remove_prefix(2);
@@ -515,14 +512,18 @@ constexpr bool append_escaped(std::string& out, std::string_view s) {
 
 // Parse all of `sv`, appending the unescaped characters to `out`.
 //
-// Returns true on success, false on failure.
+// Returns true on success, false on failure (with `out` preserved).
 [[nodiscard]] constexpr bool
 parse_escaped(std::string_view sv, std::string& out) {
-  out.reserve(out.size() + sv.size());
+  const auto init_size = out.size();
+  out.reserve(init_size + sv.size());
   char ch{};
   while (!sv.empty()) {
     if (sv[0] == '\\') {
-      if (!parse_escaped(sv, ch)) return false;
+      if (!parse_escaped(sv, ch)) {
+        out.resize(init_size);
+        return false;
+      }
       out += ch;
     } else {
       out += sv[0];
@@ -536,22 +537,33 @@ parse_escaped(std::string_view sv, std::string& out) {
 // characters to `out`.
 //
 // Does not append the surrounding quotes; updates `sv` to point to the
-// remainder. Returns true on success, false on failure.
+// remainder. Returns true on success, false on failure (with `out` and `sv`
+// preserved).
 [[nodiscard]] constexpr bool
 parse_escaped_quoted(std::string_view& sv, std::string& out) {
   if (sv.empty() || sv[0] != '"') return false;
+  const auto init_size = out.size();
+  const auto init_sv = sv;
   sv.remove_prefix(1);
   while (!sv.empty() && sv[0] != '"') {
     char ch{};
     if (sv[0] == '\\') {
-      if (!parse_escaped(sv, ch)) return false;
+      if (!parse_escaped(sv, ch)) {
+        out.resize(init_size);
+        sv = init_sv;
+        return false;
+      }
       out += ch;
     } else {
       out += sv[0];
       sv.remove_prefix(1);
     }
   }
-  if (sv.empty() || sv[0] != '"') return false;
+  if (sv.empty() || sv[0] != '"') {
+    out.resize(init_size);
+    sv = init_sv;
+    return false;
+  }
   sv.remove_prefix(1);
   return true;
 }
