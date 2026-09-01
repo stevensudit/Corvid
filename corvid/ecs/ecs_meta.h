@@ -44,8 +44,8 @@ inline constexpr bool has_all_components_v =
 #pragma endregion
 #pragma region Storage selection
 
-// 0-based index into `Storages...` of the first storage whose
-// `component_t == C`. Fails to compile if no storage matches.
+// 0-based index into `Storages...` of the first storage whose `component_t ==
+// C`. Fails to compile if no storage matches.
 template<typename C, size_t I, typename... Storages>
 struct find_component_storage_index_impl;
 
@@ -61,8 +61,8 @@ struct find_component_storage_index_impl<C, I> {
       "no storage in the scene has `component_t` equal to `C`");
 };
 
-// 0-based index into `Storages...` of the first storage whose
-// `component_t == C`.
+// 0-based index into `Storages...` of the first storage whose `component_t ==
+// C`.
 template<typename C, typename... Storages>
 inline constexpr size_t find_component_storage_index_v =
     find_component_storage_index_impl<C, 0, Storages...>::value;

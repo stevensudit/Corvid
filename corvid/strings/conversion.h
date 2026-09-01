@@ -78,8 +78,7 @@ extract_num(std::integral auto& t, std::basic_string_view<CharT>& sv) {
   return false;
 }
 
-// Extract integer from a `std::string_view`, returning it as
-// `std::optional`.
+// Extract integer from a `std::string_view`, returning it as `std::optional`.
 //
 // On success, returns optional with value, and removes parsed characters
 // from the string view.
@@ -166,8 +165,7 @@ constexpr auto& append_num(AnyAppendTarget auto& target, Bool auto num) {
   return append_num<base, width, pad>(target, static_cast<int>(num));
 }
 
-// Return integral number as string.
-// Accepts integers or bool.
+// Return integral number as string. Accepts integers or bool.
 template<int base = 10, size_t width = 0UZ, char pad = ' ',
     CharType CharT = char>
 [[nodiscard]] constexpr std::basic_string<CharT>

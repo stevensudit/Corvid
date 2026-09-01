@@ -85,8 +85,8 @@ class iou_buf_pool_of: public buffer_pool_base {
 
   static constexpr auto read_throttle_size = slab_size * 3 / 4;
   static constexpr auto write_reserve_size = slab_size / 4;
-  // Tier i: block size == `min_block_size << i`
-  // (tier 0 == min_block_size, tier_count-1 == slab_size).
+  // Tier i: block size == `min_block_size << i` (tier 0 == min_block_size,
+  // tier_count-1 == slab_size).
   static constexpr size_t tier_count{
       std::countr_zero(slab_size / min_block_size) + 1};
 

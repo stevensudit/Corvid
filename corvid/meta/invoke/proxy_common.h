@@ -718,9 +718,8 @@ concept ProxyRegistered = requires {
 // `SpecCarriesImpl` is the concept for a (facade, type) pair whose
 // registration carries an impl.
 //
-// True when the pair is registered through the three-type
-// `make_proxy_spec<F, T, Impl>()`, which names the binding class serving the
-// pair.
+// True when the pair is registered through the three-type `make_proxy_spec<F,
+// T, Impl>()`, which names the binding class serving the pair.
 //
 // The library installs the carried impl as the pair's `proxy_impl` (below),
 // outranking the facade's boilerplate because the carried impl is the more
@@ -1733,12 +1732,11 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `resolve` to resolve the `Key`, called with `CallArgs`, to a slot index,
   // or to `none_v` or `ambiguous_v`.
   //
-  // An unqualified key with a single candidate resolves to it
-  // unconditionally, so a call with unsuitable arguments still fails
-  // directly at the thunk; a qualified key narrows the candidates to one
-  // facade's before the same rules run. An `Access` of `as_const` restricts
-  // the candidates to const-qualified methods, for dispatch through const
-  // handles.
+  // An unqualified key with a single candidate resolves to it unconditionally,
+  // so a call with unsuitable arguments still fails directly at the thunk. A
+  // qualified key narrows the candidates to one facade's before the same rules
+  // run. An `Access` of `as_const` restricts the candidates to const-qualified
+  // methods, for dispatch through const handles.
   //
   // A key over an overload set (per-name overloads within a facade, or a
   // sibling collision) is ranked by the compiler rather than by a
@@ -2307,12 +2305,13 @@ constexpr auto default_on(method_key<Key> key, Self& self,
 //
 // `on` has two mutually exclusive overloads. A key one of `Ms...` binds
 // invokes that member on the target, through `std::invoke`, so a member
-// function is called and a data member is read (as a reference, which a
-// facade method returning one serves directly). Any other key forwards to
-// the pair's default impl (the facade's `boilerplate<T>`; see
-// `default_impl`), when there is one and it binds the key. A key bound by
-// neither is not bound at all, which conformance reports as it would for a
-// binding class with no `on` for it.
+// function is called and a data member is read (as a reference, which a facade
+// method returning one serves directly).
+//
+// Any other key forwards to the pair's default impl (the facade's
+// `boilerplate<T>`; see `default_impl`), when there is one and it binds the
+// key. A key bound by neither is not bound at all, which conformance reports
+// as it would for a binding class with no `on` for it.
 //
 // The target parameter is deduced, so a const target reaches the member as
 // const and a mutable one as mutable; whether the member accepts that is

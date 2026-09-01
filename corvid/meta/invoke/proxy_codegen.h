@@ -219,15 +219,16 @@ void emit_boilerplate_slot(std::ostream& os, size_t next) {
 // `os`, ready to paste into the facade body.
 //
 // The generated `api` inherits the heaviest direct base's `api` (the
-// single-path diamond shape), spells forwarders for the facade's own
-// methods and for any inherited methods that path does not cover, adds the
-// using-declarations that merge names those forwarders would otherwise
-// hide, marks noexcept forwarders, and carries the const-pair
-// requires-clause. When the heaviest base defines no `api` (supported, not
-// recommended), nothing is inherited and every flattened method gets its
-// own forwarder. The `boilerplate` covers the facade's own methods. This
-// is the closest thing to reflection available today; when C++26 reflection
-// lands, it deletes the paste step.
+// single-path diamond shape), spells forwarders for the facade's own methods
+// and for any inherited methods that path does not cover, adds the
+// using-declarations that merge names those forwarders would otherwise hide,
+// marks noexcept forwarders, and carries the const-pair requires-clause.
+//
+// When the heaviest base defines no `api` (supported, but not recommended),
+// nothing is inherited and every flattened method gets its own forwarder. The
+// `boilerplate` covers the facade's own methods. This is the closest thing to
+// reflection available today; when C++26 reflection lands, it deletes the
+// paste step.
 //
 // Parameter names are generated as one `arg_N` sequence spanning the whole
 // facade, so each name is unique across the output and renaming one after

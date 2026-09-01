@@ -44,6 +44,7 @@ public:
       : cuda_array_3d{allocate(extent, on_failure::raise), extent} {}
 
   // Allocate an array of `extent`, or return a failed instance.
+  //
   // Check with `operator bool`, and follow up with `cuda_last_status{}`.
   [[nodiscard]] static cuda_array_3d try_create(cudaExtent extent) {
     return cuda_array_3d{allocate(extent, on_failure::ignore), extent};

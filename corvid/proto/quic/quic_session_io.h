@@ -33,10 +33,10 @@ namespace corvid { inline namespace proto { namespace quic {
 
 // The stream offer for one `quic_session_io::pump_drain` iteration.
 //
-// `sid == none` (with an empty `iov`) offers no stream, so the
-// `writev_stream` call emits only non-stream frames (ACKs, MAX_DATA, ...).
-// Plugins needing to carry extra state from pick to commit supply their own
-// type with these three members plus whatever else they need.
+// `sid == none` (with an empty `iov`) offers no stream, so the `writev_stream`
+// call emits only non-stream frames (ACKs, MAX_DATA, ...). Plugins needing to
+// carry extra state from pick to commit supply their own type with these three
+// members plus whatever else they need.
 struct drain_pick {
   quic_stream_id sid = quic_stream_id::none;
   std::span<const iovec> iov;

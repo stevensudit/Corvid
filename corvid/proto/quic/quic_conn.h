@@ -112,34 +112,31 @@ consteval auto corvid_enum_spec(quic_close_kind*) {
 // ngtcp2 call would let already- processed stream data continue to be
 // delivered during the current `read_pkt` path.
 //
-// Each upcall returns `bool`: `true` to continue normally (trampoline
-// returns 0 to ngtcp2), `false` to signal callback failure (trampoline
-// returns `NGTCP2_ERR_CALLBACK_FAILURE`; ngtcp2 bails from `read_pkt` and
-// no further callbacks fire in this turn). To request a graceful
-// CONNECTION_CLOSE, call `quic_conn::request_close(kind, error_code,
-// reason)` from within the callback to stash the close request, then
-// return `false` (or `true`, depending on whether you want ngtcp2 to
-// keep dispatching the rest of the packet); the session's drain will
-// see the stash and emit the requested CONNECTION_CLOSE after
-// `read_pkt` returns.
+// Each upcall returns `bool`: `true` to continue normally (trampoline returns
+// 0 to ngtcp2), `false` to signal callback failure (trampoline returns
+// `NGTCP2_ERR_CALLBACK_FAILURE`; ngtcp2 bails from `read_pkt` and no further
+// callbacks fire in this turn). To request a graceful CONNECTION_CLOSE, call
+// `quic_conn::request_close(kind, error_code, reason)` from within the
+// callback to stash the close request, then return `false` (or `true`,
+// depending on whether you want ngtcp2 to keep dispatching the rest of the
+// packet); the session's drain will see the stash and emit the requested
+// CONNECTION_CLOSE after `read_pkt` returns.
 //
 // Noexcept policy: the trampolines in `quic_conn` are the firewall, not
 // these virtuals. The trampolines are themselves `noexcept` (forced by
 // the C ABI) and wrap each upcall in `quic_conn::try_callback`, which
 // runs the call through `infra::try_or_log` and converts the result to
 // ngtcp2's int status. That means the virtuals here are intentionally
-// NOT `noexcept`: overrides are free to throw on allocation failure or
-// library errors, and a thrown exception will be caught at the
-// trampoline and reported to ngtcp2 as `NGTCP2_ERR_CALLBACK_FAILURE`,
-// which drops the connection cleanly without terminating the process.
-// Overrides MAY still mark themselves `noexcept` if they can't throw but MUST
-// if they're not exception-safe. Outside this upcall surface, Corvid types
-// reflect their throw behavior honestly (e.g.,
-// `iov_queue::append` is not `noexcept` because it
-// allocates, while `consume` is). The same shape applies to other
-// C-library callback wrappers (nghttp3, etc.): the wrapper static is
-// the firewall via `try_callback`, the virtual / C++ method behind it
-// can throw.
+// NOT `noexcept`: overrides are free to throw on allocation failure or library
+// errors, and a thrown exception will be caught at the trampoline and reported
+// to ngtcp2 as `NGTCP2_ERR_CALLBACK_FAILURE`, which drops the connection
+// cleanly without terminating the process. Overrides MAY still mark themselves
+// `noexcept` if they can't throw but MUST if they're not exception-safe.
+// Outside this upcall surface, Corvid types reflect their throw behavior
+// honestly (e.g., `iov_queue::append` is not `noexcept` because it allocates,
+// while `consume` is). The same shape applies to other C-library callback
+// wrappers (nghttp3, etc.): the wrapper static is the firewall via
+// `try_callback`, the virtual / C++ method behind it can throw.
 //
 // Defaults are no-op `true`, so concrete plugins override only what they
 // need.
@@ -173,11 +170,11 @@ public:
   [[nodiscard]] virtual bool on_app_tx_ready() { return true; }
 
   // Handshake confirmed (RFC 9001 sec. 4.1.2). Client-only: fires when
-  // HANDSHAKE_DONE arrives, signaling that the server has fully
-  // installed 1-RTT and the client may discard Handshake-level state.
-  // ngtcp2 silently transitions the server into the confirmed state
-  // without a callback, so concrete plugins do not see this on the
-  // server side; rely on `on_handshake_completed` there instead.
+  // HANDSHAKE_DONE arrives, signaling that the server has fully installed
+  // 1-RTT and the client may discard Handshake-level state. ngtcp2 silently
+  // transitions the server into the confirmed state without a callback, so
+  // concrete plugins do not see this on the server side; rely on
+  // `on_handshake_completed` there instead.
   [[nodiscard]] virtual bool on_handshake_confirmed() { return true; }
 
 #pragma endregion
@@ -214,10 +211,9 @@ public:
     return true;
   }
 
-  // Peer sent RESET_STREAM on its sending side. `final_size` is the
-  // total it claims to have sent; ngtcp2 will not deliver any further
-  // `on_recv_stream_data` for this stream. `app_error_code` is
-  // peer-supplied.
+  // Peer sent RESET_STREAM on its sending side. `final_size` is the total it
+  // claims to have sent; ngtcp2 will not deliver any further
+  // `on_recv_stream_data` for this stream. `app_error_code` is peer-supplied.
   [[nodiscard]] virtual bool on_stream_reset(quic_stream_id stream_id,
       uint64_t final_size, uint64_t app_error_code) {
     (void)stream_id;

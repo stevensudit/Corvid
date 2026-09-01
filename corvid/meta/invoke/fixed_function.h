@@ -30,8 +30,8 @@ namespace implementation {
 // pointers.
 inline constexpr size_t thunk_pair_size = 2 * sizeof(void*);
 
-// Not defined: naming it in a constant expression is how
-// `fixed_storage_size` rejects its argument.
+// Not defined: naming it in a constant expression is how `fixed_storage_size`
+// rejects its argument.
 void must_hold_the_thunk_pair();
 
 // The buffer that leaves a `fixed_function` instance of `size` bytes after

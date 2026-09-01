@@ -866,6 +866,7 @@ private:
   }
 
   // Allocate a new ID.
+  //
   // Caller is obligated to make the record valid.
   id_t alloc_id() {
     assert(living_count_ <= records_.size());

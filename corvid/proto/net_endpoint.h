@@ -83,9 +83,10 @@ namespace corvid { inline namespace proto {
 // connection with directory structure, and even embedded/trailing zeros are
 // significant. They can be discovered by parsing "/proc/net/unix".
 //
-// An ANS is a UDS, so `is_uds` returns true for it, as does the
-// more-specific `is_ans`. For an ANS, `uds_path` skips the leading '\0' and
-// returns the length-delimited name; `to_string` formats it as "unix:@<name>".
+// An ANS is a UDS, so `is_uds` returns true for it, as does the more-specific
+// `is_ans`. For an ANS, `uds_path` skips the leading '\0' and returns the
+// length-delimited name; `to_string` formats it as "unix:@<name>".
+//
 // A name containing an embedded '\0' is displayed truncated there, with " (len
 // N)" appended; that form does not round-trip through parsing, since the bytes
 // past the '\0' are lost.

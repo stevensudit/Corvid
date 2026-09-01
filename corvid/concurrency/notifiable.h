@@ -374,8 +374,8 @@ private:
 #pragma endregion
 };
 
-// Deduce the payload type from the initial value, as in
-// `notifiable running{false};`.
+// Deduce the payload type from the initial value, as in `notifiable
+// running{false};`.
 template<typename T>
 notifiable(T) -> notifiable<T>;
 

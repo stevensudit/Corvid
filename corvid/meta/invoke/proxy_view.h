@@ -92,9 +92,8 @@ public:
   // including an empty source, the result is empty.
   //
   // The result's flavor follows the access the source grants: a mutable
-  // `proxy_view` downcasts to a `proxy_view`, while a `const_proxy_view`, or
-  // a `proxy_view` reached through `const`, downcasts to a
-  // `const_proxy_view`.
+  // `proxy_view` downcasts to a `proxy_view`, while a `const_proxy_view`, or a
+  // `proxy_view` reached through `const`, downcasts to a `const_proxy_view`.
   //
   // Copying a const `proxy_view` reopens mutability, and nothing prevents
   // that; the downcast simply declines to be the copy that does it.

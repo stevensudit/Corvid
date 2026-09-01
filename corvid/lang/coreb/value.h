@@ -451,10 +451,9 @@ public:
     return ok;
   }
 
-  // Append the structural debug form to `out`: "(head . tail)", recursing
-  // into each head while iterating the tail chain, with no list
-  // abbreviation. Returns false if a subtree was truncated for depth (see
-  // `max_depth`).
+  // Append the structural debug form to `out`: "(head . tail)", recursing into
+  // each head while iterating the tail chain, with no list abbreviation.
+  // Returns false if a subtree was truncated for depth (see `max_depth`).
   bool append_dump(std::string& out, size_t depth = 0) const {
     if (depth >= max_depth) {
       out += "#<too deep>";

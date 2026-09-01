@@ -467,8 +467,8 @@ struct tuple_index_impl<T, std::tuple<Head, Tail...>, I>
 template<typename T, typename Tuple>
 inline constexpr size_t tuple_index_v = tuple_index_impl<T, Tuple>::value;
 
-// Transform `std::tuple<C0, C1, ...>` to
-// `std::tuple<std::optional<C0>, std::optional<C1>, ...>`.
+// Transform `std::tuple<C0, C1, ...>` to `std::tuple<std::optional<C0>,
+// std::optional<C1>, ...>`.
 template<typename Tuple>
 struct wrap_optionals;
 template<typename... Cs>

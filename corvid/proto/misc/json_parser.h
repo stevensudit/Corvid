@@ -238,12 +238,12 @@ public:
   // Returns false when this value is not a string.
   [[nodiscard]] constexpr bool decode_string(std::string& out) const;
 
-  // If this value is a JSON object, returns a view into it.
-  // Otherwise, returns a default-constructed empty view.
+  // If this value is a JSON object, returns a view into it. Otherwise, returns
+  // a default-constructed empty view.
   [[nodiscard]] constexpr json_object_view as_object() const noexcept;
 
-  // If this value is a JSON array, returns a view into it.
-  // Otherwise, returns a default-constructed empty view.
+  // If this value is a JSON array, returns a view into it. Otherwise, returns
+  // a default-constructed empty view.
   [[nodiscard]] constexpr json_array_view as_array() const noexcept;
 
 #pragma endregion

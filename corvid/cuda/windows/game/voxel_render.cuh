@@ -119,9 +119,9 @@ flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
       // The penumbra straddles the radius: full shadow within (radius -
       // penumbra) and lit at (radius + penumbra), so the soft band both fans
       // out past the ball and fans in to shrink the umbra, instead of leaving
-      // a hard full-size umbra with only an outer fringe.
-      // Floor so the penumbra (and the smoothstep divisor below) stays
-      // positive when `shadow_softness` is zero.
+      // a hard full-size umbra with only an outer fringe. Floor so the
+      // penumbra (and the smoothstep divisor below) stays positive when
+      // `shadow_softness` is zero.
       constexpr auto denom_floor = 1.0e-4F;
       const auto penumbra =
           fmaxf(shadow.radius * fl.shadow_softness, denom_floor);

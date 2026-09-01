@@ -19,9 +19,9 @@
 // Registration-based runtime polymorphism ("proxy") system.
 //
 // Type-erased handles (`proxy`, `proxy_view`, `const_proxy_view`,
-// `shared_proxy`, `const_shared_proxy`, `weak_proxy`, `const_weak_proxy`)
-// over an interface definition (a facade),
-// without inheritance, vtable pointers in the target type, or macros.
+// `shared_proxy`, `const_shared_proxy`, `weak_proxy`, `const_weak_proxy`) over
+// an interface definition (a facade), without inheritance, vtable pointers in
+// the target type, or macros.
 //
 // The family splits by handle, with the machinery in its own header:
 //

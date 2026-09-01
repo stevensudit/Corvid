@@ -62,8 +62,7 @@ using namespace std::chrono_literals;
 //
 // However, we use concepts to constrain the type to ensure that it's an
 // rvalue, so forwarding is not necessary and the warning is wrong. See
-// `MoveConsumable`. Since clang-tidy can't understand this, it
-// spews warnings.
+// `MoveConsumable`. Since clang-tidy can't understand this, it spews warnings.
 
 #pragma region Bindables
 
@@ -580,22 +579,21 @@ public:
     return true;
   }
 
-  // Borrow a callback pool slot and move `cb` into it.
-  // This has only niche uses.
+  // Borrow a callback pool slot and move `cb` into it. This has only niche
+  // uses.
   [[nodiscard]] borrowed_cb borrow(completion_fn&& cb) {
     auto borrowed_cb = completion_cb_pool_.borrow();
     if (borrowed_cb) *borrowed_cb = std::move(cb);
     return borrowed_cb;
   }
 
-  // Borrow a callback pool slot from its `completion_token`.
-  // This has only niche uses.
+  // Borrow a callback pool slot from its `completion_token`. This has only
+  // niche uses.
   [[nodiscard]] borrowed_cb borrow(completion_token token) {
     return token.borrow(completion_cb_pool_);
   }
 
-  // Detach a borrowed callback, without freeing it.
-  // This has only niche uses.
+  // Detach a borrowed callback, without freeing it. This has only niche uses.
   void detach(borrowed_cb&& cb) {
     (void)completion_cb_pool_.detach(std::move(cb));
   }
@@ -887,8 +885,7 @@ public:
   // first; its CQE is swallowed regardless of outcome. The close SQE starts
   // only after the cancel completes. whether it succeeds or fails. This
   // sequencing prevents the possibility of the cancel being processed after
-  // the close, which would lead canceling on a reused FD.
-  // Invalidates `file`.
+  // the close, which would lead canceling on a reused FD. Invalidates `file`.
   [[nodiscard]] completion_token
   submit_close(os_file&& file, CompletionInvocable auto&& cb) {
     if (!file) return {};
@@ -1856,9 +1853,9 @@ public:
 
 private:
   // Thread-private state shared between the handle and the worker.
-  // Heap-allocated and held by `shared_ptr` so the worker outlives the
-  // handle when the handle is destroyed on the loop thread (a
-  // self-destroy path that would otherwise be a use-after-free).
+  // Heap-allocated and held by `shared_ptr` so the worker outlives the handle
+  // when the handle is destroyed on the loop thread (a self-destroy path that
+  // would otherwise be a use-after-free).
   struct runner_state {
     explicit runner_state(size_t ups, block_size ubs, size_t tps,
         block_size tbs)

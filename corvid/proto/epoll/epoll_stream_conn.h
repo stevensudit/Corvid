@@ -199,6 +199,7 @@ public:
   [[nodiscard]] bool can_read() const noexcept { return read_open_; }
 
   // Whether the write side is still open. Safe from any thread.
+  //
   // Returns false if the connection is closed or the write side has been shut
   // down.
   [[nodiscard]] bool can_write() const noexcept { return !write_shut_; }
@@ -463,10 +464,10 @@ private:
   // mutations on an unregistered fd.
   relaxed_atomic_bool registered_;
 
-  // True while an async connect is in progress. Cleared by
-  // `handle_connect` once `SO_ERROR` is checked. During this phase,
-  // `on_readable`, `on_writable`, and `on_error` all route to
-  // `handle_connect` instead of the normal data paths.
+  // True while an async connect is in progress. Cleared by `handle_connect`
+  // once `SO_ERROR` is checked. During this phase, `on_readable`,
+  // `on_writable`, and `on_error` all route to `handle_connect` instead of the
+  // normal data paths.
   bool connecting_{};
 
   // True for listening sockets created by
@@ -732,9 +733,8 @@ private:
   // Handle EOF by closing the read side and finishing any pending close.
   //
   // Disarms both `EPOLLIN` and `EPOLLRDHUP` immediately: after EOF, the peer
-  // has done `SHUT_WR`, so `EPOLLRDHUP` would otherwise remain
-  // level-triggered and repeatedly wake the loop while the write side is
-  // still open.
+  // has done `SHUT_WR`, so `EPOLLRDHUP` would otherwise remain level-triggered
+  // and repeatedly wake the loop while the write side is still open.
   //
   // Sets `eof_pending_` and defers notifications if an
   // `epoll_recv_buffer_view` is live when EOF arrives, or becomes live as a
@@ -890,9 +890,8 @@ private:
       no_zero{recv_buf_.buffer}.enlarge_to_cap();
       if (is_hard_error) return do_close_now(close_mode::forceful) && false;
 
-      // EOF.
-      // Arm EOF handling. If a view is active, defer until it destructs so
-      // we never violate the "at most one live view" invariant.
+      // Arm EOF handling. If a view is active, defer until it destructs so we
+      // never violate the "at most one live view" invariant.
       return handle_read_eof();
     }
 

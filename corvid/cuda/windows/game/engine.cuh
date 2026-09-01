@@ -852,9 +852,9 @@ private:
                 post_process(surf, hdr_.get(), bloom_a_.get(), bloom_b_.get(),
                     block_, res, render_cfg_);
               }
-              // Auto-exposure measure: accumulate this frame's
-              // center-weighted luminance sums from the HDR buffer, read back
-              // at the top of the next frame (`update_exposure`).
+              // Auto-exposure measure: accumulate this frame's center-weighted
+              // luminance sums from the HDR buffer, read back at the top of
+              // the next frame (`update_exposure`).
               if (render_cfg_.exposure.enabled) {
                 measure_exposure(hdr_.get(), bloom_a_.get(), res, render_cfg_,
                     exposure_sums_.get());

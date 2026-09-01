@@ -153,6 +153,7 @@ public:
   // Relational operators.
 
   // Homogeneous relational operators.
+  //
   // (Not automatically generated from the spaceship operator because we also
   // specify heterogeneous comparison operators.)
   [[nodiscard]] friend constexpr auto

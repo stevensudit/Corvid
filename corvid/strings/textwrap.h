@@ -357,9 +357,8 @@ template<CharType CharT>
   return text;
 }
 
-// Chop the munged text into alternating runs of whitespace and
-// non-whitespace. Whitespace runs are chunks too, so inter-word gaps count
-// toward line widths.
+// Chop the munged text into alternating runs of whitespace and non-whitespace.
+// Whitespace runs are chunks too, so inter-word gaps count toward line widths.
 template<CharType CharT>
 [[nodiscard]] constexpr auto chunk_runs(std::basic_string_view<CharT> tv) {
   std::vector<std::basic_string_view<CharT>> chunks;
@@ -518,8 +517,7 @@ wrap(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {
 // Wrap the single paragraph in `s` and return it as one string with the lines
 // joined by newlines, Python `textwrap.fill`-style.
 //
-// For example, `fill("one two three", {.width = 8})` returns
-// "one two\nthree".
+// For example, `fill("one two three", {.width = 8})` returns "one two\nthree".
 template<StringViewLike S>
 [[nodiscard]] constexpr auto
 fill(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {

@@ -42,9 +42,8 @@ using namespace std::chrono_literals;
 //
 // Schedules `eventfn` callbacks (`std::function<bool()>`; the return value is
 // ignored) and fires them at the appropriate time. That is all it does. It has
-// no concept of IDs,
-// cancellation tokens, targets, or delivery channels -- those are the
-// caller's concern.
+// no concept of IDs, cancellation tokens, targets, or delivery channels. Those
+// are the caller's concern.
 //
 // Compared to `timers`, which uses a priority queue (O(log n) schedule), the
 // timing wheel provides O(1) schedule and O(fired) tick, at the cost of fixed

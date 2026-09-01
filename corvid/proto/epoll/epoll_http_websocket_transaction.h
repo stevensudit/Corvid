@@ -48,8 +48,7 @@ using namespace std::chrono_literals;
 // than by dropping back into HTTP semantics.
 //
 // Typical use is to install WebSocket callbacks directly onto the
-// `epoll_http_websocket` in the `configure` function passed to
-// `make_factory`:
+// `epoll_http_websocket` in the `configure` function passed to `make_factory`:
 //
 //   auto factory = epoll_http_websocket_transaction::make_factory(
 //       [](epoll_http_websocket_transaction& tx) {
@@ -181,8 +180,8 @@ public:
 private:
   using ws_fuse_t = timer_fuse<epoll_http_transaction>;
 
-  // Perform the RFC 6455 upgrade handshake. Called on the first
-  // `handle_data` invocation.
+  // Perform the RFC 6455 upgrade handshake. Called on the first `handle_data`
+  // invocation.
   [[nodiscard]] stream_claim do_upgrade(epoll_recv_buffer_view& view) {
     // Validate upgrade request.
     if (request_headers.version != http_version::http_1_1)

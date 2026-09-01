@@ -211,8 +211,7 @@ public:
 #pragma endregion
 #pragma region row_view
 
-  // Read-only view of a single entity's row; see
-  // `single_component_row_view`.
+  // Read-only view of a single entity's row; see `single_component_row_view`.
   using row_view = single_component_row_view<component_t, id_t>;
 
 #pragma endregion

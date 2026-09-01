@@ -584,6 +584,7 @@ private:
           http_status_code::NOT_FOUND, "Not Found");
 
     // Call transaction factory with the request head.
+    //
     // Don't trust the factory to move the request head out of the state.
     const auto req_version = state.req.version;
     const auto tx = (*factory)(std::move(state.req));

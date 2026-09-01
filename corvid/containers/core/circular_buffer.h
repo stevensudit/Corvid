@@ -205,8 +205,7 @@ public:
   [[nodiscard]] const auto& back() const noexcept { return data(back_); }
   [[nodiscard]] auto& back() noexcept { return data(back_); }
 
-  // Array operators allow circular access, while `at` throws on
-  // out-of-range.
+  // Array operators allow circular access, while `at` throws on out-of-range.
   //
   // With circular access, any index into a non-empty buffer is in range, but
   // indexing an empty buffer with the array operators is undefined; `at`

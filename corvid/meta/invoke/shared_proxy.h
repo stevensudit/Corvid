@@ -398,10 +398,9 @@ struct proxy_impl<F, shared_proxy<D>>: implementation::handle_impl<F> {};
 // owner, whichever flavor that owner is.
 //
 // It constructs from a `std::shared_ptr` or `std::unique_ptr` of `const T` or
-// of `T`, an owning `proxy` (consumed), or a `shared_proxy`
-// (sharing by copy or transferring by move, with the `shared_ptr<const T>`
-// using the conversion from `shared_ptr<T>`), each of `F` or of a facade
-// extending it.
+// of `T`, an owning `proxy` (consumed), or a `shared_proxy` (sharing by copy
+// or transferring by move, with the `shared_ptr<const T>` using the conversion
+// from `shared_ptr<T>`), each of `F` or of a facade extending it.
 //
 // There is no path back to mutability. A `const_weak_proxy` observes without
 // owning.

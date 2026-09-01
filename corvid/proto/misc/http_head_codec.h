@@ -429,15 +429,16 @@ public:
     return true;
   }
 
-  // Set `field_name` to a single `field_value`, replacing all existing
-  // entries for that field. If the field already exists, the first entry is
-  // updated in place (preserving its position and normalizing its name);
-  // any additional entries are tombstoned. Returns true in this case.
-  // If no entry exists, a new one is appended and false is returned; the
-  // append can also fail at the `max_field_lines` cap, which likewise
-  // returns false.
-  // The caller is responsible for providing a valid, normalized field name
-  // and a valid field value.
+  // Set `field_name` to a single `field_value`, replacing all existing entries
+  // for that field.
+  //
+  // If the field already exists, the first entry is updated in place
+  // (preserving its position and normalizing its name); any additional entries
+  // are tombstoned. Returns true in this case. If no entry exists, a new one
+  // is appended and false is returned; the append can also fail at the
+  // `max_field_lines` cap, which likewise returns false. The caller is
+  // responsible for providing a valid, normalized field name and a valid field
+  // value.
   [[nodiscard]] bool
   reset_raw(std::string_view field_name, std::string field_value) {
     assert(is_normalized(field_name) && is_valid_field_value(field_value));
@@ -898,9 +899,8 @@ struct request_head: head_base {
     return true;
   }
 
-  // Serialize to `"METHOD target HTTP/1.x\r\nHeaders\r\n\r\n"`.
-  // HTTP/0.9 omits the version token. Returns an empty string for
-  // `http_version::invalid`.
+  // Serialize to `"METHOD target HTTP/1.x\r\nHeaders\r\n\r\n"`. HTTP/0.9 omits
+  // the version token. Returns an empty string for `http_version::invalid`.
   [[nodiscard]] std::string serialize() {
     std::string result;
     if (version == http_version::invalid) return result;
@@ -1017,10 +1017,9 @@ struct response_head: head_base {
     reason.clear();
   }
 
-  // Parse a response head (the bytes before the crlfcrlf
-  // sentinel). Returns true on success, false if any part is malformed. The
-  // reason for failure is stored in `reason`, for logging and debugging
-  // purposes.
+  // Parse a response head (the bytes before the crlfcrlf sentinel). Returns
+  // true on success, false if any part is malformed. The reason for failure is
+  // stored in `reason`, for logging and debugging purposes.
   [[nodiscard]] bool parse(std::string_view head) {
     strings::token_parser crlf_parser{crlf};
     auto status_line = crlf_parser.next_delimited(head);
@@ -1054,8 +1053,8 @@ struct response_head: head_base {
     return true;
   }
 
-  // Serialize to `"HTTP/1.x code reason\r\nHeaders\r\n\r\n"`.
-  // Returns an empty string for `http_version::invalid`.
+  // Serialize to `"HTTP/1.x code reason\r\nHeaders\r\n\r\n"`. Returns an empty
+  // string for `http_version::invalid`.
   [[nodiscard]] std::string serialize() {
     std::string result;
     if (version == http_version::invalid) return result;

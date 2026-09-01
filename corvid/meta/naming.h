@@ -63,15 +63,14 @@ std::string type_name(T&&) {
 
 // Extract a type name cleaned up for humans (and generated code).
 //
-// Builds on `type_name`, stripping elaborated-type keywords, pointer-width
-// and calling-convention annotations (MSVC spells all of these),
-// inline-namespace segments, and anonymous-namespace prefixes, normalizing
-// spacing, collapsing the expanded `std::string` spelling, and restoring
-// top-level cv in the leading position, except trailing on a pointer
-// (member pointers included), where a leading const would name a different
-// type. Best-effort, like
-// `type_name`; this band cannot use the string utilities, so the edits are
-// hand-rolled.
+// Builds on `type_name`, stripping elaborated-type keywords, pointer-width and
+// calling-convention annotations (MSVC spells all of these), inline-namespace
+// segments, and anonymous-namespace prefixes, normalizing spacing, collapsing
+// the expanded `std::string` spelling, and restoring top-level cv in the
+// leading position, except trailing on a pointer (member pointers included),
+// where a leading const would name a different type.
+//
+// Best-effort, like `type_name`.
 template<typename T>
 std::string friendly_type_name() {
   using TR = std::remove_reference_t<T>;

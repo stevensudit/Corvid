@@ -40,6 +40,7 @@ public:
   cuda_event() : cuda_event{make(on_failure::raise)} {}
 
   // Create an event, or return a failed instance.
+  //
   // Check with `operator bool`, and follow up with `cuda_last_status{}`.
   [[nodiscard]] static cuda_event try_create() {
     return cuda_event{make(on_failure::ignore)};

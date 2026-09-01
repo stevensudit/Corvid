@@ -130,11 +130,10 @@ public:
   // stream with pending work each iteration (or `stream_id::none` when none
   // has any).
   //
-  // Round-robin across streams is not strictly fair: the first
-  // unordered_map iterator hit with work wins each iteration, so a stream
-  // that keeps having bytes accepted into ngtcp2's queue can starve
-  // others. Acceptable for the echo scenario; revisit if a real protocol
-  // needs strict fairness.
+  // Round-robin across streams is not strictly fair: the first unordered_map
+  // iterator hit with work wins each iteration, so a stream that keeps having
+  // bytes accepted into ngtcp2's queue can starve others. Acceptable for the
+  // echo scenario; revisit if a real protocol needs strict fairness.
   //
   // TODO: Consider starvation avoidance, perhaps with rotation so we
   // round-robin.

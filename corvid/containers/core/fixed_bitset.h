@@ -65,9 +65,9 @@ inline namespace fixed_bitsets {
 // `size_t`, but may be specialized on a scoped enum (e.g. `store_id_t`) to
 // prevent accidental mixing of unrelated index spaces.
 //
-// `TAG` is an optional tag type for disambiguating multiple
-// structurally identical `fixed_bitset` types. It has no effect on the
-// implementation, except to provide type safety and prevent mixing.
+// `TAG` is an optional tag type for disambiguating multiple structurally
+// identical `fixed_bitset` types. It has no effect on the implementation,
+// except to provide type safety and prevent mixing.
 //
 // So long as `FORCED_WORD=0`, `sizeof(fixed_bitset<...>)` is `N_BITS / 8`,
 // meaning that there is no overhead.
@@ -193,6 +193,7 @@ public:
 #pragma region reference
 
   // Akin to `std::bitset<N>::reference`.
+  //
   // This is a proxy object that behaves like a reference to a single bit,
   // allowing read and write access. It is returned by the mutable
   // `operator[]`. This is pure syntactic sugar that the compiler optimizes

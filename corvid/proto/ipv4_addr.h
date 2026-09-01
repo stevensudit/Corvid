@@ -109,8 +109,9 @@ public:
 #pragma region Parsing
 
   // Parse from dotted-decimal notation (e.g., "192.168.1.1").
-  // Returns `std::nullopt` if the string is not a valid IPv4 address.
-  // Leading zeros in any octet are rejected (e.g., "01.0.0.1" is invalid).
+  //
+  // Returns `std::nullopt` if the string is not a valid IPv4 address. Leading
+  // zeros in any octet are rejected (e.g., "01.0.0.1" is invalid).
   [[nodiscard]] static constexpr std::optional<ipv4_addr> parse(
       std::string_view s) noexcept {
     uint32_t result{};
