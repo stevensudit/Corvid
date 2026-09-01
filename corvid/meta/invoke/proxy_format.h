@@ -15,9 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <format>
+#include <string>
 #include <string_view>
 
 #include "../formatting.h"
@@ -65,8 +67,8 @@ namespace corvid { inline namespace meta { namespace prox {
 // honor the spec.
 //
 // The bridge is erased, so compile-time spec checking stops at the handle:
-// the target's grammar is enforced at format time, and only the narrow,
-// type-erased channel (`std::format_context`) is served. Two unrelated
+// the target's grammar is enforced at format time, and the erased channel is
+// the narrow `std::format_context` (there is no wide bridge). Two unrelated
 // `extends` bases that are both formattable collide on the reserved name,
 // as sibling same-name methods do; compose them under a shared formattable
 // ancestor instead.
@@ -103,6 +105,19 @@ struct format_binding {
   }
 };
 
+// `erased_call` is a pending "__format" call on a handle, packaged as a
+// formattable value.
+//
+// Formatting one through `std::vformat` replays the call under a canonical
+// `std::format_context`, which is how `proxy_formatter` serves a context of
+// some other type.
+template<typename Handle>
+struct erased_call {
+  const Handle* handle;
+  std::string_view spec_tail;
+  bool is_debug;
+};
+
 // `proxy_formatter` is the one `std::formatter` implementation behind every
 // dispatching handle of a `FormattingFacade`.
 //
@@ -128,20 +143,27 @@ struct proxy_formatter {
 
   // Format `h` through its target's own formatter.
   //
-  // The declaration stays context-generic so the `std::formattable` probes,
-  // whose synthetic contexts never run, accept the handle; the body then
-  // serves the one channel every formatted-output call reaches.
+  // The erased channel is `std::format_context`, which every `std::format`
+  // and `format_to` call reaches directly. The declaration stays
+  // context-generic because a formatter can be handed another context type:
+  // the `std::formattable` probes use a synthetic one, and libc++ formats
+  // range and tuple elements through a retargeting one. A foreign context is
+  // served by replaying the call under a canonical context and copying the
+  // text out, at the cost of a temporary string.
   template<typename FormatContext>
   FormatContext::iterator format(const Handle& h, FormatContext& ctx) const {
-    static_assert(std::same_as<FormatContext, std::format_context>,
-        "the proxy formatter serves only the type-erased "
-        "std::format_context channel");
     if (!h) {
       auto out = ctx.out();
       for (const char ch : std::string_view{"(empty)"}) *out++ = ch;
       return out;
     }
-    return h.template call<"__format">(spec_tail_, ctx, is_debug_);
+    if constexpr (std::same_as<FormatContext, std::format_context>) {
+      return h.template call<"__format">(spec_tail_, ctx, is_debug_);
+    } else {
+      const erased_call<Handle> call{&h, spec_tail_, is_debug_};
+      const auto text = std::vformat("{}", std::make_format_args(call));
+      return std::ranges::copy(text, ctx.out()).out;
+    }
   }
 
 private:
@@ -154,6 +176,25 @@ private:
 }}} // namespace corvid::meta::prox
 
 #pragma region Formatter specializations
+
+// The replay formatter behind `erased_call`.
+//
+// It is only ever reached at the top of a `std::vformat`, so it takes the
+// canonical context outright.
+template<typename Handle>
+struct std::formatter<corvid::meta::prox::implementation::erased_call<Handle>,
+    char> {
+  constexpr auto parse(std::basic_format_parse_context<char>& ctx) {
+    return ctx.begin();
+  }
+
+  std::format_context::iterator
+  format(const corvid::meta::prox::implementation::erased_call<Handle>& call,
+      std::format_context& ctx) const {
+    return call.handle->template call<"__format">(call.spec_tail, ctx,
+        call.is_debug);
+  }
+};
 
 // One-line `std::formatter` specializations, deriving the shared base, one
 // per dispatching handle flavor. The weak proxies stay out, mirroring their

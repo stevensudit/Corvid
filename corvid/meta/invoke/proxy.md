@@ -1581,12 +1581,14 @@ empty handle renders the unquoted marker `(empty)` without dispatching.
 
 The bridge is type-erased, with the limits that brings. Compile-time
 spec checking stops at the handle; the target's grammar is enforced at
-format time. Only the narrow, erased channel (`std::format_context`) is
-served, which every `std::format` and `format_to` call reaches through
-`vformat_to`; there is no wide bridge. And two unrelated `extends` bases
-that are both formattable collide on the reserved name, as sibling
-same-name methods do, so compositions should share one formattable
-ancestor.
+format time. The erased channel is the narrow `std::format_context`,
+which every `std::format` and `format_to` call reaches directly, and
+there is no wide bridge. A formatter handed some other context type
+(libc++ formats range and tuple elements through a retargeting one)
+replays the call under a canonical context and copies the text out, at
+the cost of a temporary string. And two unrelated `extends` bases that
+are both formattable collide on the reserved name, as sibling same-name
+methods do, so compositions should share one formattable ancestor.
 
 The umbrella "proxy.h" deliberately leaves `proxy_format.h` out, so
 `<format>` stays a cost only formatting facades pay.
