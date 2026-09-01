@@ -67,7 +67,7 @@ static_assert(
 // `CORVID_NO_UNIQUE_ADDRESS`.
 static_assert(
     sizeof(flexi_function<int(), direct_only>) ==
-    sizeof(flexi::details::flexi_thunks<int()>::thunk_pair));
+    sizeof(flexi::implementation::flexi_thunks<int()>::thunk_pair));
 
 // A callable whose payload exceeds the default buffer.
 struct fat_fn {

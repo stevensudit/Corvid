@@ -859,8 +859,8 @@ concept ConstCanFire = requires(const H& h) { h.fire(1); };
 // The interface-first spelling yields the hand-written facade to the letter:
 // the same name and the same flattened slot list, so the two are
 // interchangeable everywhere the library reads a facade.
-using gunslinger_build = prox::details::vtbuild_t<gunslinger>;
-using gunslinger2_build = prox::details::vtbuild_t<gunslinger2>;
+using gunslinger_build = prox::implementation::vtbuild_t<gunslinger>;
+using gunslinger2_build = prox::implementation::vtbuild_t<gunslinger2>;
 static_assert(
     gunslinger2_build::name_v.view() == gunslinger_build::name_v.view());
 static_assert(std::is_same_v<gunslinger2_build::flat_slots_t,
@@ -868,14 +868,14 @@ static_assert(std::is_same_v<gunslinger2_build::flat_slots_t,
 
 // A class template specialization has no identifier; its `name` entry serves,
 // and the slots are the interface's as for any other facade.
-using repeater_build = prox::details::vtbuild_t<repeater<int>>;
+using repeater_build = prox::implementation::vtbuild_t<repeater<int>>;
 static_assert(repeater_build::name_v.view() == "repeater");
 static_assert(std::is_same_v<repeater_build::flat_slots_t,
     gunslinger_build::flat_slots_t>);
 
 // The identifier serves as the name, and the declaration grammar carries
 // constness and `noexcept` into the slots.
-using battery_build = prox::details::vtbuild_t<battery>;
+using battery_build = prox::implementation::vtbuild_t<battery>;
 static_assert(battery_build::name_v.view() == "battery");
 static_assert(battery_build::count_v == 5);
 static_assert(std::is_same_v<battery_build::slot_t<3>::method_t,
@@ -885,7 +885,7 @@ static_assert(std::is_same_v<battery_build::slot_t<4>::method_t,
 
 // A concrete class as the interface: every public member function is a
 // method, and nothing else is.
-using lawman_facade_build = prox::details::vtbuild_t<lawman_facade>;
+using lawman_facade_build = prox::implementation::vtbuild_t<lawman_facade>;
 static_assert(lawman_facade_build::name_v.view() == "lawman_facade");
 static_assert(lawman_facade_build::count_v == 5);
 static_assert(std::is_same_v<lawman_facade_build::slot_t<4>::method_t,
@@ -893,17 +893,17 @@ static_assert(std::is_same_v<lawman_facade_build::slot_t<4>::method_t,
 
 // Composition flattens the base's slots behind the own ones, as for any
 // facade.
-using marshal_build = prox::details::vtbuild_t<marshal>;
+using marshal_build = prox::implementation::vtbuild_t<marshal>;
 static_assert(marshal_build::name_v.view() == "marshal");
 static_assert(marshal_build::count_v == 5);
-using ranger_build = prox::details::vtbuild_t<ranger>;
+using ranger_build = prox::implementation::vtbuild_t<ranger>;
 static_assert(ranger_build::name_v.view() == "ranger");
 static_assert(ranger_build::count_v == 6);
 
 // A deducing-this interface: each member declares the method its object
 // parameter admits, and the one taking no lvalue declares nothing. The count
 // also pins that `murmur` and `gossip` declare nothing.
-using crier_build = prox::details::vtbuild_t<crier>;
+using crier_build = prox::implementation::vtbuild_t<crier>;
 static_assert(crier_build::name_v.view() == "crier");
 static_assert(crier_build::count_v == 6);
 static_assert(std::is_same_v<crier_build::slot_t<0>::method_t,
@@ -922,7 +922,7 @@ static_assert(std::is_same_v<crier_build::slot_t<5>::method_t,
 // The `mirage` tripwire: these pin behavior we WANT to lose. If they fail
 // because `shimmer` and `haze` now declare nothing, that is the derivation
 // improving; flip the asserts to pin the declines.
-using mirage_build = prox::details::vtbuild_t<mirage>;
+using mirage_build = prox::implementation::vtbuild_t<mirage>;
 static_assert(mirage_build::count_v == 2);
 static_assert(std::is_same_v<mirage_build::slot_t<0>::method_t,
     prox::method<"shimmer", void() const>>);
@@ -931,7 +931,7 @@ static_assert(std::is_same_v<mirage_build::slot_t<1>::method_t,
 
 // The zero-method facade: every member declines, and the empty pack still
 // derives a facade with its name.
-using mime_build = prox::details::vtbuild_t<mime>;
+using mime_build = prox::implementation::vtbuild_t<mime>;
 static_assert(mime_build::name_v.view() == "mime");
 static_assert(mime_build::count_v == 0);
 
@@ -941,20 +941,21 @@ static_assert(mime_build::count_v == 0);
 // The reflected sugar API is an empty base of empty members, so a handle keeps
 // its size, and every dispatching flavor carries it.
 using gunslinger_view_api =
-    prox::details::api_base_t<gunslinger, proxy_view<gunslinger>>;
+    prox::implementation::api_base_t<gunslinger, proxy_view<gunslinger>>;
 static_assert(std::is_empty_v<gunslinger_view_api>);
 static_assert(std::is_base_of_v<gunslinger_view_api, proxy_view<gunslinger>>);
 static_assert(sizeof(proxy_view<gunslinger>) == 2 * sizeof(void*));
 static_assert(
     sizeof(proxy_view<gunslinger2>) == sizeof(proxy_view<gunslinger>));
 static_assert(std::is_base_of_v<
-    prox::details::api_base_t<battery, const_proxy_view<battery>>,
+    prox::implementation::api_base_t<battery, const_proxy_view<battery>>,
     const_proxy_view<battery>>);
 static_assert(std::is_base_of_v<
-    prox::details::api_base_t<battery, shared_proxy<battery>>,
+    prox::implementation::api_base_t<battery, shared_proxy<battery>>,
     shared_proxy<battery>>);
 static_assert(std::is_base_of_v<
-    prox::details::api_base_t<battery, proxy<battery>>, proxy<battery>>);
+    prox::implementation::api_base_t<battery, proxy<battery>>,
+    proxy<battery>>);
 
 // A facade's own `api` outranks the reflected one.
 static_assert(std::is_base_of_v<census::api, proxy_view<census>>);

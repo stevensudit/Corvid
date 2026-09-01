@@ -311,9 +311,6 @@ inline constexpr invocable_policy invocable_policy::heap{
 inline constexpr invocable_policy invocable_policy::fixed{
     .storage = storage_policy::inline_only};
 
-// This is called `implementation`, not `details` because these are not
-// private to this file. Rather, they are working parts an owner builds on, and
-// are imported into the owner's own `details` wholesale.
 namespace implementation {
 
 // Whether a target of the given size and alignment, whose move cannot throw

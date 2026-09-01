@@ -34,7 +34,9 @@
 //   interface's declarations, and its bindings and sugar API from the target
 //   type and the facade.
 //
-// Does not include `proxy_codegen.h`, since it's used only for development.
+// Does not include `proxy_codegen.h`, since it's used only for development,
+// nor `proxy_format.h`, whose `std::formatter` bridge is opt-in so that
+// `<format>` stays out of builds that never format a handle.
 //
 // See "proxy.md" for the design.
 

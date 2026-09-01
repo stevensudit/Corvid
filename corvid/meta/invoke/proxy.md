@@ -82,6 +82,7 @@ using-declaration merges, and diamonds.
   - [std smart-pointer interop](#std-smart-pointer-interop)
   - [Downcasting (vtable-carried RTTI)](#downcasting-vtable-carried-rtti)
   - [Shared and weak ownership](#shared-and-weak-ownership)
+- [Formatting (`proxy_format.h`)](#formatting-proxy_formath)
 - [Mechanism](#mechanism)
 - [Tables and thunks](#tables-and-thunks)
   - [The thunk](#the-thunk)
@@ -508,7 +509,7 @@ producing a key object: `p("fire"_k, 3)` or `p["fire"_k](3)`. These were
 recorded as alternates while the mixin was unproven, and never needed once
 the restyled tests confirmed its ergonomics.
 
-Mechanics of the built form: `details::api_base_t<F, H>` yields `F::api`
+Mechanics of the built form: `implementation::api_base_t<F, H>` yields `F::api`
 when the facade defines one, and an empty `no_api` stand-in otherwise. The
 selection is a lazy specialization rather than a `std::conditional_t`,
 because naming `F::api` when it does not exist is ill-formed. `H` is the
@@ -516,11 +517,11 @@ complete handle type. A hand-written `api` does not use it, since its
 forwarders deduce `this`; it is there for the reflected `api`, whose
 forwarders must name the handle's `call` (see "The reflected sugar API").
 
-The views pick the base up through their shared `details::view_base`,
-and the shared handles through `details::shared_base`, keeping each
+The views pick the base up through their shared `implementation::view_base`,
+and the shared handles through `implementation::shared_base`, keeping each
 handle a single-inheritance chain. Each base passes the handle flavor its
-`Access` selects (`details::view_t<F, Access>` and
-`details::shared_t<F, Access>`). The owning `proxy`, which has no other
+`Access` selects (`implementation::view_t<F, Access>` and
+`implementation::shared_t<F, Access>`). The owning `proxy`, which has no other
 base, inherits it directly and passes itself. Deducing `this` sees the
 complete handle type regardless of where in the hierarchy the forwarders
 sit. The mixin is stateless, so empty-base optimization keeps the views at
@@ -595,7 +596,7 @@ natural name (`t.fire(rounds)`), and the `api` declares members with those
 names. The check plays them against each other.
 
 `validate_api` instantiates the dispatch table for a library-internal
-probe type (`details::api_probe`) that inherits `F::api` and exposes a
+probe type (`implementation::api_probe`) that inherits `F::api` and exposes a
 deliberately strict `call`. Argument types must match the facade's
 declared parameters exactly, after stripping cv and references, so
 value-category spelling is ignored but a merely-convertible type is
@@ -608,7 +609,7 @@ boilerplate as much as the `api`. Real conforming types never trip it,
 since real calls convert legally.
 
 The probe is the one type the library registers itself, through a generic
-`corvid_proxy_spec` overload in `details`, which is what admits it to the
+`corvid_proxy_spec` overload in `implementation`, which is what admits it to the
 registration-gated boilerplate. That registration passes `api_check::off`,
 since a validating one would recurse into itself through the
 boilerplate-visibility check.
@@ -795,7 +796,7 @@ and upcasting an empty handle yields an empty one. A call through an empty
 handle runs its empty behavior (see "Empty handles").
 
 The generic target constructors exclude handles of the same or an
-extending facade (`details::is_handle_for`), so the re-pointing
+extending facade (`implementation::is_handle_for`), so the re-pointing
 constructors always win over wrapping a handle as a target. Wrapping a
 handle of an unrelated facade that conforms via a custom impl still works.
 
@@ -1054,12 +1055,12 @@ Seven handles share one shape (a target plus a pointer to a static
 per-(facade, type, birth) table) and differ in what they own, and in whether
 constness is a property of the instance or of the type. All of the
 dispatching handles inherit the facade's `api` sugar when it exists,
-through `details::api_base_t<F, H>`. The two views additionally share their
+through `implementation::api_base_t<F, H>`. The two views additionally share their
 storage, const-method `call`, and `try_downcast` through
-`details::view_base<F, Access>`, the two shared-owning handles theirs, plus
-the moves, through `details::shared_base<F, Access>`, and the two weak
+`implementation::view_base<F, Access>`, the two shared-owning handles theirs, plus
+the moves, through `implementation::shared_base<F, Access>`, and the two weak
 handles their storage, `expired`, and `lock` through
-`details::weak_base<F, Access>`:
+`implementation::weak_base<F, Access>`:
 
 ```mermaid
 classDiagram
@@ -1542,6 +1543,54 @@ answer. Weak proxies upcast among themselves like every other handle, by
 copy or by move and without locking, so an expired observation upcasts as
 well as a live one. Expiry stays `lock()`'s business.
 
+## Formatting (`proxy_format.h`)
+
+Opting a facade in with the `formattable` entry makes every dispatching
+handle of that facade satisfy `std::formattable`, so erased values drop
+into `std::format` like the concrete targets they hide, and the target's
+own spec grammar applies:
+
+```cpp
+struct poet : facade<name<"poet">, formattable,
+                  method<"recite", std::string() const>> {};
+
+std::format("{:>10}", handle);  // The target's formatter pads.
+```
+
+Under the hood, `formattable` is an ordinary facade method under the
+reserved name `"__format"`, dispatched through the table like any other.
+It flattens through `extends`, so derived facades inherit it, and an
+upcast or lent handle formats exactly as its source would. What is
+special is the binding. When a registration does not bind `"__format"`
+itself, the library falls back to the target's own `std::formatter`, run
+under the caller's spec through `format_with_spec` (meta/formatting.h).
+Conformance is constrained accordingly: a target of a formattable facade
+must be `std::formattable`, or its registration must bind the reserved
+method, which is also how a target substitutes custom erased formatting.
+Names beginning with `"__"` are reserved for such library conventions;
+the sugar generators (the reflected api, `prox::codegen`) skip them, so
+the method never surfaces as a member call.
+
+One formatter base, `proxy_formatter`, serves the five dispatching
+handles as one-line `std::formatter` specializations; the weak proxies
+stay out, mirroring their lack of `call`. The formatter keeps the spec
+tail as text at parse time and dispatches `call<"__format">` at format
+time, carrying the `?` debug request along, so handles quote themselves
+inside the std range and map formatters the way their targets would. An
+empty handle renders the unquoted marker `(empty)` without dispatching.
+
+The bridge is type-erased, with the limits that brings. Compile-time
+spec checking stops at the handle; the target's grammar is enforced at
+format time. Only the narrow, erased channel (`std::format_context`) is
+served, which every `std::format` and `format_to` call reaches through
+`vformat_to`; there is no wide bridge. And two unrelated `extends` bases
+that are both formattable collide on the reserved name, as sibling
+same-name methods do, so compositions should share one formattable
+ancestor.
+
+The umbrella "proxy.h" deliberately leaves `proxy_format.h` out, so
+`<format>` stays a cost only formatting facades pay.
+
 ## Mechanism
 
 - `Proxiable<T, F>` is a concept synthesized from the facade definition.
@@ -1624,15 +1673,15 @@ well as a live one. Expiry stays `lock()`'s business.
   view's per-(facade, type) dispatch table (the non-const slots are simply
   unreachable, so no const-sliced table or index remapping is needed). The
   two views share storage and the const-method `call` through
-  `details::view_base<F, Access>`, and the two shared handles do the same
-  through `details::shared_base<F, Access>`. The mutable flavor layers the
+  `implementation::view_base<F, Access>`, and the two shared handles do the same
+  through `implementation::shared_base<F, Access>`. The mutable flavor layers the
   unrestricted non-const overload on top and re-exposes the inherited one
   with a using-declaration.
 - Invariant: `proxy<F>`, `proxy_view<F>`, and `shared_proxy<F>` themselves
   satisfy `Proxiable<_, F>`, so generic code constrained on the facade
   accepts concrete and erased arguments interchangeably (Rust: `dyn Trait`
   implements `Trait`). Implemented as library-provided `proxy_impl`
-  bindings over one `details::handle_impl<F>`, whose `on` forwards through
+  bindings over one `implementation::handle_impl<F>`, whose `on` forwards through
   `call` with conditional `noexcept` (so the invariant survives noexcept
   methods). The handle parameter is deduced, so one overload serves const
   and mutable handles alike, and `on` is constrained to exist exactly when
@@ -2561,9 +2610,9 @@ Two seams, both in C++23 code that builds everywhere:
 
 - `api_base<F, H>`: the sugar base takes the handle type, as above. The
   views and shared handles pass the flavor their `Access` selects
-  (`details::view_t<F, Access>`, `details::shared_t<F, Access>`), the
+  (`implementation::view_t<F, Access>`, `implementation::shared_t<F, Access>`), the
   owning `proxy` passes itself, and a hand-written `api` ignores it.
-- `details::default_impl<F, T>`: the bottom binding tier, the facade's
+- `implementation::default_impl<F, T>`: the bottom binding tier, the facade's
   `boilerplate<T>` when it has one. The library's `proxy_impl` partial
   for a plain registration and `member_impl`'s fall-through for unlisted
   keys both go through it, where before they named `F::boilerplate<T>`
@@ -2782,22 +2831,10 @@ shaped the patterns, each verified by a probe:
 
 ## Future work
 
-- `std::formatter` bridge: `std::formatter` on the handles, so a proxy
-  formats as its target does. Intended. The type-erasure move is
-  `format_with_spec` (the synthetic parse-context technique: the erased
-  formatter keeps the spec tail as text, and at format time a
-  per-(facade, type) thunk runs the target's own formatter under it),
-  which lives in `meta/formatting.h` (moved down from
-  `strings/enable_format.h` by stage 5 in
-  [../../strings/roadmap.md](../../strings/roadmap.md)). What remains is
-  the proxy side: formatting is opt-in per facade (the shape of ngcpp's
-  `skills::format`), a marker that adds a format slot to the dispatch table
-  and constrains registration to formattable targets, so tables of facades
-  that never format carry nothing and instantiate no `std::formatter<T>`.
-  The bridge itself is one `handle_impl`-style formatter base serving every
-  handle flavor. Known limit, shared with `enable_format`: compile-time spec
-  checking stops at the erased grammar, since the target's formatter is only
-  reached at run time.
+- A wide formatter bridge: the `std::formatter` bridge (see "Formatting")
+  serves only the narrow erased channel; a `wchar_t` twin would take a
+  second reserved method over `std::wformat_context`. Waits for a caller
+  that formats wide.
 - A guaranteed-copyable proxy flavor: a policy whose construction
   constrains targets to copyable types, making the handle itself satisfy
   `std::copyable` with no runtime condition (the shape of ngcpp's

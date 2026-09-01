@@ -38,7 +38,7 @@
 // type naming.
 namespace corvid { inline namespace meta { namespace prox {
 
-namespace details {
+namespace implementation {
 
 // Facade-wide parameter numbering, one sequence spanning every slot of the
 // flattened list; entry `ndx` is slot `ndx`'s first number.
@@ -141,6 +141,8 @@ using codegen_path_t = decltype(do_codegen_path<F>())::type;
 // cover.
 template<typename S, typename P>
 consteval bool api_emits() noexcept {
+  // Reserved "__" methods are dispatch-only and get no forwarder.
+  if (S::name_v.view().starts_with("__")) return false;
   if constexpr (std::is_void_v<typename S::owner_t> || std::is_void_v<P>)
     return true;
   else
@@ -211,7 +213,7 @@ void emit_boilerplate_slot(std::ostream& os, size_t next) {
   os << ");\n    }\n";
 }
 
-} // namespace details
+} // namespace implementation
 
 // `codegen` writes the canonical `api` and `boilerplate` for facade `F` to
 // `os`, ready to paste into the facade body.
@@ -238,10 +240,10 @@ void emit_boilerplate_slot(std::ostream& os, size_t next) {
 // normalized; touch up after pasting where they fall short.
 template<Facade F>
 void codegen(std::ostream& os) {
-  using slots_t = details::vtbuild_t<F>::flat_slots_t;
-  using path_t = details::codegen_path_t<F>;
+  using slots_t = implementation::vtbuild_t<F>::flat_slots_t;
+  using path_t = implementation::codegen_path_t<F>;
   constexpr auto* slots = static_cast<slots_t*>(nullptr);
-  constexpr auto starts = details::codegen_starts(slots);
+  constexpr auto starts = implementation::codegen_starts(slots);
   constexpr auto count = std::tuple_size_v<slots_t>;
   const auto walk = [&]<typename Fn>(Fn&& fn) {
     [&]<size_t... Ndxs>(std::index_sequence<Ndxs...>) {
@@ -264,9 +266,11 @@ void codegen(std::ostream& os) {
     std::vector<std::string_view> merged;
     walk([&]<typename S>(size_t) {
       constexpr auto* path_slots =
-          static_cast<details::vtbuild_t<path_t>::flat_slots_t*>(nullptr);
-      if constexpr (details::api_emits<S, path_t>() &&
-                    details::name_declared_in(S::name_v.view(), path_slots))
+          static_cast<implementation::vtbuild_t<path_t>::flat_slots_t*>(
+              nullptr);
+      if constexpr (implementation::api_emits<S, path_t>() &&
+                    implementation::name_declared_in(S::name_v.view(),
+                        path_slots))
       {
         const auto name = S::name_v.view();
         if (std::find(merged.begin(), merged.end(), name) == merged.end())
@@ -277,15 +281,17 @@ void codegen(std::ostream& os) {
       os << "    using " << path_name << "::api::" << name << ";\n";
   }
   walk([&]<typename S>(size_t next) {
-    if constexpr (details::api_emits<S, path_t>())
-      details::emit_api_slot<F, S>(os, next);
+    if constexpr (implementation::api_emits<S, path_t>())
+      implementation::emit_api_slot<F, S>(os, next);
   });
   os << "  };\n";
 
   os << "  template<typename T>\n  struct boilerplate: proxy_impl_base {\n";
   walk([&]<typename S>(size_t next) {
-    if constexpr (std::is_void_v<typename S::owner_t>)
-      details::emit_boilerplate_slot<S>(os, next);
+    // Reserved "__" methods bind through the library, not the boilerplate.
+    if constexpr (std::is_void_v<typename S::owner_t> &&
+                  !S::name_v.view().starts_with("__"))
+      implementation::emit_boilerplate_slot<S>(os, next);
   });
   os << "  };\n";
 }

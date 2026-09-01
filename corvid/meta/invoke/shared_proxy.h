@@ -32,7 +32,7 @@ namespace prox {
 
 #pragma region Shared ownership
 
-namespace details {
+namespace implementation {
 
 // Storage, moves, const-method dispatch, and downcasting shared by the two
 // shared-owning flavors, which differ only in the constness of the erased
@@ -207,7 +207,7 @@ protected:
   weak_ptr_t target_;
 };
 
-} // namespace details
+} // namespace implementation
 
 // `shared_proxy` is the shared-owning erased handle, like Rust's `Rc<dyn
 // Trait>`, backed by a `std::shared_ptr<void>`.
@@ -248,9 +248,10 @@ protected:
 // `on_empty` behavior. Handles upcast implicitly, by copy or by move, to any
 // facade theirs extends.
 template<Facade F>
-class shared_proxy: public details::shared_base<F, access_mode::as_mutable> {
-  using base = details::shared_base<F, access_mode::as_mutable>;
-  using vtbuild_t = details::vtbuild_t<F>;
+class shared_proxy
+    : public implementation::shared_base<F, access_mode::as_mutable> {
+  using base = implementation::shared_base<F, access_mode::as_mutable>;
+  using vtbuild_t = implementation::vtbuild_t<F>;
   using vtable_t = base::vtable_t;
 
 public:
@@ -265,7 +266,7 @@ public:
   requires Proxiable<T, F>
   explicit shared_proxy(std::shared_ptr<T> target) noexcept
       : shared_proxy{std::shared_ptr<void>{std::move(target)},
-            &details::vtable_for<F, T>} {}
+            &implementation::vtable_for<F, T>} {}
 
   // Adopting constructor from unique ownership, which becomes shared (this
   // allocates the control block, so unlike the shared flavor, it can throw).
@@ -297,7 +298,7 @@ public:
   requires ExtendsOrIs<D, F>
   explicit shared_proxy(proxy<D, P>&& source) {
     const auto* src = source.vtable_;
-    const auto* ovt = details::upcast_owning_vtable<F, D>(src);
+    const auto* ovt = implementation::upcast_owning_vtable<F, D>(src);
     this->vtable_ = &ovt->vt;
     if (!source) return;
     void* ptr{};
@@ -323,13 +324,14 @@ public:
   template<Facade D>
   requires Extends<D, F>
   shared_proxy(const shared_proxy<D>& other) noexcept
-      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
+      : base{other.target_,
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   shared_proxy(shared_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
-            details::upcast_vtable<F, D>(other.vtable_)} {
+            implementation::upcast_vtable<F, D>(other.vtable_)} {
     other.vtable_ = other.empty_vtable;
   }
 
@@ -343,7 +345,7 @@ public:
   decltype(auto)
   call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<Key,
       access_mode::as_mutable, Args...>()) {
-    return details::dispatch<F, access_mode::as_mutable, Key>(
+    return implementation::dispatch<F, access_mode::as_mutable, Key>(
         this->vtable_->thunks, this->target(), std::forward<Args>(args)...);
   }
 
@@ -371,16 +373,16 @@ private:
   template<Facade G>
   friend class const_proxy_view;
   template<Facade G, access_mode A>
-  friend class details::shared_base;
+  friend class implementation::shared_base;
   template<Facade G, access_mode A>
-  friend class details::weak_base;
+  friend class implementation::weak_base;
 };
 
 // The library-provided binding so that a `shared_proxy` satisfies its own
 // facade and every facade that facade extends.
 template<Facade F, Facade D>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, shared_proxy<D>>: details::handle_impl<F> {};
+struct proxy_impl<F, shared_proxy<D>>: implementation::handle_impl<F> {};
 
 // `const_shared_proxy` is the shared-owning read-only erased handle, akin to
 // Rust's `Rc<dyn Trait>` as it actually behaves (shared access is immutable
@@ -407,8 +409,8 @@ struct proxy_impl<F, shared_proxy<D>>: details::handle_impl<F> {};
 // Emptiness, empty behavior, and upcasting are as for `shared_proxy`.
 template<Facade F>
 class const_shared_proxy
-    : public details::shared_base<F, access_mode::as_const> {
-  using base = details::shared_base<F, access_mode::as_const>;
+    : public implementation::shared_base<F, access_mode::as_const> {
+  using base = implementation::shared_base<F, access_mode::as_const>;
   using vtable_t = base::vtable_t;
 
 public:
@@ -423,7 +425,7 @@ public:
   requires Proxiable<T, F>
   explicit const_shared_proxy(std::shared_ptr<const T> target) noexcept
       : const_shared_proxy{std::shared_ptr<const void>{std::move(target)},
-            &details::vtable_for<F, T>} {}
+            &implementation::vtable_for<F, T>} {}
 
   template<typename T>
   requires Proxiable<T, F>
@@ -460,13 +462,14 @@ public:
   template<Facade D>
   requires ExtendsOrIs<D, F>
   const_shared_proxy(const shared_proxy<D>& other) noexcept
-      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
+      : base{other.target_,
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires ExtendsOrIs<D, F>
   const_shared_proxy(shared_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
-            details::upcast_vtable<F, D>(other.vtable_)} {
+            implementation::upcast_vtable<F, D>(other.vtable_)} {
     other.vtable_ = other.empty_vtable;
   }
 
@@ -475,13 +478,14 @@ public:
   template<Facade D>
   requires Extends<D, F>
   const_shared_proxy(const const_shared_proxy<D>& other) noexcept
-      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
+      : base{other.target_,
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   const_shared_proxy(const_shared_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
-            details::upcast_vtable<F, D>(other.vtable_)} {
+            implementation::upcast_vtable<F, D>(other.vtable_)} {
     other.vtable_ = other.empty_vtable;
   }
 
@@ -504,20 +508,20 @@ private:
   template<Facade G>
   friend class const_proxy_view;
   template<Facade G, access_mode A>
-  friend class details::shared_base;
+  friend class implementation::shared_base;
   template<Facade G, access_mode A>
-  friend class details::weak_base;
+  friend class implementation::weak_base;
 };
 
 // The library-provided binding so that a `const_shared_proxy` satisfies its
 // own facade, and the ones that facade extends, where that is possible; see
-// `details::handle_impl`.
+// `implementation::handle_impl`.
 //
 // It dispatches only const methods, so the invariant holds exactly for
 // all-const facades, as with `const_proxy_view`.
 template<Facade F, Facade D>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, const_shared_proxy<D>>: details::handle_impl<F> {};
+struct proxy_impl<F, const_shared_proxy<D>>: implementation::handle_impl<F> {};
 
 // `weak_proxy` is the weak counterpart to `shared_proxy`, which observes the
 // target, via a `std::weak_ptr<void>`, without owning it.
@@ -526,8 +530,9 @@ struct proxy_impl<F, const_shared_proxy<D>>: details::handle_impl<F> {};
 // `lock`, which returns a shared proxy (empty if every owner is gone), so
 // there is no way to call through a target that might be dying.
 template<Facade F>
-class weak_proxy: public details::weak_base<F, access_mode::as_mutable> {
-  using base = details::weak_base<F, access_mode::as_mutable>;
+class weak_proxy
+    : public implementation::weak_base<F, access_mode::as_mutable> {
+  using base = implementation::weak_base<F, access_mode::as_mutable>;
 
 public:
   weak_proxy() = default;
@@ -541,7 +546,7 @@ public:
   template<Facade D>
   requires ExtendsOrIs<D, F>
   weak_proxy(const shared_proxy<D>& p) noexcept
-      : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
+      : base{p.target_, implementation::upcast_vtable<F, D>(p.vtable_)} {}
 
   // Upcasting converting constructors from a `weak_proxy` of a facade that
   // extends `F`, by copy or by move, mirroring the `shared_proxy`'s.
@@ -556,13 +561,14 @@ public:
   template<Facade D>
   requires Extends<D, F>
   weak_proxy(const weak_proxy<D>& other) noexcept
-      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
+      : base{other.target_,
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   weak_proxy(weak_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
-            details::upcast_vtable<F, D>(other.vtable_)} {}
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
 private:
   template<Facade G>
@@ -578,8 +584,9 @@ private:
 // flavor, or converts from a `weak_proxy`. Its `lock` returns a
 // `const_shared_proxy`, so mutability never reopens through it.
 template<Facade F>
-class const_weak_proxy: public details::weak_base<F, access_mode::as_const> {
-  using base = details::weak_base<F, access_mode::as_const>;
+class const_weak_proxy
+    : public implementation::weak_base<F, access_mode::as_const> {
+  using base = implementation::weak_base<F, access_mode::as_const>;
 
 public:
   const_weak_proxy() = default;
@@ -592,12 +599,12 @@ public:
   template<Facade D>
   requires ExtendsOrIs<D, F>
   const_weak_proxy(const const_shared_proxy<D>& p) noexcept
-      : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
+      : base{p.target_, implementation::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
   requires ExtendsOrIs<D, F>
   const_weak_proxy(const shared_proxy<D>& p) noexcept
-      : base{p.target_, details::upcast_vtable<F, D>(p.vtable_)} {}
+      : base{p.target_, implementation::upcast_vtable<F, D>(p.vtable_)} {}
 
   // Converting constructors from a `weak_proxy` of `F`, or of a facade that
   // extends it, dropping mutability, and upcasting constructors from a
@@ -613,24 +620,26 @@ public:
   template<Facade D>
   requires ExtendsOrIs<D, F>
   const_weak_proxy(const weak_proxy<D>& other) noexcept
-      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
+      : base{other.target_,
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires ExtendsOrIs<D, F>
   const_weak_proxy(weak_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
-            details::upcast_vtable<F, D>(other.vtable_)} {}
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   const_weak_proxy(const const_weak_proxy<D>& other) noexcept
-      : base{other.target_, details::upcast_vtable<F, D>(other.vtable_)} {}
+      : base{other.target_,
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
   template<Facade D>
   requires Extends<D, F>
   const_weak_proxy(const_weak_proxy<D>&& other) noexcept
       : base{std::move(other.target_),
-            details::upcast_vtable<F, D>(other.vtable_)} {}
+            implementation::upcast_vtable<F, D>(other.vtable_)} {}
 
 private:
   template<Facade G>

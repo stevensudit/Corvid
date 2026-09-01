@@ -24,7 +24,7 @@
 namespace corvid { inline namespace meta {
 namespace flexi {
 
-namespace details {
+namespace implementation {
 
 // The thunk pair every `flexi_function` keeps ahead of its buffer: two
 // pointers.
@@ -47,7 +47,7 @@ consteval size_t fixed_storage_size(size_t size) noexcept {
   return total - header;
 }
 
-} // namespace details
+} // namespace implementation
 
 #pragma region fixed_function
 
@@ -81,12 +81,12 @@ consteval size_t fixed_storage_size(size_t size) noexcept {
 // instances that differ only in `Size`, a same-size or upsizing assignment
 // therefore always succeeds.
 template<class Sig,
-    size_t Size = padded_size(details::thunk_pair_size,
+    size_t Size = padded_size(implementation::thunk_pair_size,
                       invocable_policy::fixed.inline_align) +
                   invocable_policy::fixed.inline_size>
 using fixed_function =
     flexi_function<Sig, invocable_policy::fixed.with_storage_size(
-                            details::fixed_storage_size(Size))>;
+                            implementation::fixed_storage_size(Size))>;
 
 // Determine whether `T` is a `fixed_function`, that is, a `flexi_function`
 // whose policy is `inline_only`.

@@ -32,7 +32,7 @@ namespace prox {
 
 #pragma region Views
 
-namespace details {
+namespace implementation {
 
 // Storage, const-method dispatch, and downcasting shared by the two view
 // flavors, which differ only in the constness of the erased target pointer.
@@ -126,7 +126,7 @@ protected:
 #pragma endregion
 };
 
-} // namespace details
+} // namespace implementation
 
 // `proxy_view` is a non-owning erased handle over any `Proxiable` target, akin
 // to Rust's `&mut dyn Trait` or ngcpp's `proxy_view`.
@@ -170,9 +170,10 @@ protected:
 // When the facade defines a nested `api`, the view inherits it, so the
 // member-call sugar forwarders dispatch alongside `call`.
 template<Facade F>
-class proxy_view: public details::view_base<F, access_mode::as_mutable> {
-  using base = details::view_base<F, access_mode::as_mutable>;
-  using vtbuild_t = details::vtbuild_t<F>;
+class proxy_view
+    : public implementation::view_base<F, access_mode::as_mutable> {
+  using base = implementation::view_base<F, access_mode::as_mutable>;
+  using vtbuild_t = implementation::vtbuild_t<F>;
 
 public:
   proxy_view() = default;
@@ -190,9 +191,9 @@ public:
   // constructors below instead of being wrapped as targets.
   template<typename T>
   requires(Proxiable<T, F> && !std::is_const_v<T> &&
-           !details::is_handle_for<T, F>())
+           !implementation::is_handle_for<T, F>())
   constexpr proxy_view(T& target) noexcept
-      : base{std::addressof(target), &details::vtable_for<F, T>} {}
+      : base{std::addressof(target), &implementation::vtable_for<F, T>} {}
 
   // Upcasting constructor from a view over a facade that extends `F` (Rust
   // trait upcasting).
@@ -205,7 +206,8 @@ public:
   template<Facade D>
   requires Extends<D, F>
   constexpr proxy_view(const proxy_view<D>& view) noexcept
-      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
+      : base{view.target_, implementation::upcast_vtable<F, D>(view.vtable_)} {
+  }
 
   // Viewing constructor from an owning `proxy` of `F`, or of a facade that
   // extends it.
@@ -222,7 +224,7 @@ public:
   requires ExtendsOrIs<D, F>
   proxy_view(proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
-            details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
+            implementation::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
   // Viewing constructor from a `shared_proxy` of `F`, or of a facade that
   // extends it, under the same rules as viewing an owning `proxy`.
@@ -233,7 +235,7 @@ public:
   requires ExtendsOrIs<D, F>
   proxy_view(shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
-            details::upcast_vtable<F, D>(p.vtable_)} {}
+            implementation::upcast_vtable<F, D>(p.vtable_)} {}
 
   // Call the facade method named `Key`, forwarding `args` through the erased
   // signature.
@@ -250,7 +252,7 @@ public:
   constexpr decltype(auto)
   call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<Key,
       access_mode::as_mutable, Args...>()) {
-    return details::dispatch<F, access_mode::as_mutable, Key>(
+    return implementation::dispatch<F, access_mode::as_mutable, Key>(
         this->vtable_->thunks, this->target_, std::forward<Args>(args)...);
   }
 
@@ -265,14 +267,14 @@ private:
   template<Facade G>
   friend class const_proxy_view;
   template<Facade G, access_mode A>
-  friend class details::view_base;
+  friend class implementation::view_base;
 };
 
 // The library-provided binding so that a `proxy_view` satisfies its own
 // facade and every facade that one extends.
 template<Facade F, Facade D>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, proxy_view<D>>: details::handle_impl<F> {};
+struct proxy_impl<F, proxy_view<D>>: implementation::handle_impl<F> {};
 
 // `const_proxy_view` is the non-owning read-only erased handle, akin to Rust's
 // `&dyn Trait`. To put it another way, it is the `const_iterator` to
@@ -293,8 +295,9 @@ struct proxy_impl<F, proxy_view<D>>: details::handle_impl<F> {};
 // forwarders are callable; a mutable forwarder fails inside its `call` if
 // used.
 template<Facade F>
-class const_proxy_view: public details::view_base<F, access_mode::as_const> {
-  using base = details::view_base<F, access_mode::as_const>;
+class const_proxy_view
+    : public implementation::view_base<F, access_mode::as_const> {
+  using base = implementation::view_base<F, access_mode::as_const>;
 
 public:
   const_proxy_view() = default;
@@ -310,12 +313,12 @@ public:
   // Handles of `F`, or of a facade extending it, take the dedicated
   // constructors below instead of being wrapped as targets.
   template<typename T>
-  requires(Proxiable<T, F> && !details::is_handle_for<T, F>())
+  requires(Proxiable<T, F> && !implementation::is_handle_for<T, F>())
   constexpr const_proxy_view(const T& target) noexcept
-      : base{std::addressof(target), &details::vtable_for<F, T>} {}
+      : base{std::addressof(target), &implementation::vtable_for<F, T>} {}
 
   template<typename T>
-  requires(Proxiable<T, F> && !details::is_handle_for<T, F>())
+  requires(Proxiable<T, F> && !implementation::is_handle_for<T, F>())
   const_proxy_view(const T&&) = delete;
 
   // Converting constructor from the mutable view.
@@ -332,14 +335,16 @@ public:
   template<Facade D>
   requires Extends<D, F>
   constexpr const_proxy_view(const const_proxy_view<D>& view) noexcept
-      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
+      : base{view.target_, implementation::upcast_vtable<F, D>(view.vtable_)} {
+  }
 
   // Upcasting constructor from the mutable view of a facade that extends `F`,
   // dropping mutability and upcasting in one implicit step.
   template<Facade D>
   requires Extends<D, F>
   constexpr const_proxy_view(const proxy_view<D>& view) noexcept
-      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
+      : base{view.target_, implementation::upcast_vtable<F, D>(view.vtable_)} {
+  }
 
   // Viewing constructor from an owning `proxy` of `F`, or of a facade that
   // extends it.
@@ -353,7 +358,7 @@ public:
   requires ExtendsOrIs<D, F>
   const_proxy_view(const proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
-            details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
+            implementation::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
   // Temporary owners must not lend a view: without this deletion, the const
   // reference above would bind an rvalue and dangle.
@@ -369,7 +374,7 @@ public:
   requires ExtendsOrIs<D, F>
   const_proxy_view(const shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
-            details::upcast_vtable<F, D>(p.vtable_)} {}
+            implementation::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
   requires ExtendsOrIs<D, F>
@@ -382,7 +387,7 @@ public:
   requires ExtendsOrIs<D, F>
   const_proxy_view(const const_shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
-            details::upcast_vtable<F, D>(p.vtable_)} {}
+            implementation::upcast_vtable<F, D>(p.vtable_)} {}
 
   template<Facade D>
   requires ExtendsOrIs<D, F>
@@ -399,18 +404,18 @@ private:
   template<Facade G>
   friend class const_proxy_view;
   template<Facade G, access_mode A>
-  friend class details::view_base;
+  friend class implementation::view_base;
 };
 
 // The library-provided binding so that a `const_proxy_view` satisfies its
 // own facade, and the ones that facade extends, where that is possible; see
-// `details::handle_impl`.
+// `implementation::handle_impl`.
 //
 // It dispatches only const methods, so the invariant holds exactly for
 // all-const facades.
 template<Facade F, Facade D>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, const_proxy_view<D>>: details::handle_impl<F> {};
+struct proxy_impl<F, const_proxy_view<D>>: implementation::handle_impl<F> {};
 
 // Make a `proxy_view` over `target`.
 //

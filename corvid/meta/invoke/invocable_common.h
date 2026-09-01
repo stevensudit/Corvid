@@ -37,10 +37,10 @@ namespace invocables {
 // behaviors a call can take, and performs the empty call itself, so that both
 // owners' empty invokers follow one rule in one place.
 //
-// The `details` storage, `storage_area`, is the raw storage an owner keeps,
-// and the housekeeping (`destroy_inline`, `destroy_heap`, `relocate_inline`,
-// `box`, `unbox`) is what an owner does to a target in either of its homes,
-// over the erased address of that storage.
+// The `storage_area` is the raw storage an owner keeps, and the housekeeping
+// (`destroy_inline`, `destroy_heap`, `relocate_inline`, `box`, `unbox`) is
+// what an owner does to a target in either of its homes, over the erased
+// address of that storage.
 //
 // `constant_fn<f>{}` names a compile-time target, called directly with nothing
 // stored, and `runtime_fn{p}` names a pointer that really is a runtime value;

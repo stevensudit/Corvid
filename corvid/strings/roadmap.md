@@ -341,28 +341,21 @@ holding a map formats whole, through the std map formatter, so to look up by
 key, extract the map with `std::get` and wrap that (behavior pinned in the
 test).
 
-### 5. Formatter bridge for proxy handles (helper moved; proxy half pending)
+### 5. Formatter bridge for proxy handles (done)
 
 `format_with_spec` is the type-erasure move a `std::formatter` on an erased
 handle needs: keep the spec tail as text at parse time, and at format time
 run the target's own formatter under it through a synthetic parse context.
-The proxy handles in `meta/invoke` want exactly that (see the formatter
-bridge under "Future work" in
-[../meta/invoke/proxy.md](../meta/invoke/proxy.md)), and `meta` is L0, so
-the helper belongs down in
-[../meta/formatting.h](../meta/formatting.h), next to the
-`nullable_formatter` machinery it was extracted from.
+It and its parse-side companion `calc_nested_spec_size` live in
+[../meta/formatting.h](../meta/formatting.h), moved down from
+[enable_format.h](enable_format.h), whose wrappers now call them there
+(the entanglement once predicted for that move turned out to be empty).
 
-That move is done. `format_with_spec` and its parse-side companion
-`calc_nested_spec_size` now live in `meta/formatting.h`, and the wrappers
-in [enable_format.h](enable_format.h) call them there. The entanglement
-once predicted here turned out to be empty. The helpers used nothing from
-[string_literals.h](string_literals.h), so nothing else moved and the
-wrappers stayed in `strings`.
-
-What remains is the proxy side: an opt-in facade marker that adds a format
-slot to the dispatch table, and one formatter base serving every handle
-flavor. That half is a proxy feature and is recorded there.
+The proxy side is built on it: `prox::formattable` opts a facade in, a
+reserved facade method carries the dispatch, the library falls back to the
+target's own `std::formatter`, and one formatter base serves every
+dispatching handle. The design and its limits are documented in the
+"Formatting" section of [../meta/invoke/proxy.md](../meta/invoke/proxy.md).
 
 ## Deferred / decided against
 

@@ -17,6 +17,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <format>
 #include <functional>
 #include <memory>
 #include <sstream>
@@ -28,6 +29,7 @@
 #include "corvid/meta/crossplatform.h"
 #include "corvid/meta/invoke/proxy.h"
 #include "corvid/meta/invoke/proxy_codegen.h"
+#include "corvid/meta/invoke/proxy_format.h"
 #include "catch2_main.h"
 
 // cl C4702: instantiation-specific unreachable-code noise in facade dispatch.
@@ -826,13 +828,13 @@ consteval auto corvid_proxy_spec(F*, photographer*) {
 // container's `front`).
 //
 // The bindings overload naturally: the boilerplate's `on`s share one
-// `method_key` and differ in the trailing parameters, or in the constness
-// of the target for the const pair. The `api` follows the standard member
-// idiom, with the const pair split across `this auto&&` and
-// `this const auto&` forwarders, so overload resolution picks the const
-// flavor for const handles exactly as it would for a real member pair. The
-// registration validates the `api` by default, pinning that `validate_api`
-// drives each overload independently.
+// `method_key` and differ in the trailing parameters, or in the constness of
+// the target for the const pair. The `api` follows the standard member idiom,
+// with the const pair split across `this auto&&` and `this const auto&`
+// forwarders, so overload resolution picks the const flavor for const handles
+// exactly as it would for a real member pair. The registration validates the
+// `api` by default, pinning that `validate_api` drives each overload
+// independently.
 struct arsenal
     : prox::facade<prox::name<"arsenal">,       //
           prox::method<"issue", int(int)>,      //
@@ -893,8 +895,8 @@ struct armory
   struct api: arsenal::api {
     // The new forwarder hides the inherited `issue` forwarders until the
     // using-declaration merges them, the same convention as sibling
-    // collisions; forgetting it is caught by `validate_api` at
-    // registration (diagnostic on record at the conformance asserts).
+    // collisions; forgetting it is caught by `validate_api` at registration
+    // (diagnostic on record at the conformance asserts).
     using arsenal::api::issue;
     int issue(this auto&& self, int rifles, int crates) {
       return self.template call<"issue">(rifles, crates);
@@ -1278,7 +1280,7 @@ static_assert(Proxiable<proxy_view<vault>, vault>);
 // for initialization of 'proxy_view<gunslinger>' ... candidate template
 // ignored: constraints not satisfied [with T = cowboy] ... because
 // 'Proxiable<cowboy, gunslinger>' evaluated to false ... because
-// 'details::vtbuild_t<gunslinger>::is_all_bound<gunslinger, cowboy>'
+// 'implementation::vtbuild_t<gunslinger>::is_all_bound<gunslinger, cowboy>'
 // evaluated to false", plus two "could not match" notes for the dedicated
 // upcasting and proxy-viewing constructors. Calling `pv.call<"missing">()`
 // fires the static_assert "facade has no method with this name", followed by
@@ -1320,10 +1322,10 @@ struct stateless_target {};
 static_assert(
     invocables::implementation::is_direct_eligible<stateless_target>());
 static_assert(
-    prox::details::proxy_storage_mode_of<stateless_target>(
+    prox::implementation::proxy_storage_mode_of<stateless_target>(
         invocable_policy::basic) == invocables::storage_mode::inlined);
 static_assert(
-    prox::details::proxy_storage_mode_of<stateless_target>(
+    prox::implementation::proxy_storage_mode_of<stateless_target>(
         invocable_policy::heap) == invocables::storage_mode::dynamic);
 
 // Noexcept conformance: the binding itself must be noexcept.
@@ -1450,21 +1452,20 @@ static_assert(!prox::Extends<marshal, marshal>);
 // re-captured 2026-07-09 after the collision-rules rework). Constructing
 // `proxy_view<marshal>` from `vigilante` emits one error with the same
 // constraint walk as the `cowboy` case, ending at
-// 'details::vtbuild_t<marshal>::is_all_bound<marshal, vigilante>' evaluated
-// to false"; the walk does not name the missing base facade. Redeclaring an
-// inherited name with the same signature
-// (`facade<extends<gunslinger>, method<"fire", int(int)>>`)
-// detonates at first use of the facade's machinery: "static assertion
-// failed ... 'no_chain_collision_against<...>()': a method name may recur
-// within one extends chain only as overloads differing in arguments or
-// constness", with the flattened slot list, duplicate and declaring facades
-// included, spelled out in the requirement, followed by one follow-on "no
-// type named 'vtable_t'" noise error. (A different signature is a legal
-// cross-level overload since the chain relaxation; before per-name
-// overloads the message read "a facade cannot declare a method name twice
-// or redeclare an inherited one"; before the collision-rules rework, the
-// same shape failed 'unique_method_names' with "method names must be
-// unique across the facade and its extends bases".)
+// 'implementation::vtbuild_t<marshal>::is_all_bound<marshal, vigilante>'
+// evaluated to false"; the walk does not name the missing base facade.
+// Redeclaring an inherited name with the same signature
+// (`facade<extends<gunslinger>, method<"fire", int(int)>>`) detonates at first
+// use of the facade's machinery: "static assertion failed ...
+// 'no_chain_collision_against<...>()': a method name may recur within one
+// extends chain only as overloads differing in arguments or constness", with
+// the flattened slot list, duplicate and declaring facades included, spelled
+// out in the requirement, followed by one follow-on "no type named 'vtable_t'"
+// noise error. (A different signature is a legal cross-level overload since
+// the chain relaxation; before per-name overloads the message read "a facade
+// cannot declare a method name twice or redeclare an inherited one"; before
+// the collision-rules rework, the same shape failed 'unique_method_names' with
+// "method names must be unique across the facade and its extends bases".)
 //
 // Listing the identical entry twice, whether a `method` or an `extends`,
 // detonates at first use of the facade's machinery (diagnostic on record,
@@ -1829,24 +1830,21 @@ static_assert(!noexcept(std::declval<proxy_view<gunslinger>&>().fire(1)));
 
 // The `api` is validated automatically at registration: `make_proxy_spec`
 // plays the boilerplate impl (which invokes members by natural name) against
-// the `api` (which declares those members), exactly type-checked at both
-// ends.
-// `mortar` above deviates deliberately and opts out with `api_check::off`.
-// The standalone asserts below exercise the public spelling, which a facade
-// author can place before any registration exists; here they are redundant
-// with the registrations.
+// the `api` (which declares those members), exactly type-checked at both ends.
+// `mortar` above deviates deliberately and opts out with `api_check::off`. The
+// standalone asserts below exercise the public spelling, which a facade author
+// can place before any registration exists; here they are redundant with the
+// registrations.
 //
-// Diagnostics on record (clang 22, captured 2026-07-08). Drifting the
-// `api`'s
+// Diagnostics on record (clang 22, captured 2026-07-08). Drifting the `api`'s
 // `fire` parameter from `int` to `long long`, with these standalone asserts
-// removed, fails through `lawman`'s registration alone, at the forwarder's
-// own line: "no matching member function for call to 'call' ... candidate
-// template ignored: constraints not satisfied [with K = ... \"fire\", Args =
-// <long long &>] ... because 'vtbuild_t<gunslinger>::template
-// has_exact_args<...
-// \"fire\", long long &>()' evaluated to false". Before the check existed,
-// the same drift compiled silently, with the sugar truncating wide arguments
-// at the thunk boundary.
+// removed, fails through `lawman`'s registration alone, at the forwarder's own
+// line: "no matching member function for call to 'call' ... candidate template
+// ignored: constraints not satisfied [with K = ... \"fire\", Args = <long long
+// &>] ... because 'vtbuild_t<gunslinger>::template has_exact_args<...
+// \"fire\", long long &>()' evaluated to false". Before the check existed, the
+// same drift compiled silently, with the sugar truncating wide arguments at
+// the thunk boundary.
 static_assert(prox::validate_api<gunslinger>());
 static_assert(prox::validate_api<hair_trigger>());
 
@@ -2132,20 +2130,32 @@ TEST_CASE("Empty handles propagate emptiness", "[proxy]") {
 // error per offending method, each under an instantiation note naming it, and
 // then the messageless trailing error from the proxy's own assert:
 //
-//   error: static assertion failed due to requirement 'value':
-//   policy_enforcement::strict: this method cannot take the policy's on_empty
-//   behavior exactly on an empty proxy (a noexcept method cannot raise, and
-//   silent needs a value-initializable result); see the instantiation note
-//   for the method, and choose a behavior every method admits, or lenient
-//   enforcement
-//   note: in instantiation of template class 'corvid::prox::details::
-//   empty_fit_check<corvid::prox::method<corvid::basic_fixed_string<char,
-//   5UL - 1>{"jams"}, bool () const noexcept>, corvid::on_empty::raise>'
-//   requested here
-//   (the same error and note for `method<{"fire"}, int (int) noexcept>`)
-//   error: static assertion expression is not an integral constant expression
-//   note: in instantiation of template class 'corvid::prox::proxy<
-//   hair_trigger, invocable_policy{16, 16, 3, 1, 1}>' requested here
+// ```
+// error: static assertion failed due to requirement 'value':
+// policy_enforcement::strict: this method cannot take the policy's on_empty
+// behavior exactly on an empty proxy (a noexcept method cannot raise, and
+// silent needs a value-initializable result); see the instantiation note
+// for the method, and choose a behavior every method admits, or lenient
+// enforcement
+// ```
+//
+// ```
+// note: in instantiation of template class 'corvid::prox::implementation::
+// empty_fit_check<corvid::prox::method<corvid::basic_fixed_string<char,
+// 5UL - 1>{"jams"}, bool () const noexcept>,
+// corvid::on_empty::raise>' requested here
+// ```
+//
+// (the same error and note for `method<{"fire"}, int (int) noexcept>`)
+//
+// ```
+// error: static assertion expression is not an integral constant expression
+// ```
+//
+// ```
+// note: in instantiation of template class 'corvid::prox::proxy<
+// hair_trigger, invocable_policy{16, 16, 3, 1, 1}>' requested here
+// ```
 //
 // Calling through moved-from handles is the subject of the next two cases,
 // so the moved-from diagnostics are suppressed for both. Those calls are
@@ -2909,8 +2919,8 @@ TEST_CASE("Owning upcast lifetimes", "[proxy]") {
 // assertion failed due to requirement
 // 'corvid::invocables::invocable_policy{16, 16, 1, 1, 0}.storage !=
 // corvid::invocables::storage_policy::inline_only ||
-// details::is_inline_eligible(corvid::invocables::invocable_policy{16, 16, 1,
-// 1, 0})': the target is not eligible for an inline_only proxy's inline
+// implementation::is_inline_eligible(corvid::invocables::invocable_policy{16,
+// 16, 1, 1, 0})': the target is not eligible for an inline_only proxy's inline
 // buffer".
 TEST_CASE("Storage policies", "[proxy]") {
   // A buffer sized for `big_box` stores it inline, so moves relocate instead
@@ -3960,6 +3970,145 @@ TEST_CASE("Codegen", "[proxy]") {
   CHECK(oss.str() == vault_golden);
 }
 
+#pragma region Formatter bridge
+
+// The formatter-bridge fixtures: a facade that opts into `std::format`, a
+// self-formatting target, a target that overrides the erased formatting by
+// binding the reserved method, and an unformattable control.
+
+// A verse holds one line of poetry and formats as that line, inheriting the
+// string grammar, debug quoting included.
+struct verse {
+  std::string line;
+  [[nodiscard]] std::string recite() const { return line; }
+};
+
+template<>
+struct std::formatter<verse, char>: std::formatter<std::string_view, char> {
+  template<typename FormatContext>
+  auto format(const verse& v, FormatContext& ctx) const {
+    return std::formatter<std::string_view, char>::format(v.line, ctx);
+  }
+};
+
+// The formatting facade under test.
+struct poet: prox::facade<prox::name<"poet">, prox::formattable,
+                 prox::method<"recite", std::string() const>> {
+  struct api {
+    std::string recite(this const auto& self) {
+      return self.template call<"recite">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static std::string on(method_key<"recite">, const T& t) {
+      return t.recite();
+    }
+  };
+};
+
+consteval auto corvid_proxy_spec(poet*, verse*) {
+  return prox::make_proxy_spec<poet, verse>();
+}
+
+// A pure aggregation level over the poet, inheriting formattability.
+struct ballad: prox::facade<prox::name<"ballad">, prox::extends<poet>> {};
+
+consteval auto corvid_proxy_spec(ballad*, verse*) {
+  return prox::make_proxy_spec<ballad, verse>();
+}
+
+// A herald has no `std::formatter`; its registration binds the reserved
+// method itself, which both replaces the library fallback and satisfies the
+// formattability constraint.
+struct herald {
+  std::string line;
+  [[nodiscard]] std::string recite() const { return line; }
+};
+
+consteval auto corvid_proxy_spec(poet*, herald*) {
+  struct as_poet: poet::boilerplate<herald> {
+    using poet::boilerplate<herald>::on;
+    static std::format_context::iterator on(method_key<"__format">,
+        const herald& t, std::string_view /*spec*/, std::format_context& ctx,
+        bool /*debug*/) {
+      auto out = ctx.out();
+      for (const char ch : std::string_view{"HEAR YE: "}) *out++ = ch;
+      for (const char ch : t.line) *out++ = ch;
+      return out;
+    }
+  };
+  return prox::make_proxy_spec<poet, herald, as_poet>();
+}
+
+// A mute has no formatter and binds nothing, so it cannot conform despite
+// being registered.
+struct mute {
+  [[nodiscard]] static std::string recite() { return "..."; }
+};
+
+consteval auto corvid_proxy_spec(poet*, mute*) {
+  return prox::make_proxy_spec<poet, mute>();
+}
+
+TEST_CASE("Formatter bridge", "[proxy]") {
+  verse v{"the quick brown fox"};
+  verse w{"jumps over"};
+
+  // Every dispatching handle flavor formats as its target does.
+  prox::proxy_view<poet> pv{v};
+  CHECK(std::format("{}", pv) == "the quick brown fox");
+  prox::const_proxy_view<poet> cpv{v};
+  CHECK(std::format("{}", cpv) == "the quick brown fox");
+  auto p = prox::make_proxy<poet, verse>("stanza");
+  CHECK(std::format("{}", p) == "stanza");
+  auto sp = prox::make_shared_proxy<poet, verse>("chorus");
+  CHECK(std::format("{}", sp) == "chorus");
+  prox::const_shared_proxy<poet> csp{sp};
+  CHECK(std::format("{}", csp) == "chorus");
+
+  // The spec reaches the target's own grammar: width, precision, debug.
+  CHECK(std::format("{:>22}", pv) == "   the quick brown fox");
+  CHECK(std::format("{:.3}", pv) == "the");
+  CHECK(std::format("{:?}", pv) == R"("the quick brown fox")");
+
+  // Inside a range, handles quote themselves the way their targets would.
+  const std::vector<prox::proxy_view<poet>> both{pv,
+      prox::proxy_view<poet>{w}};
+  CHECK(std::format("{}", both) == R"(["the quick brown fox", "jumps over"])");
+
+  // A derived facade's handle formats through the inherited method.
+  verse refrain{"refrain"};
+  prox::proxy_view<ballad> bv{refrain};
+  CHECK(std::format("{}", bv) == "refrain");
+
+  // Empty handles render the marker instead of dispatching.
+  prox::proxy_view<poet> empty_view;
+  CHECK(std::format("{}", empty_view) == "(empty)");
+  prox::proxy<poet> empty_proxy;
+  CHECK(std::format("{}", empty_proxy) == "(empty)");
+
+  // A registration-bound "__format" replaces the target's formatter.
+  herald tc{"oyez"};
+  prox::proxy_view<poet> crier{tc};
+  CHECK(std::format("{}", crier) == "HEAR YE: oyez");
+
+  // The compile-time boundary: the marker gates the handles, formattability
+  // gates the targets, and the bridge is narrow-only.
+  static_assert(prox::FormattingFacade<poet>);
+  static_assert(prox::FormattingFacade<ballad>);
+  static_assert(!prox::FormattingFacade<gunslinger>);
+  static_assert(std::formattable<prox::proxy_view<poet>, char>);
+  static_assert(std::formattable<prox::proxy<poet>, char>);
+  static_assert(std::formattable<prox::shared_proxy<poet>, char>);
+  static_assert(!std::formattable<prox::proxy_view<gunslinger>, char>);
+  static_assert(!std::formattable<prox::proxy_view<poet>, wchar_t>);
+  static_assert(Proxiable<verse, poet>);
+  static_assert(Proxiable<herald, poet>);
+  static_assert(!Proxiable<mute, poet>);
+}
+
+#pragma endregion
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
