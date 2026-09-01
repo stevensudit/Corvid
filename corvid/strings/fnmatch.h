@@ -138,8 +138,9 @@ template<CharType CharT>
 // it swallowed by one code unit. Worst case is O(name * pat), typical
 // patterns are linear, and no allocation ever happens.
 template<CharType CharT>
+// NOLINTNEXTLINE(bugprone-exception-escape): substr positions are in-bounds.
 [[nodiscard]] constexpr bool do_match(std::basic_string_view<CharT> name,
-    std::basic_string_view<CharT> pat, bool fold) {
+    std::basic_string_view<CharT> pat, bool fold) noexcept {
   size_t name_ndx{};
   size_t pat_ndx{};
   auto star_pat = npos;
@@ -194,14 +195,16 @@ template<CharType CharT>
 // string-like with the same code-unit type.
 template<StringViewLike N, StringViewLike P>
 requires std::same_as<char_type_of_t<N>, char_type_of_t<P>>
-[[nodiscard]] constexpr bool fnmatch(const N& name, const P& pattern) {
+[[nodiscard]] constexpr bool
+fnmatch(const N& name, const P& pattern) noexcept {
   return details::do_match(as_view(name), as_view(pattern), true);
 }
 
 // Match `name` against shell wildcard `pattern`, case-sensitively.
 template<StringViewLike N, StringViewLike P>
 requires std::same_as<char_type_of_t<N>, char_type_of_t<P>>
-[[nodiscard]] constexpr bool fnmatchcase(const N& name, const P& pattern) {
+[[nodiscard]] constexpr bool
+fnmatchcase(const N& name, const P& pattern) noexcept {
   return details::do_match(as_view(name), as_view(pattern), false);
 }
 
