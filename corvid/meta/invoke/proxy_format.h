@@ -95,10 +95,11 @@ namespace implementation {
 // the caller's spec, through `format_with_spec`.
 template<typename T>
 struct format_binding {
-  // The thunk exists exactly when `T` formats, which is what gates both the
-  // conformance fallback and the table build.
+  // The thunk exists exactly when a const `T` formats, which is what gates
+  // both the conformance fallback and the table build; the thunk's target is
+  // const.
   static consteval auto thunk() noexcept
-  requires std::formattable<T, char>
+  requires std::formattable<const T, char>
   {
     return +[](const void* target, std::string_view spec,
                 std::format_context& ctx,

@@ -4053,6 +4053,25 @@ consteval auto corvid_proxy_spec(poet*, mute*) {
   return prox::make_proxy_spec<poet, mute>();
 }
 
+// A diary's formatter accepts only a mutable reference, so the fallback,
+// whose target is const, cannot serve it.
+struct diary {
+  std::string line;
+  [[nodiscard]] std::string recite() const { return line; }
+};
+
+template<>
+struct std::formatter<diary, char>: std::formatter<std::string_view, char> {
+  template<typename FormatContext>
+  auto format(diary& v, FormatContext& ctx) const {
+    return std::formatter<std::string_view, char>::format(v.line, ctx);
+  }
+};
+
+consteval auto corvid_proxy_spec(poet*, diary*) {
+  return prox::make_proxy_spec<poet, diary>();
+}
+
 TEST_CASE("Formatter bridge", "[proxy]") {
   verse v{"the quick brown fox"};
   verse w{"jumps over"};
@@ -4148,6 +4167,9 @@ TEST_CASE("Formatter bridge", "[proxy]") {
   static_assert(Proxiable<verse, poet>);
   static_assert(Proxiable<herald, poet>);
   static_assert(!Proxiable<mute, poet>);
+  static_assert(std::formattable<diary, char>);
+  static_assert(!std::formattable<const diary, char>);
+  static_assert(!Proxiable<diary, poet>);
 }
 
 #pragma endregion
