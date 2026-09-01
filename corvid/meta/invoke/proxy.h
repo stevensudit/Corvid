@@ -19,9 +19,9 @@
 // Registration-based runtime polymorphism ("proxy") system.
 //
 // Type-erased handles (`proxy`, `proxy_view`, `const_proxy_view`,
-// `shared_proxy`, `const_shared_proxy`, `weak_proxy`, `const_weak_proxy`)
-// over an interface definition (a facade),
-// without inheritance, vtable pointers in the target type, or macros.
+// `shared_proxy`, `const_shared_proxy`, `weak_proxy`, `const_weak_proxy`) over
+// an interface definition (a facade), without inheritance, vtable pointers in
+// the target type, or macros.
 //
 // The family splits by handle, with the machinery in its own header:
 //
@@ -34,7 +34,9 @@
 //   interface's declarations, and its bindings and sugar API from the target
 //   type and the facade.
 //
-// Does not include `proxy_codegen.h`, since it's used only for development.
+// Does not include `proxy_codegen.h`, since it's used only for development,
+// nor `proxy_format.h`, whose `std::formatter` bridge is opt-in so that
+// `<format>` stays out of builds that never format a handle.
 //
 // See "proxy.md" for the design.
 

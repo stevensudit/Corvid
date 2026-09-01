@@ -91,8 +91,8 @@
 
 // You can include this namespace with `using namespace
 // corvid::strings::locating;`, but it's not strictly necessary. If not,
-// though, you will likely want to specify `using namespace
-// corvid::literals;` to get `npos` and `nloc`.
+// though, you will likely want to specify `using namespace corvid::literals;`
+// to get `npos` and `nloc`.
 namespace corvid::strings { inline namespace locating {
 
 #pragma region SingleLocateValue
@@ -256,11 +256,10 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
   return {pos, pos + 1};
 }
 
-// Same, but for a `location` from a multi-value `locate`. Yields
-// `npos_range` when nothing was located, including for a
-// `locate_not`-style result, whose `pos_value` indexes no value. An empty
-// value located at end-of-string is a real match, yielding an empty range
-// there.
+// Same, but for a `location` from a multi-value `locate`. Yields `npos_range`
+// when nothing was located, including for a `locate_not`-style result, whose
+// `pos_value` indexes no value. An empty value located at end-of-string is a
+// real match, yielding an empty range there.
 [[nodiscard]] constexpr pos_range as_pos_range(const std::string_view& s,
     const auto& values, location loc) noexcept {
   if (loc.pos > s.size() || loc.pos_value >= std::size(values))
@@ -275,9 +274,8 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
 // located, returning it as well. This can be used with `located` to loop over
 // located values.
 //
-// Note that you cannot safely use it before the first call to
-// `locate` or when `locate` fails, because `pos_value` must be in range
-// (and not npos).
+// Note that you cannot safely use it before the first call to `locate` or when
+// `locate` fails, because `pos_value` must be in range (and not npos).
 constexpr position point_past(position& pos, char) noexcept { return ++pos; }
 constexpr position
 point_past(position& pos, const StringViewConvertible auto& value) noexcept {
@@ -1155,8 +1153,8 @@ inline size_t excise(std::string& s,
 #pragma endregion
 #pragma region Single value
 
-// Excise all instances of `from` in `s`, returning count of
-// excisions. An empty `from` clears the string.
+// Excise all instances of `from` in `s`, returning count of excisions. An
+// empty `from` clears the string.
 //
 // Declared after the span overloads it delegates to, which compact in a
 // single linear pass; erasing per match would shift the tail every time.

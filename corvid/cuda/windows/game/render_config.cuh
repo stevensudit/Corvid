@@ -137,19 +137,18 @@ struct render_config {
     //
     // The cone emits from the iris along the beam and its far end conforms to
     // the terrain it lands on. `air_strength` is the scatter coefficient per
-    // unit lamp power (the glow scales with `intensity`, as real scatter
-    // does; 0 disables the air cone, leaving the surface lighting alone).
-    // `air_reach`
-    // is the drawn length as a fraction of the beam's throw to that landing
-    // point (1 reaches it). `air_base` is the cone's radius at the lens (the
-    // small bright mouth it fans out from), a fraction of the head radius.
-    // `hotspot_power` sets how tight the bright core is (higher = a sharper
-    // hotspot) and `hotspot_gain` how much brighter the core is than the
-    // spill. `air_speckle` (amount) and `air_speckle_freq` (grain scale) add a
-    // dusty texture, kept alive when the camera holds still by the `air_boil`
-    // march-jitter clock (cycles per second). `air_extinction` is optional
-    // Beer-Lambert dimming with the throw distance (0 is clear air; the
-    // geometric falloff is always on).
+    // unit lamp power (the glow scales with `intensity`, as real scatter does;
+    // 0 disables the air cone, leaving the surface lighting alone).
+    // `air_reach` is the drawn length as a fraction of the beam's throw to
+    // that landing point (1 reaches it). `air_base` is the cone's radius at
+    // the lens (the small bright mouth it fans out from), a fraction of the
+    // head radius. `hotspot_power` sets how tight the bright core is (higher =
+    // a sharper hotspot) and `hotspot_gain` how much brighter the core is than
+    // the spill. `air_speckle` (amount) and `air_speckle_freq` (grain scale)
+    // add a dusty texture, kept alive when the camera holds still by the
+    // `air_boil` march-jitter clock (cycles per second). `air_extinction` is
+    // optional Beer-Lambert dimming with the throw distance (0 is clear air;
+    // the geometric falloff is always on).
     //
     // `air_aniso` is the Henyey-Greenstein anisotropy of the dust scatter: 0
     // glows evenly from every angle; higher throws more of the light forward,
@@ -249,10 +248,10 @@ struct render_config {
     // where the flat top ends; the panel grooves stop there too, leaving this
     // edge to the rim light. `rim_width` is the downward fade distance from
     // `rim_top`. `rim_count` segments fade smoothly between dark and lit
-    // around the ring
-    // (`rim_floor` raises the dark end, scaling the fade into [rim_floor, 1]
-    // without clipping it), turning with the belly at `rim_spin_scale` of its
-    // rate (slower reads calmer and avoids the fast-spin strobe).
+    // around the ring (`rim_floor` raises the dark end, scaling the fade into
+    // [rim_floor, 1] without clipping it), turning with the belly at
+    // `rim_spin_scale` of its rate (slower reads calmer and avoids the
+    // fast-spin strobe).
     float rim_top = 0.75F;  // the normal's vertical value there
     float rim_width = 1.0F; // downward fade distance from `rim_top` (normal)
     vec3 rim_color{0.465F, 0.475F, 0.630F};
@@ -298,11 +297,11 @@ struct render_config {
     // A hard black band masking the dome/cone joint. A solid, hard-edged band
     // keyed on the dome surface's approach to the disc (the gap between the
     // two SDFs), its inner edge pulled `seam_offset` in from the join (to
-    // cover the specular-washed dome edge just
-    // inside it) and spanning `seam_width`. Drawn like the eye (emissive,
-    // with the lit metal and specular removed) so the whole band reads true
-    // black instead of washing out under the lighting; reads as a groove the
-    // dome sits in, hinting it could separate.
+    // cover the specular-washed dome edge just inside it) and spanning
+    // `seam_width`. Drawn like the eye (emissive, with the lit metal and
+    // specular removed) so the whole band reads true black instead of washing
+    // out under the lighting; reads as a groove the dome sits in, hinting it
+    // could separate.
     float seam_offset = -0.008F; // inner edge of seam
     float seam_width = 0.024F;   // band width (solid, hard-edged)
     vec3 seam_color{};           // band color (hard black)
@@ -362,11 +361,11 @@ struct render_config {
     // freezes it between camera moves (see `eye_cone_glow`).
     float eye_glow_boil = 4.0F;
     // Dust extinction: optional Beer-Lambert dimming with the target's
-    // distance
-    // (`exp(-extinction * target_dist)`), on top of the always-on geometric
-    // falloff that already makes a farther aim dimmer (see `eye_cone_glow`,
-    // the distance response). 0 is clear air (geometric falloff only).
-    // Monotonic for any value, so aiming farther never brightens the glow.
+    // distance (`exp(-extinction * target_dist)`), on top of the always-on
+    // geometric falloff that already makes a farther aim dimmer (see
+    // `eye_cone_glow`, the distance response). 0 is clear air (geometric
+    // falloff only). Monotonic for any value, so aiming farther never
+    // brightens the glow.
     float eye_glow_extinction{};
     // Merged view only: brightness of the pupil's near-field veiling glow,
     // seen from inside looking out along your own aim (green, peak reads
@@ -396,15 +395,14 @@ struct render_config {
     // Reticle glare: while the dig tool projects (`reticle.enabled`), the
     // pupil's ring of laser light blooms outward, a soft green glow sourced at
     // the pupil (never the iris, which is the white flashlight source), so
-    // looking at the eye (directly, in the ball, or in the flat mirror)
-    // reads as laser glare (see `eye_glare_halo`). A real surface emissive
-    // every ray path catches. The glow rises from a dark center to the hub rim
-    // (so the pupil stays a dark hole until locked) and fades outward, an
-    // extension of the pupil ring into the air. Green, so the HDR peak reads
-    // white while the skirts stay green: crank the gain for a blinding bloom,
-    // drop to 0 to disable. `eye_glare_gain` is the glow while merely
-    // projecting (ring only, not locked); `eye_glare_lock_gain` while locked
-    // on a target
+    // looking at the eye (directly, in the ball, or in the flat mirror) reads
+    // as laser glare (see `eye_glare_halo`). A real surface emissive every ray
+    // path catches. The glow rises from a dark center to the hub rim (so the
+    // pupil stays a dark hole until locked) and fades outward, an extension of
+    // the pupil ring into the air. Green, so the HDR peak reads white while
+    // the skirts stay green: crank the gain for a blinding bloom, drop to 0 to
+    // disable. `eye_glare_gain` is the glow while merely projecting (ring
+    // only, not locked); `eye_glare_lock_gain` while locked on a target
     // (`show_inner`), so the lit and locked glare tune apart.
     // `eye_glare_spread` is how far it reaches out past the pupil hub rim
     // (same units as `eye_hub`).

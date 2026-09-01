@@ -51,10 +51,10 @@ namespace corvid::cuda {
 // Offline kernel benchmark: run `render_scene` (the prepass plus the adaptive
 // resolve) repeatedly into an off-screen surface at a fixed pose and
 // resolution, with no window, present, or vsync, and report the per-launch GPU
-// time (min/avg/max). The pure,
-// isolated signal for the small kernel changes the live, vsync-capped viewer
-// cannot resolve; the viewer's "uncap fps" toggle is the complementary in-situ
-// measurement. Selected by the `bench` argument.
+// time (min/avg/max). The pure, isolated signal for the small kernel changes
+// the live, vsync-capped viewer cannot resolve; the viewer's "uncap fps"
+// toggle is the complementary in-situ measurement. Selected by the `bench`
+// argument.
 [[nodiscard]] inline int run_kernel_bench() {
   constexpr auto width = 2560; // a fixed 1440p frame, so runs compare directly
   constexpr auto height = 1440;

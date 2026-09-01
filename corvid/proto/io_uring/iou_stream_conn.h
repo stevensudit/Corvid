@@ -1236,6 +1236,7 @@ private:
     on_close_was_notified_ = true;
     return plugin_.on_close();
   }
+#pragma endregion
 };
 
 #pragma endregion

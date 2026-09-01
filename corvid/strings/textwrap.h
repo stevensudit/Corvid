@@ -90,11 +90,14 @@ indent_of(std::basic_string_view<CharT> line) noexcept {
   return ndx;
 }
 
+// Substr positions in these dedent helpers are in-bounds by construction.
+// NOLINTBEGIN(bugprone-exception-escape)
+
 // Return the length of the whitespace margin shared, code unit for code unit,
 // by every content line of `sv`.
 template<CharType CharT>
 [[nodiscard]] constexpr size_t
-dedent_margin(std::basic_string_view<CharT> sv) {
+dedent_margin(std::basic_string_view<CharT> sv) noexcept {
   std::basic_string_view<CharT> margin;
   bool found{};
   auto whole = sv;
@@ -119,7 +122,7 @@ dedent_margin(std::basic_string_view<CharT> sv) {
 // Return the length of `sv`'s dedented form, given its `margin` length.
 template<CharType CharT>
 [[nodiscard]] constexpr size_t
-dedent_size(std::basic_string_view<CharT> sv, size_t margin) {
+dedent_size(std::basic_string_view<CharT> sv, size_t margin) noexcept {
   size_t cnt{};
   auto whole = sv;
   std::basic_string_view<CharT> line;
@@ -140,7 +143,7 @@ dedent_size(std::basic_string_view<CharT> sv, size_t margin) {
 // caller sizes `out_span` exactly, via `dedent_size`; this is asserted.
 template<CharType CharT>
 constexpr void dedent_fill(std::basic_string_view<CharT> sv, size_t margin,
-    std::span<std::type_identity_t<CharT>> out_span) {
+    std::span<std::type_identity_t<CharT>> out_span) noexcept {
   auto out = out_span.data();
   auto whole = sv;
   std::basic_string_view<CharT> line;
@@ -156,6 +159,8 @@ constexpr void dedent_fill(std::basic_string_view<CharT> sv, size_t margin,
   }
   assert(out == out_span.data() + out_span.size());
 }
+
+// NOLINTEND(bugprone-exception-escape)
 
 } // namespace details
 
@@ -352,9 +357,8 @@ template<CharType CharT>
   return text;
 }
 
-// Chop the munged text into alternating runs of whitespace and
-// non-whitespace. Whitespace runs are chunks too, so inter-word gaps count
-// toward line widths.
+// Chop the munged text into alternating runs of whitespace and non-whitespace.
+// Whitespace runs are chunks too, so inter-word gaps count toward line widths.
 template<CharType CharT>
 [[nodiscard]] constexpr auto chunk_runs(std::basic_string_view<CharT> tv) {
   std::vector<std::basic_string_view<CharT>> chunks;
@@ -513,8 +517,7 @@ wrap(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {
 // Wrap the single paragraph in `s` and return it as one string with the lines
 // joined by newlines, Python `textwrap.fill`-style.
 //
-// For example, `fill("one two three", {.width = 8})` returns
-// "one two\nthree".
+// For example, `fill("one two three", {.width = 8})` returns "one two\nthree".
 template<StringViewLike S>
 [[nodiscard]] constexpr auto
 fill(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {

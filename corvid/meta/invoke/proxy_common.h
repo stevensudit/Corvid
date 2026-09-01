@@ -130,11 +130,8 @@ consteval auto operator""_method() noexcept {
 
 } // namespace literals
 
-namespace details {
+namespace implementation {
 
-// The shared working parts live with `invocable_policy` and in
-// "invocable_common.h". They are brought in whole so that unqualified
-// `details::` calls below find them.
 using namespace invocables::implementation;
 
 // `proxy_storage_mode_of` is where a `proxy` under policy `p` keeps a `T`:
@@ -162,7 +159,18 @@ consteval storage_mode proxy_storage_mode_of(invocable_policy p) noexcept {
   return !s.contains("::");
 }
 
-} // namespace details
+// `is_reserved_name` is whether `s` carries the `"__"` prefix that marks a
+// method as a library convention. Such a method is dispatched like any other
+// but gets no sugar member and no boilerplate slot, because the library binds
+// it itself.
+[[nodiscard]] constexpr bool is_reserved_name(std::string_view s) noexcept {
+  return s.starts_with("__");
+}
+
+// The reserved name of the format method.
+inline constexpr fixed_string format_method_name = "__format";
+
+} // namespace implementation
 
 // `method` is the descriptor with the name, plus the erased signature.
 //
@@ -209,7 +217,7 @@ consteval storage_mode proxy_storage_mode_of(invocable_policy p) noexcept {
 template<fixed_string Name, typename Sig>
 struct method: method_key<Name> {
   static_assert(!Name.empty(), "method names may not be empty");
-  static_assert(details::name_is_unqualified(Name.view()),
+  static_assert(implementation::name_is_unqualified(Name.view()),
       "method names may not contain \"::\"; it is reserved for qualifying a "
       "key with the facade name");
 
@@ -238,21 +246,21 @@ struct member {
   // it. Dispatch reaches a binding through `proxy_impl<F, T>` for one facade,
   // so a qualified key would never match, and there is nothing for it to
   // disambiguate.
-  static_assert(details::name_is_unqualified(Key.view()),
+  static_assert(implementation::name_is_unqualified(Key.view()),
       "member binding keys may not contain \"::\"; bindings are per facade, "
       "so a sibling collision is resolved by which facade is registered");
   static constexpr auto name_v = Key;
   static constexpr auto pointer_v = Ptr;
 };
 
-namespace details {
+namespace implementation {
 
 template<typename T>
 constexpr inline bool is_member_binding_v = false;
 template<fixed_string Key, auto Ptr>
 constexpr inline bool is_member_binding_v<member<Key, Ptr>> = true;
 
-} // namespace details
+} // namespace implementation
 
 // `members<Ms...>` is what a registration carries in place of a binding
 // class: a list of `member` bindings the library turns into one.
@@ -277,7 +285,7 @@ constexpr inline bool is_member_binding_v<member<Key, Ptr>> = true;
 // more than one member, or a private member of a type whose hook cannot be
 // befriended.
 template<typename... Ms>
-requires(sizeof...(Ms) > 0) && (details::is_member_binding_v<Ms> && ...)
+requires(sizeof...(Ms) > 0) && (implementation::is_member_binding_v<Ms> && ...)
 struct members {};
 
 #pragma endregion
@@ -335,7 +343,7 @@ struct facade {
   facade() = delete;
 };
 
-namespace details {
+namespace implementation {
 
 // Probe for the unique public `facade` base of `F`.
 //
@@ -343,11 +351,11 @@ namespace details {
 template<typename... Ms>
 auto probe(const facade<Ms...>&) -> facade<Ms...>;
 
-} // namespace details
+} // namespace implementation
 
 // Concept for a type derived from a single `facade` base.
 template<typename F>
-concept Facade = requires(const F& f) { details::probe(f); };
+concept Facade = requires(const F& f) { implementation::probe(f); };
 
 // `extends` is the facade composition entry declaring that the facade extends
 // `B` (Rust supertrait, ngcpp `add_facade`).
@@ -418,12 +426,12 @@ struct name {
   static_assert(!Name.empty(),
       "facade names may not be empty; an empty qualifier would match any "
       "facade");
-  static_assert(details::name_is_unqualified(Name.view()),
+  static_assert(implementation::name_is_unqualified(Name.view()),
       "facade names may not contain \"::\"; it is reserved for qualifying a "
       "key with the facade name");
 };
 
-namespace details {
+namespace implementation {
 
 // The stand-in API base for facades that define no member-call sugar.
 struct no_api {};
@@ -451,7 +459,7 @@ struct api_base<F, H> {
 template<typename F, typename H>
 using api_base_t = api_base<F, H>::type;
 
-} // namespace details
+} // namespace implementation
 
 #pragma endregion
 #pragma region Registration and binding
@@ -564,7 +572,7 @@ struct proxy_spec {
   using impl_t = Impl;
 };
 
-namespace details {
+namespace implementation {
 
 // Fwd.
 template<Facade F>
@@ -573,7 +581,7 @@ struct api_probe;
 template<Facade F>
 [[nodiscard]] consteval bool are_base_boilerplates_visible() noexcept;
 
-} // namespace details
+} // namespace implementation
 
 // Fwd.
 template<Facade F>
@@ -586,7 +594,7 @@ template<Facade F>
 // widening convenience signature), must register with `api_check::off`.
 enum class api_check : uint8_t { off, on };
 
-namespace details {
+namespace implementation {
 
 // Registration-time half of `validate_api`.
 //
@@ -633,7 +641,7 @@ struct carried_impl<F, T, members<Ms...>> {
 template<typename F, typename T, typename Impl>
 using carried_impl_t = carried_impl<F, T, Impl>::type;
 
-} // namespace details
+} // namespace implementation
 
 // `make_proxy_spec` to make the registration spec for a (facade, type) pair.
 //
@@ -658,19 +666,20 @@ using carried_impl_t = carried_impl<F, T, Impl>::type;
 // own instantiation.
 template<typename F, typename T, api_check Check = api_check::on>
 [[nodiscard]] consteval proxy_spec<F, T> make_proxy_spec() noexcept {
-  details::maybe_validate_api<F, Check>();
+  implementation::maybe_validate_api<F, Check>();
   return {};
 }
 
 template<typename F, typename T, typename Impl,
     api_check Check = api_check::on>
-[[nodiscard]] consteval proxy_spec<F, T, details::carried_impl_t<F, T, Impl>>
+[[nodiscard]] consteval proxy_spec<F, T,
+    implementation::carried_impl_t<F, T, Impl>>
 make_proxy_spec() noexcept {
-  details::maybe_validate_api<F, Check>();
+  implementation::maybe_validate_api<F, Check>();
   return {};
 }
 
-namespace details {
+namespace implementation {
 
 // The return type of the pair's registration hook, found by ADL exactly as
 // `ProxyRegistered` finds it.
@@ -678,7 +687,7 @@ template<typename F, typename T>
 using registered_spec_t = decltype(corvid_proxy_spec(static_cast<F*>(nullptr),
     static_cast<T*>(nullptr)));
 
-} // namespace details
+} // namespace implementation
 
 // `ProxyRegistered` is the concept for a (facade, type) pair being registered.
 //
@@ -707,22 +716,21 @@ using registered_spec_t = decltype(corvid_proxy_spec(static_cast<F*>(nullptr),
 template<typename F, typename T>
 concept ProxyRegistered = requires {
   corvid_proxy_spec(static_cast<F*>(nullptr), static_cast<T*>(nullptr));
-  requires std::same_as<typename details::registered_spec_t<F, T>::facade_t,
-      F>;
+  requires std::same_as<
+      typename implementation::registered_spec_t<F, T>::facade_t, F>;
   // The same-type term is spelled separately because `derived_from` holds
   // only between classes, and a target may be a non-class type.
   requires std::same_as<T,
-               typename details::registered_spec_t<F, T>::target_t> ||
+               typename implementation::registered_spec_t<F, T>::target_t> ||
                std::derived_from<T,
-                   typename details::registered_spec_t<F, T>::target_t>;
+                   typename implementation::registered_spec_t<F, T>::target_t>;
 };
 
 // `SpecCarriesImpl` is the concept for a (facade, type) pair whose
 // registration carries an impl.
 //
-// True when the pair is registered through the three-type
-// `make_proxy_spec<F, T, Impl>()`, which names the binding class serving the
-// pair.
+// True when the pair is registered through the three-type `make_proxy_spec<F,
+// T, Impl>()`, which names the binding class serving the pair.
 //
 // The library installs the carried impl as the pair's `proxy_impl` (below),
 // outranking the facade's boilerplate because the carried impl is the more
@@ -734,9 +742,9 @@ concept ProxyRegistered = requires {
 template<typename F, typename T>
 concept SpecCarriesImpl =
     ProxyRegistered<F, T> &&
-    !std::is_void_v<typename details::registered_spec_t<F, T>::impl_t>;
+    !std::is_void_v<typename implementation::registered_spec_t<F, T>::impl_t>;
 
-namespace details {
+namespace implementation {
 
 // The impl type carried by the pair's registration.
 template<typename F, typename T>
@@ -764,7 +772,7 @@ struct default_impl<F, T> {
 template<typename F, typename T>
 using default_impl_t = default_impl<F, T>::type;
 
-} // namespace details
+} // namespace implementation
 
 // `proxy_impl` is the library-provided delegation to a registration-carried
 // impl.
@@ -775,7 +783,7 @@ using default_impl_t = default_impl<F, T>::type;
 // hook-local class is ODR-consistent across translation units).
 template<Facade F, typename T>
 requires SpecCarriesImpl<F, T>
-struct proxy_impl<F, T>: details::registered_impl_t<F, T> {};
+struct proxy_impl<F, T>: implementation::registered_impl_t<F, T> {};
 
 // `proxy_impl` is the library-provided delegation to the pair's default impl
 // (see `default_impl`), which is the facade-hosted boilerplate.
@@ -790,8 +798,8 @@ struct proxy_impl<F, T>: details::registered_impl_t<F, T> {};
 // by the ordinary specialization-ordering rules.
 template<Facade F, typename T>
 requires(ProxyRegistered<F, T> && !SpecCarriesImpl<F, T> &&
-         requires { typename details::default_impl_t<F, T>; })
-struct proxy_impl<F, T>: details::default_impl_t<F, T> {};
+         requires { typename implementation::default_impl_t<F, T>; })
+struct proxy_impl<F, T>: implementation::default_impl_t<F, T> {};
 
 // `proxy_spec_v` is the central access point for the registered spec,
 // mirroring `enum_spec_v`.
@@ -806,7 +814,11 @@ constexpr inline auto proxy_spec_v =
 #pragma endregion
 #pragma region Dispatch details
 
-namespace details {
+namespace implementation {
+
+// Fwd; the definition is in "proxy_format.h", the opt-in formatter bridge.
+template<typename T>
+struct format_binding;
 
 // `method_traits` is the per-method dispatch machinery for method `M`, matched
 // on its `function_t` to recover the result and parameter pack.
@@ -863,27 +875,79 @@ struct method_traits<M, R(Args...)> {
   // Whether the binding class `proxy_impl<F, T>` has an `on` overload for this
   // method, taking the target and the method's arguments.
   template<typename F, typename T>
-  static constexpr bool is_bound = requires(target_t<T>& t, Args... args) {
-    {
-      proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
-          std::forward<Args>(args)...)
-    } -> std::convertible_to<R>;
-  } && (!M::is_noexcept || requires(target_t<T>& t, Args... args) {
-    {
-      proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
-          std::forward<Args>(args)...)
-    } noexcept;
-  });
+  static constexpr bool is_impl_bound =
+      requires(target_t<T>& t, Args... args) {
+        {
+          proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
+              std::forward<Args>(args)...)
+        } -> std::convertible_to<R>;
+      } && (!M::is_noexcept || requires(target_t<T>& t, Args... args) {
+        {
+          proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
+              std::forward<Args>(args)...)
+        } noexcept;
+      });
+
+  // Whether this is the reserved format method.
+  static constexpr bool is_format_v =
+      (M::name_v.view() == format_method_name.view());
+
+  // Whether the library's format fallback serves this method for `T`.
+  //
+  // True only for the reserved format method, when the formatter bridge is
+  // visible and its binding yields this method's exact thunk type, which it
+  // does exactly when `T` is formattable.
+  template<typename T>
+  static consteval bool has_format_fallback() noexcept {
+    if constexpr (!is_format_v) {
+      return false;
+    } else {
+      // Probing an incomplete `format_binding` would read as "unbound" and
+      // fail conformance with no hint of the cause, so name it.
+      static_assert(
+          requires { sizeof(format_binding<std::remove_cv_t<T>>); },
+          "the facade declares the reserved format method, so the formatter "
+          "bridge must be visible: include \"proxy_format.h\" where the "
+          "facade is declared");
+      return requires {
+        {
+          format_binding<std::remove_cv_t<T>>::thunk()
+        } -> std::same_as<thunk_ptr_t>;
+      };
+    }
+  }
+
+  // Whether the method is usable for the pair, whether bound by `proxy_impl`,
+  // or served by the format fallback.
+  template<typename F, typename T>
+  static constexpr bool is_bound =
+      is_impl_bound<F, T> || has_format_fallback<T>();
 
   // Make the thunk for this method, which erases the target and forwards the
   // call to the binding class.
+  //
+  // The reserved format method falls back to the library's `format_binding`
+  // when the impl does not bind it, so the target's own `std::formatter`
+  // serves the slot without any authored binding.
   template<typename F, typename T>
   static consteval thunk_ptr_t make_thunk() noexcept {
-    return
-        [](erased_ptr_t target, Args... args) noexcept(M::is_noexcept) -> R {
-          return proxy_impl<F, T>::on(method_key<M::name_v>{},
-              *static_cast<target_t<T>*>(target), std::forward<Args>(args)...);
+    if constexpr (is_format_v && !is_impl_bound<F, T>) {
+      if constexpr (has_format_fallback<T>())
+        return format_binding<std::remove_cv_t<T>>::thunk();
+      else
+        // Unreachable: `Proxiable` rejects an unbound, unformattable pair,
+        // so no handle dispatches this. The arm exists so probe targets can
+        // still build tables, and detonates if a future change lets it run.
+        return [](erased_ptr_t, Args...) noexcept(M::is_noexcept) -> R {
+          std::terminate();
         };
+    } else {
+      return [](erased_ptr_t target, Args... args) noexcept(
+                 M::is_noexcept) -> R {
+        return proxy_impl<F, T>::on(method_key<M::name_v>{},
+            *static_cast<target_t<T>*>(target), std::forward<Args>(args)...);
+      };
+    }
   }
 
   // Empty-call rules for `R`.
@@ -1688,12 +1752,11 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `resolve` to resolve the `Key`, called with `CallArgs`, to a slot index,
   // or to `none_v` or `ambiguous_v`.
   //
-  // An unqualified key with a single candidate resolves to it
-  // unconditionally, so a call with unsuitable arguments still fails
-  // directly at the thunk; a qualified key narrows the candidates to one
-  // facade's before the same rules run. An `Access` of `as_const` restricts
-  // the candidates to const-qualified methods, for dispatch through const
-  // handles.
+  // An unqualified key with a single candidate resolves to it unconditionally,
+  // so a call with unsuitable arguments still fails directly at the thunk. A
+  // qualified key narrows the candidates to one facade's before the same rules
+  // run. An `Access` of `as_const` restricts the candidates to const-qualified
+  // methods, for dispatch through const handles.
   //
   // A key over an overload set (per-name overloads within a facade, or a
   // sibling collision) is ranked by the compiler rather than by a
@@ -2087,7 +2150,7 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
   PRAGMA_DIAG(pop)
 }
 
-} // namespace details
+} // namespace implementation
 
 #pragma endregion
 #pragma region Proxiable
@@ -2100,7 +2163,7 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
 template<typename D, typename B>
 concept Extends =
     Facade<D> && Facade<B> &&
-    details::vtbuild_t<D>::template extends_facade<B>();
+    implementation::vtbuild_t<D>::template extends_facade<B>();
 
 // `InChainOf` is the concept for when facade `B` is `D` itself or a facade `D`
 // (transitively) extends.
@@ -2145,7 +2208,7 @@ class weak_proxy;
 template<Facade F>
 class const_weak_proxy;
 
-namespace details {
+namespace implementation {
 
 // The view flavor with access mode `Access` over facade `F`.
 template<Facade F, access_mode Access>
@@ -2262,12 +2325,13 @@ constexpr auto default_on(method_key<Key> key, Self& self,
 //
 // `on` has two mutually exclusive overloads. A key one of `Ms...` binds
 // invokes that member on the target, through `std::invoke`, so a member
-// function is called and a data member is read (as a reference, which a
-// facade method returning one serves directly). Any other key forwards to
-// the pair's default impl (the facade's `boilerplate<T>`; see
-// `default_impl`), when there is one and it binds the key. A key bound by
-// neither is not bound at all, which conformance reports as it would for a
-// binding class with no `on` for it.
+// function is called and a data member is read (as a reference, which a facade
+// method returning one serves directly).
+//
+// Any other key forwards to the pair's default impl (the facade's
+// `boilerplate<T>`; see `default_impl`), when there is one and it binds the
+// key. A key bound by neither is not bound at all, which conformance reports
+// as it would for a binding class with no `on` for it.
 //
 // The target parameter is deduced, so a const target reaches the member as
 // const and a mutable one as mutable; whether the member accepts that is
@@ -2361,14 +2425,15 @@ struct handle_impl {
   }
 };
 
-} // namespace details
+} // namespace implementation
 
 // `Proxiable` is the concept for when `T` can back facade `F`.
 //
-// Satisfied when a usable `proxy_impl<F, T>` binding exists for every method
-// of `F`, and the pair itself has opted in: it is registered, or `T` is a
-// proxy handle of `F` or of a facade extending it (the library's
-// self-conformance bindings).
+// Satisfied when every method of `F` is bound for `T` (through `proxy_impl<F,
+// T>`, or for the reserved format method through the library's fallback to
+// `T`'s own `std::formatter`), and the pair itself has opted in: it is
+// registered, or `T` is a proxy handle of `F` or of a facade extending it (the
+// library's self-conformance bindings).
 //
 // The explicit opt-in term is what keeps a facade with no own methods, a
 // name-only marker or a pure aggregation level, from being backed by every
@@ -2378,13 +2443,13 @@ struct handle_impl {
 // static-dispatch templates.
 template<typename T, typename F>
 concept Proxiable =
-    Facade<F> && details::vtbuild_t<F>::template is_all_bound<F, T> &&
-    (ProxyRegistered<F, T> || details::is_handle_for<T, F>());
+    Facade<F> && implementation::vtbuild_t<F>::template is_all_bound<F, T> &&
+    (ProxyRegistered<F, T> || implementation::is_handle_for<T, F>());
 
 #pragma endregion
 #pragma region API validation
 
-namespace details {
+namespace implementation {
 
 // Exact-conversion carrier for the `api_probe`'s strict `call`.
 //
@@ -2458,7 +2523,7 @@ consteval auto corvid_proxy_spec(F*, api_probe<G>*) noexcept {
   return make_proxy_spec<F, api_probe<G>, api_check::off>();
 }
 
-} // namespace details
+} // namespace implementation
 
 // `validate_api` is to validate a facade's `api` against its method list,
 // spelling neither the names nor the signatures again.
@@ -2505,12 +2570,12 @@ consteval auto corvid_proxy_spec(F*, api_probe<G>*) noexcept {
 // method list as well.
 template<Facade F>
 [[nodiscard]] consteval bool validate_api() noexcept {
-  const auto vt = details::vtable_for<F, details::api_probe<F>>;
+  const auto vt = implementation::vtable_for<F, implementation::api_probe<F>>;
   (void)vt;
   return true;
 }
 
-namespace details {
+namespace implementation {
 
 // Whether every facade in `F`'s extends chain has a boilerplate impl visible
 // to drive `F`'s api probe.
@@ -2531,7 +2596,7 @@ template<Facade F>
       static_cast<vtbuild_t<F>::ancestors_t*>(nullptr));
 }
 
-} // namespace details
+} // namespace implementation
 
 #pragma endregion
 

@@ -219,9 +219,8 @@ public:
         packet.data(), packet.size(), short_dcidlen));
   }
 
-  // Result of the decode performed by the constructor.
-  // `quic_status::ok` on a default-constructed object that hasn't been
-  // decoded.
+  // Result of the decode performed by the constructor. `quic_status::ok` on a
+  // default-constructed object that hasn't been decoded.
   [[nodiscard]] quic_status status() const noexcept { return status_; }
 
   [[nodiscard]] explicit operator bool() const noexcept {

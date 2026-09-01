@@ -68,10 +68,10 @@ inline namespace value_or_errors {
 //
 // ---
 //
-// The error type here is an `enum` (which was registered as a
-// `sequence_enum` so as to make that streaming work), but it could also be any
-// `struct` with any number of fields. It could be a class with private members
-// as well, although that's not a great choice for an error.
+// The error type here is an `enum` (which was registered as a `sequence_enum`
+// so as to make that streaming work), but it could also be any `struct` with
+// any number of fields. It could be a class with private members as well,
+// although that's not a great choice for an error.
 //
 // If you wanted to return a `std::string` as the error, even though that's
 // also the type for the value, you can still do it, but not directly. Instead,
@@ -92,11 +92,10 @@ inline namespace value_or_errors {
 // In this case, because we chose a `std::string` as both the value and the
 // contents of the error, we need to explicitly construct a `rejection_text`.
 //
-// Where `std::expected` requires you to wrap the error in a
-// `std::unexpected` in all cases, this class requires invoking the constructor
-// by name, but only when there would otherwise be an ambiguity. And, of
-// course, you get to choose the types, which lets you avoid ambiguous pairs if
-// you prefer.
+// Where `std::expected` requires you to wrap the error in a `std::unexpected`
+// in all cases, this class requires invoking the constructor by name, but only
+// when there would otherwise be an ambiguity. And, of course, you get to
+// choose the types, which lets you avoid ambiguous pairs if you prefer.
 //
 // Any ambiguity will result in a clean compile error.
 //
@@ -193,11 +192,10 @@ inline namespace value_or_errors {
 // shared wing is copied as is, and a differing wing never converts, even when
 // its types are convertible.
 //
-// Allowing such conversions would create the ambiguities
-// that force the class down the path of requiring a `std::unexpected` wrapper
-// for all error types in all cases. This means that if what's being returned
-// is not an exact type match, you will need to dereference it yourself and
-// possibly convert it.
+// Allowing such conversions would create the ambiguities that force the class
+// down the path of requiring a `std::unexpected` wrapper for all error types
+// in all cases. This means that if what's being returned is not an exact type
+// match, you will need to dereference it yourself and possibly convert it.
 //
 //   value_or_error<long, excuse_id> get_long_or_excuse() {
 //     // The next line works because the `int` widens to `long`.

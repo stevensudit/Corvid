@@ -39,8 +39,7 @@ namespace corvid { inline namespace proto {
 // A queue of owned byte buffers, presented to a gather/scatter operation as an
 // `iovec` view.
 //
-// The same machinery serves both directions; a queue uses one
-// or the other:
+// The same machinery serves both directions; a queue uses one or the other:
 //
 //   Send: the producer `append`s buffers that already hold bytes. `unused`
 //   offers the not-yet-written bytes for a gather write, `consume` records how

@@ -409,11 +409,11 @@ private:
     // `EPOLLRDHUP` is armed by default so that peer half-closes (`SHUT_WR`)
     // are detected even when `EPOLLIN` is not subscribed. It can be disarmed
     // after EOF is observed via `enable_rdhup(sock, false)`.
+    //
     // This loop intentionally stays level-triggered. `epoll_stream_conn` only
     // arms `EPOLLOUT` while a send queue is backpressured, so LT does not
     // create steady writable wakeups, and switching to `EPOLLET` would require
-    // every read/write handler to drain to `EAGAIN` to avoid missed
-    // readiness.
+    // every read/write handler to drain to `EAGAIN` to avoid missed readiness.
     constexpr uint32_t always_on_events{EPOLLERR | EPOLLHUP | EPOLLRDHUP};
     return always_on_events | (readable ? uint32_t{EPOLLIN} : uint32_t{0}) |
            (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
@@ -436,11 +436,11 @@ private:
     // and closes the connection in the same wakeup (i.e., `EPOLLHUP |
     // EPOLLIN`).
     //
-    // `on_readable` calls `do_close_now` on EOF/error, and `on_error`
-    // is idempotent via `open_.exchange(false)`, so calling it afterward is
-    // safe even if the connection was already closed.
-    // `EPOLLRDHUP` indicates peer half-close; route it through the readable
-    // path so `handle_readable` can detect EOF via `::read` returning 0.
+    // `on_readable` calls `do_close_now` on EOF/error, and `on_error` is
+    // idempotent via `open_.exchange(false)`, so calling it afterward is safe
+    // even if the connection was already closed. `EPOLLRDHUP` indicates peer
+    // half-close; route it through the readable path so `handle_readable` can
+    // detect EOF via `::read` returning 0.
     if (ev & (EPOLLIN | EPOLLRDHUP)) (void)conn->on_readable();
     if (ev & (EPOLLERR | EPOLLHUP)) return conn->on_error() || true;
     if (ev & EPOLLOUT) (void)conn->on_writable();

@@ -85,6 +85,7 @@ public:
       : cuda_ptr{make(count, on_failure::raise), count} {}
 
   // Allocate, or return a failed instance.
+  //
   // Check with `operator bool`, and follow up with `cuda_last_status{}`.
   [[nodiscard]] static cuda_ptr try_create(size_t count = 1UZ) {
     return cuda_ptr{make(count, on_failure::ignore), count};

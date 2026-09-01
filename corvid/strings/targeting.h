@@ -97,8 +97,8 @@ public:
     return self.append_ch(len, ch);
   }
 
-  // Default reserve is no-op; string specialization overrides.
-  // Uses deducing this for return type consistency, not polymorphic dispatch.
+  // Default reserve is no-op; string specialization overrides. Uses deducing
+  // this for return type consistency, not polymorphic dispatch.
   constexpr auto& reserve(this auto&& self, size_t) { return self; }
 
 #pragma endregion

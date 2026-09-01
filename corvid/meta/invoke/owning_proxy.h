@@ -82,8 +82,8 @@ namespace prox {
 // When the facade defines a nested `api`, the proxy inherits it, so the
 // member-call sugar forwarders dispatch alongside `call`.
 template<Facade F, invocable_policy Policy>
-class proxy: public details::api_base_t<F, proxy<F, Policy>> {
-  using vtbuild_t = details::vtbuild_t<F>;
+class proxy: public implementation::api_base_t<F, proxy<F, Policy>> {
+  using vtbuild_t = implementation::vtbuild_t<F>;
   using owning_vtable_t = vtbuild_t::owning_vtable_t;
 
   // The buffer rules are the policy's own, each broken rule named in the
@@ -127,12 +127,12 @@ public:
   template<typename T, typename... Args>
   requires(Proxiable<T, F> && std::constructible_from<T, Args...>)
   explicit proxy(std::in_place_type_t<T>, Args&&... args)
-      : vtable_{&details::owning_vtable_for<F, F, T,
-            details::proxy_storage_mode_of<T>(Policy)>} {
+      : vtable_{&implementation::owning_vtable_for<F, F, T,
+            implementation::proxy_storage_mode_of<T>(Policy)>} {
     static_assert(
-        Policy.admits_heap() || details::is_inline_eligible<T>(Policy),
+        Policy.admits_heap() || implementation::is_inline_eligible<T>(Policy),
         "the target is not eligible for an inline_only proxy's inline buffer");
-    if constexpr (details::can_store_inline<T>(Policy))
+    if constexpr (implementation::can_store_inline<T>(Policy))
       ::new (storage_area_.buf) T(std::forward<Args>(args)...);
     else
       storage_area_.ptr = new T(std::forward<Args>(args)...);
@@ -161,13 +161,15 @@ public:
   explicit proxy(std::unique_ptr<T> target) noexcept {
     if (!target) return;
     if constexpr (!Policy.admits_heap()) {
-      static_assert(details::is_inline_eligible<T>(Policy),
+      static_assert(implementation::is_inline_eligible<T>(Policy),
           "the target is not eligible for an inline_only proxy's buffer.");
       ::new (storage_area_.buf) T(std::move(*target));
-      vtable_ = &details::owning_vtable_for<F, F, T, storage_mode::inlined>;
+      vtable_ =
+          &implementation::owning_vtable_for<F, F, T, storage_mode::inlined>;
     } else {
       storage_area_.ptr = target.release();
-      vtable_ = &details::owning_vtable_for<F, F, T, storage_mode::dynamic>;
+      vtable_ =
+          &implementation::owning_vtable_for<F, F, T, storage_mode::dynamic>;
     }
   }
 
@@ -193,7 +195,8 @@ public:
   // `do_adopt` settles the route before anything moves.
   template<Facade D, invocable_policy P>
   requires ExtendsOrIs<D, F>
-  proxy(proxy<D, P>&& other) noexcept(!details::adopt_may_throw(Policy, P)) {
+  proxy(proxy<D, P>&& other) noexcept(
+      !implementation::adopt_may_throw(Policy, P)) {
     do_adopt(other);
   }
 
@@ -215,8 +218,8 @@ public:
   template<Facade D, invocable_policy P>
   requires(ExtendsOrIs<D, F> && !(std::same_as<D, F> && P == Policy))
   proxy& operator=(proxy<D, P>&& other) noexcept(
-      !details::adopt_may_throw(Policy, P)) {
-    if constexpr (details::adopt_may_throw(Policy, P)) {
+      !implementation::adopt_may_throw(Policy, P)) {
+    if constexpr (implementation::adopt_may_throw(Policy, P)) {
       if (!can_adopt(other))
         throw std::length_error{
             "the target cannot be stored in an inline_only proxy's buffer"};
@@ -250,17 +253,17 @@ public:
   decltype(auto)
   call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<Key,
       access_mode::as_mutable, Args...>()) {
-    return details::dispatch<F, access_mode::as_mutable, Key>(
+    return implementation::dispatch<F, access_mode::as_mutable, Key>(
         vtable_->vt.thunks, target(), std::forward<Args>(args)...);
   }
 
   template<fixed_string Key, typename... Args>
-  requires(details::vtbuild_t<F>::template is_const<Key>())
+  requires(implementation::vtbuild_t<F>::template is_const<Key>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   decltype(auto) call(Args&&... args) const noexcept(
       vtbuild_t::template is_noexcept<Key, access_mode::as_const, Args...>()) {
-    return details::dispatch<F, access_mode::as_const, Key>(vtable_->vt.thunks,
-        target(), std::forward<Args>(args)...);
+    return implementation::dispatch<F, access_mode::as_const, Key>(
+        vtable_->vt.thunks, target(), std::forward<Args>(args)...);
   }
 
   [[nodiscard]] explicit operator bool() const noexcept {
@@ -299,7 +302,8 @@ public:
       return true;
     } else {
       if (!source) return true;
-      const auto* vt = details::upcast_owning_vtable<F, D>(source.vtable_);
+      const auto* vt =
+          implementation::upcast_owning_vtable<F, D>(source.vtable_);
       return (adoption_for<P>(vt) != adoption::refuse);
     }
   }
@@ -343,7 +347,7 @@ public:
   // the one case that can throw, again leaving the proxy untouched).
   template<typename T>
   [[nodiscard]] std::unique_ptr<T> extract() {
-    if (vtable_->vt.type_tag != &details::type_tag_v<T>) return nullptr;
+    if (vtable_->vt.type_tag != &implementation::type_tag_v<T>) return nullptr;
     if constexpr (Policy.admits_heap()) {
       if (!vtable_->relocate) {
         auto* ptr = static_cast<T*>(storage_area_.ptr);
@@ -387,11 +391,12 @@ public:
   [[nodiscard]] proxy<D, Policy> try_downcast() && noexcept {
     proxy<D, Policy> result;
     if (!*this) return result;
-    const auto* table =
-        details::find_ancestor(*vtable_->ancestry, &details::facade_tag_v<D>);
+    const auto* table = implementation::find_ancestor(*vtable_->ancestry,
+        &implementation::facade_tag_v<D>);
     if (!table) return result;
     result.vtable_ =
-        static_cast<const details::vtbuild_t<D>::owning_vtable_t*>(table);
+        static_cast<const implementation::vtbuild_t<D>::owning_vtable_t*>(
+            table);
     if (vtable_->relocate)
       vtable_->relocate(storage_area_.buf, result.storage_area_.buf);
     else
@@ -407,7 +412,7 @@ private:
   static constexpr size_t buf_size = Policy.buffer_size();
   static constexpr size_t buf_align = Policy.buffer_align();
 
-  using storage_area_t = details::storage_area<buf_size, buf_align>;
+  using storage_area_t = implementation::storage_area<buf_size, buf_align>;
 
   // The target address, inline or heap, or the buffer's address when empty
   // (whose contents the empty thunks never read).
@@ -462,10 +467,10 @@ private:
   // eligible for a buffer. The throw is pruned rather than left dynamically
   // unreachable, so that a `noexcept` adoption contains no throw at all.
   template<Facade D, invocable_policy P>
-  void
-  do_adopt(proxy<D, P>& other) noexcept(!details::adopt_may_throw(Policy, P)) {
+  void do_adopt(proxy<D, P>& other) noexcept(
+      !implementation::adopt_may_throw(Policy, P)) {
     if (!other) return;
-    const auto* vt = details::upcast_owning_vtable<F, D>(other.vtable_);
+    const auto* vt = implementation::upcast_owning_vtable<F, D>(other.vtable_);
     switch (adoption_for<P>(vt)) {
     case adoption::relocate:
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage): see target
@@ -487,7 +492,7 @@ private:
       vtable_ = vt->inline_table;
       break;
     case adoption::refuse:
-      if constexpr (details::adopt_may_throw(Policy, P))
+      if constexpr (implementation::adopt_may_throw(Policy, P))
         throw std::length_error{
             "the target cannot be stored in an inline_only proxy's buffer"};
       assert(false); // unreachable: adopt_may_throw ruled refusal out
@@ -509,19 +514,19 @@ private:
     if (vt->relocate) {
       // The `else` keeps the fallback out of the guaranteed-fit
       // instantiations, where cl otherwise warns C4702 (unreachable).
-      if constexpr (details::is_inline_fit_guaranteed(Policy, P))
+      if constexpr (implementation::is_inline_fit_guaranteed(Policy, P))
         return adoption::relocate;
       else
-        return details::adoption_of(Policy, storage_mode::inlined, vt->size,
-            vt->align, true);
+        return implementation::adoption_of(Policy, storage_mode::inlined,
+            vt->size, vt->align, true);
     }
-    return details::adoption_of(Policy, storage_mode::dynamic, vt->size,
+    return implementation::adoption_of(Policy, storage_mode::dynamic, vt->size,
         vt->align, static_cast<bool>(vt->to_inline));
   }
 
   // Table of an empty proxy of this type; see `empty_owning_vtable_for`.
   static constexpr const owning_vtable_t* empty_vtable =
-      &details::empty_owning_vtable_for<F, Policy.empty>;
+      &implementation::empty_owning_vtable_for<F, Policy.empty>;
 
 #pragma region Data members
 
@@ -548,7 +553,7 @@ private:
 // facade and every facade that facade extends.
 template<Facade F, Facade D, invocable_policy P>
 requires ExtendsOrIs<D, F>
-struct proxy_impl<F, proxy<D, P>>: details::handle_impl<F> {};
+struct proxy_impl<F, proxy<D, P>>: implementation::handle_impl<F> {};
 
 // Make an owning `proxy` of facade `F` holding a `T` constructed in place from
 // `args`.

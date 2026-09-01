@@ -22,6 +22,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "concepts.h"
 #include "padding.h"
@@ -204,10 +205,17 @@ struct spec_parser: parsed_spec<CharT> {
       return value;
     }
 
+    // Register a dynamic field's arg id with the parse context.
+    //
+    // An auto `{}` claims the next id, and a manual `{n}` has its id checked,
+    // so mixed indexing is rejected and, under constant evaluation, so is an
+    // id beyond the args. A fixed or absent field registers nothing.
     template<typename ParseContext>
-    constexpr void claim_next_automatic(ParseContext& ctx) {
-      if (!is_automatic()) return;
-      value = ctx.next_arg_id();
+    constexpr void register_arg_id(ParseContext& ctx) {
+      if (is_automatic())
+        value = ctx.next_arg_id();
+      else if (kind == arg_kind::manual)
+        ctx.check_arg_id(value);
     }
 
     template<typename FormatContext>
@@ -232,7 +240,9 @@ struct spec_parser: parsed_spec<CharT> {
           if constexpr (std::is_signed_v<T>)
             if (value < 0) throw std::format_error{"negative arg"};
           return static_cast<size_t>(value);
-        } else
+        } else if constexpr (std::is_same_v<T, std::monostate>)
+          throw std::format_error{"arg id out of range"};
+        else
           throw std::format_error{"arg is not an integer"};
       });
     }
@@ -253,6 +263,8 @@ struct spec_parser: parsed_spec<CharT> {
             if constexpr (std::is_same_v<T, std::basic_string_view<CharT>> ||
                           std::is_same_v<T, const CharT*>)
               return value;
+            else if constexpr (std::is_same_v<T, std::monostate>)
+              throw std::format_error{"arg id out of range"};
             else
               throw std::format_error{"arg is not a string"};
           });
@@ -376,6 +388,38 @@ struct spec_parser: parsed_spec<CharT> {
     return out;
   }
 
+  // Rewrite the spec with every dynamic width or precision replaced by its
+  // resolved value, so a formatter parsing the result reads no args. A width
+  // that resolved to zero is dropped rather than spelled, because a leading
+  // `0` in the spec text is the zero-pad flag, not a width.
+  //
+  // Only call with the values `resolve_width` and `resolve_precision`
+  // produced for this spec.
+  [[nodiscard]] std::basic_string<CharT>
+  rewrite_spec_as_fixed(std::basic_string_view<CharT> spec, size_t width,
+      std::optional<size_t> precision) const {
+    std::array<std::optional<size_t>, 2> values{};
+    size_t got{};
+    if (width_arg.is_dynamic())
+      values[got++] = width ? std::optional{width} : std::nullopt;
+    if (precision_arg.is_dynamic()) values[got++] = precision;
+
+    std::basic_string<CharT> out;
+    out.reserve(spec.size() + (got * 20));
+    size_t next{};
+    for (auto ndx = 0UZ; ndx < spec.size(); ++ndx) {
+      if (spec[ndx] != CharT{'{'}) {
+        out.push_back(spec[ndx]);
+        continue;
+      }
+      // Skip the `{...}` field and spell its value in its place.
+      while (ndx < spec.size() && spec[ndx] != CharT{'}'}) ++ndx;
+      if (next < got)
+        if (const auto value = values[next++]) append_decimal(out, *value);
+    }
+    return out;
+  }
+
 #pragma endregion
 #pragma region Helpers
 private:
@@ -404,6 +448,54 @@ private:
 
 #pragma endregion
 };
+
+#pragma endregion
+#pragma region format_with_spec
+
+// Measure the nested spec at the front of `spec`, which contains the count of
+// code units before the field's closing '}', brace-matched so a dynamic `{n}`
+// width or precision rides along.
+template<CharType CharT>
+[[nodiscard]] constexpr size_t
+calc_nested_spec_size(std::basic_string_view<CharT> spec) noexcept {
+  size_t ndx{};
+  size_t depth{};
+  const auto cnt = spec.size();
+  while (ndx < cnt) {
+    if (spec[ndx] == CharT{'{'}) {
+      ++depth;
+    } else if (spec[ndx] == CharT{'}'}) {
+      if (depth == 0) break;
+      --depth;
+    }
+    ++ndx;
+  }
+  return ndx;
+}
+
+// Format `v` through its own formatter, driving its parse with `spec` at
+// format time (which is the synthetic parse-context technique from
+// `nullable_formatter`).
+//
+// `spec` must run through the field's closing '}', as a real parse context
+// does, because std hands a formatter the rest of the whole format string, not
+// just its own specifiers. An exactly-sized `spec` looks to the formatter like
+// input that ran out, and the std range formatter takes that as a cue to skip
+// asking its elements to quote themselves, so strings come out bare.
+//
+// When `is_debug` is set and the formatter supports it, debug formatting is
+// requested, the way the std range formatter asks its elements to quote
+// themselves.
+template<typename V, CharType CharT, typename FormatContext>
+auto format_with_spec(const V& v, std::basic_string_view<CharT> spec,
+    FormatContext& ctx, bool is_debug = false) {
+  std::formatter<std::remove_cvref_t<V>, CharT> f;
+  std::basic_format_parse_context<CharT> pctx{spec};
+  (void)f.parse(pctx);
+  if constexpr (requires { f.set_debug_format(); })
+    if (is_debug) f.set_debug_format();
+  return f.format(v, ctx);
+}
 
 #pragma endregion
 #pragma region null_formatting
@@ -501,8 +593,8 @@ struct nullable_formatter: std::formatter<U, CharT> {
     const auto is_any_auto =
         spec_.width_arg.is_automatic() || spec_.precision_arg.is_automatic();
     if (is_any_auto) {
-      spec_.width_arg.claim_next_automatic(ctx);
-      spec_.precision_arg.claim_next_automatic(ctx);
+      spec_.width_arg.register_arg_id(ctx);
+      spec_.precision_arg.register_arg_id(ctx);
       auto synthetic = spec_.rewrite_spec_as_explicit(
           std::basic_string_view<CharT>{begin, begin + consumed});
       synthetic.push_back(CharT{'}'});
@@ -576,12 +668,8 @@ struct self_rendering_formatter {
         std::basic_string_view<CharT>{ctx.begin(), ctx.end()};
     const auto consumed = spec_.parse(spec_text);
 
-    // An automatic `{}` width or precision has no id in the spec string, so
-    // claim one from the parse context now.
-    if (spec_.width_arg.is_automatic())
-      spec_.width_arg.value = ctx.next_arg_id();
-    if (spec_.precision_arg.is_automatic())
-      spec_.precision_arg.value = ctx.next_arg_id();
+    spec_.width_arg.register_arg_id(ctx);
+    spec_.precision_arg.register_arg_id(ctx);
 
     // Stop at the spec-terminating `}`
     return ctx.begin() + consumed;

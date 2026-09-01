@@ -67,8 +67,8 @@ extract_piece(std::basic_string_view<CharT>& whole,
 
 // Extract next delimited piece into `part`, removing it from `whole`.
 //
-// Returns true so long as there's more work to do.
-// Pass an owning string type as `part` to make a deep copy.
+// Returns true so long as there's more work to do. Pass an owning string type
+// as `part` to make a deep copy.
 template<typename R, CharType CharT>
 [[nodiscard]] constexpr bool
 more_pieces(R& part, std::basic_string_view<CharT>& whole,
@@ -194,8 +194,8 @@ rextract_piece(std::basic_string_view<CharT>& whole,
 
 // Extract last delimited piece into `part`, removing it from `whole`.
 //
-// Returns true so long as there's more work to do.
-// Pass an owning string type as `part` to make a deep copy.
+// Returns true so long as there's more work to do. Pass an owning string type
+// as `part` to make a deep copy.
 template<typename R, CharType CharT>
 [[nodiscard]] constexpr bool
 rmore_pieces(R& part, std::basic_string_view<CharT>& whole,

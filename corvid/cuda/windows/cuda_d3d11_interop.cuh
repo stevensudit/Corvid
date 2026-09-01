@@ -129,6 +129,7 @@ public:
       : cuda_d3d11_resource{make(resource, flags, on_failure::raise)} {}
 
   // Register `resource`, or return a failed instance.
+  //
   // Check with `operator bool`, and follow up with `cuda_last_status{}`.
   [[nodiscard]] static cuda_d3d11_resource try_create(ID3D11Resource* resource,
       cuda_graphics_register_flags flags =
@@ -177,6 +178,7 @@ public:
       : cuda_d3d11_mapping{make(resource, on_failure::raise)} {}
 
   // Map `resource`, or return a failed instance.
+  //
   // Check with `operator bool`, and follow up with `cuda_last_status{}`.
   [[nodiscard]] static cuda_d3d11_mapping try_create(
       const cuda_d3d11_resource& resource) {

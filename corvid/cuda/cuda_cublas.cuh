@@ -116,6 +116,7 @@ public:
   cublas_handle() : cublas_handle{make(on_failure::raise)} {}
 
   // Create a handle, or return a failed instance.
+  //
   // Check with `operator bool`, and follow up with `cublas_last_status{}`.
   [[nodiscard]] static cublas_handle try_create() {
     return cublas_handle{make(on_failure::ignore)};

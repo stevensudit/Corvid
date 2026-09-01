@@ -38,7 +38,7 @@
 // type naming.
 namespace corvid { inline namespace meta { namespace prox {
 
-namespace details {
+namespace implementation {
 
 // Facade-wide parameter numbering, one sequence spanning every slot of the
 // flattened list; entry `ndx` is slot `ndx`'s first number.
@@ -141,6 +141,8 @@ using codegen_path_t = decltype(do_codegen_path<F>())::type;
 // cover.
 template<typename S, typename P>
 consteval bool api_emits() noexcept {
+  // Reserved "__" methods are dispatch-only and get no forwarder.
+  if (is_reserved_name(S::name_v.view())) return false;
   if constexpr (std::is_void_v<typename S::owner_t> || std::is_void_v<P>)
     return true;
   else
@@ -211,21 +213,22 @@ void emit_boilerplate_slot(std::ostream& os, size_t next) {
   os << ");\n    }\n";
 }
 
-} // namespace details
+} // namespace implementation
 
 // `codegen` writes the canonical `api` and `boilerplate` for facade `F` to
 // `os`, ready to paste into the facade body.
 //
 // The generated `api` inherits the heaviest direct base's `api` (the
-// single-path diamond shape), spells forwarders for the facade's own
-// methods and for any inherited methods that path does not cover, adds the
-// using-declarations that merge names those forwarders would otherwise
-// hide, marks noexcept forwarders, and carries the const-pair
-// requires-clause. When the heaviest base defines no `api` (supported, not
-// recommended), nothing is inherited and every flattened method gets its
-// own forwarder. The `boilerplate` covers the facade's own methods. This
-// is the closest thing to reflection available today; when C++26 reflection
-// lands, it deletes the paste step.
+// single-path diamond shape), spells forwarders for the facade's own methods
+// and for any inherited methods that path does not cover, adds the
+// using-declarations that merge names those forwarders would otherwise hide,
+// marks noexcept forwarders, and carries the const-pair requires-clause.
+//
+// When the heaviest base defines no `api` (supported, but not recommended),
+// nothing is inherited and every flattened method gets its own forwarder. The
+// `boilerplate` covers the facade's own methods. This is the closest thing to
+// reflection available today; when C++26 reflection lands, it deletes the
+// paste step.
 //
 // Parameter names are generated as one `arg_N` sequence spanning the whole
 // facade, so each name is unique across the output and renaming one after
@@ -238,10 +241,10 @@ void emit_boilerplate_slot(std::ostream& os, size_t next) {
 // normalized; touch up after pasting where they fall short.
 template<Facade F>
 void codegen(std::ostream& os) {
-  using slots_t = details::vtbuild_t<F>::flat_slots_t;
-  using path_t = details::codegen_path_t<F>;
+  using slots_t = implementation::vtbuild_t<F>::flat_slots_t;
+  using path_t = implementation::codegen_path_t<F>;
   constexpr auto* slots = static_cast<slots_t*>(nullptr);
-  constexpr auto starts = details::codegen_starts(slots);
+  constexpr auto starts = implementation::codegen_starts(slots);
   constexpr auto count = std::tuple_size_v<slots_t>;
   const auto walk = [&]<typename Fn>(Fn&& fn) {
     [&]<size_t... Ndxs>(std::index_sequence<Ndxs...>) {
@@ -264,9 +267,11 @@ void codegen(std::ostream& os) {
     std::vector<std::string_view> merged;
     walk([&]<typename S>(size_t) {
       constexpr auto* path_slots =
-          static_cast<details::vtbuild_t<path_t>::flat_slots_t*>(nullptr);
-      if constexpr (details::api_emits<S, path_t>() &&
-                    details::name_declared_in(S::name_v.view(), path_slots))
+          static_cast<implementation::vtbuild_t<path_t>::flat_slots_t*>(
+              nullptr);
+      if constexpr (implementation::api_emits<S, path_t>() &&
+                    implementation::name_declared_in(S::name_v.view(),
+                        path_slots))
       {
         const auto name = S::name_v.view();
         if (std::find(merged.begin(), merged.end(), name) == merged.end())
@@ -277,15 +282,17 @@ void codegen(std::ostream& os) {
       os << "    using " << path_name << "::api::" << name << ";\n";
   }
   walk([&]<typename S>(size_t next) {
-    if constexpr (details::api_emits<S, path_t>())
-      details::emit_api_slot<F, S>(os, next);
+    if constexpr (implementation::api_emits<S, path_t>())
+      implementation::emit_api_slot<F, S>(os, next);
   });
   os << "  };\n";
 
   os << "  template<typename T>\n  struct boilerplate: proxy_impl_base {\n";
   walk([&]<typename S>(size_t next) {
-    if constexpr (std::is_void_v<typename S::owner_t>)
-      details::emit_boilerplate_slot<S>(os, next);
+    // Reserved "__" methods bind through the library, not the boilerplate.
+    if constexpr (std::is_void_v<typename S::owner_t> &&
+                  !implementation::is_reserved_name(S::name_v.view()))
+      implementation::emit_boilerplate_slot<S>(os, next);
   });
   os << "  };\n";
 }

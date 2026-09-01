@@ -104,8 +104,8 @@ protected:
 public:
   ~address_forwarder() { forward_address_reset(); }
 
-  // Unregister from the handle, if any, and go null.
-  // The awkward name is to avoid shadowing.
+  // Unregister from the handle, if any, and go null. The awkward name is to
+  // avoid shadowing.
   void forward_address_reset() noexcept {
     forward_address_reset(raw::allow, nullptr);
   }

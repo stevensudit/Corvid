@@ -21,7 +21,7 @@ shared contract, in this order:
   wrapper. Nothing in proxy says "sbo" or "re-boxed" now.
 - Landed: `const_shared_proxy` and `const_weak_proxy`, the shared tier's
   guarantee-level constness, mirroring `const_proxy_view`, with a
-  `details::shared_base<F, Access>` under the two shared flavors the way
+  `implementation::shared_base<F, Access>` under the two shared flavors the way
   `view_base` sits under the views.
 - Landed: `try_share<T>()` on both shared flavors, a verified,
   non-consuming `std::shared_ptr<T>` (`<const T>` through the const one)
@@ -35,7 +35,7 @@ shared contract, in this order:
   direct brings `flexi_function` do not transfer: a proxy call is already
   one thunk with `T` known, and an empty target already costs nothing
   inline. The one allocation it would save, under `heap_only`, would break
-  that policy's stable-address promise. `details::proxy_storage_mode_of` says so.
+  that policy's stable-address promise. `implementation::proxy_storage_mode_of` says so.
 - Ruled out (2026-08-26): a reference qualifier on a `method` signature.
   `flexi_function` binds `this` on `&` and `&&` because the wrapper is the
   callable, so the two value categories are one (`std::move_only_function`'s
@@ -76,7 +76,7 @@ maintain and to read; the handles still work as a unit, so a user includes
 Both owners answer the same questions about a target and a result, and the
 answers had been written twice. The shared parts now live in
 `invocable_common.h`, leaving `invocable_policy.h` as the policy and its
-`details`:
+`implementation`:
 
 - `empty_call_traits<R>`: `is_silenceable`, `is_nothrow_silenceable`, `admits`
   (one behavior exactly, given `noexcept`), `resolve_floor` (proxy's
@@ -89,7 +89,7 @@ answers had been written twice. The shared parts now live in
 - `constant_fn`, `runtime_fn`, and `is_runtime_fn_v`, moved verbatim.
 - Namespaces, on proxy's pattern. The shared vocabulary is
   `corvid::meta::invocables` (not inline) with `policy_details` folded into
-  its `details`, and `flexi_function.h` and `fixed_function.h` are
+  its `implementation`, and `flexi_function.h` and `fixed_function.h` are
   `corvid::meta::flexi` (not inline) with `fn_details` likewise. Each
   header ends in an Exports region using-declaring only what a caller
   spells at a call site (`invocable_policy`, `on_empty`, `constant_fn`,
@@ -118,7 +118,7 @@ answers had been written twice. The shared parts now live in
   `ConstOnly` and `view_base`'s flag are `access_mode` (a handle declares
   how it accesses, a different fact from a qualifier found on a signature,
   and the enum keeps the two apart), and the owning-table builders take
-  `storage_mode` in place of `bool Sbo`, with `details::proxy_storage_mode_of` the
+  `storage_mode` in place of `bool Sbo`, with `implementation::proxy_storage_mode_of` the
   one place proxy chooses a mode. `allocation_mode` is now `storage_mode`
   (the enum says where a target is kept, and in two of its three values
   nothing is allocated; the old name also invited confusion with container
@@ -148,7 +148,7 @@ answers had been written twice. The shared parts now live in
   replacing the `storage` comparisons spelled at each site (one remains,
   in `is_fixed_function_v`, which asks for `inline_only` by name) and the
   buffer geometry each owner derived for itself. The adoption rule is one
-  statement, `details::adoption_of` (over `fits_inline`, the value-level
+  statement, `implementation::adoption_of` (over `fits_inline`, the value-level
   eligibility test `is_inline_eligible` now calls), answering with an
   `adoption` route: `flexi_thunks::lifespan_impl` and `proxy::do_adopt`
   (one switch, replacing `do_take_inline`/`do_take_heap`, its
@@ -159,7 +159,7 @@ answers had been written twice. The shared parts now live in
   `unbox`: proxy's owning tables point at them (in place of `sbo_destroy`,
   `heap_destroy`, `sbo_relocate`, `sbo_to_heap`, `heap_to_sbo`), and
   flexi's `move_inlined`/`move_dynamic`/`do_destroy` call them. Both owners
-  keep a `details::storage_area<Size, Align>` union named `storage_area_`
+  keep an `implementation::storage_area<Size, Align>` union named `storage_area_`
   (the byte-array/union distinction that separated the names is gone, as
   ruled), and flexi's thunks work over the erased `void*` throughout, so
   the heap pointer is read and written as the pointer it is instead of
@@ -167,9 +167,10 @@ answers had been written twice. The shared parts now live in
   things or bare one-liners with their own messages: the empty-state
   reinstall after a move, the policy-validity and store-time asserts, and
   the accessors flexi has and proxy lacks. Review notes, applied: the two
-  `details` namespaces take the shared `details` in whole with one
-  using-directive (symbol-by-symbol is for publishing outward, not for
-  pulling a `details` into another); the shared housekeeping primitives are
+  owners' `implementation` namespaces take the shared `implementation` in
+  whole with one using-directive (symbol-by-symbol is for publishing
+  outward, not for pulling one internal namespace into another); the
+  shared housekeeping primitives are
   typed on the target (`T*` in, a `void*` destination only for raw buffer
   space), flexi's thunks re-type the erased storage at entry (`stored_fn`
   returns `F*`, and `store_block` is the one place a block's address is
@@ -186,10 +187,12 @@ answers had been written twice. The shared parts now live in
   agrees with `flexi_function::inline_size`, renamed from `storage_size`
   for the same reason): the pointer kept in the buffer's place is not
   capacity, and `invocable_policy::buffer_size()` is the byte count for
-  anyone who wants that instead. The shared `invocables::details` is now
-  `invocables::implementation`: a `details` namespace is private to its
-  file, so importing from one is a smell, while working parts an owner
-  builds on are semi-private and may be imported whole.
+  anyone who wants that instead. The internal namespace of all three
+  headers is `implementation`, not `details`. The shared one went first,
+  because a `details` namespace is private to its file, so importing from
+  one is a smell, while working parts an owner builds on are semi-private
+  and may be imported whole; the two owners followed (2026-09-01) so that
+  one name serves the whole band.
 
 ## Landed: empty calls for proxy
 

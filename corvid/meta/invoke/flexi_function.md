@@ -199,7 +199,7 @@ What the two accessors report:
 
 ## The thunk pair
 
-`flexi::details::flexi_thunks<Sig>` generates the thunks. It is keyed by the
+`flexi::implementation::flexi_thunks<Sig>` generates the thunks. It is keyed by the
 signature alone, not the policy, and that is what lets siblings transplant
 a target: every wrapper of a signature speaks the same erased protocol.
 

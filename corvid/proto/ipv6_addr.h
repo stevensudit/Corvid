@@ -118,6 +118,7 @@ public:
 
   // Parse from IPv6 colon-hex notation, including "::" compression and
   // IPv4-embedded tails such as "::ffff:192.168.1.1".
+  //
   // Returns `std::nullopt` if the string is not a valid IPv6 address.
   [[nodiscard]] static constexpr std::optional<ipv6_addr> parse(
       std::string_view s) noexcept {

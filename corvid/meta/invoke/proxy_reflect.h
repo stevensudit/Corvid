@@ -74,7 +74,7 @@
 namespace corvid { inline namespace meta {
 namespace prox {
 
-namespace details {
+namespace implementation {
 
 #pragma region Enumeration
 
@@ -768,7 +768,7 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 
 #pragma endregion
 
-} // namespace details
+} // namespace implementation
 
 #pragma region Interface-first facades
 
@@ -820,8 +820,8 @@ struct facade_maker<F, info_pack<Ms...>, Es...> {
 //
 // `extends<>` entries are listed in `Es` as they would be in a `facade<...>`.
 template<typename F, typename Api, typename... Es>
-using reflected_facade = details::facade_maker<F,
-    typename[:details::method_pack(^^Api):], Es...>::type;
+using reflected_facade = implementation::facade_maker<F,
+    typename[:implementation::method_pack(^^Api):], Es...>::type;
 
 #pragma endregion
 #pragma region The reflected impl
@@ -890,16 +890,17 @@ template<typename T,
     std::meta::access_context Ctx = std::meta::access_context::current()>
 struct reflected_impl: proxy_impl_base {
   template<fixed_string Key, typename Self, typename... Args>
-  requires(details::reflected_binding<T, Ctx, Key, Self, Args...>::bound_v)
+  requires(
+      implementation::reflected_binding<T, Ctx, Key, Self, Args...>::bound_v)
   static constexpr auto on(method_key<Key>, Self& t, Args&&... args) noexcept(
-      details::reflected_call<T, Ctx, Key, Self, Args...>::nothrow_v)
-      -> details::reflected_call<T, Ctx, Key, Self, Args...>::result_t {
-    return details::reflected_call<T, Ctx, Key, Self, Args...>::dispatch(t,
-        std::forward<Args>(args)...);
+      implementation::reflected_call<T, Ctx, Key, Self, Args...>::nothrow_v)
+      -> implementation::reflected_call<T, Ctx, Key, Self, Args...>::result_t {
+    return implementation::reflected_call<T, Ctx, Key, Self,
+        Args...>::dispatch(t, std::forward<Args>(args)...);
   }
 };
 
-namespace details {
+namespace implementation {
 
 // The reflected impl as the default impl of a pair whose facade has no
 // `boilerplate`.
@@ -918,12 +919,12 @@ struct default_impl<F, T> {
   using type = reflected_impl<T>;
 };
 
-} // namespace details
+} // namespace implementation
 
 #pragma endregion
 #pragma region The reflected sugar API
 
-namespace details {
+namespace implementation {
 
 // Fwd.
 template<Facade F, typename H>
@@ -1019,6 +1020,8 @@ consteval std::vector<std::meta::info> sugar_specs(std::tuple<Ss...>*) {
   std::vector<std::meta::info> specs;
   const auto add = [&]<typename S>() {
     const auto name = S::name_v.view();
+    // Reserved "__" methods are dispatch-only and get no sugar member.
+    if (is_reserved_name(name)) return;
     if (std::ranges::find(seen, name) != seen.end()) return;
     seen.push_back(name);
     const auto type = std::meta::substitute(^^reflected_sugar,
@@ -1065,7 +1068,7 @@ struct api_base<F, H> {
   using type = reflected_api<F, H>::type;
 };
 
-} // namespace details
+} // namespace implementation
 
 #pragma endregion
 

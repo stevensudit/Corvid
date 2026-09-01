@@ -1061,9 +1061,8 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 // observer freeze (`freeze_camera`), "lock position" the treadmill
 // (`lock_position`), and "uncap fps" the benchmark vsync-off (`uncap_fps`).
 // Per-field descriptions are hover tooltips. A modified field is tinted and
-// gains an inline reset.
-// The window opens centered at a readable size (ImGui's .ini persistence is
-// disabled, so this default holds every run).
+// gains an inline reset. The window opens centered at a readable size (ImGui's
+// .ini persistence is disabled, so this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc, bool& freeze_camera,
     bool& lock_position, bool& uncap_fps, bool& log_collision, body_params& bp,

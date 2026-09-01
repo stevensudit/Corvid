@@ -62,8 +62,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   Hall reader to judge.
 // - `#` starts a comment running to end of line.
 //
-// The same grammar in EBNF ("{x}" repetition, "[x]" option, "|"
-// alternation):
+// The same grammar in EBNF ("{x}" repetition, "[x]" option, "|" alternation):
 //
 //   token    ::= word | operator | number | string | hall | punct
 //   word     ::= ( letter | "_" ) { letter | digit | "_" } [ "?" ]

@@ -519,8 +519,7 @@ public:
 
   // Permanently shut down the pool.
   //
-  // Idempotent; returns true on the first call, false on any
-  // subsequent call.
+  // Idempotent; returns true on the first call, false on any subsequent call.
   //
   // After the first call, `borrow` (and `token::borrow`) returns empty.
   // Already-borrowed handles keep their contents and can still be
@@ -601,9 +600,9 @@ private:
     free_list_[free_top_++] = ndx;
   }
 
-  // Set the borrow bit to indicate that it's now borrowed. The
-  // `std::atomic` is used to ensure that a `token` can't observe a torn
-  // generation value or mistakenly borrow a slot being returned.
+  // Set the borrow bit to indicate that it's now borrowed. The `std::atomic`
+  // is used to ensure that a `token` can't observe a torn generation value or
+  // mistakenly borrow a slot being returned.
   [[nodiscard]] bool set_borrowed(index_t ndx) {
     if constexpr (is_versioned_v) {
       auto& gen = gen_array_[ndx];

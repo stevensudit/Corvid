@@ -3366,6 +3366,7 @@ TEST_CASE("Escaping", "[StringUtilsTest]") {
     CHECK(out == "plain");
     out.clear();
     CHECK_FALSE(strings::parse_escaped(R"(bad \q escape)", out));
+    CHECK(out.empty());
   }
   SECTION("escape round trip") {
     const std::string original =
@@ -3394,8 +3395,12 @@ TEST_CASE("Escaping", "[StringUtilsTest]") {
     CHECK_FALSE(strings::parse_escaped_quoted(sv, out));
     sv = R"("unterminated)"sv;
     CHECK_FALSE(strings::parse_escaped_quoted(sv, out));
+    CHECK(sv == R"("unterminated)");
     sv = R"("bad \q")"sv;
     CHECK_FALSE(strings::parse_escaped_quoted(sv, out));
+    // Failure preserves both the view and the output.
+    CHECK(sv == R"("bad \q")");
+    CHECK(out.empty());
   }
 }
 

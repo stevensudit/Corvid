@@ -240,8 +240,8 @@ public:
     // Mask takes 4 more bytes after the length bytes.
     if (is_masked()) header_length_ += 4;
 
-    // If `lb` == 126, need 2 more bytes for extended length;
-    // if 127, need 8 more.
+    // If `lb` == 126, need 2 more bytes for extended length; if 127, need 8
+    // more.
     const auto lb = payload_size_flags();
     if (lb == 126)
       header_length_ += 2;

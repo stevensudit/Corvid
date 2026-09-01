@@ -31,8 +31,8 @@ namespace corvid { inline namespace proto {
 // in the connection so that it persists across successive `on_data` calls,
 // while the parser itself may be constructed on the stack per call.
 //
-// `parse` returns `std::optional<bool>`: `true` = complete,
-// `false` = too long, `std::nullopt` = incomplete.
+// `parse` returns `std::optional<bool>`: `true` = complete, `false` = too
+// long, `std::nullopt` = incomplete.
 //
 // Typical integration pattern with `epoll_recv_buffer_view` in `on_data`:
 //

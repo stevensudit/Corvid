@@ -543,10 +543,10 @@ protected:
 #pragma endregion
 #pragma region with value
 
-// Extends `enum_name<E>` with the `E` value it names, both
-// resolved at compile time by the same constructors. Use it where a call site
-// needs the validated name and its enum together (e.g. to skip a runtime
-// name->enum lookup), without adding a field to the bare string view.
+// Extends `enum_name<E>` with the `E` value it names, both resolved at compile
+// time by the same constructors. Use it where a call site needs the validated
+// name and its enum together (e.g. to skip a runtime name->enum lookup),
+// without adding a field to the bare string view.
 template<NamedSequentialEnum E>
 class enum_named_value: enum_name<E> {
   using force_tag = enum_name<E>::force_tag;
@@ -892,9 +892,11 @@ struct sequence_enum_names_spec
 // or trailing '|'), listed in ascending order, with each segment's start at
 // least four greater than the previous segment's last value (closer runs are a
 // compile-time error: merge them into one segment, using empty names for the
-// gap). Each segment's first comma-field is its
-// absolute start value and the rest are names. This compacts a sparse enum:
-// the gaps between segments cost nothing, instead of an empty name per skipped
+// gap).
+//
+// Each segment's first comma-field is its absolute start value and the rest
+// are names. This compacts a sparse enum, because the gaps between segments
+// cost nothing, where a single run would carry an empty name per skipped
 // value. `min` and `max` are derived from the segments, so `minseq` is not
 // passed.
 //

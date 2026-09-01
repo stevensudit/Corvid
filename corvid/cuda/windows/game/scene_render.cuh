@@ -353,12 +353,11 @@ cone_sample(const render_config::head_params& hp,
   // every sample by a full step maps the sample set onto itself.
   constexpr auto steps = 12;
   const auto dt = (t_hi - t_lo) / static_cast<float>(steps);
-  // `hash` is the sine-scramble part of the canonical GLSL
-  // `fract(sin(dot(dir, freq)) * amp)` pseudo-random one-liner; the `fract`
-  // folds into `jitter` below, after the time phase is added.
-  // `sin_hash_freq` and `sin_hash_amp` are its widely copied arbitrary
-  // constants, carrying no meaning beyond spreading nearby ray directions
-  // apart.
+  // `hash` is the sine-scramble part of the canonical GLSL `fract(sin(dot(dir,
+  // freq)) * amp)` pseudo-random one-liner; the `fract` folds into `jitter`
+  // below, after the time phase is added. `sin_hash_freq` and `sin_hash_amp`
+  // are its widely copied arbitrary constants, carrying no meaning beyond
+  // spreading nearby ray directions apart.
   constexpr vec3 sin_hash_freq{12.9898F, 78.233F, 37.719F};
   constexpr auto sin_hash_amp = 43758.5453F;
   const auto hash = sinf(dot(ray_dir, sin_hash_freq)) * sin_hash_amp;
@@ -409,12 +408,11 @@ cone_sample(const render_config::head_params& hp,
   //
   // First cancel a false growth. The raw march (`accum * dt`) integrates more
   // light for a longer cone, since the marched span grows with the aim
-  // distance
-  // (`dt` scales with it); left alone, a far aim reads BRIGHTER than a near
-  // one. Dividing by the cone length holds a fixed beam power's brightness
-  // constant however far it is thrown (a flat base). Any falloff on the raw
-  // growing base would instead peak in the middle: a rising base times a
-  // falling factor humps.
+  // distance (`dt` scales with it); left alone, a far aim reads BRIGHTER than
+  // a near one. Dividing by the cone length holds a fixed beam power's
+  // brightness constant however far it is thrown (a flat base). Any falloff on
+  // the raw growing base would instead peak in the middle: a rising base times
+  // a falling factor humps.
   //
   // Then fall off with distance. An inherent geometric `1 / target_dist`
   // (aperture spread from the pupil) makes a thrown-far beam dimmer even in
@@ -956,8 +954,7 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // width and covers the gap a thin equator ring leaves under shallow views.
   // On the disc body only (not the dome). `seg` is the smooth cosine of the
   // azimuth, so the `rim_count` segments fade between dark and lit, scaled
-  // into
-  // [`rim_floor`, 1]; `rim_spin_scale` turns them slower than the belly
+  // into [`rim_floor`, 1]; `rim_spin_scale` turns them slower than the belly
   // (subtracting part of `head.spin` from `ang`).
   if (!is_dome) {
     constexpr auto aa = 0.03F; // top-edge crispness, in normal units

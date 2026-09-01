@@ -341,29 +341,21 @@ holding a map formats whole, through the std map formatter, so to look up by
 key, extract the map with `std::get` and wrap that (behavior pinned in the
 test).
 
-### 5. Formatter bridge for proxy handles (intended)
+### 5. Formatter bridge for proxy handles (done)
 
-`format_with_spec` in [enable_format.h](enable_format.h) is the
-type-erasure move a `std::formatter` on an erased handle needs: keep the
-spec tail as text at parse time, and at format time run the target's own
-formatter under it through a synthetic parse context. The proxy handles in
-`meta/invoke` want exactly that (see the formatter bridge under "Future
-work" in [../meta/invoke/proxy.md](../meta/invoke/proxy.md)), and `meta`
-is L0, so the helper has to move down to
-[../meta/formatting.h](../meta/formatting.h), next to the
-`nullable_formatter` machinery it was extracted from.
+`format_with_spec` is the type-erasure move a `std::formatter` on an erased
+handle needs: keep the spec tail as text at parse time, and at format time
+run the target's own formatter under it through a synthetic parse context.
+It and its parse-side companion `calc_nested_spec_size` live in
+[../meta/formatting.h](../meta/formatting.h), moved down from
+[enable_format.h](enable_format.h), whose wrappers now call them there
+(the entanglement once predicted for that move turned out to be empty).
 
-The move is not free of entanglement: `enable_format.h` includes
-[string_literals.h](string_literals.h), so whatever the moved code needs
-from that header (the band's std-literals import, `position`/`npos`,
-`as_view`) either comes down to `meta` with it or is dropped from the
-moved part. Whether the whole of `enable_format.h` moves or only
-`format_with_spec` is the first question to settle; the wrappers
-themselves have no reason to leave `strings`.
-
-Then the proxy side: an opt-in facade marker that adds a format slot to the
-dispatch table, and one formatter base serving every handle flavor. That
-half is a proxy feature and is recorded there.
+The proxy side is built on it: `prox::formattable` opts a facade in, a
+reserved facade method carries the dispatch, the library falls back to the
+target's own `std::formatter`, and one formatter base serves every
+dispatching handle. The design and its limits are documented in the
+"Formatting" section of [../meta/invoke/proxy.md](../meta/invoke/proxy.md).
 
 ## Deferred / decided against
 

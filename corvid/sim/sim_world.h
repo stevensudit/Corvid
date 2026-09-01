@@ -523,8 +523,8 @@ public:
     tick_ = {};
   }
 
-  // Point this world at a map's entity template store.
-  // Used primarily for testing.
+  // Point this world at a map's entity template store. Used primarily for
+  // testing.
   void setEntityTemplateStore(const EntityTemplateStore* store) {
     entityTemplateStore_ = store;
   }

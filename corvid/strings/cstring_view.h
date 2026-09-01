@@ -90,11 +90,11 @@ inline namespace cstringview {
 // you want to check for an exact match that distinguishes between these two
 // states, use `same`.
 //
-// Both `c_str` and `data` return a pointer such that the range
-// `[foo; foo + size()]` is valid. The difference is that, when `null`, a call
-// to `c_str` returns an empty, terminated string but `data` returns `nullptr`.
+// Both `c_str` and `data` return a pointer such that the range `[foo; foo +
+// size()]` is valid. The difference is that, when `null`, a call to `c_str`
+// returns an empty, terminated string but `data` returns `nullptr`.
 //
-// This revanchist implementation is based closely on Andrew Tomazos'  wrongly
+// This revanchist implementation is based closely on Andrew Tomazos' wrongly
 // rejected ANSI committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189

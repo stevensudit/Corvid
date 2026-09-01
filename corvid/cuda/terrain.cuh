@@ -27,11 +27,12 @@ namespace corvid::cuda::terrain {
 
 #pragma region Noise
 
-// Sine-hash constants for hash2/hash3: the canonical GLSL
-// `fract(sin(dot(p, freq)) * amp)` pseudo-random recipe. Arbitrary,
-// widely-copied values with no meaning beyond scrambling nearby lattice points
-// apart (a different constant set than scene_render.cuh's sine-hash, same
-// family).
+// Sine-hash constants for hash2/hash3: the canonical GLSL `fract(sin(dot(p,
+// freq)) * amp)` pseudo-random recipe.
+//
+// Arbitrary, widely-copied values with no meaning beyond scrambling nearby
+// lattice points apart (a different constant set than scene_render.cuh's
+// sine-hash, same family).
 constexpr auto hash_kx = 127.1F;
 constexpr auto hash_ky = 311.7F;
 constexpr auto hash_kz = 74.7F;

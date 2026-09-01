@@ -77,8 +77,8 @@ constexpr bool help_extract_enum(StdEnum auto& e, std::string_view sv) {
 //
 // When clipping is enabled, if numerical value is out of range, then it fails.
 //
-// On success, sets output value and returns true.
-// On failure, clears output value and returns false.
+// On success, sets output value and returns true. On failure, clears output
+// value and returns false.
 constexpr bool convert_enum(StdEnum auto& e, std::string_view sv) {
   return details::help_extract_enum(e, sv);
 }

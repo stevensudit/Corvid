@@ -184,13 +184,12 @@ public:
   }
 
   // Create a non-owning, synthetic write buffer that views `data`. Mirrors
-  // `make_synthetic` but for the write side: `payload_span` and
-  // `active_span` start empty, so the full block is available via
-  // `tail_span` for the caller (or a wrapper like `quic_conn::write_pkt`)
-  // to fill. Backed by the same process-wide null pool, so destruction and
-  // `reset` do not free anything; the caller owns `data` and must keep it
-  // alive while the buffer is in use. Same kernel-I/O caveats as
-  // `make_synthetic` apply.
+  // `make_synthetic` but for the write side: `payload_span` and `active_span`
+  // start empty, so the full block is available via `tail_span` for the caller
+  // (or a wrapper like `quic_conn::write_pkt`) to fill. Backed by the same
+  // process-wide null pool, so destruction and `reset` do not free anything;
+  // the caller owns `data` and must keep it alive while the buffer is in use.
+  // Same kernel-I/O caveats as `make_synthetic` apply.
   [[nodiscard]] static iou_buffer
   make_synthetic_write(span_t data, pool_ptr_t pool = {}) noexcept {
     if (!pool) pool = synthetic_null_pool();
@@ -268,8 +267,7 @@ public:
     return full_span_.data() - pool_->base();
   }
 
-  // Span of the entire buffer. Not generally useful outside of
-  // `iou_buf_pool`.
+  // Span of the entire buffer. Not generally useful outside of `iou_buf_pool`.
   [[nodiscard]] span_t full_span() noexcept { return full_span_; }
 
   // Span for the next kernel I/O submission. For read buffers this is the
@@ -388,8 +386,8 @@ public:
     return true;
   }
 
-  // Copy `more` to the tail of `payload_span_` and extend both
-  // `payload_span_` and `active_span_` by that amount.
+  // Copy `more` to the tail of `payload_span_` and extend both `payload_span_`
+  // and `active_span_` by that amount.
   //
   // Returns false without modifying anything if `more` would not fit in the
   // remaining tail. Implicitly resets if the buffer is in consumed state
@@ -736,6 +734,7 @@ private:
 
   iou_res res_;
   iou_cqe_flags cqe_flags_{};
+#pragma endregion
 };
 
 [[nodiscard]] inline iou_buffer

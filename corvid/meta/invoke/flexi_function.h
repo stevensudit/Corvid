@@ -66,13 +66,10 @@ template<class Sig, invocable_policy Policy>
 constexpr inline bool is_flexi_function_v<flexi_function<Sig, Policy>> = true;
 
 #pragma endregion
-#pragma region details
+#pragma region implementation
 
-namespace details {
+namespace implementation {
 
-// The shared working parts live with `invocable_policy` and in
-// invocable_common.h; bring them in whole, so unqualified `details::` calls
-// find them.
 using namespace invocables::implementation;
 
 // `flexi_thunks` are the type-erased thunks for one signature, shared by every
@@ -294,8 +291,9 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
         (SourceStorage == storage_mode::inlined &&
             dest->is_inline_fit_guaranteed)
             ? adoption::relocate
-            : details::adoption_of(dest->policy, SourceStorage, sizeof(F),
-                  alignof(F), std::is_nothrow_move_constructible_v<F>);
+            : implementation::adoption_of(dest->policy, SourceStorage,
+                  sizeof(F), alignof(F),
+                  std::is_nothrow_move_constructible_v<F>);
     if (route == adoption::refuse) return refusal;
     if (!dest->to) return sizeof(F);
 
@@ -388,9 +386,9 @@ private:
     static_assert(std::is_nothrow_move_constructible_v<F>,
         "move_inlined: only a nothrow-move source moves inline");
     if constexpr (SourceStorage == storage_mode::dynamic)
-      details::unbox(f, dest->to);
+      implementation::unbox(f, dest->to);
     else
-      details::relocate_inline(f, dest->to);
+      implementation::relocate_inline(f, dest->to);
     *dest->dispatch = dispatch_for<F, storage_mode::inlined>();
     return sizeof(F);
   }
@@ -406,7 +404,7 @@ private:
   static size_t move_dynamic(F* f, destination_spec* dest) {
     static_assert(SourceStorage == storage_mode::inlined,
         "move_dynamic: only an inline source moves to dynamic");
-    store_block(details::box(f), dest);
+    store_block(implementation::box(f), dest);
     return sizeof(F);
   }
 
@@ -414,14 +412,14 @@ private:
   template<class F, storage_mode SourceStorage>
   static size_t do_destroy(F* f) noexcept {
     if constexpr (SourceStorage == storage_mode::dynamic)
-      details::destroy_heap(f);
+      implementation::destroy_heap(f);
     else
-      details::destroy_inline(f);
+      implementation::destroy_inline(f);
     return sizeof(F);
   }
 };
 
-} // namespace details
+} // namespace implementation
 
 #pragma endregion
 #pragma region flexi_function
@@ -494,7 +492,7 @@ private:
 // "flexi_function.md".
 template<class Sig, invocable_policy Policy, class ResultT, class... Args>
 class flexi_function<Sig, Policy, ResultT(Args...)> {
-  using thunks = details::flexi_thunks<Sig>;
+  using thunks = implementation::flexi_thunks<Sig>;
 
   // The stored callable with the signature's qualifiers applied.
   template<class F>
@@ -533,8 +531,8 @@ class flexi_function<Sig, Policy, ResultT(Args...)> {
   // is `empty_t`, so that `CORVID_NO_UNIQUE_ADDRESS` can hide it.
   static constexpr size_t buf_size = Policy.buffer_size();
   static constexpr size_t buf_align = Policy.buffer_align();
-  using storage_area_t =
-      maybe_t<details::storage_area<buf_size, buf_align>, (buf_size > 0)>;
+  using storage_area_t = maybe_t<
+      implementation::storage_area<buf_size, buf_align>, (buf_size > 0)>;
 
 #pragma region Creation
 public:
@@ -572,7 +570,7 @@ public:
   requires(thunks::template is_invocable<std::decay_t<FN>> &&
            !is_std_function_wrapper_v<std::decay_t<FN>>)
   flexi_function(FN&& fn) noexcept(
-      details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
+      implementation::can_store_nothrow<std::decay_t<FN>>(Policy)) {
     if (is_null_callable(fn)) return;
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
   }
@@ -596,7 +594,7 @@ public:
   requires(is_std_function_wrapper_v<std::decay_t<FN>> &&
            thunks::template is_invocable<std::decay_t<FN>>)
   explicit flexi_function(FN&& fn) noexcept(
-      details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
+      implementation::can_store_nothrow<std::decay_t<FN>>(Policy)) {
     if (is_null_callable(fn)) return;
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
   }
@@ -615,7 +613,7 @@ public:
   template<invocable_policy P>
   requires(P != Policy)
   flexi_function(flexi_function<Sig, P>&& other) noexcept(
-      !details::adopt_may_throw(Policy, P)) {
+      !implementation::adopt_may_throw(Policy, P)) {
     do_adopt(other);
   }
 
@@ -643,8 +641,8 @@ public:
   template<invocable_policy P>
   requires(P != Policy)
   flexi_function& operator=(flexi_function<Sig, P>&& other) noexcept(
-      !details::adopt_may_throw(Policy, P)) {
-    if constexpr (details::adopt_may_throw(Policy, P)) {
+      !implementation::adopt_may_throw(Policy, P)) {
+    if constexpr (implementation::adopt_may_throw(Policy, P)) {
       if (!can_adopt(other))
         throw std::length_error{"flexi_function: callable too large"};
     }
@@ -666,7 +664,7 @@ public:
       !is_std_function_wrapper_v<std::decay_t<FN>> &&
       !is_flexi_function_v<std::decay_t<FN>>)
   flexi_function& operator=(FN&& fn) noexcept(
-      details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
+      implementation::can_store_nothrow<std::decay_t<FN>>(Policy)) {
     reset();
     if (is_null_callable(fn)) return *this;
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
@@ -771,7 +769,7 @@ public:
           .dispatch = nullptr,
           .to = nullptr,
           .is_inline_fit_guaranteed =
-              details::is_inline_fit_guaranteed(Policy, P)};
+              implementation::is_inline_fit_guaranteed(Policy, P)};
       // The probe only reads, but the erased signature is mutable.
       auto& probed = const_cast<flexi_function<Sig, P>&>(source);
       return (probed.dispatch_.lifespan(&probed.storage_area_, &probe) !=
@@ -808,7 +806,8 @@ private:
   // The caller handles any null-callable special case before calling, and
   // the instance is empty on entry.
   template<class FD, class FN>
-  void do_store(FN&& fn) noexcept(details::can_store_nothrow<FD>(Policy)) {
+  void
+  do_store(FN&& fn) noexcept(implementation::can_store_nothrow<FD>(Policy)) {
     static_assert(!std::is_reference_v<FD>,
         "flexi_function: do_store requires the decayed stored type");
     static_assert(!std::is_function_v<std::remove_reference_t<FN>>,
@@ -823,8 +822,9 @@ private:
         "pointer must be wrapped: constant_fn<f>{} when the target is known "
         "at compile time (a direct call, nothing stored), or runtime_fn{p} to "
         "store the pointer and call through it");
-    static_assert(Policy.admits_heap() || details::is_direct_eligible<FD>() ||
-                      details::is_inline_eligible<FD>(Policy),
+    static_assert(
+        Policy.admits_heap() || implementation::is_direct_eligible<FD>() ||
+            implementation::is_inline_eligible<FD>(Policy),
         "flexi_function: the callable is not eligible for an inline_only "
         "instance's inline buffer: too large, over-aligned, or its move "
         "constructor may throw (a direct target needs no buffer)");
@@ -839,7 +839,7 @@ private:
         "reference type; every call would produce a dangling reference");
     assert(!dispatch_.lifespan);
 
-    constexpr auto mode = details::function_storage_mode_of<FD>(Policy);
+    constexpr auto mode = implementation::function_storage_mode_of<FD>(Policy);
     if constexpr (mode == storage_mode::inlined)
       new (storage_area_.buf) FD(std::forward<FN>(fn));
     else if constexpr (mode == storage_mode::dynamic)
@@ -859,11 +859,11 @@ private:
         .dispatch = &dispatch_,
         .to = &storage_area_,
         .is_inline_fit_guaranteed =
-            details::is_inline_fit_guaranteed(Policy, P)};
+            implementation::is_inline_fit_guaranteed(Policy, P)};
     [[maybe_unused]] const auto is_refused =
         (other.dispatch_.lifespan(&other.storage_area_, &dest) ==
             thunks::refusal);
-    if constexpr (details::adopt_may_throw(Policy, P)) {
+    if constexpr (implementation::adopt_may_throw(Policy, P)) {
       if (is_refused)
         throw std::length_error{"flexi_function: callable too large"};
     } else {
