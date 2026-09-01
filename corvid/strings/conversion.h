@@ -422,7 +422,8 @@ append_utf8(std::string& out, uint32_t code_point) {
 #pragma endregion
 #pragma region Escaping
 
-// Truncate a string back to its entry size on destruction, unless released.
+// RAII to truncate a string back to its entry size on destruction, unless
+// released.
 //
 // Serves the failure paths of the parsers below: arm it on entry, `release`
 // on success, and any early failure return discards the partial output.
@@ -531,7 +532,7 @@ constexpr bool append_escaped(std::string& out, std::string_view s) {
   case 'n': ch = '\n'; break;
   case 'r': ch = '\r'; break;
   case '"': ch = '"'; break;
-  case 'u': return (parse_u_code(sv, ch));
+  case 'u': return parse_u_code(sv, ch);
   default: return false;
   }
   sv.remove_prefix(2);

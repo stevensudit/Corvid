@@ -438,17 +438,17 @@ calc_nested_spec_size(std::basic_string_view<CharT> spec) noexcept {
 // input that ran out, and the std range formatter takes that as a cue to skip
 // asking its elements to quote themselves, so strings come out bare.
 //
-// When `debug` is set and the formatter supports it, debug formatting is
+// When `is_debug` is set and the formatter supports it, debug formatting is
 // requested, the way the std range formatter asks its elements to quote
 // themselves.
 template<typename V, CharType CharT, typename FormatContext>
 auto format_with_spec(const V& v, std::basic_string_view<CharT> spec,
-    FormatContext& ctx, bool debug = false) {
+    FormatContext& ctx, bool is_debug = false) {
   std::formatter<std::remove_cvref_t<V>, CharT> f;
   std::basic_format_parse_context<CharT> pctx{spec};
   (void)f.parse(pctx);
   if constexpr (requires { f.set_debug_format(); })
-    if (debug) f.set_debug_format();
+    if (is_debug) f.set_debug_format();
   return f.format(v, ctx);
 }
 

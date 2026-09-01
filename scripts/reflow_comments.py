@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# reflow_comments.py - find and fix misflowed // comment paragraphs.
+# reflow_comments.py: find and fix misflowed // comment paragraphs.
 #
 # clang-format (ReflowComments) only SPLITS over-long comment lines; it never
 # re-joins short ones. So any edit that lengthens or shortens words mid-
