@@ -132,7 +132,7 @@ def main():
                     print(f"SKIPPED {key}")
                 continue
             refilled = [
-                f"{indent}// {l}" for l in textwrap.wrap(
+                f"{indent}// {line}" for line in textwrap.wrap(
                     " ".join(" ".join(content).split()),
                     width=LIMIT - room,
                     break_long_words=False,
@@ -147,10 +147,10 @@ def main():
         total += len(hits)
         for start, end, old, new in reversed(hits):
             print(f"=== {path}:{start + 1}-{end}")
-            for l in old:
-                print("OLD:", l)
-            for l in new:
-                print("NEW:", l)
+            for line in old:
+                print("OLD:", line)
+            for line in new:
+                print("NEW:", line)
             print()
         if APPLY:
             open(path, "w", encoding="utf-8",

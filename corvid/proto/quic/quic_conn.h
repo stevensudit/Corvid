@@ -130,12 +130,13 @@ consteval auto corvid_enum_spec(quic_close_kind*) {
 // NOT `noexcept`: overrides are free to throw on allocation failure or library
 // errors, and a thrown exception will be caught at the trampoline and reported
 // to ngtcp2 as `NGTCP2_ERR_CALLBACK_FAILURE`, which drops the connection
-// cleanly without terminating the process. Overrides MAY still mark themselves
-// `noexcept` if they can't throw but MUST if they're not exception-safe.
-// Outside this upcall surface, Corvid types reflect their throw behavior
-// honestly (e.g., `iov_queue::append` is not `noexcept` because it allocates,
-// while `consume` is). The same shape applies to other C-library callback
-// wrappers (nghttp3, etc.): the wrapper static is the firewall via
+// cleanly without terminating the process. Overrides that can't throw MAY
+// still mark themselves `noexcept`. Overrides that are not exception-safe
+// MUST, so a throw terminates rather than leaving corrupt state behind the
+// firewall. Outside this upcall surface, Corvid types reflect their throw
+// behavior honestly (e.g., `iov_queue::append` is not `noexcept` because it
+// allocates, while `consume` is). The same shape applies to other C-library
+// callback wrappers (nghttp3, etc.): the wrapper static is the firewall via
 // `try_callback`, the virtual / C++ method behind it can throw.
 //
 // Defaults are no-op `true`, so concrete plugins override only what they

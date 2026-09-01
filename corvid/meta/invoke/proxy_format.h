@@ -134,12 +134,12 @@ struct erased_call {
 // A dynamic width or precision is the bridge's to resolve, because the target
 // parses the spec at format time, when an auto `{}` can no longer claim its
 // arg id, and a replayed call (see `dispatch`) cannot reach the caller's args
-// at all. So `parse` reads the standard grammar with the band's
-// `spec_parser` and registers any dynamic arg ids with the parse context, and
-// `format` re-presents the spec to the target with the resolved values
-// spelled as literals (the `nullable_formatter` technique). A spec with no
-// dynamic field reaches the target untouched, so a target grammar that
-// departs from the standard one still works there.
+// at all. So `parse` reads the standard grammar with the band's `spec_parser`
+// and registers any dynamic arg ids with the parse context, and `format`
+// re-presents the spec to the target with the resolved values spelled as
+// literals (the `nullable_formatter` technique). A spec with no dynamic field
+// reaches the target untouched, so a target grammar that departs from the
+// standard one still works there.
 //
 // An empty handle renders the unquoted marker "(empty)" through the bridge's
 // own padding, so fill, align, width, and precision apply to it as they
@@ -234,14 +234,13 @@ struct std::formatter<corvid::meta::prox::implementation::erased_call<Handle>,
 // per dispatching handle flavor. The weak proxies stay out, mirroring their
 // lack of `call`.
 //
-// They are spelled out rather than collapsed into one bare-`H`
-// specialization constrained on `handle_facade<H>`. A program-defined
-// specialization of a std template must depend on a program-defined type,
-// and with a bare pattern that dependence lives only in the constraint,
-// which the standard libraries police differently and which has to stay
-// unambiguous against their own bare-pattern formatters (ranges, pointers).
-// The collapsed form would work on some legs at a given time; the five lines
-// work everywhere.
+// They are spelled out rather than collapsed into one bare-`H` specialization
+// constrained on `handle_facade<H>`. A program-defined specialization of a std
+// template must depend on a program-defined type, and with a bare pattern that
+// dependence lives only in the constraint, which the standard libraries police
+// differently and which has to stay unambiguous against their own bare-pattern
+// formatters (ranges, pointers). The collapsed form would work on some legs at
+// a given time; the five lines work everywhere.
 
 template<corvid::meta::prox::FormattingFacade F>
 struct std::formatter<corvid::meta::prox::proxy_view<F>, char>

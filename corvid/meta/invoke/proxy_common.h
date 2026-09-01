@@ -2429,11 +2429,11 @@ struct handle_impl {
 
 // `Proxiable` is the concept for when `T` can back facade `F`.
 //
-// Satisfied when every method of `F` is bound for `T` (through
-// `proxy_impl<F, T>`, or for the reserved format method through the library's
-// fallback to `T`'s own `std::formatter`), and the pair itself has opted in:
-// it is registered, or `T` is a proxy handle of `F` or of a facade extending
-// it (the library's self-conformance bindings).
+// Satisfied when every method of `F` is bound for `T` (through `proxy_impl<F,
+// T>`, or for the reserved format method through the library's fallback to
+// `T`'s own `std::formatter`), and the pair itself has opted in: it is
+// registered, or `T` is a proxy handle of `F` or of a facade extending it (the
+// library's self-conformance bindings).
 //
 // The explicit opt-in term is what keeps a facade with no own methods, a
 // name-only marker or a pure aggregation level, from being backed by every
