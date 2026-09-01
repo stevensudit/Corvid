@@ -894,11 +894,11 @@ struct sequence_enum_names_spec
 // compile-time error: merge them into one segment, using empty names for the
 // gap).
 //
-// Each segment's first comma-field is its absolute start value and the
-// rest are names. This compacts a sparse enum, because the gaps between
-// segments cost nothing. Where a single run would carry an empty name per
-// skipped value. `min` and `max` are derived from the segments, so `minseq` is
-// not passed.
+// Each segment's first comma-field is its absolute start value and the rest
+// are names. This compacts a sparse enum, because the gaps between segments
+// cost nothing, where a single run would carry an empty name per skipped
+// value. `min` and `max` are derived from the segments, so `minseq` is not
+// passed.
 //
 // Set `wrapseq` to `wrapclip::limit` to enable wrapping.
 template<ScopedEnum E, meta::fixed_string names, wrapclip wrapseq = wrapclip{},

@@ -734,6 +734,7 @@ private:
 
   iou_res res_;
   iou_cqe_flags cqe_flags_{};
+#pragma endregion
 };
 
 [[nodiscard]] inline iou_buffer

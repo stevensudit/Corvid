@@ -141,7 +141,6 @@ public:
 protected:
   enum class allow : bool { ctor };
 
-#pragma endregion
 public:
   // Public for `make_shared`; use the `make` factory. The plugin is
   // constructed in-place with `(router, *this, plugin_args...)`. The plugin

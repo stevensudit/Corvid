@@ -219,7 +219,6 @@ public:
   }
 
 #pragma endregion
-#pragma endregion
 
 private:
 #pragma region Data members

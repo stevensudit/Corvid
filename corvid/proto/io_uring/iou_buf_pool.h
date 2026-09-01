@@ -77,7 +77,6 @@ class iou_buf_pool_of: public buffer_pool_base {
       "MIN_BLOCK must be a power of 2");
   static_assert(SIZE >= MIN_BLOCK * 2, "SIZE must be at least 2x MIN_BLOCK");
 
-#pragma endregion
 #pragma region Free list
 
   static constexpr auto slab_size = SIZE;
