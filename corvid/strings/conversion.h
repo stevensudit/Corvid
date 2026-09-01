@@ -424,6 +424,36 @@ append_utf8(std::string& out, uint32_t code_point) {
 #pragma endregion
 #pragma region Escaping
 
+// Truncate a string back to its entry size on destruction, unless released.
+//
+// Serves the failure paths of the parsers below: arm it on entry, `release`
+// on success, and any early failure return discards the partial output.
+class truncate_guard final {
+public:
+  constexpr explicit truncate_guard(std::string& target) noexcept
+      : target_{&target}, init_size_{target.size()} {}
+
+  truncate_guard(const truncate_guard&) = delete;
+  truncate_guard& operator=(const truncate_guard&) = delete;
+
+  // NOLINTNEXTLINE(bugprone-exception-escape): the resize only shrinks.
+  constexpr ~truncate_guard() {
+    if (target_ && target_->size() > init_size_) target_->resize(init_size_);
+  }
+
+  // Disarm the guard so the truncation will not run.
+  //
+  // Always returns true, so a success path can return it directly.
+  constexpr bool release() noexcept {
+    target_ = nullptr;
+    return true;
+  }
+
+private:
+  std::string* target_;
+  size_t init_size_;
+};
+
 // Callback that appends a single `char` and always returns true.
 template<typename T>
 concept CharAppenderFn = requires(T& append_cb, char c) {
@@ -515,22 +545,19 @@ constexpr bool append_escaped(std::string& out, std::string_view s) {
 // Returns true on success, false on failure (with `out` preserved).
 [[nodiscard]] constexpr bool
 parse_escaped(std::string_view sv, std::string& out) {
-  const auto init_size = out.size();
-  out.reserve(init_size + sv.size());
+  truncate_guard guard(out);
+  out.reserve(out.size() + sv.size());
   char ch{};
   while (!sv.empty()) {
     if (sv[0] == '\\') {
-      if (!parse_escaped(sv, ch)) {
-        out.resize(init_size);
-        return false;
-      }
+      if (!parse_escaped(sv, ch)) return false;
       out += ch;
     } else {
       out += sv[0];
       sv.remove_prefix(1);
     }
   }
-  return true;
+  return guard.release();
 }
 
 // Parse `sv`, which starts with a quoted string, appending the unescaped
@@ -541,31 +568,24 @@ parse_escaped(std::string_view sv, std::string& out) {
 // preserved).
 [[nodiscard]] constexpr bool
 parse_escaped_quoted(std::string_view& sv, std::string& out) {
-  if (sv.empty() || sv[0] != '"') return false;
-  const auto init_size = out.size();
-  const auto init_sv = sv;
-  sv.remove_prefix(1);
-  while (!sv.empty() && sv[0] != '"') {
+  auto rest = sv;
+  if (rest.empty() || rest[0] != '"') return false;
+  rest.remove_prefix(1);
+  truncate_guard guard(out);
+  while (!rest.empty() && rest[0] != '"') {
     char ch{};
-    if (sv[0] == '\\') {
-      if (!parse_escaped(sv, ch)) {
-        out.resize(init_size);
-        sv = init_sv;
-        return false;
-      }
+    if (rest[0] == '\\') {
+      if (!parse_escaped(rest, ch)) return false;
       out += ch;
     } else {
-      out += sv[0];
-      sv.remove_prefix(1);
+      out += rest[0];
+      rest.remove_prefix(1);
     }
   }
-  if (sv.empty() || sv[0] != '"') {
-    out.resize(init_size);
-    sv = init_sv;
-    return false;
-  }
-  sv.remove_prefix(1);
-  return true;
+  if (rest.empty() || rest[0] != '"') return false;
+  rest.remove_prefix(1);
+  sv = rest;
+  return guard.release();
 }
 
 #pragma endregion
