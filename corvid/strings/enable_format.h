@@ -81,54 +81,6 @@ template<typename M>
 concept UniqueKeyedCollection =
     KeyedCollection<M> && requires(const M& m, M::key_type k) { m.at(k); };
 
-#pragma region Helpers
-
-// Measure the nested spec at the front of `spec`: the count of code units
-// before the field's closing '}', brace-matched so a dynamic `{n}` width or
-// precision rides along.
-template<CharType CharT>
-[[nodiscard]] constexpr size_t
-calc_nested_spec_size(std::basic_string_view<CharT> spec) noexcept {
-  size_t ndx{};
-  size_t depth{};
-  const auto cnt = spec.size();
-  while (ndx < cnt) {
-    if (spec[ndx] == CharT{'{'}) {
-      ++depth;
-    } else if (spec[ndx] == CharT{'}'}) {
-      if (depth == 0) break;
-      --depth;
-    }
-    ++ndx;
-  }
-  return ndx;
-}
-
-// Format `v` through its own formatter, driving its parse with `spec` at
-// format time (the synthetic parse-context technique from
-// `nullable_formatter`).
-//
-// `spec` must run through the field's closing '}', as a real parse context
-// does: std hands a formatter the rest of the whole format string, not just
-// its own specifiers. An exactly-sized `spec` looks to the formatter like
-// input that ran out, and the std range formatter takes that as a cue to skip
-// asking its elements to quote themselves, so strings come out bare.
-//
-// When `debug` is set and the formatter supports it, debug formatting is
-// requested, the way the std range formatter asks its elements to quote
-// themselves.
-template<typename V, CharType CharT, typename FormatContext>
-auto format_with_spec(const V& v, std::basic_string_view<CharT> spec,
-    FormatContext& ctx, bool debug = false) {
-  std::formatter<std::remove_cvref_t<V>, CharT> f;
-  std::basic_format_parse_context<CharT> pctx{spec};
-  (void)f.parse(pctx);
-  if constexpr (requires { f.set_debug_format(); })
-    if (debug) f.set_debug_format();
-  return f.format(v, ctx);
-}
-
-#pragma endregion
 #pragma region enable_format
 
 // Allow `std::format` to take a value it cannot take directly, by wrapping.
@@ -307,7 +259,7 @@ public:
     auto value_start = ndx;
     if (ndx < cnt && spec[ndx] == CharT{':'}) {
       value_start = ++ndx;
-      ndx += corvid::strings::calc_nested_spec_size(spec.substr(value_start));
+      ndx += corvid::meta::calc_nested_spec_size(spec.substr(value_start));
     }
     if (ndx >= cnt || spec[ndx] != CharT{'}'})
       throw std::format_error{"enable_format: unterminated spec"};
@@ -326,21 +278,21 @@ public:
     if constexpr (corvid::strings::UniqueKeyedCollection<M>) {
       const auto& v = w.lookup(key);
       if constexpr (corvid::meta::Variant<mapped_type>)
-        return corvid::strings::format_with_spec(
+        return corvid::meta::format_with_spec(
             corvid::strings::enable_format{v}, spec_tail_, ctx);
       else
-        return corvid::strings::format_with_spec(v, spec_tail_, ctx);
+        return corvid::meta::format_with_spec(v, spec_tail_, ctx);
     } else {
       const auto values = w.equal_values(key);
       if (values.empty()) {
         const auto& missing = w.missing();
         if (!missing) throw std::format_error{"enable_format: key not found"};
-        return corvid::strings::format_with_spec(
+        return corvid::meta::format_with_spec(
             wrap_variants(std::span<const mapped_type>(&*missing, 1)),
             spec_tail_, ctx);
       }
-      return corvid::strings::format_with_spec(wrap_variants(values),
-          spec_tail_, ctx);
+      return corvid::meta::format_with_spec(wrap_variants(values), spec_tail_,
+          ctx);
     }
   }
 
@@ -376,7 +328,7 @@ struct std::formatter<corvid::strings::enable_format<std::variant<Ts...>>,
 
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
     const std::basic_string_view<CharT> spec{ctx.begin(), ctx.end()};
-    const auto cnt = corvid::strings::calc_nested_spec_size(spec);
+    const auto cnt = corvid::meta::calc_nested_spec_size(spec);
     // Keep the tail, not just our own spec, so the alternative's parse sees
     // the closing '}' the way it would under `std::format`.
     spec_tail_ = spec;
@@ -388,8 +340,7 @@ struct std::formatter<corvid::strings::enable_format<std::variant<Ts...>>,
       FormatContext& ctx) const {
     return std::visit(
         [&](const auto& alt) {
-          return corvid::strings::format_with_spec(alt, spec_tail_, ctx,
-              debug_);
+          return corvid::meta::format_with_spec(alt, spec_tail_, ctx, debug_);
         },
         w.value);
   }

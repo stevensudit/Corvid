@@ -341,29 +341,28 @@ holding a map formats whole, through the std map formatter, so to look up by
 key, extract the map with `std::get` and wrap that (behavior pinned in the
 test).
 
-### 5. Formatter bridge for proxy handles (intended)
+### 5. Formatter bridge for proxy handles (helper moved; proxy half pending)
 
-`format_with_spec` in [enable_format.h](enable_format.h) is the
-type-erasure move a `std::formatter` on an erased handle needs: keep the
-spec tail as text at parse time, and at format time run the target's own
-formatter under it through a synthetic parse context. The proxy handles in
-`meta/invoke` want exactly that (see the formatter bridge under "Future
-work" in [../meta/invoke/proxy.md](../meta/invoke/proxy.md)), and `meta`
-is L0, so the helper has to move down to
+`format_with_spec` is the type-erasure move a `std::formatter` on an erased
+handle needs: keep the spec tail as text at parse time, and at format time
+run the target's own formatter under it through a synthetic parse context.
+The proxy handles in `meta/invoke` want exactly that (see the formatter
+bridge under "Future work" in
+[../meta/invoke/proxy.md](../meta/invoke/proxy.md)), and `meta` is L0, so
+the helper belongs down in
 [../meta/formatting.h](../meta/formatting.h), next to the
 `nullable_formatter` machinery it was extracted from.
 
-The move is not free of entanglement: `enable_format.h` includes
-[string_literals.h](string_literals.h), so whatever the moved code needs
-from that header (the band's std-literals import, `position`/`npos`,
-`as_view`) either comes down to `meta` with it or is dropped from the
-moved part. Whether the whole of `enable_format.h` moves or only
-`format_with_spec` is the first question to settle; the wrappers
-themselves have no reason to leave `strings`.
+That move is done. `format_with_spec` and its parse-side companion
+`calc_nested_spec_size` now live in `meta/formatting.h`, and the wrappers
+in [enable_format.h](enable_format.h) call them there. The entanglement
+once predicted here turned out to be empty. The helpers used nothing from
+[string_literals.h](string_literals.h), so nothing else moved and the
+wrappers stayed in `strings`.
 
-Then the proxy side: an opt-in facade marker that adds a format slot to the
-dispatch table, and one formatter base serving every handle flavor. That
-half is a proxy feature and is recorded there.
+What remains is the proxy side: an opt-in facade marker that adds a format
+slot to the dispatch table, and one formatter base serving every handle
+flavor. That half is a proxy feature and is recorded there.
 
 ## Deferred / decided against
 

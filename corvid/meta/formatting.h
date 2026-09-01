@@ -405,6 +405,53 @@ private:
 #pragma endregion
 };
 
+#pragma region format_with_spec
+
+// Measure the nested spec at the front of `spec`, which contains the count of
+// code units before the field's closing '}', brace-matched so a dynamic `{n}`
+// width or precision rides along.
+template<CharType CharT>
+[[nodiscard]] constexpr size_t
+calc_nested_spec_size(std::basic_string_view<CharT> spec) noexcept {
+  size_t ndx{};
+  size_t depth{};
+  const auto cnt = spec.size();
+  while (ndx < cnt) {
+    if (spec[ndx] == CharT{'{'}) {
+      ++depth;
+    } else if (spec[ndx] == CharT{'}'}) {
+      if (depth == 0) break;
+      --depth;
+    }
+    ++ndx;
+  }
+  return ndx;
+}
+
+// Format `v` through its own formatter, driving its parse with `spec` at
+// format time (which is the synthetic parse-context technique from
+// `nullable_formatter`).
+//
+// `spec` must run through the field's closing '}', as a real parse context
+// does, because std hands a formatter the rest of the whole format string, not
+// just its own specifiers. An exactly-sized `spec` looks to the formatter like
+// input that ran out, and the std range formatter takes that as a cue to skip
+// asking its elements to quote themselves, so strings come out bare.
+//
+// When `debug` is set and the formatter supports it, debug formatting is
+// requested, the way the std range formatter asks its elements to quote
+// themselves.
+template<typename V, CharType CharT, typename FormatContext>
+auto format_with_spec(const V& v, std::basic_string_view<CharT> spec,
+    FormatContext& ctx, bool debug = false) {
+  std::formatter<std::remove_cvref_t<V>, CharT> f;
+  std::basic_format_parse_context<CharT> pctx{spec};
+  (void)f.parse(pctx);
+  if constexpr (requires { f.set_debug_format(); })
+    if (debug) f.set_debug_format();
+  return f.format(v, ctx);
+}
+
 #pragma endregion
 #pragma region null_formatting
 

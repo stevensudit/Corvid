@@ -80,7 +80,7 @@ public:
   template<typename T>
   using result = value_or_error<T, expand_error>;
 
-  explicit expander(runtime& rt) noexcept : rt_{rt} {}
+  explicit expander(runtime& rt) : rt_{rt} {}
 
   expander(const expander&) = delete;
   expander& operator=(const expander&) = delete;
@@ -127,6 +127,7 @@ private:
 #pragma region Templates
 
   // The final `tail` of an improper list: whatever ends the chain.
+  // NOLINTNEXTLINE(bugprone-exception-escape): tail() is guarded by is_cell().
   [[nodiscard]] static value last_tail(value form) noexcept {
     while (form.is_cell()) form = form.tail();
     return form;
@@ -191,7 +192,7 @@ private:
   }
 
   // The single operand of a mark form, or an error if its shape is off.
-  [[nodiscard]] result<value>
+  [[nodiscard]] static result<value>
   mark_operand(const value& form, std::string_view name) {
     std::vector<value> elems;
     if (!form.append_elements(elems) || elems.size() != 2)
@@ -236,9 +237,15 @@ private:
     // A nested quote is data; so is a subtree needing no work.
     if (is_quote(t) || !needs_build(t)) return quoted(t);
 
-    // A list: runs of plain elements become `(list ...)` segments, each
-    // splice is its own segment, and `append` joins the segments, onto the
-    // built tail when the template is dotted.
+    return build_list(t);
+  }
+
+  // Build the code that constructs list template `t`.
+  //
+  // Runs of plain elements become `(list ...)` segments, each splice is its
+  // own segment, and `append` joins the segments, onto the built tail when
+  // the template is dotted.
+  [[nodiscard]] result<value> build_list(value t) {
     std::vector<value> segments;
     std::vector<value> run{value{rt_.sym_list}};
     const auto flush = [&] {

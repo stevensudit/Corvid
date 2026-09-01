@@ -2783,14 +2783,14 @@ shaped the patterns, each verified by a probe:
 ## Future work
 
 - `std::formatter` bridge: `std::formatter` on the handles, so a proxy
-  formats as its target does. Intended, with two prerequisites. The
-  type-erasure move is `format_with_spec` (the synthetic parse-context
-  technique: the erased formatter keeps the spec tail as text, and at format
-  time a per-(facade, type) thunk runs the target's own formatter under it),
-  which lives in `strings/enable_format.h`, above `meta`; it moves down to
-  `meta/formatting.h` first (stage 5 in
-  [../../strings/roadmap.md](../../strings/roadmap.md)). Then the proxy
-  side: formatting is opt-in per facade (the shape of ngcpp's
+  formats as its target does. Intended. The type-erasure move is
+  `format_with_spec` (the synthetic parse-context technique: the erased
+  formatter keeps the spec tail as text, and at format time a
+  per-(facade, type) thunk runs the target's own formatter under it),
+  which lives in `meta/formatting.h` (moved down from
+  `strings/enable_format.h` by stage 5 in
+  [../../strings/roadmap.md](../../strings/roadmap.md)). What remains is
+  the proxy side: formatting is opt-in per facade (the shape of ngcpp's
   `skills::format`), a marker that adds a format slot to the dispatch table
   and constrains registration to formattable targets, so tables of facades
   that never format carry nothing and instantiate no `std::formatter<T>`.
