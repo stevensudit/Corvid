@@ -134,11 +134,11 @@ struct erased_call {
 // parses the spec at format time, when an auto `{}` can no longer claim its
 // arg id, and a replayed call (see `dispatch`) cannot reach the caller's args
 // at all. So `parse` reads the standard grammar with the band's
-// `spec_parser` and claims any auto ids, and `format` re-presents the spec to
-// the target with the resolved values spelled as literals (the
-// `nullable_formatter` technique). A spec with no dynamic field reaches the
-// target untouched, so a target grammar that departs from the standard one
-// still works there.
+// `spec_parser` and registers any dynamic arg ids with the parse context, and
+// `format` re-presents the spec to the target with the resolved values
+// spelled as literals (the `nullable_formatter` technique). A spec with no
+// dynamic field reaches the target untouched, so a target grammar that
+// departs from the standard one still works there.
 //
 // An empty handle renders the unquoted marker "(empty)" through the bridge's
 // own padding, so fill, align, width, and precision apply to it as they
@@ -152,8 +152,8 @@ struct proxy_formatter {
     spec_tail_ = spec;
     spec_size_ = corvid::meta::calc_nested_spec_size(spec);
     (void)spec_.parse(spec.substr(0, spec_size_));
-    spec_.width_arg.claim_next_automatic(ctx);
-    spec_.precision_arg.claim_next_automatic(ctx);
+    spec_.width_arg.register_arg_id(ctx);
+    spec_.precision_arg.register_arg_id(ctx);
     return ctx.begin() + static_cast<ptrdiff_t>(spec_size_);
   }
 

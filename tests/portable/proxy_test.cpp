@@ -4087,6 +4087,21 @@ TEST_CASE("Formatter bridge", "[proxy]") {
   CHECK_THROWS_AS(
       std::vformat("{:>{}}", std::make_format_args(pv, not_a_width)),
       std::format_error);
+  // Dynamic ids register with the parse context, so mixed indexing is
+  // rejected as std rejects it, and an id beyond the args is named as such.
+  // With a literal format string, both fail at compile time instead: "call to
+  // consteval function 'std::basic_format_string<...>' is not a constant
+  // expression".
+  const auto six = 6;
+  CHECK_THROWS_AS(std::vformat("{:>{1}}", std::make_format_args(pv, six)),
+      std::format_error);
+  try {
+    (void)std::vformat("{0:>{7}}", std::make_format_args(pv));
+    FAIL("no exception");
+  }
+  catch (const std::format_error& e) {
+    CHECK(std::string_view{e.what()} == "arg id out of range");
+  }
 
   // Inside a range, handles quote themselves the way their targets would.
   const std::vector<prox::proxy_view<poet>> both{pv,

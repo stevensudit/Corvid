@@ -22,6 +22,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "concepts.h"
 #include "padding.h"
@@ -204,10 +205,17 @@ struct spec_parser: parsed_spec<CharT> {
       return value;
     }
 
+    // Register a dynamic field's arg id with the parse context.
+    //
+    // An auto `{}` claims the next id, and a manual `{n}` has its id checked,
+    // so mixed indexing is rejected and, under constant evaluation, so is an
+    // id beyond the args. A fixed or absent field registers nothing.
     template<typename ParseContext>
-    constexpr void claim_next_automatic(ParseContext& ctx) {
-      if (!is_automatic()) return;
-      value = ctx.next_arg_id();
+    constexpr void register_arg_id(ParseContext& ctx) {
+      if (is_automatic())
+        value = ctx.next_arg_id();
+      else if (kind == arg_kind::manual)
+        ctx.check_arg_id(value);
     }
 
     template<typename FormatContext>
@@ -232,7 +240,9 @@ struct spec_parser: parsed_spec<CharT> {
           if constexpr (std::is_signed_v<T>)
             if (value < 0) throw std::format_error{"negative arg"};
           return static_cast<size_t>(value);
-        } else
+        } else if constexpr (std::is_same_v<T, std::monostate>)
+          throw std::format_error{"arg id out of range"};
+        else
           throw std::format_error{"arg is not an integer"};
       });
     }
@@ -253,6 +263,8 @@ struct spec_parser: parsed_spec<CharT> {
             if constexpr (std::is_same_v<T, std::basic_string_view<CharT>> ||
                           std::is_same_v<T, const CharT*>)
               return value;
+            else if constexpr (std::is_same_v<T, std::monostate>)
+              throw std::format_error{"arg id out of range"};
             else
               throw std::format_error{"arg is not a string"};
           });
@@ -581,8 +593,8 @@ struct nullable_formatter: std::formatter<U, CharT> {
     const auto is_any_auto =
         spec_.width_arg.is_automatic() || spec_.precision_arg.is_automatic();
     if (is_any_auto) {
-      spec_.width_arg.claim_next_automatic(ctx);
-      spec_.precision_arg.claim_next_automatic(ctx);
+      spec_.width_arg.register_arg_id(ctx);
+      spec_.precision_arg.register_arg_id(ctx);
       auto synthetic = spec_.rewrite_spec_as_explicit(
           std::basic_string_view<CharT>{begin, begin + consumed});
       synthetic.push_back(CharT{'}'});
@@ -656,12 +668,8 @@ struct self_rendering_formatter {
         std::basic_string_view<CharT>{ctx.begin(), ctx.end()};
     const auto consumed = spec_.parse(spec_text);
 
-    // An automatic `{}` width or precision has no id in the spec string, so
-    // claim one from the parse context now.
-    if (spec_.width_arg.is_automatic())
-      spec_.width_arg.value = ctx.next_arg_id();
-    if (spec_.precision_arg.is_automatic())
-      spec_.precision_arg.value = ctx.next_arg_id();
+    spec_.width_arg.register_arg_id(ctx);
+    spec_.precision_arg.register_arg_id(ctx);
 
     // Stop at the spec-terminating `}`
     return ctx.begin() + consumed;

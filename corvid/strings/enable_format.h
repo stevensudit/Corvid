@@ -244,10 +244,7 @@ public:
     // Key: dynamic `{n}` / `{}`, or literal text up to ':' or '}'.
     if (ndx < cnt && spec[ndx] == CharT{'{'}) {
       key_arg_ = arg_value_t::make_from_parse(spec, ndx);
-      if (key_arg_.is_automatic())
-        key_arg_.claim_next_automatic(ctx);
-      else
-        ctx.check_arg_id(key_arg_.value);
+      key_arg_.register_arg_id(ctx);
     } else {
       const auto start = ndx;
       while (ndx < cnt && spec[ndx] != CharT{':'} && spec[ndx] != CharT{'}'})
