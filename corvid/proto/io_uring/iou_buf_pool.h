@@ -229,44 +229,13 @@ public:
   // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
   // without huge pages configured). Throws `std::system_error` on failure.
   explicit iou_buf_pool_of(allow) {
-    static_assert(slab_size % hugepage_size == 0);
-    static_assert(std::has_single_bit(hugepage_size));
-    base_ = reinterpret_cast<ptr>(::mmap(nullptr, slab_size,
-        *(mmap_prot::read | mmap_prot::write),
-        *(mmap_mask::map_private | mmap_mask::anonymous | mmap_mask::hugetlb |
-            mmap_mask::populate),
-        -1, 0));
-    // Retry without explicit hugetlb. Over-allocate by one `hugepage_size` to
-    // guarantee a hugepage-aligned region exists within the mapping, then trim
-    // the prefix and suffix so that `base_` is aligned and `munmap` in the
-    // destructor covers exactly `slab_size` bytes.
-    if (base_ == MAP_FAILED) {
-      constexpr size_t reserve_size = slab_size + hugepage_size;
-      auto* raw = reinterpret_cast<ptr>(::mmap(nullptr, reserve_size,
-          *(mmap_prot::read | mmap_prot::write),
-          *(mmap_mask::map_private | mmap_mask::anonymous), -1, 0));
-      if (raw == MAP_FAILED)
-        throw std::system_error{errno, std::system_category(), "mmap"};
-      const auto rawaddr = reinterpret_cast<uintptr_t>(raw);
-      const auto prefix =
-          (hugepage_size - (rawaddr % hugepage_size)) % hugepage_size;
-      base_ = raw + prefix;
-      if (prefix > 0) ::munmap(raw, prefix);
-      const auto suffix = reserve_size - prefix - slab_size;
-      if (suffix > 0) ::munmap(base_ + slab_size, suffix);
-      // Attempt to enable huge page backing on the aligned region. This is a
-      // best-effort optimization; if it fails, we still have a correctly sized
-      // and aligned block of memory to use.
-      (void)::madvise(base_, slab_size, *mmap_advice::hugepage);
-    }
+    static_assert(slab_size % memory_map::default_hugepage_size == 0);
+    slab_ = memory_map::create_huge(slab_size);
+    if (!slab_) throw std::system_error{errno, std::system_category(), "mmap"};
     // Warm pages: an explicit memset guarantees zeroing and forces physical
     // page assignment.
-    std::memset(base_, 0, slab_size);
+    std::memset(slab_.data(), 0, slab_size);
     init_free_lists();
-  }
-
-  ~iou_buf_pool_of() override {
-    if (base_) ::munmap(base_, slab_size);
   }
 
   iou_buf_pool_of(const iou_buf_pool_of&) = delete;
@@ -285,7 +254,7 @@ public:
   // Must be called exactly once before any buffer is used in an I/O
   // submission. The `ring` unregisters on destruction.
   [[nodiscard]] iou_res register_with(iou_ring& ring) noexcept {
-    iovec iov{base_, slab_size};
+    iovec iov{base(), slab_size};
     return ring.register_buffers(&iov, 1);
   }
 
@@ -342,7 +311,9 @@ private:
     return true;
   }
 
-  [[nodiscard]] ptr base() const noexcept override { return base_; }
+  [[nodiscard]] ptr base() const noexcept override {
+    return static_cast<ptr>(slab_.data());
+  }
 
   [[nodiscard]] bool decrement_read_bytes(size_t n) noexcept override {
     [[maybe_unused]] const auto remaining = in_flight_read_bytes_ -= n;
@@ -363,12 +334,12 @@ private:
     for (auto ndx = 0UZ; ndx < tier_count; ++ndx)
       lists_[ndx].sz = min_block_size << ndx;
     available_bytes_ = slab_size;
-    lists_.back().push_head(base_);
+    lists_.back().push_head(base());
   }
 
   // Page index of the `min_block_size`-sized page at address `p`.
   [[nodiscard]] size_t find_page_index(cptr p) const noexcept {
-    return (p - base_) / min_block_size;
+    return (p - base()) / min_block_size;
   }
 
   // Mark pages as externally allocated (`in_use==true`) or free.
@@ -417,8 +388,8 @@ private:
 
   // Scan `src` for two buddy blocks whose combined parent range is entirely
   // free in the bitmap. Removes both from `src`, pushes the parent to `dst`.
-  // Alignment of `base_` to `hugepage_size` guarantees that masking any child
-  // address to `~(dst.sz - 1)` yields a valid in-pool parent address.
+  // Alignment of the slab to the huge page size guarantees that masking any
+  // child address to `~(dst.sz - 1)` yields a valid in-pool parent address.
   [[nodiscard]] bool coalesce(free_list& src, free_list& dst) noexcept {
     for (auto* node = src.head; node; node = node->next) {
       assert(node->is_valid());
@@ -481,7 +452,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  ptr base_{};
+  memory_map slab_;
   mutable std::mutex mutex_;
   std::array<free_list, tier_count> lists_;
   size_t available_bytes_{};

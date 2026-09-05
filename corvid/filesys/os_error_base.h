@@ -21,6 +21,7 @@
 
 #include "../enums/bitmask_enum.h"
 #include "../enums/sequence_enum.h"
+#include "../strings/cstring_view.h"
 
 namespace corvid { inline namespace filesys {
 
@@ -134,6 +135,22 @@ public:
   // `FormatMessage`.
   [[nodiscard]] std::string message() const {
     return std::system_category().message(static_cast<int>(raw()));
+  }
+
+  // Throw `std::system_error` carrying this code, unless it is `ok`.
+  //
+  // `what_arg`, when given, prefixes the exception's message the way
+  // `std::system_error`'s own constructor does. Capture and throw in one
+  // step, as in:
+  //
+  //   if (!some_os_call()) os_error::last().throw_if_error("some_os_call");
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  bool throw_if_error(cstring_view what_arg = {}) const {
+    if (ok()) return true;
+    const auto value = static_cast<int>(raw());
+    if (what_arg.empty())
+      throw std::system_error{value, std::system_category()};
+    throw std::system_error{value, std::system_category(), what_arg.c_str()};
   }
 
 #pragma endregion

@@ -18,6 +18,7 @@
 #include <bit>
 #include <cerrno>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -113,6 +114,27 @@ TEST_CASE("Zero-length mapping fails", "[Mmap]") {
   CHECK(m.size() == 0);
   CHECK(m.data() == nullptr);
   CHECK(create_errno == EINVAL);
+}
+
+TEST_CASE("Huge-page slab", "[Mmap]") {
+  // Two huge pages' worth, aligned to one. Whether the system has huge
+  // pages configured or not, the region is aligned, exactly sized, zeroed,
+  // and writable.
+  constexpr auto hugepage = memory_map::default_hugepage_size;
+  static_assert(hugepage == 2 * 1024UZ * 1024UZ);
+  auto m = memory_map::create_huge(2 * hugepage);
+  REQUIRE(m);
+  CHECK(m.size() == 2 * hugepage);
+  CHECK(reinterpret_cast<uintptr_t>(m.data()) % hugepage == 0);
+  auto bytes = m.bytes();
+  CHECK(std::ranges::all_of(bytes, [](std::byte b) {
+    return b == std::byte{};
+  }));
+  bytes.front() = std::byte{1};
+  bytes.back() = std::byte{2};
+  CHECK(bytes[0] == std::byte{1});
+  CHECK(bytes[(2 * hugepage) - 1] == std::byte{2});
+  CHECK(m.unmap());
 }
 
 #pragma endregion
