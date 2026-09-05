@@ -77,6 +77,8 @@ for domain in \
     "en.cppreference.com" \
     "gcc.gnu.org" \
     "godbolt.org" \
+    "www.open-std.org" \
+    "eel.is" \
     "pypi.org" \
     "files.pythonhosted.org" \
     "archive.ubuntu.com" \
