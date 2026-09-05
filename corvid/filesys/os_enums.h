@@ -21,8 +21,8 @@
 //
 // Each platform contributes its own vocabulary, and most of it is
 // platform-specific by nature: Linux provides `o_flags`, `msg_flags`,
-// `fcntl_ops`, the `mmap_*` family, and `errno_code`, while Windows provides
-// `win_error_code`.
+// `fcntl_ops`, and `errno_code`, while Windows provides `win_error_code`.
+// The `mmap_*` family lives with its wrapper class in "mmap.h".
 //
 // The one portable guarantee is the platform error code enum (`errno_code` or
 // `win_error_code`), which always has an `ok` member, is aliased as `EC`, and

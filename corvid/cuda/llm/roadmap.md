@@ -103,7 +103,15 @@ Each is a proper Corvid module with its own tests, not an LLM-private helper.
   `os_enums.h` already has for the io_uring buffer pools. No cross-platform
   mapped-file abstraction: there is no basis yet for knowing what the
   abstraction may hide. Hugepages are not offered (WSL does not support
-  them, learned earlier in the io_uring work).
+  them, learned earlier in the io_uring work). DONE 2026-09-05:
+  `filesys/mmap.h` holds the `mmap_*` enums (moved out of the OS enums,
+  closing the TODO there) and the RAII `memory_map` class: `create` over
+  the raw call, `map` and `map_all` over an `os_file`, `map_file` over a
+  path, `advise` over `madvise`, plus `unmap` and `release`. General rather
+  than read-only, since the io_uring pools want the same wrapper; tested in
+  `tests/linux/mmap_test.cpp`. Named `memory_map` rather than `mmap`
+  because the bare class name was ambiguous with `::mmap` under
+  `using namespace corvid`.
 
 ## Stages
 

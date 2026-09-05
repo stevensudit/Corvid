@@ -32,7 +32,6 @@
 #include <cstdint>
 #include <fcntl.h>
 #include <sys/eventfd.h>
-#include <sys/mman.h>
 #include <sys/socket.h>
 
 #include "../../enums/bitmask_enum.h"
@@ -332,99 +331,6 @@ enum class efd_flags : int {
 consteval auto corvid_enum_spec(efd_flags*) {
   return corvid::enums::bitmask::make_bitmask_enum_spec<efd_flags,
       "cloexec,,,,,,,,nonblock,,,,,,,,,,,semaphore">();
-}
-
-#pragma endregion
-
-// TODO: Move out into "mmap.h", which also wraps `::map` and `::madvise` and
-// defines a RAII `mmap` wrapper class.
-
-#pragma region mmap_prot
-
-// `PROT_*` wrapper.
-enum class mmap_prot : uint32_t {
-  none = PROT_NONE,           // 0x00
-  read = PROT_READ,           // 0x01
-  write = PROT_WRITE,         // 0x02
-  exec = PROT_EXEC,           // 0x04
-  growsdown = PROT_GROWSDOWN, // 0x01000000
-  growsup = PROT_GROWSUP,     // 0x02000000
-};
-
-consteval auto corvid_enum_spec(mmap_prot*) {
-  return corvid::enums::bitmask::make_bitmask_enum_spec<mmap_prot,
-      "growsup,growsdown,,,,,,,,,,,,,,,,,,,,,,exec,write,read">();
-}
-
-#pragma endregion
-#pragma region mmap_mask
-
-// `MAP_*` wrapper.
-enum class mmap_mask : uint32_t {
-  file = MAP_FILE,                       // 0x00
-  shared = MAP_SHARED,                   // 0x01
-  map_private = MAP_PRIVATE,             // 0x02
-  shared_validate = MAP_SHARED_VALIDATE, // 0x03
-  mask_type = MAP_TYPE,                  // 0x0f
-  map_huge_mask = MAP_HUGE_MASK,         // 0x3f
-  fixed = MAP_FIXED,                     // 0x00010
-  anonymous = MAP_ANONYMOUS,             // 0x00020
-  growsdown = MAP_GROWSDOWN,             // 0x00100
-  denywrite = MAP_DENYWRITE,             // 0x00800
-  executable = MAP_EXECUTABLE,           // 0x01000
-  locked = MAP_LOCKED,                   // 0x02000
-  noreserve = MAP_NORESERVE,             // 0x04000
-  populate = MAP_POPULATE,               // 0x08000
-  nonblock = MAP_NONBLOCK,               // 0x10000
-  stack = MAP_STACK,                     // 0x20000
-  hugetlb = MAP_HUGETLB,                 // 0x40000
-  sync = MAP_SYNC,                       // 0x80000
-  fixed_noreplace = MAP_FIXED_NOREPLACE, // 0x100000
-};
-
-consteval auto corvid_enum_spec(mmap_mask*) {
-  return corvid::enums::bitmask::make_bitmask_enum_spec<mmap_mask,
-      "fixed_noreplace,sync,hugetlb,stack,nonblock,populate,noreserve,locked,"
-      "executable,denywrite,,,growsdown,,,anonymous,fixed,,,private,shared">();
-}
-
-#pragma endregion
-#pragma region mmap_advice
-
-// `MADV_*` wrapper.
-// NOLINTNEXTLINE(performance-enum-size)
-enum class mmap_advice : int32_t {
-  normal = MADV_NORMAL,                   // 0
-  random = MADV_RANDOM,                   // 1
-  sequential = MADV_SEQUENTIAL,           // 2
-  willneed = MADV_WILLNEED,               // 3
-  dontneed = MADV_DONTNEED,               // 4
-  free = MADV_FREE,                       // 8
-  remove = MADV_REMOVE,                   // 9
-  dontfork = MADV_DONTFORK,               // 10
-  dofork = MADV_DOFORK,                   // 11
-  mergeable = MADV_MERGEABLE,             // 12
-  unmergeable = MADV_UNMERGEABLE,         // 13
-  hugepage = MADV_HUGEPAGE,               // 14
-  nohugepage = MADV_NOHUGEPAGE,           // 15
-  dontdump = MADV_DONTDUMP,               // 16
-  dodump = MADV_DODUMP,                   // 17
-  wipeonfork = MADV_WIPEONFORK,           // 18
-  keeponfork = MADV_KEEPONFORK,           // 19
-  cold = MADV_COLD,                       // 20
-  pageout = MADV_PAGEOUT,                 // 21
-  populate_read = MADV_POPULATE_READ,     // 22
-  populate_write = MADV_POPULATE_WRITE,   // 23
-  dontneed_locked = MADV_DONTNEED_LOCKED, // 24
-  collapse = MADV_COLLAPSE,               // 25
-  hwpoison = MADV_HWPOISON,               // 100
-};
-consteval auto corvid_enum_spec(mmap_advice*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<mmap_advice,
-      "0,normal,random,sequential,willneed,dontneed,,,,free,remove,dontfork,"
-      "dofork,mergeable,unmergeable,hugepage,nohugepage,dontdump,dodump,"
-      "wipeonfork,keeponfork,cold,pageout,populate_read,populate_write,"
-      "dontneed_locked,collapse|100,hwpoison">();
 }
 
 #pragma endregion
