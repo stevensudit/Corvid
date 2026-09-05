@@ -83,14 +83,17 @@ manager. So the division of labor is fixed up front:
 Two pieces of general library infrastructure fall out of the early stages.
 Each is a proper Corvid module with its own tests, not an LLM-private helper.
 
-- **UTF-8 in `corvid/strings`.** A codepoint decoder over `std::string_view`
+- **UTF-8 in `corvid/strings`.** A codepoint decoder over `std::u8string_view`
   (iteration, not transcoding), plus a classifier for the Unicode Letter and
   Number general categories and the White_Space property. The range tables
   are data, generated into `strings/unicode_tables.h` by
   `scripts/gen_unicode_tables.py` from Python's Unicode database (15.0.0,
   no download); the classifier that searches them is the hand-written part.
   Sized to what the tokenizer needs; transcoding to UTF-16 or UTF-32 waits
-  for a consumer.
+  for a consumer. DONE 2026-09-05: `strings/utf.h` (`code_point::decode`
+  over `std::u8string_view`, rejecting overlongs, surrogates and values past
+  U+10FFFF; `is_letter`, `is_number`, `is_white_space`, and `classify` into
+  `code_point_class`), tested in `tests/portable/utf_test.cpp`.
 - **A file mapping in `corvid/filesys`.** RAII over `mmap` of a file,
   read-only, Linux-only, reusing the `mmap_prot` and `mmap_mask` enums that
   `os_enums.h` already has for the io_uring buffer pools. No cross-platform
