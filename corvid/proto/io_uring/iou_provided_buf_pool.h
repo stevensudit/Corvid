@@ -29,6 +29,7 @@
 
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
+#include "../../filesys/mmap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
 

@@ -23,6 +23,7 @@
 //  os_file   - RAII OS file-handle ownership and read/write
 //  os_event  - wake-up event for signaling across threads
 //  epoll     - RAII Linux epoll handle with control and wait helpers (Linux)
+//  mmap      - memory_map, RAII mapping with file and advice helpers (Linux)
 //  net_socket - RAII socket handle with type-safe option methods (Linux)
 #include "filesys/os_enums.h"
 #include "filesys/os_error.h"
@@ -30,4 +31,5 @@
 #include "filesys/os_event.h"
 #ifndef _WIN32
 #include "filesys/epoll.h"
+#include "filesys/mmap.h"
 #endif
