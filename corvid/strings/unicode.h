@@ -25,58 +25,59 @@
 
 #include "unicode_tables.h"
 
-// UTF-8 decoding and the Unicode classes a BPE pre-tokenizer splits on.
+// UTF-8 decoding and Unicode character classification.
 //
-// The decoder iterates code points over a byte string; it does not
-// transcode. The classifier answers the three questions GPT-2's split rule
-// asks of a code point (letter? number? white space?) by searching the
-// generated range tables in "unicode_tables.h". Both are sized to that
-// consumer; transcoding and the remaining general categories wait for one.
+// The decoder reads one code point at a time from UTF-8 text, while the
+// classifier answers membership questions for the classes tabulated in
+// "unicode_tables.h".
 namespace corvid::strings::unicode {
 
-// A decoded code point and the byte length of its UTF-8 encoding.
-struct code_point {
-  char32_t value{};
-  size_t length{};
+namespace utf {
 
-  constexpr auto operator<=>(const code_point&) const = default;
+// Decode the code point whose encoding starts at `ndx` in `text`.
+//
+// On success, returns the length of the encoding and sets `code_point`. On
+// failure, returns 0, leaving `code_point` untouched.
+[[nodiscard]] constexpr size_t decode(char32_t& code_point,
+    std::u8string_view text, size_t ndx = 0) noexcept {
+  if (ndx >= text.size()) return 0;
+  const auto lead = text[ndx];
+  const auto ones = std::countl_one(static_cast<uint8_t>(lead));
+  if (ones == 1 || ones > 4) return 0;
+  const auto len = static_cast<size_t>(std::max(ones, 1));
+  if (text.size() - ndx < len) return 0;
 
-  // Decode the code point whose encoding starts at `ndx` in `input`.
-  //
-  // Returns true and sets `value` and `length` on success. Returns false,
-  // with both reset to zero, otherwise.
-  [[nodiscard]] constexpr bool
-  decode(std::u8string_view input, size_t ndx) noexcept {
-    value = {};
-    length = 0;
-    if (ndx >= input.size()) return false;
-
-    const auto lead = input[ndx];
-    const auto ones = std::countl_one(static_cast<uint8_t>(lead));
-    if (ones == 1 || ones > 4) return false;
-
-    const auto len = static_cast<size_t>(std::max(ones, 1));
-    if (input.size() - ndx < len) return false;
-
-    uint32_t bits = lead & (0xFFU >> (ones + 1));
-    for (size_t i = 1; i < len; ++i) {
-      const auto cont = input[ndx + i];
-      if ((cont & 0xC0U) != 0x80U) return false;
-      bits = (bits << 6) | (cont & 0x3FU);
-    }
-
-    // A value that fits in fewer bytes is overlong; the rest of the range
-    // rules out UTF-16 surrogates and anything past the last plane.
-    constexpr std::array<uint32_t, 5> min_for_length{0, 0, 0x80, 0x800,
-        0x10000};
-    if (bits < min_for_length[len]) return false;
-    if ((bits >= 0xD800 && bits <= 0xDFFF) || bits > 0x10FFFF) return false;
-
-    value = static_cast<char32_t>(bits);
-    length = len;
-    return true;
+  uint32_t bits = lead & (0xFFU >> (ones + 1));
+  for (size_t i = 1; i < len; ++i) {
+    const auto cont = text[ndx + i];
+    if ((cont & 0xC0U) != 0x80U) return 0;
+    bits = (bits << 6) | (cont & 0x3FU);
   }
-};
+
+  // A value that fits in fewer bytes is overlong; the rest of the range
+  // rules out UTF-16 surrogates and anything past the last plane.
+  constexpr std::array<uint32_t, 5> min_for_length{0, 0, 0x80, 0x800, 0x10000};
+  if (bits < min_for_length[len]) return 0;
+  if ((bits >= 0xD800 && bits <= 0xDFFF) || bits > 0x10FFFF) return 0;
+
+  code_point = static_cast<char32_t>(bits);
+  return len;
+}
+
+// Extract the code point at the front of `text`, consuming its encoding.
+//
+// On success, returns true and sets `code_point`, removing consumed bytes from
+// `text`. On failure, returns false, leaving both untouched.
+[[nodiscard]] constexpr bool
+extract(char32_t& code_point, std::u8string_view& text) noexcept {
+  const auto len = decode(code_point, text);
+  if (len == 0) return false;
+  text.remove_prefix(len);
+  return true;
+}
+
+} // namespace utf
+namespace classifier {
 
 // Whether `cp` falls within `ranges`, a sorted list of disjoint ranges.
 [[nodiscard]] constexpr bool
@@ -103,19 +104,20 @@ in_ranges(std::span<const codepoint_range> ranges, char32_t cp) noexcept {
   return in_ranges(white_space_ranges, cp);
 }
 
-// The class of a code point under a BPE pre-tokenizer's split rule.
+// The tabulated class a code point belongs to, or `other` for none.
 //
-// The three named classes are disjoint, and `other` is everything else:
-// punctuation, symbols, marks, controls, format characters, and unassigned
-// code points.
+// The three named classes are disjoint. `other` covers punctuation,
+// symbols, marks, controls, format characters, and unassigned code points.
 enum class code_point_class : uint8_t { other, letter, number, white_space };
 
-// Classify `cp` under a BPE pre-tokenizer's split rule.
+// Classify `cp`.
 [[nodiscard]] constexpr code_point_class classify(char32_t cp) noexcept {
   if (is_letter(cp)) return code_point_class::letter;
   if (is_number(cp)) return code_point_class::number;
   if (is_white_space(cp)) return code_point_class::white_space;
   return code_point_class::other;
 }
+
+} // namespace classifier
 
 } // namespace corvid::strings::unicode

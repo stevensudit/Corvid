@@ -16,9 +16,10 @@
 // limitations under the License.
 #include <cstddef>
 #include <string_view>
+#include <utility>
 #include <vector>
 
-#include "corvid/strings/utf.h"
+#include "corvid/strings/unicode.h"
 #include "catch2_main.h"
 
 using namespace std::literals;
@@ -28,41 +29,43 @@ using namespace corvid::strings::unicode;
 
 namespace {
 
-// Decode at `ndx`; a failed decode comes back as the empty `code_point`.
-constexpr code_point decode_at(std::u8string_view s, size_t ndx = 0) {
-  code_point cp;
-  (void)cp.decode(s, ndx);
-  return cp;
+// The length and code point from one decode; a failure is `{0, 0}`.
+using result = std::pair<size_t, char32_t>;
+
+constexpr result decode_at(std::u8string_view s, size_t ndx = 0) {
+  char32_t cp{};
+  const auto len = utf::decode(cp, s, ndx);
+  return {len, cp};
 }
 
-constexpr code_point bad{};
+constexpr result bad{};
 
 } // namespace
 
 #pragma region Decode
 
-TEST_CASE("Decode well-formed sequences", "[UtfTest]") {
-  CHECK(decode_at(u8"A") == code_point{U'A', 1});
-  CHECK(decode_at(u8"\x7F") == code_point{U'\x7F', 1});
-  CHECK(decode_at(u8"\xC2\x80") == code_point{U'\u0080', 2});
-  CHECK(decode_at(u8"\xC3\xA9") == code_point{U'\u00E9', 2});
-  CHECK(decode_at(u8"\xDF\xBF") == code_point{U'\u07FF', 2});
-  CHECK(decode_at(u8"\xE0\xA0\x80") == code_point{U'\u0800', 3});
-  CHECK(decode_at(u8"\xE6\x97\xA5") == code_point{U'\u65E5', 3});
-  CHECK(decode_at(u8"\xEF\xBF\xBF") == code_point{U'\uFFFF', 3});
-  CHECK(decode_at(u8"\xF0\x90\x80\x80") == code_point{U'\U00010000', 4});
-  CHECK(decode_at(u8"\xF0\x9F\x9A\x80") == code_point{U'\U0001F680', 4});
-  CHECK(decode_at(u8"\xF4\x8F\xBF\xBF") == code_point{U'\U0010FFFF', 4});
+TEST_CASE("Decode well-formed sequences", "[UnicodeTest]") {
+  CHECK(decode_at(u8"A") == result{1, U'A'});
+  CHECK(decode_at(u8"\x7F") == result{1, U'\x7F'});
+  CHECK(decode_at(u8"\xC2\x80") == result{2, U'\u0080'});
+  CHECK(decode_at(u8"\xC3\xA9") == result{2, U'\u00E9'});
+  CHECK(decode_at(u8"\xDF\xBF") == result{2, U'\u07FF'});
+  CHECK(decode_at(u8"\xE0\xA0\x80") == result{3, U'\u0800'});
+  CHECK(decode_at(u8"\xE6\x97\xA5") == result{3, U'\u65E5'});
+  CHECK(decode_at(u8"\xEF\xBF\xBF") == result{3, U'\uFFFF'});
+  CHECK(decode_at(u8"\xF0\x90\x80\x80") == result{4, U'\U00010000'});
+  CHECK(decode_at(u8"\xF0\x9F\x9A\x80") == result{4, U'\U0001F680'});
+  CHECK(decode_at(u8"\xF4\x8F\xBF\xBF") == result{4, U'\U0010FFFF'});
 
   // The index selects the sequence; bytes after it are ignored.
-  CHECK(decode_at(u8"x\xC3\xA9y", 1) == code_point{U'\u00E9', 2});
-  CHECK(decode_at(u8"x\xC3\xA9y", 3) == code_point{U'y', 1});
+  CHECK(decode_at(u8"x\xC3\xA9y", 1) == result{2, U'\u00E9'});
+  CHECK(decode_at(u8"x\xC3\xA9y", 3) == result{1, U'y'});
 
   // Everything above is also usable at compile time.
-  static_assert(decode_at(u8"\xE6\x97\xA5") == code_point{U'\u65E5', 3});
+  static_assert(decode_at(u8"\xE6\x97\xA5") == result{3, U'\u65E5'});
 }
 
-TEST_CASE("Decode rejects malformed input", "[UtfTest]") {
+TEST_CASE("Decode rejects malformed input", "[UnicodeTest]") {
   // Past the end, including the empty string.
   CHECK(decode_at(u8"") == bad);
   CHECK(decode_at(u8"x", 1) == bad);
@@ -102,46 +105,50 @@ TEST_CASE("Decode rejects malformed input", "[UtfTest]") {
 
   // UTF-16 surrogates, with their well-formed neighbors, and values past
   // U+10FFFF.
-  CHECK(decode_at(u8"\xED\x9F\xBF") == code_point{U'\uD7FF', 3});
+  CHECK(decode_at(u8"\xED\x9F\xBF") == result{3, U'\uD7FF'});
   CHECK(decode_at(u8"\xED\xA0\x80") == bad);
   CHECK(decode_at(u8"\xED\xBF\xBF") == bad);
-  CHECK(decode_at(u8"\xEE\x80\x80") == code_point{U'\uE000', 3});
+  CHECK(decode_at(u8"\xEE\x80\x80") == result{3, U'\uE000'});
   CHECK(decode_at(u8"\xF4\x90\x80\x80") == bad);
   CHECK(decode_at(u8"\xF7\xBF\xBF\xBF") == bad);
 
-  // The return value tracks `length`, and failure resets a previous decode.
-  code_point cp;
-  REQUIRE(cp.decode(u8"A", 0));
-  CHECK(cp == code_point{U'A', 1});
-  CHECK_FALSE(cp.decode(u8"A", 1));
-  CHECK(cp == bad);
+  // Failure leaves the code point untouched.
+  auto cp = U'\uFFFD';
+  CHECK(utf::decode(cp, u8"\xC3") == 0);
+  CHECK(cp == U'\uFFFD');
 }
 
-TEST_CASE("Decode iterates a string", "[UtfTest]") {
+TEST_CASE("Extract consumes the text", "[UnicodeTest]") {
   // "naive" with a diaeresis, two CJK characters, a rocket.
-  const auto text = u8"na\u00EFve \u65E5\u672C \U0001F680!"sv;
+  auto text = u8"na\u00EFve \u65E5\u672C \U0001F680!"sv;
+  const auto total = text.size();
   std::vector<char32_t> values;
   std::vector<size_t> lengths;
-  code_point cp;
-  for (size_t ndx = 0; cp.decode(text, ndx); ndx += cp.length) {
-    values.push_back(cp.value);
-    lengths.push_back(cp.length);
+  for (char32_t cp; utf::extract(cp, text);) {
+    values.push_back(cp);
+    lengths.push_back(total - text.size());
   }
+  CHECK(text.empty());
   CHECK(values == std::vector<char32_t>{U'n', U'a', U'\u00EF', U'v', U'e',
                       U' ', U'\u65E5', U'\u672C', U' ', U'\U0001F680', U'!'});
-  CHECK(lengths == std::vector<size_t>{1, 1, 2, 1, 1, 1, 3, 3, 1, 4, 1});
 
-  // The lengths tile the input exactly.
-  size_t total = 0;
-  for (const auto len : lengths) total += len;
-  CHECK(total == text.size());
+  // The prefix consumed so far grows by the encoding length each time.
+  CHECK(lengths == std::vector<size_t>{1, 2, 4, 5, 6, 7, 10, 13, 14, 18, 19});
+
+  // Failure leaves both the code point and the text untouched.
+  auto rest = u8"\xE6\x97"sv;
+  auto cp = U'\uFFFD';
+  CHECK_FALSE(utf::extract(cp, rest));
+  CHECK(cp == U'\uFFFD');
+  CHECK(rest.size() == 2);
 }
 
 #pragma endregion Decode
 
 #pragma region Classify
 
-TEST_CASE("Classify letters", "[UtfTest]") {
+TEST_CASE("Classify letters", "[UnicodeTest]") {
+  using classifier::is_letter;
   CHECK(is_letter(U'A'));
   CHECK(is_letter(U'z'));
   CHECK(is_letter(U'\u00E9'));     // e with acute, Ll
@@ -174,7 +181,8 @@ TEST_CASE("Classify letters", "[UtfTest]") {
   static_assert(!is_letter(U'!'));
 }
 
-TEST_CASE("Classify numbers", "[UtfTest]") {
+TEST_CASE("Classify numbers", "[UnicodeTest]") {
+  using classifier::is_number;
   CHECK(is_number(U'0'));
   CHECK(is_number(U'9'));
   CHECK(is_number(U'\u0660')); // Arabic-Indic zero, Nd
@@ -191,7 +199,8 @@ TEST_CASE("Classify numbers", "[UtfTest]") {
   CHECK_FALSE(is_number(U'\u00B1')); // plus-minus, Sm
 }
 
-TEST_CASE("Classify white space", "[UtfTest]") {
+TEST_CASE("Classify white space", "[UnicodeTest]") {
+  using classifier::is_white_space;
   CHECK(is_white_space(U' '));
   CHECK(is_white_space(U'\t'));
   CHECK(is_white_space(U'\n'));
@@ -217,7 +226,8 @@ TEST_CASE("Classify white space", "[UtfTest]") {
   CHECK_FALSE(is_white_space(U'a'));
 }
 
-TEST_CASE("Classify partitions code points", "[UtfTest]") {
+TEST_CASE("Classify partitions code points", "[UnicodeTest]") {
+  using namespace classifier;
   using enum code_point_class;
   CHECK(classify(U'A') == letter);
   CHECK(classify(U'\u65E5') == letter);
