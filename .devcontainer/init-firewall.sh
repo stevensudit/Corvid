@@ -76,7 +76,13 @@ for domain in \
     "embeddings.vscode-cdn.net" \
     "en.cppreference.com" \
     "gcc.gnu.org" \
-    "godbolt.org"; do
+    "godbolt.org" \
+    "www.open-std.org" \
+    "eel.is" \
+    "pypi.org" \
+    "files.pythonhosted.org" \
+    "archive.ubuntu.com" \
+    "security.ubuntu.com"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then

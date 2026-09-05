@@ -14,10 +14,16 @@ Two problems, both only visible to clang:
    evaluation. basic_format_parse_context::__check_dynamic_spec is declared
    in the class but defined out of class near the end of the header, since
    its body needs _Scanner, _Arg_t and __to_arg_t_enum, all defined in
-   between. The explicit specialization formatter<char, wchar_t> has a
-   non-template parse, so clang instantiates _M_parse -> _M_parse_width ->
-   _S_parse_width_or_precision -> check_dynamic_spec_integral ->
-   __check_dynamic_spec<int, ...> there, while the last is still undefined.
+   between. Formatter specializations for a fixed character type make
+   non-dependent calls that clang resolves and, the callee being
+   constexpr, instantiates as soon as it parses them: the parse of
+   formatter<basic_string<char, _Traits, _Alloc>, char> calls
+   _M_f.parse(__pc) on a __formatter_str<char> (the char chain), and the
+   parse of formatter<char, wchar_t> calls _M_f._M_parse<char>(__pc) on a
+   __formatter_int<wchar_t> (the wchar_t chain). Each runs parse ->
+   _M_parse_width -> _S_parse_width_or_precision ->
+   check_dynamic_spec_integral -> __check_dynamic_spec<int, ...> while
+   the last is still undefined.
    Every later constant evaluation of a format string with a dynamic width
    or precision ("{:{}}") then fails with "undefined function
    __check_dynamic_spec cannot be used in a constant expression". gcc, EDG
@@ -45,10 +51,10 @@ Two problems, both only visible to clang:
 +  enum class _Arg_t : unsigned char;
 +  // Non-template helpers for basic_format_parse_context::check_dynamic_spec_*.
 +  // Declared here and defined after _Arg_t so that the check_dynamic_spec_*
-+  // members, which explicit formatter specializations instantiate before the
-+  // end of this header, depend on no template that is still undefined at
-+  // that point (clang cannot instantiate during constant evaluation,
-+  // LLVM #73232).
++  // members, which fixed-char formatter specializations instantiate via
++  // non-dependent calls before the end of this header, depend on no template
++  // that is still undefined at that point (clang cannot instantiate during
++  // constant evaluation, LLVM #73232).
 +  constexpr bool __is_dynamic_spec_integral(_Arg_t) noexcept;
 +  constexpr bool __is_dynamic_spec_string(_Arg_t) noexcept;
 +}

@@ -116,6 +116,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Tooling for upstream gcc work (Bugzilla reports and patches). The build
+# prerequisites let a gcc tree be configured and bootstrapped in-container (the
+# gcc-build stage above has its own copy, but that stage is not in this image);
+# dejagnu runs the testsuite that a gcc-patches submission has to report on,
+# and autogen is what fixincludes' own `make check` shells out to.
+# pip and html2text are for the Claude Code tooling: html2text renders the
+# gcc.gnu.org pages, and the python3-* modules are what gcc's own
+# contrib/check_GNU_style.py and contrib/gcc-changelog scripts import.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  libgmp-dev libmpfr-dev libmpc-dev libisl-dev zlib1g-dev libzstd-dev \
+  flex bison texinfo gawk dejagnu autogen \
+  python3-pip python3-venv html2text \
+  python3-unidiff python3-termcolor python3-dateutil \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # gcc 16.2 from the gcc-build stage. gcc adds no rpath, so binaries it links
 # find its libstdc++ through ld.so.conf; the 000- name sorts ahead of the
 # system paths so /opt/gcc-16/lib64 wins over the PPA snapshot's libstdc++.
@@ -181,6 +196,10 @@ ENV PATH=$PATH:/usr/local/share/npm-global/bin
 ENV SHELL=/bin/zsh
 ENV EDITOR=nano
 ENV VISUAL=nano
+# Ubuntu marks its python as externally managed (PEP 668), so pip refuses to
+# install anything outside a venv. This is a throwaway dev container, so let
+# `pip install --user` work; the firewall allowlist has pypi.org for it.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Default powerline10k theme.
 ARG ZSH_IN_DOCKER_VERSION=1.2.0
