@@ -1,0 +1,89 @@
+{
+  "model": "openai-community/gpt2",
+  "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
+  "config": {
+    "n_layer": 12,
+    "n_head": 12,
+    "n_embd": 768,
+    "n_ctx": 1024,
+    "vocab_size": 50257,
+    "layer_norm_epsilon": 1e-05
+  },
+  "weight_layout": "conv1d: W is [in, out], y = x @ W + b",
+  "dtype": "float32",
+  "tokenizer": {
+    "corpus_tokens": 1375,
+    "corpus_lines": 85
+  },
+  "activations": "for the bisect prompt, sequence-major [T, C]: embed/out, then per block ln_1/in (residual in), attn/out, ln_2/in (residual after attention), mlp/out; then ln_f/in (residual out) and logits [T, V]",
+  "prompts": [
+    {
+      "text": "Hello",
+      "tokens": 1
+    },
+    {
+      "text": "In 1969, humans first landed on the Moon. The mission was called",
+      "tokens": 14
+    },
+    {
+      "text": "The quick brown fox jumps over the lazy dog.",
+      "tokens": 10
+    },
+    {
+      "text": "def fibonacci(n):\n    if n < 2:\n        return n\n",
+      "tokens": 27
+    },
+    {
+      "text": "Unicode: na\u00efve caf\u00e9, \u00fcber, \u65e5\u672c\u8a9e, and emoji \ud83d\ude80.",
+      "tokens": 25
+    }
+  ],
+  "bisect_prompt": 1,
+  "greedy": {
+    "prompt": 1,
+    "tokens": [
+      262,
+      366,
+      31640,
+      10604,
+      1,
+      290,
+      373,
+      257,
+      1332,
+      286,
+      262,
+      3037,
+      326,
+      561,
+      4191,
+      1085,
+      284,
+      262,
+      717,
+      1692
+    ],
+    "text": " the \"Moon Express\" and was a test of the technology that would eventually lead to the first human"
+  },
+  "grads": {
+    "batch": 4,
+    "seq": 64,
+    "loss": 5.197338581085205
+  },
+  "versions": {
+    "python": "3.12.3",
+    "torch": "2.14.0+cpu",
+    "transformers": "5.16.1",
+    "safetensors": "0.8.0"
+  },
+  "sha256": {
+    "tests/data/llm/gpt2/vocab.json": "196139668be63f3b5d6574427317ae82f612a97c5d1cdaf36ed2256dbf636783",
+    "tests/data/llm/gpt2/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+    "tests/data/llm/gpt2/corpus.txt": "3e4579503acabfdd443602fa790f66b70643b4f437fe576cc4468dbf261b89a4",
+    "tests/data/llm/gpt2/corpus_tokens.json": "e61ab3e287d8711c4313d016898eb3b54b332fabbf839ca4041512d3c674600e",
+    "tests/.local/llm/gpt2/model.safetensors": "248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707",
+    "tests/.local/llm/gpt2/logits.safetensors": "29fe3e9a0b67e3d6652e3e120801cf62b47b8259192d62d97856058413e3375c",
+    "tests/.local/llm/gpt2/activations.safetensors": "17cb33554f11a88c59767974536892c881edb0d4efd432af51a3056ee0b42cd8",
+    "tests/.local/llm/gpt2/grads.safetensors": "35959304defbf9bceb794c1878ef6b68cde27400307d8bf383be7600d0df49fc"
+  }
+}

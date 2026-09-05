@@ -29,10 +29,18 @@ the same torch version. The manifest records that version.
 import argparse
 import hashlib
 import json
+import os
 import platform
 import shutil
 import sys
 from pathlib import Path
+
+# Fetch through plain HTTP rather than the xet transport that hf_xet enables
+# by default. The plain path is one redirect from huggingface.co to the CDN
+# host in the container's firewall allowlist (us.aws.cdn.hf.co); xet would
+# add cas-server.xethub.hf.co, another rotating-address host to pin. Must be
+# set before huggingface_hub is imported.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import torch
 from huggingface_hub import hf_hub_download
