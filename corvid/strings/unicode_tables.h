@@ -21,8 +21,7 @@
 // (Unicode 15.0.0). Do not edit by hand; rerun the script.
 //
 // Each table is a sorted list of disjoint, inclusive code point ranges for
-// one Unicode class that a BPE pre-tokenizer's split rule names. The
-// classifier that searches them lives with the UTF-8 support, not here.
+// one Unicode class. The classifier that searches them is in unicode.h.
 
 namespace corvid::strings::unicode {
 

@@ -90,10 +90,13 @@ Each is a proper Corvid module with its own tests, not an LLM-private helper.
   `scripts/gen_unicode_tables.py` from Python's Unicode database (15.0.0,
   no download); the classifier that searches them is the hand-written part.
   Sized to what the tokenizer needs; transcoding to UTF-16 or UTF-32 waits
-  for a consumer. DONE 2026-09-05: `strings/utf.h` (`code_point::decode`
-  over `std::u8string_view`, rejecting overlongs, surrogates and values past
-  U+10FFFF; `is_letter`, `is_number`, `is_white_space`, and `classify` into
-  `code_point_class`), tested in `tests/portable/utf_test.cpp`.
+  for a consumer. DONE 2026-09-05: `strings/unicode.h` (`decode` and
+  `extract` over `std::u8string_view` into a `char32_t`, rejecting
+  overlongs, surrogates and values past U+10FFFF; the `classifier`
+  namespace with `is_letter`, `is_number`, `is_white_space`, and `classify`
+  into `code_point_class`), tested in `tests/portable/unicode_test.cpp`.
+  The header knows nothing about tokenizers; that is the layering, not an
+  oversight.
 - **A file mapping in `corvid/filesys`.** RAII over `mmap` of a file,
   read-only, Linux-only, reusing the `mmap_prot` and `mmap_mask` enums that
   `os_enums.h` already has for the io_uring buffer pools. No cross-platform
@@ -298,6 +301,13 @@ Settled 2026-09-05, recorded so they are not reopened:
   needs the same UTF-8 classes every newer tokenizer needs, so a newer
   model would not avoid that work, only add RoPE, GQA, and bf16 to the
   first mile.
+- The backward pass is hand-derived per op, checked against the stage-0
+  gradient dump. No autodiff: not forward-mode dual numbers, not a
+  reverse-mode tape. Either would make the backward pass fall out of the
+  forward code with no derivation, and the derivation is the learning
+  target. Considered and declined after reading
+  [tinymind](https://github.com/danmcleran/tinymind), whose `Dual` and
+  `RevVar` types are the compact reference for what was declined.
 
 ## Open
 
