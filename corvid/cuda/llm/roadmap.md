@@ -88,7 +88,8 @@ Each is a proper Corvid module with its own tests, not an LLM-private helper.
   Number general categories and the White_Space property. The range tables
   are data, generated into `strings/unicode_tables.h` by
   `scripts/gen_unicode_tables.py` from Python's Unicode database (15.0.0,
-  no download); the classifier that searches them is the hand-written part.
+  no download) as a two-stage page table with a property bitmap per code
+  point; the classifier that indexes it is the hand-written part.
   Sized to what the tokenizer needs; transcoding to UTF-16 or UTF-32 waits
   for a consumer. DONE 2026-09-05: `strings/unicode.h` (`decode` and
   `extract` over `std::u8string_view` into a `char32_t`, rejecting
