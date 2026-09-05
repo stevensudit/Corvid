@@ -220,15 +220,12 @@ public:
   // Map `length` bytes of anonymous read-write memory aligned to
   // `hugepage_size`, backed by huge pages when the system offers them.
   //
-  // Tries `mmap_mask::hugetlb` with `populate` first. When huge pages are
-  // unavailable (none configured, as on WSL2), it maps `hugepage_size` extra
-  // bytes of ordinary anonymous memory, then unmaps the prefix and suffix so
-  // the region starts on a `hugepage_size` boundary and spans exactly
-  // `length`, and requests transparent huge pages with `mmap_advice::hugepage`
-  // as a best effort. `length` must be a multiple of `hugepage_size`: a
-  // huge-page mapping can only be unmapped in whole huge pages, and the
-  // kernel rounds a short `length` up without telling us. On failure,
-  // returns an unmapped `memory_map`.
+  // Tries to allocate a huge page first, but falls back to normal-sized pages
+  // followed by a request for transparent huge pages. In either case, the
+  // memory is zeroed and fully resident.
+  //
+  // `length` must be a multiple of `hugepage_size`. On failure, returns an
+  // unmapped `memory_map`.
   [[nodiscard]] static memory_map create_huge(size_t length,
       size_t hugepage_size = default_hugepage_size) noexcept {
     assert(hugepage_size > 0 && length % hugepage_size == 0);
@@ -251,6 +248,7 @@ public:
     if (suffix > 0) (void)::munmap(base + length, suffix);
     memory_map aligned{base, length};
     (void)aligned.advise(mmap_advice::hugepage);
+    (void)aligned.advise(mmap_advice::populate_write);
     return aligned;
   }
 

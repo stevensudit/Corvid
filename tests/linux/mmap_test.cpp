@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -62,6 +63,14 @@ std::string make_content() {
   std::string s((2 * memory_map::page_size()) + 100, '\0');
   for (size_t i = 0; i < s.size(); ++i) s[i] = static_cast<char>(i % 251);
   return s;
+}
+
+// The process's resident page count, from the second field of statm.
+size_t resident_pages() {
+  size_t total{};
+  size_t resident{};
+  std::ifstream{"/proc/self/statm"} >> total >> resident;
+  return resident;
 }
 
 bool same_bytes(std::span<const std::byte> bytes, std::string_view s) {
@@ -119,12 +128,15 @@ TEST_CASE("Zero-length mapping fails", "[Mmap]") {
 TEST_CASE("Huge-page slab", "[Mmap]") {
   // Two huge pages' worth, aligned to one. Whether the system has huge
   // pages configured or not, the region is aligned, exactly sized, zeroed,
-  // and writable.
+  // writable, and already resident.
   constexpr auto hugepage = memory_map::default_hugepage_size;
   static_assert(hugepage == 2 * 1024UZ * 1024UZ);
+  const auto before = resident_pages();
   auto m = memory_map::create_huge(2 * hugepage);
   REQUIRE(m);
   CHECK(m.size() == 2 * hugepage);
+  CHECK(
+      resident_pages() >= before + ((2 * hugepage) / memory_map::page_size()));
   CHECK(reinterpret_cast<uintptr_t>(m.data()) % hugepage == 0);
   auto bytes = m.bytes();
   CHECK(std::ranges::all_of(bytes, [](std::byte b) {
