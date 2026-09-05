@@ -14,6 +14,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <bit>
 #include <cstddef>
 #include <string_view>
 #include <utility>
@@ -243,26 +244,17 @@ TEST_CASE("Classify partitions code points", "[UnicodeTest]") {
   CHECK(classify(U'\uFFFD') == other);
   CHECK(classify(U'\0') == other);
 
-  // The three named classes never overlap. Walk every white space code
-  // point, and the boundaries of every letter and number range.
-  for (const auto& r : white_space_ranges) {
-    for (auto cp = r.first; cp <= r.last; ++cp) {
-      CHECK_FALSE(is_letter(cp));
-      CHECK_FALSE(is_number(cp));
-    }
+  // Past the last code point is `other`, however far past.
+  CHECK(classify(static_cast<char32_t>(0x110000)) == other);
+  CHECK(classify(static_cast<char32_t>(0xFFFFFFFF)) == other);
+
+  // The three named classes never overlap: no table entry carries more than
+  // one property bit.
+  size_t overlaps = 0;
+  for (const auto& page : property_pages) {
+    for (const auto bits : page) overlaps += (std::popcount(bits) > 1);
   }
-  for (const auto& r : number_ranges) {
-    CHECK_FALSE(is_letter(r.first));
-    CHECK_FALSE(is_letter(r.last));
-    CHECK_FALSE(is_white_space(r.first));
-    CHECK_FALSE(is_white_space(r.last));
-  }
-  for (const auto& r : letter_ranges) {
-    CHECK_FALSE(is_number(r.first));
-    CHECK_FALSE(is_number(r.last));
-    CHECK_FALSE(is_white_space(r.first));
-    CHECK_FALSE(is_white_space(r.last));
-  }
+  CHECK(overlaps == 0);
 }
 
 #pragma endregion Classify

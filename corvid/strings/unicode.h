@@ -20,7 +20,6 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
-#include <span>
 #include <string_view>
 
 #include "unicode_tables.h"
@@ -79,29 +78,26 @@ extract(char32_t& code_point, std::u8string_view& text) noexcept {
 } // namespace utf
 namespace classifier {
 
-// Whether `cp` falls within `ranges`, a sorted list of disjoint ranges.
-[[nodiscard]] constexpr bool
-in_ranges(std::span<const codepoint_range> ranges, char32_t cp) noexcept {
-  // The only range that can hold `cp` is the last one starting at or before
-  // it, which sits just before the first one starting after it.
-  const auto after =
-      std::ranges::upper_bound(ranges, cp, {}, &codepoint_range::first);
-  return (after != ranges.begin()) && (cp <= (after - 1)->last);
+// The property bits of `cp`, as defined in "unicode_tables.h".
+[[nodiscard]] constexpr uint8_t properties(char32_t cp) noexcept {
+  if (cp > max_code_point) return 0;
+  constexpr auto page_mask = (char32_t{1} << page_shift) - 1;
+  return property_pages[property_index[cp >> page_shift]][cp & page_mask];
 }
 
 // General category L: Lu, Ll, Lt, Lm, Lo.
 [[nodiscard]] constexpr bool is_letter(char32_t cp) noexcept {
-  return in_ranges(letter_ranges, cp);
+  return (properties(cp) & letter_bit);
 }
 
 // General category N: Nd, Nl, No.
 [[nodiscard]] constexpr bool is_number(char32_t cp) noexcept {
-  return in_ranges(number_ranges, cp);
+  return (properties(cp) & number_bit);
 }
 
 // The White_Space property, which is what a regex backslash-s matches.
 [[nodiscard]] constexpr bool is_white_space(char32_t cp) noexcept {
-  return in_ranges(white_space_ranges, cp);
+  return (properties(cp) & white_space_bit);
 }
 
 // The tabulated class a code point belongs to, or `other` for none.
@@ -112,9 +108,10 @@ enum class code_point_class : uint8_t { other, letter, number, white_space };
 
 // Classify `cp`.
 [[nodiscard]] constexpr code_point_class classify(char32_t cp) noexcept {
-  if (is_letter(cp)) return code_point_class::letter;
-  if (is_number(cp)) return code_point_class::number;
-  if (is_white_space(cp)) return code_point_class::white_space;
+  const auto bits = properties(cp);
+  if (bits & letter_bit) return code_point_class::letter;
+  if (bits & number_bit) return code_point_class::number;
+  if (bits & white_space_bit) return code_point_class::white_space;
   return code_point_class::other;
 }
 
