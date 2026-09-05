@@ -223,36 +223,45 @@ public:
   [[nodiscard]] static bool
   split(std::vector<std::u8string_view>& chunks, std::u8string_view text) {
     strings::truncate_guard guard(chunks);
-    for (size_t pos = 0; pos < text.size();) {
+    // Text runs about four to six bytes per chunk, so this guess is within
+    // the factor of two that costs at most one more growth step.
+    chunks.reserve(chunks.size() + (text.size() / 4));
+    auto rest = text;
+    while (!rest.empty()) {
+      // The chunk runs from here to wherever `rest` is left.
+      const auto chunk = rest;
       char32_t cp{};
-      const auto len = utf::decode(cp, text, pos);
-      if (!len) return false;
-      auto end = pos + len;
+      if (!utf::extract(cp, rest)) return false;
       if (cp == U'\'') {
         // A contraction, else the apostrophe starts a punctuation run.
-        const auto suffix = contraction_suffix_length(text.substr(end));
-        end = suffix ? end + suffix
-                     : find_run_end(text, end, code_point_class::other);
+        if (const auto len = contraction_suffix_length(rest))
+          rest.remove_prefix(len);
+        else
+          skip_run(rest, code_point_class::other);
       } else if (cp == U' ') {
         // A single space leads the run after it, whatever its class, unless
         // that run is more whitespace, in which case the space is part of
         // it.
+        auto after_next = rest;
         char32_t next{};
-        const auto next_len = utf::decode(next, text, end);
         const auto cls =
-            next_len ? classifier::classify(next)
-                     : code_point_class::white_space;
-        end = (cls == code_point_class::white_space)
-                  ? find_white_space_chunk_end(text, pos)
-                  : find_run_end(text, end + next_len, cls);
+            utf::extract(next, after_next)
+                ? classifier::classify(next)
+                : code_point_class::white_space;
+        if (cls == code_point_class::white_space) {
+          skip_white_space_chunk(rest, chunk);
+        } else {
+          rest = after_next;
+          skip_run(rest, cls);
+        }
+      } else if (const auto cls = classifier::classify(cp);
+          cls == code_point_class::white_space)
+      {
+        skip_white_space_chunk(rest, chunk);
       } else {
-        const auto cls = classifier::classify(cp);
-        end = (cls == code_point_class::white_space)
-                  ? find_white_space_chunk_end(text, pos)
-                  : find_run_end(text, end, cls);
+        skip_run(rest, cls);
       }
-      chunks.push_back(text.substr(pos, end - pos));
-      pos = end;
+      chunks.push_back(chunk.substr(0, chunk.size() - rest.size()));
     }
     return guard.release();
   }
@@ -392,34 +401,42 @@ private:
     return (ch == u8's' || ch == u8't' || ch == u8'm' || ch == u8'd') ? 1 : 0;
   }
 
-  // Find the end of the run of code points of class `cls` that starts at
-  // `pos`.
-  [[nodiscard]] static constexpr size_t find_run_end(std::u8string_view text,
-      size_t pos, code_point_class cls) noexcept {
-    char32_t cp{};
-    while (const auto len = utf::decode(cp, text, pos)) {
-      if (classifier::classify(cp) != cls) break;
-      pos += len;
+  // Consume the run of code points of class `cls` at the front of `rest`,
+  // returning how many there were.
+  static constexpr size_t
+  skip_run(std::u8string_view& rest, code_point_class cls) noexcept {
+    size_t count{};
+    for (auto after = rest;; after = rest) {
+      char32_t cp{};
+      if (!utf::extract(cp, after) || classifier::classify(cp) != cls) break;
+      rest = after;
+      ++count;
     }
-    return pos;
+    return count;
   }
 
-  // Find the end of the whitespace chunk that starts at `pos`, which must
-  // hold a whitespace code point.
+  // Consume the rest of the whitespace chunk that starts at `chunk`, whose
+  // first code point, already consumed from `rest`, must be whitespace.
+  // Returns how many code points the chunk has.
   //
   // A run followed by anything else gives up its last code point to lead the
   // next chunk, unless that is the run's only one.
-  [[nodiscard]] static constexpr size_t
-  find_white_space_chunk_end(std::u8string_view text, size_t pos) noexcept {
-    const auto start = pos;
-    auto last = pos;
-    char32_t cp{};
-    while (const auto len = utf::decode(cp, text, pos)) {
-      if (!classifier::is_white_space(cp)) break;
-      last = pos;
-      pos += len;
+  static constexpr size_t skip_white_space_chunk(std::u8string_view& rest,
+      std::u8string_view chunk) noexcept {
+    auto last = chunk;
+    size_t count = 1;
+    for (auto after = rest;; after = rest) {
+      char32_t cp{};
+      if (!utf::extract(cp, after) || !classifier::is_white_space(cp)) break;
+      last = rest;
+      rest = after;
+      ++count;
     }
-    return (pos < text.size() && last > start) ? last : pos;
+    if (!rest.empty() && count > 1) {
+      rest = last;
+      --count;
+    }
+    return count;
   }
 
   // The pair key: two 16-bit IDs in one 32-bit word.
