@@ -210,8 +210,8 @@ Design decisions (2026-09-05), agreed before the user writes the code:
 
 Status (2026-09-05): WRITTEN, tests green on libc++ and libstdc++.
 `gpt2_tokenizer.h` holds `corvid::llm::token_id` and class
-`gpt2_tokenizer`: the byte spelling tables (consteval, in `details`),
-`byte_to_code_point` / `code_point_to_byte` / `piece_to_bytes`, the static
+`gpt2_tokenizer`: the byte escaping tables (consteval, in `details`),
+`escape_byte` / `unescape_byte` / `unescape_piece`, the static
 `split` (the regex as a hand-written scanner over `unicode.h`), `load`
 (merges text only, strong guarantee), `encode`, `decode`, `size`, and
 `piece`. Merging runs in place on the output vector's tail. The test is

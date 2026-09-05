@@ -103,65 +103,66 @@ chunks_t chunks_of(std::u8string_view text) {
 
 } // namespace
 
-#pragma region Byte spelling
+#pragma region Byte escaping
 
-TEST_CASE("Bytes spell as code points", "[Gpt2TokenizerTest]") {
-  // The printable Latin-1 bytes spell themselves.
-  CHECK(gpt2_tokenizer::byte_to_code_point('!') == U'!');
-  CHECK(gpt2_tokenizer::byte_to_code_point('~') == U'~');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0xA1) == U'\u00A1');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0xAC) == U'\u00AC');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0xAE) == U'\u00AE');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0xFF) == U'\u00FF');
+TEST_CASE("Bytes escape to printable code points", "[Gpt2TokenizerTest]") {
+  // The printable Latin-1 bytes escape to themselves.
+  CHECK(gpt2_tokenizer::escape_byte('!') == U'!');
+  CHECK(gpt2_tokenizer::escape_byte('~') == U'~');
+  CHECK(gpt2_tokenizer::escape_byte(0xA1) == U'\u00A1');
+  CHECK(gpt2_tokenizer::escape_byte(0xAC) == U'\u00AC');
+  CHECK(gpt2_tokenizer::escape_byte(0xAE) == U'\u00AE');
+  CHECK(gpt2_tokenizer::escape_byte(0xFF) == U'\u00FF');
 
   // The other 68 take U+0100 up in byte order, so the space is U+0120 and
   // the soft hyphen is the last.
-  CHECK(gpt2_tokenizer::byte_to_code_point(0x00) == U'\u0100');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0x20) == U'\u0120');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0x7F) == U'\u0121');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0x80) == U'\u0122');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0xA0) == U'\u0142');
-  CHECK(gpt2_tokenizer::byte_to_code_point(0xAD) == U'\u0143');
-  static_assert(gpt2_tokenizer::byte_to_code_point(0x20) == U'\u0120');
+  CHECK(gpt2_tokenizer::escape_byte(0x00) == U'\u0100');
+  CHECK(gpt2_tokenizer::escape_byte(0x20) == U'\u0120');
+  CHECK(gpt2_tokenizer::escape_byte(0x7F) == U'\u0121');
+  CHECK(gpt2_tokenizer::escape_byte(0x80) == U'\u0122');
+  CHECK(gpt2_tokenizer::escape_byte(0xA0) == U'\u0142');
+  CHECK(gpt2_tokenizer::escape_byte(0xAD) == U'\u0143');
+  static_assert(gpt2_tokenizer::escape_byte(0x20) == U'\u0120');
 }
 
-TEST_CASE("Code points spell back to bytes", "[Gpt2TokenizerTest]") {
+TEST_CASE("Escaped bytes unescape", "[Gpt2TokenizerTest]") {
   for (auto ndx = 0; ndx < 256; ++ndx) {
     const auto byte = static_cast<uint8_t>(ndx);
-    const auto cp = gpt2_tokenizer::byte_to_code_point(byte);
+    const auto escaped = gpt2_tokenizer::escape_byte(byte);
     uint8_t back{};
-    REQUIRE(gpt2_tokenizer::code_point_to_byte(back, cp));
+    REQUIRE(gpt2_tokenizer::unescape_byte(back, escaped));
     CHECK(back == byte);
   }
 
-  // A code point that spells no byte fails and leaves the byte alone.
-  for (const auto cp : {U' ', U'\u00A0', U'\u00AD', U'\u0144', U'\u65E5'}) {
+  // An escaped form that stands for no byte fails and leaves the byte alone.
+  for (const auto escaped : {U' ', U'\u00A0', U'\u00AD', U'\u0144', U'\u65E5'})
+  {
     uint8_t byte = 0xEE;
-    CHECK_FALSE(gpt2_tokenizer::code_point_to_byte(byte, cp));
+    CHECK_FALSE(gpt2_tokenizer::unescape_byte(byte, escaped));
     CHECK(byte == 0xEE);
   }
 }
 
-TEST_CASE("Pieces spell back to bytes", "[Gpt2TokenizerTest]") {
+TEST_CASE("Escaped pieces unescape", "[Gpt2TokenizerTest]") {
   std::u8string bytes;
-  REQUIRE(gpt2_tokenizer::piece_to_bytes(bytes, u8"\u0120t"));
+  REQUIRE(gpt2_tokenizer::unescape_piece(bytes, u8"\u0120t"));
   CHECK(narrow(bytes) == " t");
 
   // A multibyte character comes back as its UTF-8 bytes: e with an acute
   // accent, then a right single quotation mark.
   bytes.clear();
-  REQUIRE(gpt2_tokenizer::piece_to_bytes(bytes, u8"\u00C3\u00A9"));
+  REQUIRE(gpt2_tokenizer::unescape_piece(bytes, u8"\u00C3\u00A9"));
   CHECK(narrow(bytes) == "\xC3\xA9");
   bytes.clear();
-  REQUIRE(gpt2_tokenizer::piece_to_bytes(bytes, u8"\u00E2\u0122\u013B"));
+  REQUIRE(gpt2_tokenizer::unescape_piece(bytes, u8"\u00E2\u0122\u013B"));
   CHECK(narrow(bytes) == "\xE2\x80\x99");
 
   // Appending to what is there, and leaving it alone on failure.
   bytes = u8"x";
-  REQUIRE(gpt2_tokenizer::piece_to_bytes(bytes, u8"y"));
+  REQUIRE(gpt2_tokenizer::unescape_piece(bytes, u8"y"));
   CHECK(narrow(bytes) == "xy");
-  CHECK_FALSE(gpt2_tokenizer::piece_to_bytes(bytes, u8"a b"));
-  CHECK_FALSE(gpt2_tokenizer::piece_to_bytes(bytes, u8"a\xC3"));
+  CHECK_FALSE(gpt2_tokenizer::unescape_piece(bytes, u8"a b"));
+  CHECK_FALSE(gpt2_tokenizer::unescape_piece(bytes, u8"a\xC3"));
   CHECK(narrow(bytes) == "xy");
 }
 
@@ -316,7 +317,7 @@ TEST_CASE("Vocabulary matches vocab.json", "[Gpt2TokenizerTest]") {
       continue;
     }
     bytes.clear();
-    REQUIRE(gpt2_tokenizer::piece_to_bytes(bytes, as_utf8(key)));
+    REQUIRE(gpt2_tokenizer::unescape_piece(bytes, as_utf8(key)));
     REQUIRE(*id < tok.size());
     CHECK(narrow(tok.piece(id)) == narrow(bytes));
   }
