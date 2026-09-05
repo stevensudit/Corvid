@@ -37,8 +37,9 @@
 //
 // `gpt2_tokenizer` loads the merge table from the text of "merges.txt". This
 // allows it to encode UTF-8 text to token IDs and decode IDs back to bytes.
-// The text file stores each byte as a printable code point (with an offset of
-// U+0100 for non-printable bytes), but this is decoded at load time.
+// The published tables store every byte in an escaped form that keeps it
+// printable (see `details::escaped_bytes`). `load` unescapes each piece once,
+// and nothing else touches the escaped form.
 //
 // Loading:
 //   gpt2_tokenizer tok;
@@ -65,23 +66,24 @@ consteval auto corvid_enum_spec(token_id*) {
 
 namespace details {
 
-// Whether the published tables map a `byte` to itself.
+// Whether `byte` is its own escaped form.
 //
-// These are the printable Latin-1 bytes: ASCII from '!' to '~', and the
-// Latin-1 Supplement without the no-break space and the soft hyphen. Note that
-// we are not interpreting the input as UTF-8.
+// These are the printable Latin-1 bytes (not UTF-8). They're ASCII from '!' to
+// '~', and the Latin-1 Supplement, without the no-break space and the soft
+// hyphen.
 [[nodiscard]] constexpr bool is_printable_latin1(uint8_t byte) noexcept {
   return (byte >= 0x21 && byte <= 0x7E) || (byte >= 0xA1 && byte <= 0xAC) ||
          byte >= 0xAE;
 }
 
-// The code point that the published tables map each byte as.
+// Generate a lookup table for the escaped form, providing the `char32_t` code
+// point for a byte.
 //
 // This is the encoding used in "merges.txt" and "vocab.json" to ensure that
-// all characters are printable. Therefore, a printable Latin-1 byte maps to
-// itself, while the other 68 bytes are assigned the code points from U+0100
-// up, in order.
-[[nodiscard]] consteval std::array<char32_t, 256> make_byte_code_points() {
+// all characters are printable. Therefore, the printable Latin-1 bytes are
+// unescaped (mapping to themselves) while the other 68 bytes are assigned the
+// code points from U+0100 up, in order.
+[[nodiscard]] consteval std::array<char32_t, 256> make_escaped_bytes_lookup() {
   std::array<char32_t, 256> table{};
   auto next = U'\u0100';
   for (char32_t byte = 0; byte < 256; ++byte)
@@ -89,23 +91,27 @@ namespace details {
         is_printable_latin1(static_cast<uint8_t>(byte)) ? byte : next++;
   return table;
 }
-inline constexpr auto byte_code_points = make_byte_code_points();
-inline constexpr auto max_byte_code_point = std::ranges::max(byte_code_points);
+inline constexpr auto escaped_bytes_lookup = make_escaped_bytes_lookup();
+inline constexpr auto max_escaped_byte =
+    std::ranges::max(escaped_bytes_lookup);
 
-// The byte that each code point up to `max_byte_code_point` maps to; the
-// inverse of `make_byte_code_points`.
+// Generate a lookup table for the byte behind each `char32_t` escaped form, up
+// to `max_escaped_byte`; the inverse of `escaped_bytes_lookup`.
 //
-// A code point that maps to no byte holds 0. `code_point_to_byte` tells the
-// two apart by mapping the byte back.
-[[nodiscard]] consteval auto make_code_point_bytes() {
-  std::array<uint8_t, max_byte_code_point + 1> table{};
+// An impossible escaped form, which is a non-printable value that should have
+// been mapped to the U+0100 range, contains a 0. The way to tell whether a 0
+// is a flag for invalid input or the actual unescaped value for U+0100 is to
+// round-trip it and check that it's unchanged; this is what `unescape_byte`
+// does.
+[[nodiscard]] consteval auto make_unescaped_bytes_lookup() {
+  std::array<uint8_t, max_escaped_byte + 1> table{};
   for (auto byte = 0; byte < 256; ++byte)
-    table[byte_code_points[byte]] = static_cast<uint8_t>(byte);
+    table[escaped_bytes_lookup[byte]] = static_cast<uint8_t>(byte);
   return table;
 }
-inline constexpr auto code_point_bytes = make_code_point_bytes();
+inline constexpr auto unescaped_bytes_lookup = make_unescaped_bytes_lookup();
 
-// The count of bytes that map to themselves.
+// The count of bytes that are their own escaped form.
 [[nodiscard]] consteval uint32_t count_printable_latin1() {
   uint32_t count{};
   for (auto byte = 0; byte < 256; ++byte)
@@ -115,9 +121,9 @@ inline constexpr auto code_point_bytes = make_code_point_bytes();
 
 // The ID of each byte's piece.
 //
-// The published vocabulary numbers the bytes by their code points in
-// ascending order. The printable Latin-1 bytes maps below U+0100 and the
-// rest above, each group in byte order, so the printable bytes map to the IDs
+// The published vocabulary numbers the bytes by their escaped forms in
+// ascending order. The printable Latin-1 bytes escape below U+0100 and the
+// rest above, each group in byte order, so the printable bytes take the IDs
 // from 0 in byte order and the rest continue from their count.
 [[nodiscard]] consteval std::array<token_id, 256> make_byte_ids() {
   std::array<token_id, 256> ids{};
@@ -155,38 +161,37 @@ inline constexpr auto id_bytes = make_id_bytes();
 // not a piece, so `encode` never produces it and `decode` rejects it.
 class gpt2_tokenizer {
 public:
-#pragma region Byte spelling
+#pragma region Byte escaping
 
-  // The code point that the published tables spell `byte` as.
-  [[nodiscard]] static constexpr char32_t byte_to_code_point(
-      uint8_t byte) noexcept {
-    return details::byte_code_points[byte];
+  // The escaped form of `byte`.
+  [[nodiscard]] static constexpr char32_t escape_byte(uint8_t byte) noexcept {
+    return details::escaped_bytes_lookup[byte];
   }
 
-  // Recover the byte that `cp` spells.
+  // Recover the byte behind `escaped`.
   //
   // On success, returns true and sets `byte`. On failure, returns false,
   // leaving `byte` untouched.
   [[nodiscard]] static constexpr bool
-  code_point_to_byte(uint8_t& byte, char32_t cp) noexcept {
-    if (cp > details::max_byte_code_point) return false;
-    const auto candidate = details::code_point_bytes[cp];
-    if (details::byte_code_points[candidate] != cp) return false;
+  unescape_byte(uint8_t& byte, char32_t escaped) noexcept {
+    if (escaped > details::max_escaped_byte) return false;
+    const auto candidate = details::unescaped_bytes_lookup[escaped];
+    if (details::escaped_bytes_lookup[candidate] != escaped) return false;
     byte = candidate;
     return true;
   }
 
-  // Recover the bytes that `piece`, in the published spelling, stands for,
-  // appending them to `bytes`.
+  // Recover the bytes behind `piece`, which is escaped, appending them to
+  // `bytes`.
   //
-  // On failure (malformed UTF-8, or a code point that spells no byte),
-  // returns false, leaving `bytes` untouched.
+  // On failure (malformed UTF-8, or an escaped form that stands for no
+  // byte), returns false, leaving `bytes` untouched.
   [[nodiscard]] static constexpr bool
-  piece_to_bytes(std::u8string& bytes, std::u8string_view piece) {
+  unescape_piece(std::u8string& bytes, std::u8string_view piece) {
     const auto original = bytes.size();
     for (char32_t cp{}; utf::extract(cp, piece);) {
       uint8_t byte{};
-      if (!code_point_to_byte(byte, cp)) {
+      if (!unescape_byte(byte, cp)) {
         bytes.resize(original);
         return false;
       }
@@ -256,11 +261,11 @@ public:
   // Load the merge table from `merges_text`, the contents of "merges.txt".
   //
   // The text is a header line starting with '#', if any, then one merge per
-  // line as "left right" in rank order. Each side is a piece in the
-  // published spelling and must already be in the vocabulary. A trailing
-  // '\r' on a line is ignored. On failure (a malformed line, an unknown
-  // side, a duplicate result, or a vocabulary too large for the pair key),
-  // returns false, leaving the tokenizer as it was.
+  // line as "left right" in rank order. Each side is an escaped piece and must
+  // already be in the vocabulary. A trailing '\r' on a line is ignored. On
+  // failure (a malformed line, an unknown side, a duplicate result, or a
+  // vocabulary too large for the pair key), returns false, leaving the
+  // tokenizer as it was.
   [[nodiscard]] bool load(std::u8string_view merges_text) {
     using parser = strings::basic_token_parser<char8_t>;
 
@@ -285,16 +290,16 @@ public:
     while (!merges_text.empty()) {
       auto line = parser::next_delimited(u8'\n', merges_text);
       if (line.ends_with(u8'\r')) line.remove_suffix(1);
-      const auto left_spelled = parser::next_delimited(u8' ', line);
-      const auto right_spelled = line;
-      if (left_spelled.empty() || right_spelled.empty() ||
-          right_spelled.contains(u8' '))
+      const auto left_escaped = parser::next_delimited(u8' ', line);
+      const auto right_escaped = line;
+      if (left_escaped.empty() || right_escaped.empty() ||
+          right_escaped.contains(u8' '))
         return false;
 
       left.clear();
       right.clear();
-      if (!piece_to_bytes(left, left_spelled) ||
-          !piece_to_bytes(right, right_spelled))
+      if (!unescape_piece(left, left_escaped) ||
+          !unescape_piece(right, right_escaped))
         return false;
       const auto left_id = find_opt(ids_by_bytes, left);
       const auto right_id = find_opt(ids_by_bytes, right);
