@@ -53,6 +53,7 @@
 //   if (!tok.decode(bytes, ids)) ...
 namespace corvid::llm {
 using namespace strings::unicode;
+using strings::unicode::classifier::code_point_class;
 
 #pragma region token_id
 
@@ -221,32 +222,34 @@ public:
   // returns false, leaving `chunks` untouched.
   [[nodiscard]] static bool
   split(std::vector<std::u8string_view>& chunks, std::u8string_view text) {
-    using enum classifier::code_point_class;
     strings::truncate_guard guard(chunks);
     for (size_t pos = 0; pos < text.size();) {
       char32_t cp{};
       const auto len = utf::decode(cp, text, pos);
-      if (len == 0) return false;
+      if (!len) return false;
       auto end = pos + len;
       if (cp == U'\'') {
         // A contraction, else the apostrophe starts a punctuation run.
-        const auto suffix = contraction_suffix(text.substr(end));
-        end = suffix ? end + suffix : skip_run(text, end, other);
+        const auto suffix = contraction_suffix_length(text.substr(end));
+        end = suffix ? end + suffix
+                     : find_run_end(text, end, code_point_class::other);
       } else if (cp == U' ') {
         // A single space leads the run after it, whatever its class, unless
         // that run is more whitespace, in which case the space is part of
         // it.
         char32_t next{};
         const auto next_len = utf::decode(next, text, end);
-        const auto cls = next_len ? classifier::classify(next) : white_space;
-        end = (cls == white_space)
-                  ? skip_white_space(text, pos)
-                  : skip_run(text, end + next_len, cls);
+        const auto cls =
+            next_len ? classifier::classify(next)
+                     : code_point_class::white_space;
+        end = (cls == code_point_class::white_space)
+                  ? find_white_space_chunk_end(text, pos)
+                  : find_run_end(text, end + next_len, cls);
       } else {
         const auto cls = classifier::classify(cp);
-        end = (cls == white_space)
-                  ? skip_white_space(text, pos)
-                  : skip_run(text, end, cls);
+        end = (cls == code_point_class::white_space)
+                  ? find_white_space_chunk_end(text, pos)
+                  : find_run_end(text, end, cls);
       }
       chunks.push_back(text.substr(pos, end - pos));
       pos = end;
@@ -379,21 +382,20 @@ public:
 #pragma region Helpers
 private:
   // The length of the contraction suffix at the front of `rest`, or 0.
-  [[nodiscard]] static constexpr size_t contraction_suffix(
+  [[nodiscard]] static constexpr size_t contraction_suffix_length(
       std::u8string_view rest) noexcept {
+    if (rest.empty()) return 0;
     if (rest.starts_with(u8"re") || rest.starts_with(u8"ve") ||
         rest.starts_with(u8"ll"))
       return 2;
-    if (rest.empty()) return 0;
     const auto ch = rest.front();
     return (ch == u8's' || ch == u8't' || ch == u8'm' || ch == u8'd') ? 1 : 0;
   }
 
-  // The end of the run of code points of class `cls` starting at `pos`.
-  //
-  // Malformed UTF-8 ends the run, for the caller's next decode to reject.
-  [[nodiscard]] static constexpr size_t skip_run(std::u8string_view text,
-      size_t pos, classifier::code_point_class cls) noexcept {
+  // Find the end of the run of code points of class `cls` that starts at
+  // `pos`.
+  [[nodiscard]] static constexpr size_t find_run_end(std::u8string_view text,
+      size_t pos, code_point_class cls) noexcept {
     char32_t cp{};
     while (const auto len = utf::decode(cp, text, pos)) {
       if (classifier::classify(cp) != cls) break;
@@ -402,13 +404,13 @@ private:
     return pos;
   }
 
-  // The end of the whitespace chunk starting at `pos`, which must hold a
-  // whitespace code point.
+  // Find the end of the whitespace chunk that starts at `pos`, which must
+  // hold a whitespace code point.
   //
   // A run followed by anything else gives up its last code point to lead the
   // next chunk, unless that is the run's only one.
   [[nodiscard]] static constexpr size_t
-  skip_white_space(std::u8string_view text, size_t pos) noexcept {
+  find_white_space_chunk_end(std::u8string_view text, size_t pos) noexcept {
     const auto start = pos;
     auto last = pos;
     char32_t cp{};
