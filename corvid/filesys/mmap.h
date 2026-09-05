@@ -20,6 +20,7 @@
 #ifdef _WIN32
 #error "\"mmap.h\" is Linux-only."
 #endif
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -132,12 +133,21 @@ consteval auto corvid_enum_spec(mmap_advice*) {
 // RAII wrapper around a Linux memory mapping.
 //
 // `memory_map` owns one region created by `::mmap` and unmaps it when
-// destroyed. The factories cover the raw call and the file-backed cases, and
-// `advise` wraps `::madvise`. Every call passes its arguments through, so
-// the kernel is the sole arbiter: failure is signaled through the return
-// value, with the reason left in `errno` for `os_error::last()`.
+// destroyed. The factories cover the raw call, the file-backed cases, and a
+// huge-page slab with an ordinary-page fallback; `advise` wraps `::madvise`.
+//
+// Every call passes its arguments through, so the kernel is the sole
+// arbiter: failure is signaled through the return value, with the reason
+// left in `errno` for `os_error::last()`.
 class [[nodiscard]] memory_map {
 public:
+#pragma region Types
+
+  // The huge page size `create_huge` aligns to by default: the x86-64 size,
+  // which is also the transparent huge page size there.
+  static constexpr size_t default_hugepage_size = 2 * 1024UZ * 1024UZ;
+
+#pragma endregion
 #pragma region Construction
 
   memory_map() noexcept = default;
@@ -205,6 +215,43 @@ public:
     // NOLINTNEXTLINE(clang-analyzer-unix.StdCLibraryFunctions)
     if (::fstat(file.handle(), &st) != 0) return {};
     return map(file, static_cast<size_t>(st.st_size), 0, prot, flags);
+  }
+
+  // Map `length` bytes of anonymous read-write memory aligned to
+  // `hugepage_size`, backed by huge pages when the system offers them.
+  //
+  // Tries `mmap_mask::hugetlb` with `populate` first. When huge pages are
+  // unavailable (none configured, as on WSL2), it maps `hugepage_size` extra
+  // bytes of ordinary anonymous memory, then unmaps the prefix and suffix so
+  // the region starts on a `hugepage_size` boundary and spans exactly
+  // `length`, and requests transparent huge pages with `mmap_advice::hugepage`
+  // as a best effort. `length` must be a multiple of `hugepage_size`: a
+  // huge-page mapping can only be unmapped in whole huge pages, and the
+  // kernel rounds a short `length` up without telling us. On failure,
+  // returns an unmapped `memory_map`.
+  [[nodiscard]] static memory_map create_huge(size_t length,
+      size_t hugepage_size = default_hugepage_size) noexcept {
+    assert(hugepage_size > 0 && length % hugepage_size == 0);
+    constexpr auto rw = mmap_prot::read | mmap_prot::write;
+    constexpr auto anonymous = mmap_mask::map_private | mmap_mask::anonymous;
+    auto huge = create(length, rw,
+        anonymous | mmap_mask::hugetlb | mmap_mask::populate);
+    if (huge) return huge;
+
+    const auto reserve = length + hugepage_size;
+    auto raw = create(reserve, rw, anonymous);
+    if (!raw) return {};
+    auto* start = static_cast<std::byte*>(raw.release());
+    const auto misalignment =
+        reinterpret_cast<uintptr_t>(start) % hugepage_size;
+    const auto prefix = (hugepage_size - misalignment) % hugepage_size;
+    auto* base = start + prefix;
+    if (prefix > 0) (void)::munmap(start, prefix);
+    const auto suffix = reserve - prefix - length;
+    if (suffix > 0) (void)::munmap(base + length, suffix);
+    memory_map aligned{base, length};
+    (void)aligned.advise(mmap_advice::hugepage);
+    return aligned;
   }
 
   // Open `path` read-only and map the whole file privately.

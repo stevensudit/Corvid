@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <cstring>
 #include <system_error>
-#include <sys/mman.h>
 
 #include "../../concurrency/owner_thread_dispatcher.h"
 #include "../../infra/relaxed_atomic.h"
@@ -60,10 +59,10 @@ public:
   // Public for `std::make_shared`; external callers must go through `create`.
   //
   // Constructs a pool backed by a slab of `slab_size` bytes (must be a
-  // multiple of `hugepage_size`), split into slots of `buf_size` bytes each.
-  // `buf_count` is derived as `slab_size / buf_size` and must be a power of
-  // two. Pass `slab_size = 0` for a no-op pool. Throws `std::system_error`
-  // on allocation failure.
+  // multiple of `memory_map::default_hugepage_size`), split into slots of
+  // `buf_size` bytes each. `buf_count` is derived as `slab_size / buf_size`
+  // and must be a power of two. Pass `slab_size = 0` for a no-op pool. Throws
+  // `std::system_error` on allocation failure.
   iou_provided_buf_pool(allow, dispatcher_t& dispatcher, size_t slab_size,
       block_size buf_size, uint16_t bgid = 0)
       : dispatcher_{&dispatcher}, bgid_{bgid} {
@@ -74,9 +73,9 @@ public:
     if (buf_count == 0) return;
     if (!std::has_single_bit(buf_count))
       throw std::invalid_argument{"buf_count must be a power of two"};
-    if (slab_size % hugepage_size != 0)
+    if (slab_size % memory_map::default_hugepage_size != 0)
       throw std::invalid_argument{
-          "slab_size must be a multiple of hugepage_size"};
+          "slab_size must be a multiple of the huge page size"};
     if (buf_count >
         static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ULL)
       throw std::invalid_argument{
@@ -85,36 +84,9 @@ public:
     buf_size_ = buf_bytes;
     buf_count_ = buf_count;
 
-    // Try a hugepage-backed mapping first; fall back to anonymous with
-    // hugepage advice. Over-allocate by one `hugepage_size` to guarantee
-    // alignment.
-    base_ = reinterpret_cast<std::byte*>(::mmap(nullptr, slab_size_,
-        *(mmap_prot::read | mmap_prot::write),
-        *(mmap_mask::map_private | mmap_mask::anonymous | mmap_mask::hugetlb |
-            mmap_mask::populate),
-        -1, 0));
-    if (base_ == MAP_FAILED) {
-      const auto reserve = slab_size_ + hugepage_size;
-      auto* raw_ptr = reinterpret_cast<std::byte*>(::mmap(nullptr, reserve,
-          *(mmap_prot::read | mmap_prot::write),
-          *(mmap_mask::map_private | mmap_mask::anonymous), -1, 0));
-      if (raw_ptr == MAP_FAILED)
-        throw std::system_error{errno, std::system_category(), "mmap"};
-      const auto prefix =
-          (hugepage_size -
-              (reinterpret_cast<uintptr_t>(raw_ptr) % hugepage_size)) %
-          hugepage_size;
-      base_ = raw_ptr + prefix;
-      if (prefix > 0) ::munmap(raw_ptr, prefix);
-      const auto suffix = reserve - prefix - slab_size_;
-      if (suffix > 0) ::munmap(base_ + slab_size_, suffix);
-      (void)::madvise(base_, slab_size_, *mmap_advice::hugepage);
-    }
-    std::memset(base_, 0, slab_size_);
-  }
-
-  ~iou_provided_buf_pool() override {
-    if (base_) ::munmap(base_, slab_size_);
+    slab_ = memory_map::create_huge(slab_size_);
+    if (!slab_) throw std::system_error{errno, std::system_category(), "mmap"};
+    std::memset(slab_.data(), 0, slab_size_);
   }
 
   iou_provided_buf_pool(const iou_provided_buf_pool&) = delete;
@@ -134,12 +106,14 @@ public:
 #pragma region Accessors
 
   // Whether the pool is active (non-zero sizes, memory allocated).
-  [[nodiscard]] explicit operator bool() const noexcept { return base_; }
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return slab_.is_mapped();
+  }
 
   // Buffer group ID; use as the `bgid` for `IOSQE_BUFFER_SELECT` SQEs.
   [[nodiscard]] uint16_t bgid() const noexcept { return bgid_; }
 
-  // Slab size in bytes (a multiple of `hugepage_size`).
+  // Slab size in bytes (a multiple of the huge page size).
   [[nodiscard]] size_t slab_size() const noexcept { return slab_size_; }
 
   // Per-buffer size in bytes.
@@ -156,8 +130,8 @@ public:
   // Pointer to the start of buffer slot `bid`. Returns null if the pool is
   // unconfigured or `bid` is out of range.
   [[nodiscard]] std::byte* buf_data(size_t bid) const noexcept {
-    if (!base_ || bid >= buf_count_) return nullptr;
-    return base_ + (bid * buf_size_);
+    if (!base() || bid >= buf_count_) return nullptr;
+    return base() + (bid * buf_size_);
   }
 
 #pragma endregion
@@ -170,7 +144,7 @@ public:
   //
   // Note that, when `slab_size` is 0, we silently pass.
   [[nodiscard]] iou_res register_with(iou_ring& ring) noexcept {
-    if (!base_) return {};
+    if (!base()) return {};
 
     // Associate buffer ring with I/O ring.
     buf_ring_ = iou_buf_ring{ring, buf_count_, bgid_};
@@ -181,7 +155,7 @@ public:
     // return them in `return_buffer`.
     const auto mask = static_cast<int>(buf_count_) - 1;
     for (auto ndx = 0UZ; ndx < buf_count_; ++ndx) {
-      buf_ring_.add(base_ + (ndx * buf_size_),
+      buf_ring_.add(base() + (ndx * buf_size_),
           static_cast<unsigned>(buf_size_), static_cast<unsigned short>(ndx),
           mask, static_cast<int>(ndx));
     }
@@ -234,12 +208,12 @@ public:
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] buffer borrow(iou_res res, iou_cqe_flags cqe_flags,
       msghdr* msgh = nullptr) noexcept {
-    if (!base_ || !buf_ring_) return {};
+    if (!base() || !buf_ring_) return {};
     if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer))
       return buffer::make_synthetic({}, {}, res);
     const auto bid = get_buffer_id(cqe_flags);
     if (bid >= buf_count_) return {};
-    span_t span{base_ + (bid * buf_size_), buf_size_};
+    span_t span{base() + (bid * buf_size_), buf_size_};
 
     --free_count_;
     auto buf = make_buffer(shared_from_this(), span, bid, block_type::read);
@@ -260,7 +234,9 @@ public:
 #pragma endregion
 #pragma region Overrides
 private:
-  [[nodiscard]] std::byte* base() const noexcept override { return base_; }
+  [[nodiscard]] std::byte* base() const noexcept override {
+    return static_cast<std::byte*>(slab_.data());
+  }
 
   // Replenish the returned slot into the kernel ring. After `disarm` (called
   // from `~iou_basic_loop`), the pool is shutting down and the ring must not
@@ -271,7 +247,7 @@ private:
     auto* d = dispatcher_.load(std::memory_order::acquire);
     if (!d) return false;
     assert(buf_ring_ && buf_size_ > 0);
-    const auto bid = (s.data() - base_) / buf_size_;
+    const auto bid = (s.data() - base()) / buf_size_;
     assert(bid < buf_count_);
     const auto mask = static_cast<int>(buf_count_) - 1;
 
@@ -289,7 +265,7 @@ private:
 #pragma region Data members
 private:
   std::atomic<dispatcher_t*> dispatcher_;
-  std::byte* base_{};
+  memory_map slab_;
   size_t buf_size_{};
   size_t buf_count_{};
   size_t slab_size_{};

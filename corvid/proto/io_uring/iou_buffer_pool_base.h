@@ -17,9 +17,9 @@
 #pragma once
 #include <cstddef>
 #include <memory>
-#include <sys/mman.h>
 #include <sys/uio.h>
 
+#include "../../filesys/mmap.h"
 #include "iou_wrap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
@@ -43,7 +43,6 @@ public:
   using buffer = iou_buffer;
   using ptr = std::byte*;
   using cptr = const std::byte*;
-  static constexpr auto hugepage_size = 2 * 1024UZ * 1024UZ;
 
   virtual ~buffer_pool_base() = default;
 

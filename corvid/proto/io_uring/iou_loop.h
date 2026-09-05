@@ -331,9 +331,9 @@ public:
   // thread, and optimizes completions for the single-issuer case.
   explicit iou_basic_loop(allow,
       size_t max_pending_sqes = default_max_pending_sqes,
-      size_t udp_provided_size = buf_pool_t::hugepage_size,
+      size_t udp_provided_size = memory_map::default_hugepage_size,
       block_size udp_provided_buf_size = block_size::kb002,
-      size_t tcp_provided_size = buf_pool_t::hugepage_size,
+      size_t tcp_provided_size = memory_map::default_hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
       : owner_thread_dispatcher{32, 64}, buf_pool_{buf_pool_t::create()},
         udp_buf_pool_{provided_buf_pool_t::create(*this, udp_provided_size,
@@ -382,9 +382,9 @@ public:
   // Create a heap-allocated `iou_basic_loop` managed by `std::shared_ptr`.
   [[nodiscard]] static std::shared_ptr<iou_basic_loop>
   make(size_t max_pending_sqes = default_max_pending_sqes,
-      size_t udp_provided_size = buf_pool_t::hugepage_size,
+      size_t udp_provided_size = memory_map::default_hugepage_size,
       block_size udp_provided_buf_size = block_size::kb002,
-      size_t tcp_provided_size = buf_pool_t::hugepage_size,
+      size_t tcp_provided_size = memory_map::default_hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004) {
     return std::make_shared<iou_basic_loop>(allow::ctor, max_pending_sqes,
         udp_provided_size, udp_provided_buf_size, tcp_provided_size,
@@ -1780,9 +1780,9 @@ public:
       iou_basic_loop<RING_SIZE, SLOT_COUNT, BUF_POOL_SIZE, BUF_POOL_MIN_BLOCK>;
 
   explicit iou_basic_loop_runner(
-      size_t udp_provided_size = loop_t::buf_pool_t::hugepage_size,
+      size_t udp_provided_size = memory_map::default_hugepage_size,
       block_size udp_provided_buf_size = block_size::kb002,
-      size_t tcp_provided_size = loop_t::buf_pool_t::hugepage_size,
+      size_t tcp_provided_size = memory_map::default_hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
       : state_{std::make_shared<runner_state>(udp_provided_size,
             udp_provided_buf_size, tcp_provided_size, tcp_provided_buf_size)},
