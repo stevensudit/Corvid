@@ -30,6 +30,7 @@
 
 #include "../../containers/core/opt_find.h"
 #include "../../enums/sequence_enum.h"
+#include "../../strings/conversion.h"
 #include "../../strings/token_parser.h"
 #include "../../strings/unicode.h"
 
@@ -99,10 +100,9 @@ inline constexpr auto max_escaped_byte =
 // to `max_escaped_byte`; the inverse of `escaped_bytes_lookup`.
 //
 // An impossible escaped form, which is a non-printable value that should have
-// been mapped to the U+0100 range, contains a 0. The way to tell whether a 0
-// is a flag for invalid input or the actual unescaped value for U+0100 is to
-// round-trip it and check that it's unchanged; this is what `unescape_byte`
-// does.
+// been mapped to the U+0100 range, contains a 0. Only the escaped form of byte
+// 0, which is U+0100, legitimately unescapes to 0, which is how
+// `unescape_byte` tells the two apart.
 [[nodiscard]] consteval auto make_unescaped_bytes_lookup() {
   std::array<uint8_t, max_escaped_byte + 1> table{};
   for (auto byte = 0; byte < 256; ++byte)
@@ -119,16 +119,18 @@ inline constexpr auto unescaped_bytes_lookup = make_unescaped_bytes_lookup();
   return count;
 }
 
-// The ID of each byte's piece.
+// Generate a lookup table from each byte to the `token_id` of its single-byte
+// piece; the inverse of `id_bytes_lookup`.
 //
-// The published vocabulary numbers the bytes by their escaped forms in
-// ascending order. The printable Latin-1 bytes escape below U+0100 and the
-// rest above, each group in byte order, so the printable bytes take the IDs
-// from 0 in byte order and the rest continue from their count.
-[[nodiscard]] consteval std::array<token_id, 256> make_byte_ids() {
+// These single-byte pieces are the individual bytes that remain after merging
+// is complete, ensuring that all inputs can be represented. They are  assigned
+// `token_id`s in ascending order of their escaped forms.
+[[nodiscard]] consteval std::array<token_id, 256> make_byte_ids_lookup() {
   std::array<token_id, 256> ids{};
   uint32_t next_printable{};
   auto next_other = count_printable_latin1();
+  // Assigns a `token_id` to each byte, with printable Latin-1 bytes first and
+  // the rest following.
   for (auto byte = 0; byte < 256; ++byte) {
     ids[byte] = token_id{
         is_printable_latin1(static_cast<uint8_t>(byte))
@@ -137,16 +139,17 @@ inline constexpr auto unescaped_bytes_lookup = make_unescaped_bytes_lookup();
   }
   return ids;
 }
-inline constexpr auto byte_ids = make_byte_ids();
+inline constexpr auto byte_ids_lookup = make_byte_ids_lookup();
 
-// The byte of each ID below 256, the inverse of `byte_ids`.
-[[nodiscard]] consteval std::array<uint8_t, 256> make_id_bytes() {
+// Generate the inverse lookup table, from each `token_id` below 256 to its
+// byte.
+[[nodiscard]] consteval std::array<uint8_t, 256> make_id_bytes_lookup() {
   std::array<uint8_t, 256> bytes{};
   for (auto byte = 0; byte < 256; ++byte)
-    bytes[*byte_ids[byte]] = static_cast<uint8_t>(byte);
+    bytes[*byte_ids_lookup[byte]] = static_cast<uint8_t>(byte);
   return bytes;
 }
-inline constexpr auto id_bytes = make_id_bytes();
+inline constexpr auto id_bytes_lookup = make_id_bytes_lookup();
 
 } // namespace details
 
@@ -155,10 +158,11 @@ inline constexpr auto id_bytes = make_id_bytes();
 
 // GPT-2's byte-level BPE tokenizer over a loaded merge table.
 //
-// IDs below 256 are the single bytes, numbered as the published vocabulary
-// numbers them. The merge at rank `r` (its line in "merges.txt", counting
-// from 0) produces the ID `256 + r`. The end-of-text ID (50256 for GPT-2) is
-// not a piece, so `encode` never produces it and `decode` rejects it.
+// IDs below 256 are assigned to the single-byte pieces, in ascending order of
+// their escaped forms. The merge at rank `r` (its line in "merges.txt",
+// counting from 0) produces the ID `256 + r`. The end-of-text ID (50256 for
+// GPT-2) is not a piece, so `encode` never produces it and `decode` rejects
+// it.
 class gpt2_tokenizer {
 public:
 #pragma region Byte escaping
@@ -176,7 +180,10 @@ public:
   unescape_byte(uint8_t& byte, char32_t escaped) noexcept {
     if (escaped > details::max_escaped_byte) return false;
     const auto candidate = details::unescaped_bytes_lookup[escaped];
-    if (details::escaped_bytes_lookup[candidate] != escaped) return false;
+    // A 0 result could be due to 0x0100 as input, or it could mean the input
+    // was invalid; round-tripping settles it.
+    if (!candidate && escaped != details::escaped_bytes_lookup[0])
+      return false;
     byte = candidate;
     return true;
   }
@@ -188,20 +195,15 @@ public:
   // byte), returns false, leaving `bytes` untouched.
   [[nodiscard]] static constexpr bool
   unescape_piece(std::u8string& bytes, std::u8string_view piece) {
-    const auto original = bytes.size();
+    strings::truncate_guard guard(bytes);
+    bytes.reserve(bytes.size() + piece.size());
     for (char32_t cp{}; utf::extract(cp, piece);) {
       uint8_t byte{};
-      if (!unescape_byte(byte, cp)) {
-        bytes.resize(original);
-        return false;
-      }
+      if (!unescape_byte(byte, cp)) return false;
       bytes.push_back(static_cast<char8_t>(byte));
     }
-    if (!piece.empty()) {
-      bytes.resize(original);
-      return false;
-    }
-    return true;
+    if (!piece.empty()) return false;
+    return guard.release();
   }
 
 #pragma endregion
@@ -220,14 +222,11 @@ public:
   [[nodiscard]] static bool
   split(std::vector<std::u8string_view>& chunks, std::u8string_view text) {
     using enum classifier::code_point_class;
-    const auto original = chunks.size();
+    strings::truncate_guard guard(chunks);
     for (size_t pos = 0; pos < text.size();) {
       char32_t cp{};
       const auto len = utf::decode(cp, text, pos);
-      if (len == 0) {
-        chunks.resize(original);
-        return false;
-      }
+      if (len == 0) return false;
       auto end = pos + len;
       if (cp == U'\'') {
         // A contraction, else the apostrophe starts a punctuation run.
@@ -252,7 +251,7 @@ public:
       chunks.push_back(text.substr(pos, end - pos));
       pos = end;
     }
-    return true;
+    return guard.release();
   }
 
 #pragma endregion
@@ -274,7 +273,7 @@ public:
     std::vector<size_t> piece_starts;
     std::unordered_map<std::u8string, token_id> ids_by_bytes;
     for (auto ndx = 0U; ndx < 256; ++ndx) {
-      const auto byte = static_cast<char8_t>(details::id_bytes[ndx]);
+      const auto byte = static_cast<char8_t>(details::id_bytes_lookup[ndx]);
       piece_starts.push_back(pieces.size());
       pieces.push_back(byte);
       ids_by_bytes.emplace(std::u8string(1, byte), token_id{ndx});
@@ -337,7 +336,7 @@ public:
       // the output vector is the only work buffer.
       const auto start = ids.size();
       for (const auto byte : chunk)
-        ids.push_back(details::byte_ids[static_cast<uint8_t>(byte)]);
+        ids.push_back(details::byte_ids_lookup[static_cast<uint8_t>(byte)]);
       const auto len = merge(std::span{ids}.subspan(start));
       ids.resize(start + len);
     }
@@ -353,15 +352,12 @@ public:
   // untouched.
   [[nodiscard]] bool
   decode(std::u8string& out, std::span<const token_id> ids) const {
-    const auto original = out.size();
+    strings::truncate_guard guard(out);
     for (const auto id : ids) {
-      if (*id >= size()) {
-        out.resize(original);
-        return false;
-      }
+      if (*id >= size()) return false;
       out += piece(id);
     }
-    return true;
+    return guard.release();
   }
 
 #pragma endregion

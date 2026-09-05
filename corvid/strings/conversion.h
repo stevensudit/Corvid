@@ -422,14 +422,19 @@ append_utf8(std::string& out, uint32_t code_point) {
 #pragma endregion
 #pragma region Escaping
 
-// RAII to truncate a string back to its entry size on destruction, unless
-// released.
+// RAII to truncate a string or other resizable container back to its entry
+// size on destruction, unless released.
 //
-// Serves the failure paths of the parsers below: arm it on entry, `release`
-// on success, and any early failure return discards the partial output.
+// Serves the failure paths of parsers: arm it on entry, `release` on
+// success, and any early failure return discards the partial output.
+template<typename Container>
+requires requires(Container& c, size_t n) {
+  c.size();
+  c.resize(n);
+}
 class truncate_guard final {
 public:
-  constexpr explicit truncate_guard(std::string& target) noexcept
+  constexpr explicit truncate_guard(Container& target) noexcept
       : target_{&target}, init_size_{target.size()} {}
 
   truncate_guard(const truncate_guard&) = delete;
@@ -449,7 +454,7 @@ public:
   }
 
 private:
-  std::string* target_{};
+  Container* target_{};
   size_t init_size_{};
 };
 
