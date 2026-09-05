@@ -21,7 +21,6 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <mutex>
 #include <span>
 #include <system_error>
@@ -32,6 +31,7 @@
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
 #include "iou_wrap.h"
+#include "../../filesys/os_error.h"
 #include "../../filesys/mmap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
@@ -231,10 +231,7 @@ public:
   explicit iou_buf_pool_of(allow) {
     static_assert(slab_size % memory_map::default_hugepage_size == 0);
     slab_ = memory_map::create_huge(slab_size);
-    if (!slab_) throw std::system_error{errno, std::system_category(), "mmap"};
-    // Warm pages: an explicit memset guarantees zeroing and forces physical
-    // page assignment.
-    std::memset(slab_.data(), 0, slab_size);
+    if (!slab_) os_error::last().throw_if_error("mmap");
     init_free_lists();
   }
 

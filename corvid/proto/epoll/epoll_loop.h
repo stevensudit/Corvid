@@ -39,6 +39,7 @@
 #include "../../concurrency/tombstone.h"
 #include "../../infra/scope_exit.h"
 #include "../../containers/core/opt_find.h"
+#include "../../filesys/os_error.h"
 #include "../../filesys/epoll.h"
 #include "../../filesys/os_event.h"
 #include "../net_socket.h"
@@ -140,8 +141,7 @@ public:
     epoll_event ev{.events = EPOLLIN,
         .data = epoll_data_t{.fd = *wake_event()}};
     if (!epoll_.add(*wake_event(), ev))
-      throw std::system_error{errno, std::generic_category(),
-          "epoll_ctl wake_event"};
+      os_error::last().throw_if_error("epoll_ctl wake_event");
   }
 
   epoll_loop(const epoll_loop&) = delete;
@@ -450,8 +450,7 @@ private:
   // Create the loop's epoll instance or throw on failure.
   static epoll create_epollfd() {
     auto f = epoll::create();
-    if (!f.is_open())
-      throw std::system_error{errno, std::generic_category(), "epoll_create1"};
+    if (!f) os_error::last().throw_if_error("epoll_create1");
     return f;
   }
 

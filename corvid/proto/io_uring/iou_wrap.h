@@ -30,6 +30,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#include "../../filesys/os_error.h"
 #include "../../filesys/os_event.h"
 #include "../../strings/cstring_view.h"
 #include "../net_endpoint.h"
@@ -354,10 +355,7 @@ public:
 
   [[nodiscard]] bool ok(int r = 0) const noexcept { return res_ >= r; }
   [[nodiscard]] int value() const noexcept { return res_; }
-  [[nodiscard]] errno_code err() const noexcept {
-    assert(!ok());
-    return errno_code{-res_};
-  }
+  [[nodiscard]] errno_code err() const noexcept { return errno_code{-res_}; }
   [[nodiscard]] size_t bytes() const noexcept {
     return static_cast<size_t>(res_);
   }
@@ -371,9 +369,9 @@ public:
   }
 
   // Throw `std::system_error` for a failed result, identified by `context`.
-  void throw_if_error(cstring_view context, int r = 0) const {
-    if (ok(r)) return;
-    throw std::system_error{*err(), std::system_category(), context.c_str()};
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  bool throw_if_error(cstring_view context) const {
+    return os_error{err()}.throw_if_error(context);
   }
 
 private:
@@ -730,10 +728,8 @@ public:
   // Construct and initialize an io_uring with the given `ring_size` and
   // `flags`.
   explicit iou_ring(size_t ring_size = 256UZ, iou_setup_flags flags = {}) {
-    iou_res res{io_uring_queue_init(ring_size, &ring_, *flags)};
-    if (res) return;
-    throw std::system_error{*res.err(), std::system_category(),
-        "io_uring_queue_init"};
+    const iou_res res{io_uring_queue_init(ring_size, &ring_, *flags)};
+    res.throw_if_error("io_uring_queue_init");
   }
 
   iou_ring(const iou_ring&) = delete;

@@ -19,7 +19,6 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <system_error>
 
 #include "../../concurrency/owner_thread_dispatcher.h"
@@ -28,6 +27,7 @@
 
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
+#include "../../filesys/os_error.h"
 #include "../../filesys/mmap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
@@ -85,8 +85,7 @@ public:
     buf_count_ = buf_count;
 
     slab_ = memory_map::create_huge(slab_size_);
-    if (!slab_) throw std::system_error{errno, std::system_category(), "mmap"};
-    std::memset(slab_.data(), 0, slab_size_);
+    if (!slab_) os_error::last().throw_if_error("mmap");
   }
 
   iou_provided_buf_pool(const iou_provided_buf_pool&) = delete;

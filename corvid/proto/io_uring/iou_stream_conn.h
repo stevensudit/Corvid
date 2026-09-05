@@ -839,13 +839,13 @@ private:
           recv_token_ = {};
 
           // If it's an intentional cancelation, do not resuscitate.
-          if (!result && result.err() == EC::canceled) {
+          if (result.err() == EC::canceled) {
             recv_paused_ = true;
             return slot_retention::release;
           }
 
           // If we ran out of buffers, downgrade to singleshot for now.
-          if (!result && result.err() == EC::nobufs) {
+          if (result.err() == EC::nobufs) {
             (void)do_submit_single_recv();
             return slot_retention::release;
           }
@@ -887,7 +887,7 @@ private:
       if (read_shut_) return {};
 
       // If `deactivate` was called on the buffer, resume.
-      if (!buf.result() && buf.result().err() == EC::notsock)
+      if (buf.result().err() == EC::notsock)
         return [this, conn = stop_receiving()] { return resume_receiving(); };
 
       // Nothing more do when in multishot mode.
@@ -1080,7 +1080,7 @@ private:
 
     // Downgrade from ZC if socket doesn't support it.
     auto res = buf.result();
-    if (!res && res.err() == EC::opnotsupp && send_zc_supported_) {
+    if (res.err() == EC::opnotsupp && send_zc_supported_) {
       send_zc_supported_ = false;
       res = iou_res{EC::again};
     }
