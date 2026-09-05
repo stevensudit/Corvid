@@ -82,11 +82,9 @@ for domain in \
     "pypi.org" \
     "files.pythonhosted.org" \
     "huggingface.co" \
-    "cdn-lfs.hf.co" \
-    "cdn-lfs-us-1.hf.co" \
-    "cas-bridge.xethub.hf.co" \
-    "transfer.xethub.hf.co" \
+    "us.aws.cdn.hf.co" \
     "download.pytorch.org" \
+    "download-r2.pytorch.org" \
     "archive.ubuntu.com" \
     "security.ubuntu.com"; do
     echo "Resolving $domain..."

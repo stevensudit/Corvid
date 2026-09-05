@@ -121,11 +121,19 @@ Produce the reference artifacts for GPT-2 124M:
 
 Done when: the artifacts exist and a checksum manifest is written beside them.
 
-Status (2026-09-05): script, setup, and corpus written; the script compiles
-but has not run, since the firewall change needs a container rebuild. First
-run: `scripts/llm_oracle/setup.sh`, then the command it prints. Known
-primer item recorded in the manifest: HF GPT-2 stores projections as Conv1D
-(`W` is `[in, out]`, `y = x @ W + b`), the transpose of `nn.Linear`.
+Status (2026-09-05): DONE. The oracle ran on torch 2.14.0+cpu with
+transformers 5.16.1 (recorded in the manifest) and wrote the committed
+fixtures plus about 1 GB of dumps under `tests/.local/llm/gpt2`. The corpus
+is 1375 tokens over 85 lines; the gradient batch is 4 x 64 with loss
+5.1973. Rerun with `scripts/llm_oracle/setup.sh` once per container, then
+the command it prints. Firewall notes from the first run: the torch index
+hands wheel bytes to `download-r2.pytorch.org`, and the Hugging Face resolve
+redirect for large files lands on `us.aws.cdn.hf.co`; both are in the
+allowlist, the superseded `cdn-lfs*` and `xethub` names are dropped, and
+the oracle disables the xet transport so the plain path is the only one to
+keep open. Known primer item recorded in the manifest: HF GPT-2 stores
+projections as Conv1D (`W` is `[in, out]`, `y = x @ W + b`), the transpose
+of `nn.Linear`.
 
 ### 1. Tokenizer
 
