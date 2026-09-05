@@ -355,7 +355,9 @@ public:
 
   [[nodiscard]] bool ok(int r = 0) const noexcept { return res_ >= r; }
   [[nodiscard]] int value() const noexcept { return res_; }
-  [[nodiscard]] errno_code err() const noexcept { return errno_code{-res_}; }
+  [[nodiscard]] errno_code err() const noexcept {
+    return ok() ? errno_code::ok : errno_code{-res_};
+  }
   [[nodiscard]] size_t bytes() const noexcept {
     return static_cast<size_t>(res_);
   }

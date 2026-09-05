@@ -173,6 +173,58 @@ corpus is built to catch it. Every later tokenizer (Llama 3, Qwen, GPT-4's)
 uses the same shape of rule with more clauses, so this scanner is reused
 with different tables, not replaced.
 
+Status (2026-09-05): primer delivered in conversation. Fixture facts it
+rests on: vocab.json is pure ASCII with `\u` escapes for every remapped
+byte above 0x7F (`json_parser.h` decodes them); merges.txt has a
+`#version` header line and then one space-separated pair per line, rank
+equals line order; `corpus_tokens.json` holds `full` (the whole file,
+newlines included) and `lines` (each line without its newline, from a
+split on `\n`); the reference encoder adds no special tokens.
+
+Design decisions (2026-09-05), agreed before the user writes the code:
+
+- The byte-to-code-point table is a serialization detail of the two files.
+  The loader applies only its inverse (UTF-8 decode each key or merge piece,
+  map each code point back to its byte); the tokenizer never applies the
+  forward direction. In memory, symbols are bytes.
+- The split rule runs over decoded code points but yields byte offsets into
+  the input, so a chunk's bytes are the initial symbol sequence with no copy.
+- The merge loop runs over token ids, not strings. Verified in the fixture:
+  the merge at rank r yields id 256 + r, every merge piece and result is in
+  vocab.json, and ids 0-255 are the 256 mapped code points in sorted order
+  (the 188 identity bytes in byte order, then the 68 remapped bytes in byte
+  order). So vocab.json is redundant for encode and decode; the tokenizer
+  builds the byte-to-id table from the mapping and reads only merges.txt,
+  and `<|endoftext|>` is the constant 50256. The fixture test loads
+  vocab.json once and asserts the invariant, so the assumption is checked
+  rather than trusted.
+- Merge table: `std::flat_map<uint32_t, token_id>` keyed on the packed pair
+  (left id << 16 | right id), value the result id; rank is id - 256.
+  Probed on libc++, clang + libstdc++, and nvcc + g++-15; Windows still to
+  probe. Built once from a vector, never inserted into per element.
+- `token_id` is `uint32_t`, the type the model side indexes embeddings and
+  logits with; a 16-bit public type would leak GPT-2's vocabulary size into
+  every consumer. The 16-bit limit lives only in the pair key, and `load`
+  refuses a table that would overflow it.
+- Per-chunk memoization is postponed; measure before adding it.
+
+Status (2026-09-05): WRITTEN, tests green on libc++ and libstdc++.
+`gpt2_tokenizer.h` holds `corvid::llm::token_id` and class
+`gpt2_tokenizer`: the byte spelling tables (consteval, in `details`),
+`byte_to_code_point` / `code_point_to_byte` / `piece_to_bytes`, the static
+`split` (the regex as a hand-written scanner over `unicode.h`), `load`
+(merges text only, strong guarantee), `encode`, `decode`, `size`, and
+`piece`. Merging runs in place on the output vector's tail. The test is
+`tests/portable/gpt2_tokenizer_test.cpp`: table and split cases with
+inline expectations, a small inline merge table for the loop, and the
+fixtures found relative to `__FILE__` (the first test to read
+`tests/data`, so no build wiring was added): every vocab.json entry names
+the piece at its id, the whole corpus and every line encode as the
+reference did, and the reference ids decode to the file byte for byte.
+Open: the end-of-text id (50256) is not a piece, so `decode` rejects it;
+stage 4 decides how generation stops before calling `decode`. Not yet run
+on the Windows leg.
+
 ### 2. Weights
 
 A `safetensors` reader: parse the header with `proto/misc/json_parser.h`,
