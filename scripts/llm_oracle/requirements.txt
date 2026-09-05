@@ -1,0 +1,6 @@
+# Everything except torch, which setup.sh installs first from the CPU-only
+# wheel index (the PyPI wheel drags in the CUDA libraries, several GB that
+# the oracle never uses).
+transformers>=4.44
+safetensors>=0.4
+huggingface_hub>=0.24

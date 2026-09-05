@@ -7,7 +7,8 @@
 # their folder path, and the edge is checked against the allow-list below. The
 # check is deliberately crude: it inspects direct edges only (sufficient by
 # transitivity, since the in-band property is transitive) and treats the apex
-# bands (ecs, proto, lang, sim) as permitted to depend on anything lower.
+# bands (ecs, proto, lang, sim, cuda) as permitted to depend on anything
+# lower.
 #
 # Subsystem umbrella headers ("../enums.h", "../strings.h", "../containers.h",
 # etc.) map to the band `umbrella` and are rejected from any non-apex band,
@@ -49,6 +50,7 @@ band_of() {
   proto/*) echo proto ;;
   lang/*) echo lang ;;
   sim/*) echo sim ;;
+  cuda/*) echo cuda ;;
   *.h) echo umbrella ;; # any other top-level corvid/<sub>.h
   *) echo external ;;
   esac
@@ -64,7 +66,7 @@ allowed() {
   # below from admitting a meta <-> math cycle.
   case "$src" in meta) return 1 ;; esac
   # Apex bands may depend on anything lower (including umbrellas).
-  case "$src" in ecs | proto | lang | sim) return 0 ;; esac
+  case "$src" in ecs | proto | lang | sim | cuda) return 0 ;; esac
   # meta is the universal foundation.
   [ "$dst" = meta ] && return 0
   # math is a std-only foundation too, universally dependable like meta.

@@ -81,6 +81,12 @@ for domain in \
     "eel.is" \
     "pypi.org" \
     "files.pythonhosted.org" \
+    "huggingface.co" \
+    "cdn-lfs.hf.co" \
+    "cdn-lfs-us-1.hf.co" \
+    "cas-bridge.xethub.hf.co" \
+    "transfer.xethub.hf.co" \
+    "download.pytorch.org" \
     "archive.ubuntu.com" \
     "security.ubuntu.com"; do
     echo "Resolving $domain..."

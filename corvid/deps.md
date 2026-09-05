@@ -28,13 +28,22 @@ L3  filesys           corvid/filesys/                os_file, os_event, epoll gl
     containers/utils  corvid/containers/utils/       Enum/string-aware containers.
 L4  ecs, proto, lang  corvid/{ecs,proto,lang}/       Apex consumers.
 L5  sim               corvid/sim/                    Apex consumer.
+    cuda              corvid/cuda/                   Apex consumer (see below).
 ```
 
 The `L3` row is not flat: `filesys` rests on `enums` and `strings`;
 `concurrency` rests on `filesys`; `containers/utils` rests on `concurrency`. The
 allow-list below captures that order precisely.
 
-The apex bands (`ecs`, `proto`, `lang`, `sim`) may depend on any lower band.
+The apex bands (`ecs`, `proto`, `lang`, `sim`, `cuda`) may depend on any lower
+band.
+
+`cuda` is a band only for the plain `.h` headers under `corvid/cuda/` (the
+CPU-only parts of `corvid/cuda/llm/`: tokenizer, weight reader, CPU forward
+pass). The `.cuh` headers are outside the lint entirely, since it scans only
+`*.h`; they need a CUDA toolchain to compile and are checked by the compiler
+alone. The band sits at the top so the LLM code may reach `filesys` (file
+mapping) and `proto` (the JSON parser).
 
 `math` sits alongside `meta` at the foundation and is universally dependable
 in the same way: any band may depend on it. It is not quite as low, though,
@@ -118,6 +127,7 @@ proto            -> meta, infra, filesys, concurrency, strings, enums,
 lang             -> enums, containers/core, corvid/strings.h (umbrella)
 sim              -> strings, enums, containers/core, proto,
                     corvid/ecs.h + corvid/proto.h (umbrellas)
+cuda             -> (no .h headers yet; .cuh files are not scanned)
 ```
 
 The spine, with transitively-implied edges omitted for readability:
@@ -133,7 +143,7 @@ graph TD
     filesys[filesys]
     concurrency[concurrency]
     containers_utils["containers/utils"]
-    apex["ecs, proto, lang, sim<br/>(apex: any lower band)"]
+    apex["ecs, proto, lang, sim, cuda<br/>(apex: any lower band)"]
 
     math --> meta
     infra --> meta
@@ -193,7 +203,7 @@ enums            -> meta, strings, containers/core
 filesys          -> meta, strings, enums
 concurrency      -> meta, infra, filesys
 containers/utils -> meta, infra, strings, enums, containers/core, concurrency
-ecs, proto, lang, sim -> (any lower band, plus consumer umbrellas)
+ecs, proto, lang, sim, cuda -> (any lower band, plus consumer umbrellas)
 ```
 
 The check is deliberately crude: it inspects direct edges only, which is
