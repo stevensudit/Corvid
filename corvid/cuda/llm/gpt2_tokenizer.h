@@ -383,8 +383,9 @@ public:
       const auto start = ids.size();
       for (const auto byte : chunk)
         ids.push_back(details::byte_ids_lookup[static_cast<uint8_t>(byte)]);
-      const auto len = merge(std::span{ids}.subspan(start));
-      ids.resize(start + len);
+      auto word = std::span{ids}.subspan(start);
+      merge(word);
+      ids.resize(start + word.size());
     }
     return true;
   }
@@ -483,12 +484,13 @@ private:
   }
   static constexpr uint32_t max_packed_id = 0xFFFF;
 
-  // Merge `word` in place, returning the merged length, which is the count
-  // of leading entries that survive.
+  // Merge `word` in place, shrinking it to what remains.
   //
   // Each round merges every occurrence of the lowest-ranked adjacent pair,
-  // left to right, until no adjacent pair is in the table.
-  [[nodiscard]] size_t merge(std::span<token_id> word) const noexcept {
+  // left to right, until no adjacent pair is in the table. Returns the
+  // number of rounds.
+  size_t merge(std::span<token_id>& word) const noexcept {
+    size_t rounds{};
     auto len = word.size();
     while (len > 1) {
       // Earlier merges produced lower IDs, so the lowest result ID among
@@ -515,8 +517,10 @@ private:
         }
       }
       len = out;
+      ++rounds;
     }
-    return len;
+    word = word.first(len);
+    return rounds;
   }
 
 #pragma endregion
