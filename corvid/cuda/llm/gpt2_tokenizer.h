@@ -36,13 +36,13 @@
 #include "../../strings/token_parser.h"
 #include "../../strings/unicode.h"
 
-// GPT-2's byte-level BPE tokenizer.
+// GPT-2's byte-level Byte-Pair Encoding (BPE) tokenizer.
 //
 // `gpt2_tokenizer` loads the merge table from the text of "merges.txt". This
 // allows it to encode UTF-8 text to token IDs and decode IDs back to bytes.
 // The published tables store every byte in an escaped form that keeps it
-// printable (see `details::escaped_bytes`). `load` unescapes each piece once,
-// and nothing else touches the escaped form.
+// printable (see `details::escaped_bytes`), but `load` unescapes each piece
+// once, and nothing else touches the escaped form.
 //
 // Loading:
 //   gpt2_tokenizer tok;
@@ -481,7 +481,8 @@ private:
   // The pair key: two 16-bit IDs in one 32-bit word.
   //
   // These are the left and right token IDs that are merged together to form a
-  // new token (whose ID is not stored here).
+  // new token (whose ID is stored as the value of the collection keyed by
+  // this).
   [[nodiscard]] static constexpr uint32_t
   pack(token_id left, token_id right) noexcept {
     return (*left << 16) | *right;
