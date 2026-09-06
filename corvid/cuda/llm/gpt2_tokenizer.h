@@ -496,10 +496,10 @@ private:
       // Earlier merges produced lower IDs, so the lowest result ID among
       // the pairs present is the lowest rank.
       uint32_t best_key{};
-      optional_ptr<const token_id*> best;
+      const token_id* best{};
       for (size_t ndx = 0; ndx + 1 < len; ++ndx) {
         const auto key = pack(word[ndx], word[ndx + 1]);
-        const auto found = find_opt(merges_, key);
+        const auto found = find_opt(merges_, key).get();
         if (found && (!best || *found < *best)) {
           best = found;
           best_key = key;
