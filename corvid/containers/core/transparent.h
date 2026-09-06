@@ -27,6 +27,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "../../meta/concepts.h"
+
 namespace corvid { inline namespace containers {
 
 // Transparent comparators allow comparing any stringlike values without
@@ -52,20 +54,23 @@ struct transparent_less_stringlike {
 #pragma endregion
 #pragma region transparent hash
 
-struct transparent_hash_equal_stringlike {
+template<CharType CharT>
+struct basic_transparent_hash_equal {
   using is_transparent = void;
+  using view_t = std::basic_string_view<CharT>;
 
   template<typename T>
   constexpr size_t operator()(const T& t) const {
-    return std::hash<std::string_view>{}(std::string_view{t});
+    return std::hash<view_t>{}(view_t{t});
   }
 
   template<typename T, typename V>
   constexpr bool operator()(const T& l, const V& r) const {
-    return static_cast<std::string_view>(l) ==
-           static_cast<std::string_view>(r);
+    return static_cast<view_t>(l) == static_cast<view_t>(r);
   }
 };
+
+using transparent_hash_equal_stringlike = basic_transparent_hash_equal<char>;
 
 #pragma endregion
 #pragma region Aliases

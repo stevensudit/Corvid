@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "../../containers/core/opt_find.h"
+#include "../../containers/core/transparent.h"
 #include "../../enums/sequence_enum.h"
 #include "../../strings/conversion.h"
 #include "../../strings/token_parser.h"
@@ -279,25 +280,54 @@ public:
   // tokenizer as it was.
   [[nodiscard]] bool load(std::u8string_view merges_text) {
     using parser = strings::basic_token_parser<char8_t>;
+    using ids_by_bytes_t = std::unordered_map<std::u8string, token_id,
+        basic_transparent_hash_equal<char8_t>,
+        basic_transparent_hash_equal<char8_t>>;
 
-    // The single bytes come first, in ID order.
+    // The vocabulary under construction: the piece arena that becomes
+    // `pieces_` and `piece_starts_` (see their comment), the pair table that
+    // becomes `merges_`, and a bytes-to-ID map that only loading needs. Each
+    // line is one merge, and a merged piece is never longer than its escaped
+    // line, so the sizes below are upper bounds.
+    const auto line_count =
+        static_cast<size_t>(std::ranges::count(merges_text, u8'\n')) + 1;
     std::u8string pieces;
     std::vector<size_t> piece_starts;
-    std::unordered_map<std::u8string, token_id> ids_by_bytes;
-    for (auto ndx = 0U; ndx < 256; ++ndx) {
-      const auto byte = static_cast<char8_t>(details::id_bytes_lookup[ndx]);
+    std::vector<uint32_t> pair_keys;
+    std::vector<token_id> result_ids;
+    ids_by_bytes_t ids_by_bytes;
+    pieces.reserve(256 + merges_text.size());
+    piece_starts.reserve(256 + line_count + 1);
+    pair_keys.reserve(line_count);
+    result_ids.reserve(line_count);
+    ids_by_bytes.reserve(256 + line_count);
+
+    // Append `bytes` as the piece with the next ID, which is the count of
+    // pieces so far. Fails on a duplicate piece or an ID too large for the
+    // pair key.
+    const auto add_piece = [&](token_id& id, std::u8string_view bytes) {
+      id = token_id{static_cast<uint32_t>(piece_starts.size())};
+      if (*id > max_packed_id) return false;
+      if (!ids_by_bytes.emplace(bytes, id).second) return false;
       piece_starts.push_back(pieces.size());
-      pieces.push_back(byte);
-      ids_by_bytes.emplace(std::u8string(1, byte), token_id{ndx});
+      pieces += bytes;
+      return true;
+    };
+
+    // The first 256 pieces are the single bytes, in ID order.
+    for (auto ndx = 0U; ndx < 256; ++ndx) {
+      token_id id{};
+      const auto byte = static_cast<char8_t>(details::id_bytes_lookup[ndx]);
+      (void)add_piece(id, std::u8string_view(&byte, 1));
     }
 
+    // Skip the comment line if it exists.
     if (merges_text.starts_with(u8'#'))
       (void)parser::next_delimited(u8'\n', merges_text);
 
-    std::vector<uint32_t> keys;
-    std::vector<token_id> results;
-    std::u8string left;
-    std::u8string right;
+    // Each merge line names two existing pieces. Their concatenation is the
+    // next piece, and the pair of their IDs maps to its ID.
+    std::u8string merged_bytes;
     while (!merges_text.empty()) {
       auto line = parser::next_delimited(u8'\n', merges_text);
       if (line.ends_with(u8'\r')) line.remove_suffix(1);
@@ -307,27 +337,26 @@ public:
           right_escaped.contains(u8' '))
         return false;
 
-      left.clear();
-      right.clear();
-      if (!unescape_piece(left, left_escaped) ||
-          !unescape_piece(right, right_escaped))
-        return false;
-      const auto left_id = find_opt(ids_by_bytes, left);
-      const auto right_id = find_opt(ids_by_bytes, right);
+      // Unescape both sides into one buffer, which is then the merged piece.
+      merged_bytes.clear();
+      if (!unescape_piece(merged_bytes, left_escaped)) return false;
+      const auto left_len = merged_bytes.size();
+      if (!unescape_piece(merged_bytes, right_escaped)) return false;
+      const std::u8string_view left_bytes{merged_bytes.data(), left_len};
+      const auto right_bytes =
+          std::u8string_view{merged_bytes}.substr(left_len);
+      const auto left_id = find_opt(ids_by_bytes, left_bytes);
+      const auto right_id = find_opt(ids_by_bytes, right_bytes);
       if (!left_id || !right_id) return false;
 
-      const auto id = static_cast<token_id>(256 + keys.size());
-      if (*id > max_packed_id) return false;
-      left += right;
-      if (!ids_by_bytes.emplace(left, id).second) return false;
-      keys.push_back(pack(*left_id, *right_id));
-      results.push_back(id);
-      piece_starts.push_back(pieces.size());
-      pieces += left;
+      token_id result_id{};
+      if (!add_piece(result_id, merged_bytes)) return false;
+      pair_keys.push_back(pack(*left_id, *right_id));
+      result_ids.push_back(result_id);
     }
     piece_starts.push_back(pieces.size());
 
-    merges_ = merges_t(std::move(keys), std::move(results));
+    merges_ = merges_t(std::move(pair_keys), std::move(result_ids));
     pieces_ = std::move(pieces);
     piece_starts_ = std::move(piece_starts);
     return true;
@@ -490,8 +519,9 @@ private:
   // The merge table, keyed on the packed pair and valued by the result ID.
   merges_t merges_;
 
-  // Every piece end to end in ID order, with each piece's offset and one
-  // past the last.
+  // `pieces_` holds every piece concatenated in ID order, and `piece_starts_`
+  // holds where each piece starts plus one past the last, so piece `id` is
+  // the bytes from `piece_starts_[id]` to `piece_starts_[id + 1]`.
   std::u8string pieces_;
   std::vector<size_t> piece_starts_;
 
