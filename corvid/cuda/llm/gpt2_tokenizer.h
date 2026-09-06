@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <flat_map>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -301,12 +302,15 @@ public:
     result_ids.reserve(line_count);
     ids_by_bytes.reserve(256 + line_count);
 
+    // Every ID must fit the 16-bit halves of the pair key. The line count is
+    // an over-count by the header line, which is harmless here.
+    if (256 + line_count > std::numeric_limits<uint16_t>::max() + 1UZ)
+      return false;
+
     // Append `bytes` as the piece with the next ID, which is the count of
-    // pieces so far. Fails on a duplicate piece or an ID too large for the
-    // pair key.
+    // pieces so far. Fails on a duplicate piece.
     const auto add_piece = [&](token_id& id, std::u8string_view bytes) {
       id = token_id{static_cast<uint32_t>(piece_starts.size())};
-      if (*id > max_packed_id) return false;
       if (!ids_by_bytes.emplace(bytes, id).second) return false;
       piece_starts.push_back(pieces.size());
       pieces += bytes;
@@ -482,7 +486,6 @@ private:
   pack(token_id left, token_id right) noexcept {
     return (*left << 16) | *right;
   }
-  static constexpr uint32_t max_packed_id = 0xFFFF;
 
   // Merge `word` in place, shrinking it to what remains.
   //
@@ -491,36 +494,59 @@ private:
   // number of rounds.
   size_t merge(std::span<token_id>& word) const noexcept {
     size_t rounds{};
-    auto len = word.size();
-    while (len > 1) {
-      // Earlier merges produced lower IDs, so the lowest result ID among
-      // the pairs present is the lowest rank.
-      uint32_t best_key{};
-      const token_id* best{};
-      for (size_t ndx = 0; ndx + 1 < len; ++ndx) {
-        const auto key = pack(word[ndx], word[ndx + 1]);
-        const auto found = find_opt(merges_, key).get();
-        if (found && (!best || *found < *best)) {
-          best = found;
-          best_key = key;
-        }
-      }
-      if (!best) break;
-
-      size_t out = 0;
-      for (size_t ndx = 0; ndx < len; ++ndx, ++out) {
-        if (ndx + 1 < len && pack(word[ndx], word[ndx + 1]) == best_key) {
-          word[out] = *best;
-          ++ndx;
-        } else {
-          word[out] = word[ndx];
-        }
-      }
-      len = out;
+    uint32_t key{};
+    token_id result{};
+    while (word.size() > 1 && find_best_merge(key, result, word)) {
+      apply_merge(word, key, result);
       ++rounds;
     }
-    word = word.first(len);
     return rounds;
+  }
+
+  // Find the lowest-ranked adjacent pair in `word` that is in the merge
+  // table.
+  //
+  // On success, returns true and sets `key` to the pair and `result` to
+  // the ID it merges into. On failure (no adjacent pair is in the table),
+  // returns false, leaving both untouched.
+  [[nodiscard]] bool find_best_merge(uint32_t& key, token_id& result,
+      std::span<const token_id> word) const noexcept {
+    // Earlier merges produced lower IDs, so the lowest result ID among the
+    // pairs present is the lowest rank.
+    const token_id* best{};
+    uint32_t best_key{};
+    for (size_t ndx = 0; ndx + 1 < word.size(); ++ndx) {
+      const auto pair_key = pack(word[ndx], word[ndx + 1]);
+      const auto found = find_opt(merges_, pair_key).get();
+      if (found && (!best || *found < *best)) {
+        best = found;
+        best_key = pair_key;
+      }
+    }
+    if (!best) return false;
+    key = best_key;
+    result = *best;
+    return true;
+  }
+
+  // Replace every occurrence of the pair `key` in `word` with `result`,
+  // left to right, shrinking `word` to what remains. Returns the number of
+  // replacements.
+  static size_t apply_merge(std::span<token_id>& word, uint32_t key,
+      token_id result) noexcept {
+    size_t replacements{};
+    size_t out = 0;
+    for (size_t ndx = 0; ndx < word.size(); ++ndx, ++out) {
+      if (ndx + 1 < word.size() && pack(word[ndx], word[ndx + 1]) == key) {
+        word[out] = result;
+        ++ndx;
+        ++replacements;
+      } else {
+        word[out] = word[ndx];
+      }
+    }
+    word = word.first(out);
+    return replacements;
   }
 
 #pragma endregion
