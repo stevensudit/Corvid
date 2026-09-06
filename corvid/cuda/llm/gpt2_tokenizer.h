@@ -234,15 +234,17 @@ public:
       char32_t cp{};
       if (!utf::extract(cp, rest)) return false;
       if (cp == U'\'') {
-        // A contraction, else the apostrophe starts a punctuation run.
+        // Alternatives 1 to 7, the contractions. Otherwise the apostrophe
+        // starts a punctuation run, alternative 10.
         if (const auto len = contraction_suffix_length(rest))
           rest.remove_prefix(len);
         else
           skip_run(rest, code_point_class::other);
       } else if (cp == U' ') {
-        // A single space leads the run after it, whatever its class, unless
-        // that run is more whitespace, in which case the space is part of
-        // it.
+        // Alternatives 8 to 10 with their optional leading space: the space
+        // leads the run after it, whatever its class, unless that run is
+        // more whitespace, in which case the space is part of it and
+        // alternatives 11 and 12 apply.
         auto after_next = rest;
         char32_t next{};
         const auto cls =
@@ -258,8 +260,11 @@ public:
       } else if (const auto cls = classifier::classify(cp);
           cls == code_point_class::white_space)
       {
+        // Alternatives 11 and 12, a whitespace run with the lookahead.
         skip_white_space_chunk(rest, chunk);
       } else {
+        // Alternatives 8 to 10 without the leading space, a run of one
+        // class.
         skip_run(rest, cls);
       }
       chunks.push_back(chunk.substr(0, chunk.size() - rest.size()));

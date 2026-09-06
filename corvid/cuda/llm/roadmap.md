@@ -208,7 +208,8 @@ Design decisions (2026-09-05), agreed before the user writes the code:
   refuses a table that would overflow it.
 - Per-chunk memoization is postponed; measure before adding it.
 
-Status (2026-09-05): WRITTEN, tests green on libc++ and libstdc++.
+Status (2026-09-05): WRITTEN, tests green on libc++ and libstdc++. Reviewed
+line by line and accepted 2026-09-06.
 `gpt2_tokenizer.h` holds `corvid::llm::token_id` and class
 `gpt2_tokenizer`: the byte escaping tables (consteval, in `details`),
 `escape_byte` / `unescape_byte` / `unescape_piece`, the static
@@ -233,6 +234,39 @@ view (dtype, shape, strides, `std::span` of the bytes).
 
 Done when: every tensor in GPT-2's file is found with the expected shape and
 dtype, and a spot check of values matches the oracle manifest.
+
+Rulings (2026-09-06):
+
+- The hub's `model.safetensors` has an unpadded header, so its buffer
+  starts at an odd file offset and a typed view into the mapping would be
+  misaligned. The oracle now rewrites the file through the current
+  safetensors writer, which pads the header to an 8-byte boundary; the
+  three oracle dumps were already padded. The reader still checks
+  alignment before handing out a typed view, so an arbitrary file cannot
+  produce undefined behavior. Uploading to the device never needed the
+  alignment: `cudaMemcpy` has no host alignment requirement.
+- The reader rests on `filesys/mmap.h` and is therefore Linux-only, as is
+  its test. Noted for later, not planned: a portable "map this whole file
+  and hand me a span, RAII" facade over the Linux `memory_map` and a
+  Windows twin, rather than making `memory_map` itself cross-platform.
+- The 548 MB model is never committed. The reader's format cases use
+  tiny files built inline in the test; the GPT-2 checks run only when the
+  gitignored file is present and skip otherwise.
+
+Status (2026-09-06): WRITTEN, tests green with clang-tidy. `safetensors.h`
+holds `tensor_dtype` (a named sequence enum spelled as the header spells
+it), `dtype_size`, the `TensorElement` concept with `dtype_of`, and class
+`safetensors_file`: `parse` over a caller-owned image, `load` over a kept
+`memory_map`, `find` by name, `tensors` in header order, `metadata`, and a
+`tensor` record whose `is<T>` checks dtype and alignment before `as<T>`
+hands out a typed span. Validation follows the reference implementation,
+including the exact tiling of the buffer. The test is
+`tests/linux/safetensors_test.cpp`: inline images for the format and every
+rejection, a temp file for `load`, and, when the oracle dumps exist, the
+160 GPT-2 tensors' shapes and dtypes plus a value-level spot check that
+`embed/out` for the bisect prompt equals `wte[id] + wpe[pos]` to 1e-6,
+which ties stages 1 and 2 to the oracle. The oracle gained `align`, and
+the manifest's model hash was updated for the rewritten file.
 
 ### 3. CPU forward pass
 
