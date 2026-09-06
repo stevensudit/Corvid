@@ -219,8 +219,7 @@ public:
   //   | ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+
   //   |\s+(?!\S)|\s+
   //
-  // Merges never cross a chunk boundary. On failure (malformed UTF-8),
-  // returns false, leaving `chunks` untouched.
+  // On failure (malformed UTF-8), returns false, leaving `chunks` untouched.
   [[nodiscard]] static bool
   split(std::vector<std::u8string_view>& chunks, std::u8string_view text) {
     strings::truncate_guard guard(chunks);
@@ -367,6 +366,12 @@ public:
 
   // Encode `text`, appending its IDs to `ids`.
   //
+  // The text is split into chunks by GPT-2's rule (see `split`). Each chunk
+  // starts out as the IDs of its bytes' single-byte pieces. Then adjacent
+  // pairs are merged, each merge replacing two IDs with the ID of the piece
+  // they form, until the chunk has no pair left that is in the merge table.
+  // Merges never cross a chunk boundary.
+  //
   // On failure (malformed UTF-8), returns false, leaving `ids` untouched.
   [[nodiscard]] bool
   encode(std::vector<token_id>& ids, std::u8string_view text) const {
@@ -469,6 +474,9 @@ private:
   }
 
   // The pair key: two 16-bit IDs in one 32-bit word.
+  //
+  // These are the left and right token IDs that are merged together to form a
+  // new token (whose ID is not stored here).
   [[nodiscard]] static constexpr uint32_t
   pack(token_id left, token_id right) noexcept {
     return (*left << 16) | *right;
