@@ -254,8 +254,7 @@ Rulings (2026-09-06):
   gitignored file is present and skip otherwise.
 
 Status (2026-09-06): WRITTEN, tests green with clang-tidy. `safetensors.h`
-holds `tensor_dtype` (a named sequence enum spelled as the header spells
-it), `dtype_size`, the `TensorElement` concept with `dtype_of`, and class
+holds `tensor_dtype` (a named sequence enum using the header's names), `dtype_size`, the `TensorElement` concept with `dtype_of`, and class
 `safetensors_file`: `parse` over a caller-owned image, `load` over a kept
 `memory_map`, `find` by name, `tensors` in header order, `metadata`, and a
 `tensor` record whose `is<T>` checks dtype and alignment before `as<T>`

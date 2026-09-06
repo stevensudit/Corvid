@@ -16,6 +16,7 @@ Checks: >
   performance-*,
   -performance-faster-string-find,
   readability-*,
+  -readability-isolate-declaration,
   -readability-identifier-length,
   -readability-braces-around-statements,
   -readability-magic-numbers,
