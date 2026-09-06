@@ -48,13 +48,17 @@ namespace corvid { inline namespace math {
 #endif
 
 [[nodiscard]] constexpr auto swap_not_big(auto v) noexcept {
-  if constexpr (std::endian::native == std::endian::big) return v;
-  return swap_always(v);
+  if constexpr (std::endian::native == std::endian::big)
+    return v;
+  else
+    return swap_always(v);
 }
 
 [[nodiscard]] constexpr auto swap_not_little(auto v) noexcept {
-  if constexpr (std::endian::native == std::endian::little) return v;
-  return swap_always(v);
+  if constexpr (std::endian::native == std::endian::little)
+    return v;
+  else
+    return swap_always(v);
 }
 
 #pragma endregion

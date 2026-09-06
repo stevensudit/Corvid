@@ -22,7 +22,6 @@
 #endif
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cassert>
 #include <concepts>
 #include <cstddef>
@@ -39,6 +38,7 @@
 #include "../../containers/core/transparent.h"
 #include "../../enums/sequence_enum.h"
 #include "../../filesys/mmap.h"
+#include "../../math/endian.h"
 #include "../../proto/misc/json_parser.h"
 #include "../../strings/cstring_view.h"
 
@@ -60,7 +60,7 @@ namespace corvid::llm {
 
 #pragma region tensor_dtype
 
-// Element type of a tensor, named as the safetensors header spells it.
+// Element type of a tensor, with the names the safetensors header uses.
 enum class tensor_dtype : uint8_t {
   f64,
   f32,
@@ -187,16 +187,15 @@ public:
   // leaving the object as it was.
   [[nodiscard]] bool parse(std::span<const std::byte> file) {
     // The header length, then the header, then the buffer.
-    if (file.size() < header_length_size) return false;
     uint64_t header_size{};
-    std::memcpy(&header_size, file.data(), header_length_size);
-    if constexpr (std::endian::native == std::endian::big)
-      header_size = std::byteswap(header_size);
+    if (file.size() < sizeof(header_size)) return false;
+    std::memcpy(&header_size, file.data(), sizeof(header_size));
+    header_size = swap_not_little(header_size);
     if (header_size > max_header_size ||
-        header_size > file.size() - header_length_size)
+        header_size > file.size() - sizeof(header_size))
       return false;
-    const auto header = file.subspan(header_length_size, header_size);
-    const auto buffer = file.subspan(header_length_size + header_size);
+    const auto header = file.subspan(sizeof(header_size), header_size);
+    const auto buffer = file.subspan(sizeof(header_size) + header_size);
 
     json_value_view root;
     if (!parse_json(strings::as_string_view(header), root) ||
@@ -214,7 +213,7 @@ public:
         continue;
       }
       tensor entry;
-      entry.name = key;
+      entry.name = std::move(key);
       if (!parse_tensor(entry, value, buffer)) return false;
       if (!index.emplace(entry.name, tensors.size()).second) return false;
       tensors.push_back(std::move(entry));
@@ -232,8 +231,9 @@ public:
 #pragma region Tensors
 
   // Find the tensor named `name`, or null.
-  [[nodiscard]] auto find(std::string_view name) const noexcept {
-    return find_opt(index_, name).get();
+  [[nodiscard]] const tensor* find(std::string_view name) const noexcept {
+    if (const auto ndx = find_opt(index_, name)) return &tensors_[*ndx];
+    return nullptr;
   }
 
   // Every tensor, in header order.
@@ -249,8 +249,6 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  static constexpr size_t header_length_size = 8;
-
   // The reference implementation's cap on the header length.
   static constexpr size_t max_header_size = 100'000'000;
 
@@ -263,7 +261,7 @@ private:
     for (const auto [key_view, field] : fields) {
       if (!key_view.decode_string(key) || !field.decode_string(text))
         return false;
-      metadata.insert_or_assign(key, text);
+      metadata.insert_or_assign(std::move(key), std::move(text));
     }
     return true;
   }
@@ -277,9 +275,7 @@ private:
 
     std::string dtype_name;
     if (!fields.get_string("dtype", dtype_name)) return false;
-    const auto dtype =
-        enums::registry::enum_spec_v<tensor_dtype>.find_enum_by_name(
-            dtype_name);
+    const auto dtype = sequence::enum_find_by_name<tensor_dtype>(dtype_name);
     if (!dtype) return false;
     entry.dtype = *dtype;
 
@@ -324,13 +320,14 @@ private:
           static_cast<size_t>(entry.bytes.data() - buffer.data());
       byte_ranges.emplace_back(begin, begin + entry.bytes.size());
     }
+    if (byte_ranges.empty()) return buffer.empty();
     std::ranges::sort(byte_ranges);
-    size_t next = 0;
-    for (const auto [begin, end] : byte_ranges) {
-      if (begin != next) return false;
-      next = end;
-    }
-    return (next == buffer.size());
+    const auto seam = std::ranges::adjacent_find(byte_ranges,
+        [](const auto& prev, const auto& next) {
+          return prev.second != next.first;
+        });
+    return (seam == byte_ranges.end()) && (byte_ranges.front().first == 0) &&
+           (byte_ranges.back().second == buffer.size());
   }
 
 #pragma endregion
