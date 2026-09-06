@@ -81,7 +81,7 @@
     "tests/data/llm/gpt2/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
     "tests/data/llm/gpt2/corpus.txt": "3e4579503acabfdd443602fa790f66b70643b4f437fe576cc4468dbf261b89a4",
     "tests/data/llm/gpt2/corpus_tokens.json": "e61ab3e287d8711c4313d016898eb3b54b332fabbf839ca4041512d3c674600e",
-    "tests/.local/llm/gpt2/model.safetensors": "248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707",
+    "tests/.local/llm/gpt2/model.safetensors": "919304e993b13db68d27802f59c215208ecc4dcc4343c85992fd3ff60d639af9",
     "tests/.local/llm/gpt2/logits.safetensors": "29fe3e9a0b67e3d6652e3e120801cf62b47b8259192d62d97856058413e3375c",
     "tests/.local/llm/gpt2/activations.safetensors": "17cb33554f11a88c59767974536892c881edb0d4efd432af51a3056ee0b42cd8",
     "tests/.local/llm/gpt2/grads.safetensors": "35959304defbf9bceb794c1878ef6b68cde27400307d8bf383be7600d0df49fc"

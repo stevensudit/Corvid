@@ -15,7 +15,8 @@ tests/data/llm/gpt2/           small, committed
                                  greedy continuation, tool versions
 
 tests/.local/llm/gpt2/         large, gitignored
-  model.safetensors              the weights, copied from the hub
+  model.safetensors              the weights, copied from the hub and
+                                 rewritten with an 8-byte-aligned header
   logits.safetensors             per prompt: input_ids and fp32 logits
   activations.safetensors        every sublayer boundary for the bisect prompt
   grads.safetensors              loss and every parameter gradient for one
@@ -44,7 +45,7 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import torch
 from huggingface_hub import hf_hub_download
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
 MODEL_ID = "openai-community/gpt2"
@@ -81,6 +82,18 @@ def fetch(filename: str, dest: Path) -> str:
     shutil.copyfile(cached, dest)
     # The cache layout is .../snapshots/<commit sha>/<filename>.
     return cached.parent.name
+
+
+def align(path: Path) -> None:
+    """Rewrite a safetensors file so its tensor data is 8-byte aligned.
+
+    The current writer pads the JSON header with spaces to an 8-byte boundary,
+    but the hub's GPT-2 file predates that and its buffer starts at an odd
+    offset, which a typed view in C++ cannot use. Round-tripping the tensors
+    through the writer rewrites the header and keeps the bytes and metadata.
+    """
+    tensors = load_file(str(path))
+    save_file(tensors, str(path), metadata={"format": "pt"})
 
 
 def tokenizer_fixtures(tok: GPT2TokenizerFast, fixtures: Path) -> dict:
@@ -199,6 +212,7 @@ def main() -> None:
     revision = fetch("vocab.json", fixtures / "vocab.json")
     fetch("merges.txt", fixtures / "merges.txt")
     fetch("model.safetensors", out / "model.safetensors")
+    align(out / "model.safetensors")
 
     tok = GPT2TokenizerFast.from_pretrained(MODEL_ID)
     model = GPT2LMHeadModel.from_pretrained(MODEL_ID, torch_dtype=torch.float32)
