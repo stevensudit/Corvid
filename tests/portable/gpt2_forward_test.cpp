@@ -14,14 +14,22 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
+#include <format>
+#include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "corvid/cuda/llm/gpt2_forward.h"
+#include "corvid/cuda/llm/safetensors.h"
 #include "catch2_main.h"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
+#include "test_files.h"
 
 using namespace corvid;
 using namespace corvid::llm;
@@ -31,6 +39,110 @@ using row_ndx = float_matrix_view::row_ndx;
 using col_ndx = float_matrix_view::col_ndx;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
+
+namespace {
+
+#pragma region Oracle
+
+// The path of one gitignored oracle dump under tests/.local/llm/gpt2.
+std::filesystem::path oracle_path(std::string_view name) {
+  return std::filesystem::path{__FILE__}.parent_path().parent_path() /
+         ".local" / "llm" / "gpt2" / name;
+}
+
+// The model weights and the bisect prompt's activations, as the oracle dumped
+// them.
+struct oracle_dumps {
+  safetensors_file weights;
+  safetensors_file activations;
+
+  // Load both files, skipping the test when the oracle has not run here.
+  void load() {
+    const auto model_path = oracle_path("model.safetensors");
+    const auto activations_path = oracle_path("activations.safetensors");
+    if (!std::filesystem::exists(model_path) ||
+        !std::filesystem::exists(activations_path))
+      SKIP("no oracle dumps under tests/.local/llm/gpt2; run the oracle");
+    REQUIRE(weights.load(tests::open_read_only(model_path)));
+    REQUIRE(activations.load(tests::open_read_only(activations_path)));
+  }
+};
+
+// The fp32 tensor `name` of `file`, which must be two-dimensional with `cols`
+// columns, as a matrix view.
+const_float_matrix_view
+matrix_of(const safetensors_file& file, std::string_view name, size_t cols) {
+  INFO(name);
+  const auto* entry = file.find(name);
+  REQUIRE(entry);
+  REQUIRE(entry->shape.size() == 2);
+  REQUIRE(entry->shape[1] == cols);
+  REQUIRE(entry->is<float>());
+  return const_float_matrix_view(entry->as<float>(),
+      {.row_count = entry->shape[0], .col_count = cols});
+}
+
+// The fp32 tensor `name` of `file`, which must be one-dimensional with `size`
+// elements.
+std::span<const float>
+vector_of(const safetensors_file& file, std::string_view name, size_t size) {
+  INFO(name);
+  const auto* entry = file.find(name);
+  REQUIRE(entry);
+  REQUIRE(entry->shape == std::vector<size_t>{size});
+  REQUIRE(entry->is<float>());
+  return entry->as<float>();
+}
+
+#pragma endregion
+#pragma region Closeness
+
+// The outcome of comparing two matrices elementwise under the allclose rule,
+// `|actual - expected| <= atol + rtol * |expected|`.
+struct closeness {
+  size_t violations{};
+  float max_abs_error{};
+  // Over the elements whose expected value is not zero.
+  float max_rel_error{};
+};
+
+// Compare `actual` to `expected`, which must have the same extent.
+closeness compare(const_float_matrix_view actual,
+    const_float_matrix_view expected, float atol, float rtol) {
+  REQUIRE(actual.row_extent() == expected.row_extent());
+  REQUIRE(actual.col_extent() == expected.col_extent());
+  closeness result;
+  for (const auto r : actual.row_interval()) {
+    const auto actual_row = actual.row_span(r);
+    const auto expected_row = expected.row_span(r);
+    for (size_t col = 0; col < actual_row.size(); ++col) {
+      const auto magnitude = std::abs(expected_row[col]);
+      const auto abs_error = std::abs(actual_row[col] - expected_row[col]);
+      result.max_abs_error = std::max(result.max_abs_error, abs_error);
+      if (magnitude != 0.0F)
+        result.max_rel_error =
+            std::max(result.max_rel_error, abs_error / magnitude);
+      if (abs_error > atol + (rtol * magnitude)) ++result.violations;
+    }
+  }
+  return result;
+}
+
+// Check that `actual` is close to `expected`, reporting the largest errors.
+void check_close(const_float_matrix_view actual,
+    const_float_matrix_view expected, float atol, float rtol) {
+  const auto result = compare(actual, expected, atol, rtol);
+  INFO("max abs error "
+       << result.max_abs_error << ", max rel error " << result.max_rel_error);
+  CHECK(result.violations == 0);
+}
+
+#pragma endregion
+
+constexpr auto n_layer = 12UZ;
+constexpr auto n_embd = 768UZ;
+
+} // namespace
 
 TEST_CASE("Row reductions", "[Gpt2ForwardTest]") {
   constexpr std::array values{1.0F, 2.0F, 3.0F, 4.0F};
@@ -117,6 +229,41 @@ TEST_CASE("Layer norm honors the stride of both views", "[Gpt2ForwardTest]") {
   CHECK(out_storage[0] == -1.0F);
   CHECK_THAT(out_storage[1], WithinAbs(-1.0, tolerance));
   CHECK_THAT(out_storage[2], WithinAbs(1.0, tolerance));
+}
+
+TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // Every layer norm in the model, fed its own dumped input, so no error in
+  // an earlier op can reach it.
+  struct site {
+    std::string dump;
+    std::string param;
+  };
+  std::vector<site> sites;
+  for (auto n = 0UZ; n < n_layer; ++n)
+    for (const auto* ln : {"ln_1", "ln_2"})
+      sites.push_back(
+          {std::format("block_{}/{}", n, ln), std::format("h.{}.{}", n, ln)});
+  sites.push_back({"ln_f", "ln_f"});
+
+  for (const auto& [dump, param] : sites) {
+    DYNAMIC_SECTION(dump) {
+      const auto in = matrix_of(oracle.activations, dump + "/in", n_embd);
+      const auto expected =
+          matrix_of(oracle.activations, dump + "/out", n_embd);
+      const auto weight = vector_of(oracle.weights, param + ".weight", n_embd);
+      const auto bias = vector_of(oracle.weights, param + ".bias", n_embd);
+      REQUIRE(in.row_extent() == 14);
+
+      std::vector<float> storage(in.size());
+      const float_matrix_view out(storage, in.get_extent());
+      layer_norm(out, in, weight, bias);
+
+      check_close(out, expected, 1e-5F, 1e-5F);
+    }
+  }
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -5,3 +5,6 @@
 # Configuration files
 .clang-format linguist-generated
 .clang-tidy linguist-generated
+
+# Byte-exact fixtures: never convert line endings.
+tests/data/llm/** -text

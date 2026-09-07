@@ -106,6 +106,7 @@ def tokenizer_fixtures(tok: GPT2TokenizerFast, fixtures: Path) -> dict:
         json.dumps({"full": full, "lines": per_line}, separators=(",", ":"))
         + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     # Decode must round-trip byte for byte; the tokenizer is byte-level.
     assert tok.decode(full) == text, "reference tokenizer failed round-trip"
@@ -260,7 +261,7 @@ def main() -> None:
         "safetensors": safetensors.__version__,
     }
     manifest["sha256"] = {
-        str(p.relative_to(ROOT)): sha256(p)
+        p.relative_to(ROOT).as_posix(): sha256(p)
         for p in [
             fixtures / "vocab.json",
             fixtures / "merges.txt",
@@ -272,8 +273,10 @@ def main() -> None:
             out / "grads.safetensors",
         ]
     }
+    # LF on every platform, so the checksums and the committed text match
+    # across machines.
     (fixtures / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     print(f"greedy: {manifest['greedy']['text']!r}")
     print(f"loss: {manifest['grads']['loss']:.6f}")
