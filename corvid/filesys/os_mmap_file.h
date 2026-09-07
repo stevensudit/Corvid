@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 
-// `os_mmap_file` proves a read-only memory mapping of a whole open file.
+// `os_mmap_file` provides a read-only memory mapping of a whole open file.
 //
 // The `map` factory method takes an open `os_file` and maps the whole file
 // read-only, `bytes` exposes the contents as a span of const bytes, and the
