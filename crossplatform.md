@@ -304,9 +304,10 @@ adding code the portable bucket will compile, follow these:
   rather than guards. Each public entry header (`corvid/filesys/os_enums.h`,
   `os_error.h`, `os_file.h`, `os_event.h`) selects a `details/linux_*.h` or
   `details/windows_*.h` implementation, and the shared contract lives in a CRTP
-  base header (`os_*_base.h`) that both implementations include; see
-  "corvid/filesys/CLAUDE.md" for the structure. `epoll.h` and `net_socket.h`
-  remain Linux-only and say so with an `#ifdef _WIN32` `#error`.
+  base header (`details/os_*_base.h`) that both implementations include; see
+  "corvid/filesys/CLAUDE.md" for the structure. Single-platform headers carry
+  the platform as a filename prefix: `linux_epoll.h`, `linux_mmap.h`, and
+  `net_socket.h` remain Linux-only and say so with an `#ifdef _WIN32` `#error`.
 - Empty-base and member elision: use `CORVID_NO_UNIQUE_ADDRESS` (from
   `corvid/meta/crossplatform.h`), not the raw `[[no_unique_address]]`. MSVC
   silently ignores the standard attribute and needs `[[msvc::no_unique_address]]`;

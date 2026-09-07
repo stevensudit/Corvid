@@ -16,9 +16,9 @@
 // limitations under the License.
 #pragma once
 
-// Linux-only: memory mapping has no shared vocabulary with Windows yet.
+// Linux-only: a direct wrapper over `mmap`, with no Windows counterpart.
 #ifdef _WIN32
-#error "\"mmap.h\" is Linux-only."
+#error "\"linux_mmap.h\" is Linux-only."
 #endif
 #include <cassert>
 #include <cstddef>

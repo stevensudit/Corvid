@@ -19,9 +19,9 @@
 #include <system_error>
 #include <type_traits>
 
-#include "../enums/bitmask_enum.h"
-#include "../enums/sequence_enum.h"
-#include "../strings/cstring_view.h"
+#include "../../enums/bitmask_enum.h"
+#include "../../enums/sequence_enum.h"
+#include "../../strings/cstring_view.h"
 
 namespace corvid { inline namespace filesys {
 

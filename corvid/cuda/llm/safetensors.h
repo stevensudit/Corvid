@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 
-// Linux-only: rests on "mmap.h".
+// Linux-only: rests on "linux_mmap.h".
 #ifdef _WIN32
 #error "\"safetensors.h\" is Linux-only."
 #endif
@@ -37,7 +37,7 @@
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/transparent.h"
 #include "../../enums/sequence_enum.h"
-#include "../../filesys/mmap.h"
+#include "../../filesys/linux_mmap.h"
 #include "../../math/endian.h"
 #include "../../proto/misc/json_parser.h"
 #include "../../strings/cstring_view.h"

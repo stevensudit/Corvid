@@ -20,8 +20,8 @@
 #include <cstdint>
 #include <utility>
 
-#include "../enums/sequence_enum.h"
-#include "os_file.h"
+#include "../../enums/sequence_enum.h"
+#include "../os_file.h"
 
 namespace corvid { inline namespace filesys {
 using namespace std::chrono_literals;
