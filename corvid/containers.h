@@ -30,3 +30,4 @@
 #include "containers/core/fixed_bitset.h"
 #include "containers/core/scoped_value.h"
 #include "containers/utils/object_pool.h"
+#include "containers/utils/matrix_view.h"
