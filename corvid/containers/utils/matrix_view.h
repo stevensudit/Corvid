@@ -43,7 +43,8 @@
 //   using view_t = matrix_view<float>;
 //   std::vector<float> storage(rows * cols);
 //   view_t m(storage, {.row_count = rows, .col_count = cols});
-//   m[r, c] = 1.0F;
+//   for (auto r = m.begin_row(); r != m.end_row(); ++r)
+//     for (auto c = m.begin_col(); c != m.end_col(); ++c) m[r, c] = 1.0F;
 //   for (const auto value : m.row_span(r)) ...
 //
 // Slicing out a block:
@@ -132,22 +133,57 @@ public:
   template<typename U>
   requires(std::is_same_v<const U, T> && !std::is_same_v<U, T>)
   constexpr matrix_view(matrix_view<U> other) noexcept
-      : data_{other.data()}, extent_{*other.rows(), *other.cols()},
+      : data_{other.as_span().data()}, extent_{other.get_extent()},
         stride_{other.stride()} {}
 
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] constexpr T* data() const noexcept { return data_; }
-  [[nodiscard]] constexpr row_ndx rows() const noexcept {
-    return row_ndx{extent_.row_count};
+  // The elements the view reaches, from the first of the first row through
+  // the last of the last row, so a strided view includes the gaps between
+  // its rows.
+  [[nodiscard]] constexpr std::span<T> as_span() const noexcept {
+    // Parens, not braces: C++26 gives span an initializer_list constructor.
+    // NOLINTNEXTLINE(modernize-return-braced-init-list)
+    return std::span<T>(data_, footprint(extent_, stride_));
   }
-  [[nodiscard]] constexpr col_ndx cols() const noexcept {
-    return col_ndx{extent_.col_count};
-  }
+
   [[nodiscard]] constexpr size_t stride() const noexcept { return stride_; }
+
+  [[nodiscard]] constexpr size_t row_extent() const noexcept {
+    return extent_.row_count;
+  }
+  [[nodiscard]] constexpr size_t col_extent() const noexcept {
+    return extent_.col_count;
+  }
+  [[nodiscard]] constexpr extent get_extent() const noexcept {
+    return extent_;
+  }
+  [[nodiscard]] constexpr size_t size() const noexcept {
+    return extent_.row_count * extent_.col_count;
+  }
   [[nodiscard]] constexpr bool empty() const noexcept {
     return !extent_.row_count || !extent_.col_count;
+  }
+
+  // Bounds, as index types. `begin()` and `end()` are corners, not
+  // iterators. A loop over the rows reads:
+  //   for (auto r = m.begin_row(); r != m.end_row(); ++r)
+  [[nodiscard]] static constexpr row_ndx begin_row() noexcept {
+    return row_ndx{};
+  }
+  [[nodiscard]] constexpr row_ndx end_row() const noexcept {
+    return row_ndx{extent_.row_count};
+  }
+  [[nodiscard]] static constexpr col_ndx begin_col() noexcept {
+    return col_ndx{};
+  }
+  [[nodiscard]] constexpr col_ndx end_col() const noexcept {
+    return col_ndx{extent_.col_count};
+  }
+  [[nodiscard]] static constexpr coord begin() noexcept { return coord{}; }
+  [[nodiscard]] constexpr coord end() const noexcept {
+    return {end_row(), end_col()};
   }
 
   // Element at row `r`, column `c`, both of which must be in range
@@ -162,10 +198,10 @@ public:
     return (*this)[at.row, at.col];
   }
 
-  // The elements of row `r` from column `first` up to, not including, `last`,
-  // where `col_ndx::npos` means the end of the row.
+  // The elements of row `r` from column `first` up to, but not including,
+  // `last`, where `col_ndx::npos` means the end of the row.
   //
-  // `r` must be in range, and `first <= last <= cols()` (asserted).
+  // `r` must be in range, and `first <= last <= col_extent()` (asserted).
   [[nodiscard]] constexpr std::span<T> row_span(row_ndx r, col_ndx first = {},
       col_ndx last = col_ndx::npos) const noexcept {
     assert(*r < extent_.row_count);
