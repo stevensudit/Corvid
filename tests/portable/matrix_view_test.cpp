@@ -40,8 +40,8 @@ namespace {
 std::vector<float> make_storage(size_t rows, size_t cols) {
   std::vector<float> storage(rows * cols);
   const view_t m(storage, {.row_count = rows, .col_count = cols});
-  for (row_ndx r{}; r < m.rows(); ++r)
-    for (col_ndx c{}; c < m.cols(); ++c)
+  for (auto r = m.begin_row(); r != m.end_row(); ++r)
+    for (auto c = m.begin_col(); c != m.end_col(); ++c)
       m[r, c] = static_cast<float>((10 * *r) + *c);
   return storage;
 }
@@ -81,11 +81,25 @@ TEST_CASE("Index types", "[MatrixViewTest]") {
 TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   std::vector<float> storage(2UZ * 3);
   view_t m(storage, {.row_count = 2, .col_count = 3});
-  REQUIRE(m.rows() == row_ndx{2});
-  REQUIRE(m.cols() == col_ndx{3});
+  REQUIRE(m.row_extent() == 2);
+  REQUIRE(m.col_extent() == 3);
+  REQUIRE(m.get_extent().row_count == 2);
+  REQUIRE(m.get_extent().col_count == 3);
+  REQUIRE(m.size() == 6);
   REQUIRE(m.stride() == 3);
   REQUIRE_FALSE(m.empty());
-  REQUIRE(m.data() == storage.data());
+  REQUIRE(m.as_span().data() == storage.data());
+  REQUIRE(m.as_span().size() == 6);
+
+  // Bounds are indexes; `begin` is the origin, `end` one past both ways.
+  CHECK(m.begin_row() == row_ndx{});
+  CHECK(m.end_row() == row_ndx{2});
+  CHECK(m.begin_col() == col_ndx{});
+  CHECK(m.end_col() == col_ndx{3});
+  CHECK(m.begin().row == row_ndx{});
+  CHECK(m.begin().col == col_ndx{});
+  CHECK(m.end().row == row_ndx{2});
+  CHECK(m.end().col == col_ndx{3});
 
   m[row_ndx{1}, col_ndx{2}] = 5.0F;
   m[coord{row_ndx{0}, col_ndx{1}}] = 7.0F;
@@ -107,7 +121,9 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
 
   const view_t unset;
   CHECK(unset.empty());
-  CHECK(unset.rows() == row_ndx{});
+  CHECK(unset.size() == 0);
+  CHECK(unset.end_row() == unset.begin_row());
+  CHECK(unset.as_span().empty());
 }
 
 TEST_CASE("Mutable view converts to read-only", "[MatrixViewTest]") {
@@ -115,7 +131,7 @@ TEST_CASE("Mutable view converts to read-only", "[MatrixViewTest]") {
   view_t m(storage, {.row_count = 2, .col_count = 2});
   const matrix_view<const float> ro = m;
   CHECK(ro[row_ndx{1}, col_ndx{0}] == 3.0F);
-  CHECK(ro.data() == m.data());
+  CHECK(ro.as_span().data() == m.as_span().data());
 
   const std::span<const float> bytes = storage;
   const matrix_view deduced(bytes, {.row_count = 2, .col_count = 2});
@@ -131,9 +147,10 @@ TEST_CASE("Subview keeps the stride", "[MatrixViewTest]") {
   // A block of columns by extent.
   const auto block =
       m.subview({row_ndx{0}, col_ndx{2}}, {.row_count = 2, .col_count = 3});
-  REQUIRE(block.rows() == row_ndx{2});
-  REQUIRE(block.cols() == col_ndx{3});
+  REQUIRE(block.row_extent() == 2);
+  REQUIRE(block.col_extent() == 3);
   REQUIRE(block.stride() == 6);
+  CHECK(block.as_span().size() == 9);
   CHECK(block[row_ndx{0}, col_ndx{0}] == 2.0F);
   CHECK(block[row_ndx{1}, col_ndx{2}] == 14.0F);
   CHECK(block.row_span(row_ndx{1}).size() == 3);
@@ -146,30 +163,30 @@ TEST_CASE("Subview keeps the stride", "[MatrixViewTest]") {
   // Slicing a slice composes.
   const auto inner = block.subview({row_ndx{0}, col_ndx{1}},
       {.row_count = 2, .col_count = 1});
-  CHECK(inner.cols() == col_ndx{1});
+  CHECK(inner.col_extent() == 1);
   CHECK(inner[row_ndx{0}, col_ndx{0}] == 3.0F);
   CHECK(inner.stride() == 6);
 
   // Half-open corners trim both dimensions.
   const auto corner =
       m.subview({row_ndx{1}, col_ndx{1}}, coord{row_ndx{2}, col_ndx{4}});
-  CHECK(corner.rows() == row_ndx{1});
-  CHECK(corner.cols() == col_ndx{3});
+  CHECK(corner.row_extent() == 1);
+  CHECK(corner.col_extent() == 3);
   CHECK(corner[row_ndx{0}, col_ndx{0}] == 11.0F);
   CHECK(corner[row_ndx{0}, col_ndx{2}] == -1.0F);
 
   // `coord::npos`, the default extent, and a half-specified extent all run to
   // the end.
   const auto to_end = m.subview({row_ndx{1}, col_ndx{4}}, coord::npos);
-  CHECK(to_end.rows() == row_ndx{1});
-  CHECK(to_end.cols() == col_ndx{2});
+  CHECK(to_end.row_extent() == 1);
+  CHECK(to_end.col_extent() == 2);
   CHECK(to_end[row_ndx{0}, col_ndx{1}] == 15.0F);
   const auto rest = m.subview({row_ndx{1}, col_ndx{4}});
-  CHECK(rest.data() == to_end.data());
-  CHECK(rest.cols() == col_ndx{2});
+  CHECK(rest.as_span().data() == to_end.as_span().data());
+  CHECK(rest.col_extent() == 2);
   const auto strip = m.subview({row_ndx{0}, col_ndx{3}}, {.row_count = 1});
-  CHECK(strip.rows() == row_ndx{1});
-  CHECK(strip.cols() == col_ndx{3});
+  CHECK(strip.row_extent() == 1);
+  CHECK(strip.col_extent() == 3);
   CHECK(strip[row_ndx{0}, col_ndx{2}] == 5.0F);
 
   // Empty slices at either edge are fine.
@@ -184,6 +201,8 @@ TEST_CASE("Strided view over a larger buffer", "[MatrixViewTest]") {
   auto storage = make_storage(3, 4);
   const view_t m(storage, {.row_count = 3, .col_count = 2}, 4);
   CHECK(m.stride() == 4);
+  CHECK(m.size() == 6);
+  CHECK(m.as_span().size() == 10);
   CHECK(m[row_ndx{2}, col_ndx{1}] == 21.0F);
   CHECK(m.row_span(row_ndx{1}).size() == 2);
 
