@@ -27,10 +27,8 @@ using namespace corvid;
 using namespace corvid::llm;
 using Catch::Matchers::WithinAbs;
 
-using view_t = matrix_view<float>;
-using cview_t = matrix_view<const float>;
-using row_ndx = view_t::row_ndx;
-using col_ndx = view_t::col_ndx;
+using row_ndx = float_matrix_view::row_ndx;
+using col_ndx = float_matrix_view::col_ndx;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -63,8 +61,9 @@ TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
   const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 5.0F, 5.0F,
       5.0F};
   std::vector<float> out_storage(in_storage.size());
-  const cview_t in(in_storage, {.row_count = 2, .col_count = 4});
-  const view_t out(out_storage, {.row_count = 2, .col_count = 4});
+  const const_float_matrix_view in(in_storage,
+      {.row_count = 2, .col_count = 4});
+  const float_matrix_view out(out_storage, {.row_count = 2, .col_count = 4});
   constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
   constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
 
@@ -84,16 +83,30 @@ TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
   CHECK_THAT(second[3], WithinAbs(0.5, tolerance));
 }
 
+TEST_CASE("Layer norm in place", "[Gpt2ForwardTest]") {
+  std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
+  std::vector<float> expected(storage.size());
+  const float_matrix_view m(storage, {.row_count = 1, .col_count = 4});
+  const float_matrix_view out(expected, {.row_count = 1, .col_count = 4});
+  constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
+  constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
+
+  layer_norm(out, m, weight, bias);
+  layer_norm(m, m, weight, bias);
+
+  CHECK(storage == expected);
+}
+
 TEST_CASE("Layer norm honors the stride of both views", "[Gpt2ForwardTest]") {
   // The row lives in the first two columns of a three-column buffer, and
   // writes land in the last two columns of another, leaving the rest alone.
   const std::vector<float> in_storage{2.0F, 4.0F, -1.0F};
   std::vector<float> out_storage{-1.0F, -1.0F, -1.0F};
   const auto in =
-      cview_t(in_storage, {.row_count = 1, .col_count = 3})
+      const_float_matrix_view(in_storage, {.row_count = 1, .col_count = 3})
           .subview({row_ndx{0}, col_ndx{0}}, {.row_count = 1, .col_count = 2});
   const auto out =
-      view_t(out_storage, {.row_count = 1, .col_count = 3})
+      float_matrix_view(out_storage, {.row_count = 1, .col_count = 3})
           .subview({row_ndx{0}, col_ndx{1}});
   constexpr std::array weight{1.0F, 1.0F};
   constexpr std::array bias{0.0F, 0.0F};

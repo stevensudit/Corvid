@@ -94,13 +94,15 @@ scale_shift(float x, float weight, float bias) noexcept {
 // The epsilon GPT-2 adds to the variance before the square root.
 inline constexpr float layer_norm_eps = 1e-5F;
 
-// Normalize each row of `in` to mean 0 and variance 1, then scale by
+// Normalize each row of `in` to a mean of 0 and a variance of 1, then scale by
 // `weight` and shift by `bias`, elementwise, into `out`.
 //
 // The variance is biased (divided by the width, not the width minus one),
 // with `eps` added inside the square root. `out` and `in` must have the same
 // extent, and its width must be the size of `weight` and `bias` (asserted).
-inline void layer_norm(matrix_view<float> out, matrix_view<const float> in,
+// `out` may be the same view as `in`, normalizing in place; any other overlap
+// is unsupported.
+inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
     std::span<const float> weight, std::span<const float> bias,
     float eps = layer_norm_eps) noexcept {
   const auto width = in.col_extent();

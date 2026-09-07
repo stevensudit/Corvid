@@ -299,4 +299,12 @@ template<typename T>
 matrix_view(std::span<T>, details::extent, size_t) -> matrix_view<T>;
 
 #pragma endregion
+#pragma region Aliases
+
+using float_matrix_view = matrix_view<float>;
+using const_float_matrix_view = matrix_view<const float>;
+using double_matrix_view = matrix_view<double>;
+using const_double_matrix_view = matrix_view<const double>;
+
+#pragma endregion
 }}} // namespace corvid::container::matrices
