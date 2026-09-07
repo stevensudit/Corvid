@@ -16,7 +16,8 @@
 // limitations under the License.
 #pragma once
 
-// Linux-only: a direct wrapper over `mmap`, with no Windows counterpart.
+// Linux-only: a direct wrapper over `mmap`, with no identical Windows
+// counterpart.
 #ifdef _WIN32
 #error "\"linux_mmap.h\" is Linux-only."
 #endif
@@ -133,8 +134,11 @@ consteval auto corvid_enum_spec(mmap_advice*) {
 // RAII wrapper around a Linux memory mapping.
 //
 // `memory_map` owns one region created by `::mmap` and unmaps it when
-// destroyed. The factories cover the raw call, the file-backed cases, and a
-// huge-page slab with an ordinary-page fallback; `advise` wraps `::madvise`.
+// destroyed. A file-backed region holds its own reference to the file, so the
+// descriptor may be closed as soon as the mapping exists; the file stays open
+// until the region is unmapped. The factories cover the raw call, the
+// file-backed cases, and a huge-page slab with an ordinary-page fallback;
+// `advise` wraps `::madvise`.
 //
 // Every call passes its arguments through, so the kernel is the sole
 // arbiter: failure is signaled through the return value, with the reason
@@ -265,7 +269,7 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] bool is_mapped() const noexcept { return base_ != nullptr; }
+  [[nodiscard]] bool is_mapped() const noexcept { return base_; }
   [[nodiscard]] explicit operator bool() const noexcept { return is_mapped(); }
 
   [[nodiscard]] void* data() const noexcept { return base_; }
