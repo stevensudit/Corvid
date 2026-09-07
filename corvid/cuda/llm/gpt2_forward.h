@@ -31,6 +31,64 @@
 // (asserted).
 namespace corvid::llm {
 
+#pragma region Reductions
+
+// Reductions over a row of features, kept here until a second consumer earns
+// them a home in `corvid/math`.
+
+// The sum of `values`.
+[[nodiscard]] constexpr float sum(std::span<const float> values) noexcept {
+  float total{};
+  for (const auto x : values) total += x;
+  return total;
+}
+
+// The arithmetic mean of `values`, NaN when empty.
+[[nodiscard]] constexpr float mean(std::span<const float> values) noexcept {
+  return sum(values) / static_cast<float>(values.size());
+}
+
+// The sum of the squared deviations of `values` from `center`.
+[[nodiscard]] constexpr float
+squared_deviation_sum(std::span<const float> values, float center) noexcept {
+  float total{};
+  for (const auto x : values) total += (x - center) * (x - center);
+  return total;
+}
+
+// The biased variance of `values` around their `mean`. The squared deviations
+// are divided by the count, not the count minus one (in other words, Bessel's
+// correction is not applied). NaN when empty.
+[[nodiscard]] constexpr float
+variance(std::span<const float> values, float mean) noexcept {
+  return squared_deviation_sum(values, mean) /
+         static_cast<float>(values.size());
+}
+
+// The reciprocal of the standard deviation of `values` around their `mean`,
+// with `eps` added to the variance inside the square root.
+[[nodiscard]] inline float inverse_std_dev(std::span<const float> values,
+    float mean, float eps) noexcept {
+  return 1.0F / std::sqrt(variance(values, mean) + eps);
+}
+
+#pragma endregion
+#pragma region Elementwise
+
+// The z-score of `x`, which is its distance from `mean` in units of the
+// standard deviation, that was given as the reciprocal `inv_std`.
+[[nodiscard]] constexpr float
+standardize(float x, float mean, float inv_std) noexcept {
+  return (x - mean) * inv_std;
+}
+
+// `x` scaled by `weight`, then shifted by `bias`.
+[[nodiscard]] constexpr float
+scale_shift(float x, float weight, float bias) noexcept {
+  return (x * weight) + bias;
+}
+
+#pragma endregion
 #pragma region layer_norm
 
 // The epsilon GPT-2 adds to the variance before the square root.
@@ -48,19 +106,14 @@ inline void layer_norm(matrix_view<float> out, matrix_view<const float> in,
   const auto width = in.col_extent();
   assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
   assert((weight.size() == width) && (bias.size() == width));
-  const auto scale = 1.0F / static_cast<float>(width);
   for (const auto r : in.row_interval()) {
     const auto in_row = in.row_span(r);
-    float sum{};
-    for (const auto x : in_row) sum += x;
-    const auto mean = sum * scale;
-    float sq_sum{};
-    for (const auto x : in_row) sq_sum += (x - mean) * (x - mean);
-    const auto inv_std = 1.0F / std::sqrt((sq_sum * scale) + eps);
+    const auto row_mean = mean(in_row);
+    const auto inv_std = inverse_std_dev(in_row, row_mean, eps);
     const auto out_row = out.row_span(r);
     for (size_t col = 0; col < width; ++col)
-      out_row[col] =
-          ((in_row[col] - mean) * inv_std * weight[col]) + bias[col];
+      out_row[col] = scale_shift(standardize(in_row[col], row_mean, inv_std),
+          weight[col], bias[col]);
   }
 }
 
