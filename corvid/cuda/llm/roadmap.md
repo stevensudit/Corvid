@@ -329,6 +329,12 @@ Design decisions (2026-09-07), settled before the code:
   the five prompts' logits, from their dumped IDs and from the tokenizer,
   and the greedy continuation from the manifest.
 
+Status (2026-09-07): `layer_norm` drafted in
+`corvid/cuda/llm/gpt2_forward.h` (namespace `corvid::llm`, the header that
+will hold every CPU op), with hand-computed cases in
+`tests/portable/gpt2_forward_test.cpp`. Next: the oracle loader and the
+isolated `block_0 ln_1` case in that test.
+
 ### 4. CUDA forward pass
 
 The same model on the device:
