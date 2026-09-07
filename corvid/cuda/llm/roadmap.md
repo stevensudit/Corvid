@@ -281,6 +281,50 @@ a demonstration, not the gate.
 This is the stage where the learning is densest, and the code stays as the
 reference for everything after. It is allowed to be slow.
 
+Status (2026-09-06): primer delivered in conversation. Oracle facts it
+rests on, read from the installed transformers 5.16.1 source and the dump
+headers rather than remembered: the activation is `gelu_new` (the tanh
+approximation, not erf); attention scales scores by `1/sqrt(64)`, the head
+dimension, and heads are contiguous 64-wide column blocks of the 768-wide
+q, k and v thirds of `c_attn`'s 2304 output columns, in that order; the
+causal rule is `j <= i`; layernorm uses the biased variance with `eps =
+1e-5` inside the square root; the output head is `wte` transposed with no
+bias; `h.N.attn.bias` in the weights file is the saved causal mask buffer,
+not a parameter, and is ignored. `activations.safetensors` holds, for the
+bisect prompt (T = 14), `embed/out`, per block `ln_1/in`, `ln_1/out`,
+`attn/out` (after `c_proj`, before the residual add), `ln_2/in`,
+`ln_2/out`, `mlp/out` (likewise), then `ln_f/in`, `ln_f/out`, and
+`logits`; `logits.safetensors` holds `prompt_N/input_ids` (I32) and
+`prompt_N/logits` for all five prompts. Tolerance is the allclose shape,
+`|a - b| <= atol + rtol * |b|`, because the residual stream has a few
+coordinates in the thousands; the gate is set from the first measured run
+and then stated here.
+
+Design decisions (2026-09-07), settled before the code:
+
+- Activations are `matrix_view<T>` from "corvid/math/matrix_view.h": a
+  row-major, non-owning view with a row stride, so a head's block of
+  columns is a view over the projection output rather than a copy. It
+  lives in `corvid::math` because nothing in it is LLM-specific. Written
+  as a starting point for iteration; tested in
+  `tests/portable/matrix_view_test.cpp`. `std::mdspan` was considered
+  and rejected because libstdc++ on g++-15, the CUDA host compiler, does
+  not ship it.
+- The ops are free functions on views, each writing into a caller-owned
+  output, in `corvid::llm`: `layer_norm`, then the projection, GELU in
+  place, attention, one block, the forward pass with an observer called at
+  each dump name, and greedy decoding last. Shape mismatches are contract
+  violations (asserted), so the ops return `void`. Accumulation is in
+  `float`, so the CPU pass stays a faithful reference for the device pass.
+- Weights stay in the mapping: each parameter is a `std::span<const float>`
+  from the reader, viewed with the shape from the header.
+- The test in `tests/linux/` has two modes. Isolated feeds each op the
+  oracle's dumped input and compares its output alone, so an error in a
+  late block cannot hide behind drift from an early one. Chained runs the
+  whole model on the bisect prompt and compares every dump in order. Plus
+  the five prompts' logits, from their dumped IDs and from the tokenizer,
+  and the greedy continuation from the manifest.
+
 ### 4. CUDA forward pass
 
 The same model on the device:
