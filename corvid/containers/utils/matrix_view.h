@@ -22,6 +22,7 @@
 #include <type_traits>
 
 #include "../../enums/sequence_enum.h"
+#include "interval.h"
 
 // `matrix_view` is a two-dimensional view over contiguous memory, providing
 // row-major access.
@@ -43,8 +44,8 @@
 //   using view_t = matrix_view<float>;
 //   std::vector<float> storage(rows * cols);
 //   view_t m(storage, {.row_count = rows, .col_count = cols});
-//   for (auto r = m.begin_row(); r != m.end_row(); ++r)
-//     for (auto c = m.begin_col(); c != m.end_col(); ++c) m[r, c] = 1.0F;
+//   for (const auto r : m.row_interval())
+//     for (const auto c : m.col_interval()) m[r, c] = 1.0F;
 //   for (const auto value : m.row_span(r)) ...
 //
 // Slicing out a block:
@@ -166,24 +167,21 @@ public:
     return !extent_.row_count || !extent_.col_count;
   }
 
-  // Bounds, as index types. `begin()` and `end()` are corners, not
-  // iterators. A loop over the rows reads:
-  //   for (auto r = m.begin_row(); r != m.end_row(); ++r)
-  [[nodiscard]] static constexpr row_ndx begin_row() noexcept {
-    return row_ndx{};
-  }
+  // One past the last row or column, as index types.
   [[nodiscard]] constexpr row_ndx end_row() const noexcept {
     return row_ndx{extent_.row_count};
-  }
-  [[nodiscard]] static constexpr col_ndx begin_col() noexcept {
-    return col_ndx{};
   }
   [[nodiscard]] constexpr col_ndx end_col() const noexcept {
     return col_ndx{extent_.col_count};
   }
-  [[nodiscard]] static constexpr coord begin() noexcept { return coord{}; }
-  [[nodiscard]] constexpr coord end() const noexcept {
-    return {end_row(), end_col()};
+
+  // The row or column indexes as a closed interval, for ranged-for:
+  //   for (const auto r : m.row_interval())
+  [[nodiscard]] constexpr interval<row_ndx> row_interval() const noexcept {
+    return make_index_interval<row_ndx>(extent_.row_count);
+  }
+  [[nodiscard]] constexpr interval<col_ndx> col_interval() const noexcept {
+    return make_index_interval<col_ndx>(extent_.col_count);
   }
 
   // Element at row `r`, column `c`, both of which must be in range
@@ -263,6 +261,16 @@ private:
   footprint(extent size, size_t stride) noexcept {
     return size.row_count ? ((size.row_count - 1) * stride) + size.col_count
                           : 0;
+  }
+
+  // The indexes below `count` as a closed interval, empty when `count` is
+  // zero.
+  template<typename Ndx>
+  [[nodiscard]] static constexpr interval<Ndx>
+  make_index_interval(size_t count) noexcept {
+    interval<Ndx> indexes{Ndx{}};
+    indexes.resize(count);
+    return indexes;
   }
 
   // View of the rectangle of `size` at `from`, both already checked.

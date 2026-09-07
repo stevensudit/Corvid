@@ -40,8 +40,8 @@ namespace {
 std::vector<float> make_storage(size_t rows, size_t cols) {
   std::vector<float> storage(rows * cols);
   const view_t m(storage, {.row_count = rows, .col_count = cols});
-  for (auto r = m.begin_row(); r != m.end_row(); ++r)
-    for (auto c = m.begin_col(); c != m.end_col(); ++c)
+  for (const auto r : m.row_interval())
+    for (const auto c : m.col_interval())
       m[r, c] = static_cast<float>((10 * *r) + *c);
   return storage;
 }
@@ -91,15 +91,12 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   REQUIRE(m.as_span().data() == storage.data());
   REQUIRE(m.as_span().size() == 6);
 
-  // Bounds are indexes; `begin` is the origin, `end` one past both ways.
-  CHECK(m.begin_row() == row_ndx{});
+  // `end_*` is one past; the intervals are closed.
   CHECK(m.end_row() == row_ndx{2});
-  CHECK(m.begin_col() == col_ndx{});
   CHECK(m.end_col() == col_ndx{3});
-  CHECK(m.begin().row == row_ndx{});
-  CHECK(m.begin().col == col_ndx{});
-  CHECK(m.end().row == row_ndx{2});
-  CHECK(m.end().col == col_ndx{3});
+  CHECK(m.row_interval() == interval<row_ndx>{row_ndx{0}, row_ndx{1}});
+  CHECK(m.col_interval().size() == 3);
+  CHECK(m.col_interval().back() == col_ndx{2});
 
   m[row_ndx{1}, col_ndx{2}] = 5.0F;
   m[coord{row_ndx{0}, col_ndx{1}}] = 7.0F;
@@ -122,7 +119,8 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   const view_t unset;
   CHECK(unset.empty());
   CHECK(unset.size() == 0);
-  CHECK(unset.end_row() == unset.begin_row());
+  CHECK(unset.row_interval().empty());
+  CHECK(unset.col_interval().empty());
   CHECK(unset.as_span().empty());
 }
 
