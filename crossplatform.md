@@ -307,7 +307,8 @@ adding code the portable bucket will compile, follow these:
   base header (`details/os_*_base.h`) that both implementations include; see
   "corvid/filesys/CLAUDE.md" for the structure. Single-platform headers carry
   the platform as a filename prefix: `linux_epoll.h`, `linux_mmap.h`, and
-  `net_socket.h` remain Linux-only and say so with an `#ifdef _WIN32` `#error`.
+  `net_socket.h` remain Linux-only and say so with an `#ifdef _WIN32` `#error`;
+  `windows_mmap.h` is the Windows-only counterpart, guarded by `#ifndef _WIN32`.
 - Empty-base and member elision: use `CORVID_NO_UNIQUE_ADDRESS` (from
   `corvid/meta/crossplatform.h`), not the raw `[[no_unique_address]]`. MSVC
   silently ignores the standard attribute and needs `[[msvc::no_unique_address]]`;
