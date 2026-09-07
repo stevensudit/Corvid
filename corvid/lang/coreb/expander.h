@@ -27,6 +27,7 @@
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/scoped_value.h"
 #include "../../containers/core/value_or_error.h"
+#include "eval.h"
 #include "runtime.h"
 #include "value.h"
 
@@ -38,8 +39,9 @@ using namespace std::literals;
 //
 // Rewrites the forms the reader produces into the kernel forms the evaluator
 // understands, before evaluation: templates become list-construction code,
-// with their auto-gensym names freshened. The evaluator never sees a
-// template hole.
+// with their auto-gensym names freshened, and macro calls are replaced by
+// their expansions. The evaluator never sees a template hole or a macro
+// call.
 //
 //   runtime rt;
 //   expander ex(rt);
@@ -67,20 +69,34 @@ using expand_error = error_value<struct ExpandTag>;
 // it becomes a template of its own only if the code it ends up in is itself
 // expanded.
 //
-// Everything else is walked element-wise, so templates anywhere inside a
-// form are found.
+// A call whose head symbol is bound to a macro in the global scope is a
+// macro call. The macro's body runs on the unevaluated argument forms, and
+// its result is expanded in place of the call, so expansion repeats until
+// only kernel forms and plain calls remain.
 //
-// Expansion allocates through the runtime but never collects; the caller
-// pins the result before evaluating it, as for any read form.
+// The binding is consulted at expansion time, which is why the pass is per
+// top-level form: one form's evaluation can define the macro the next form
+// uses. A `lambda` or `macro` parameter shadows a macro of the same name for
+// its body, and the parameter list itself is names, not code. A `define`
+// inside a body is invisible here, so it cannot shadow a macro, because macros
+// are global-scope constructs.
+//
+// Everything else is walked element-wise, so templates and macro calls
+// anywhere inside a form are found.
+//
+// Expansion allocates through the runtime but never collects, holding a
+// `gc_inhibitor` while macro bodies evaluate. The caller pins the result
+// before evaluating it, as for any read form.
 //
 // Failure is reported by value as an `expand_error`. Nesting deeper than
-// `max_depth` is rejected rather than risking stack exhaustion.
+// `max_depth` is rejected rather than risking stack exhaustion, which also
+// bounds a macro whose expansion never stops producing macro calls.
 class expander final {
 public:
   template<typename T>
   using result = value_or_error<T, expand_error>;
 
-  explicit expander(runtime& rt) : rt_{rt} {}
+  explicit expander(runtime& rt) : rt_{rt}, ev_{rt} {}
 
   expander(const expander&) = delete;
   expander& operator=(const expander&) = delete;
@@ -94,10 +110,10 @@ public:
     std::vector<value> elems;
     value tail;
     if (!form.append_elements(elems)) tail = last_tail(form);
+    const auto head_sym = elems[0].maybe_symbol();
 
     // A well-formed quote is the one opaque form: a template or a literal.
-    if (const auto head_ptr = elems[0].maybe_symbol();
-        head_ptr && *head_ptr == rt_.sym_quote && elems.size() == 2 &&
+    if (head_sym && *head_sym == rt_.sym_quote && elems.size() == 2 &&
         tail.is_nil())
     {
       if (!needs_build(elems[1])) return form;
@@ -109,18 +125,23 @@ public:
       return built;
     }
 
+    // A lambda or macro form gets structural treatment: its parameter list
+    // is names, not code.
+    if (head_sym &&
+        (*head_sym == rt_.sym_lambda || *head_sym == rt_.sym_macro) &&
+        elems.size() >= 2)
+      return expand_abstraction(std::move(elems), tail);
+
+    // A proper call on a macro-bound, unshadowed head symbol is a macro
+    // call.
+    if (head_sym && tail.is_nil() && !is_shadowed(*head_sym))
+      if (const auto bound = rt_.root_env().lookup(*head_sym))
+        if (const auto mac = bound->maybe_macro())
+          return expand_macro_call(*head_sym, *mac,
+              std::span<const value>(elems).subspan(1));
+
     // Anything else is code all the way down, dotted tail included.
-    for (auto& elem : elems) {
-      auto r = expand(elem);
-      if (!r) return r;
-      elem = *r;
-    }
-    if (!tail.is_nil()) {
-      auto r = expand(tail);
-      if (!r) return r;
-      tail = *r;
-    }
-    return rt_.list_of(elems, tail);
+    return expand_elements(std::move(elems), tail);
   }
 
 private:
@@ -283,10 +304,80 @@ private:
   }
 
 #pragma endregion
+#pragma region Macro calls
+
+  // Expand `elems` and `tail` element-wise from `from` on, rebuilding the
+  // form.
+  [[nodiscard]] result<value>
+  expand_elements(std::vector<value> elems, value tail, size_t from = 0) {
+    for (auto& elem : std::span{elems}.subspan(from)) {
+      auto r = expand(elem);
+      if (!r) return r;
+      elem = *r;
+    }
+    if (!tail.is_nil()) {
+      auto r = expand(tail);
+      if (!r) return r;
+      tail = *r;
+    }
+    return rt_.list_of(elems, tail);
+  }
+
+  // Expand a lambda or macro form, walking the body only, its parameter
+  // names shadowing any same-named macros there.
+  //
+  // The parameter list passes through untouched; whether it is well formed
+  // is the evaluator's business.
+  [[nodiscard]] result<value>
+  expand_abstraction(std::vector<value> elems, value tail) {
+    const auto shadow_mark = shadowed_.size();
+    for (auto params = elems[1]; params.is_cell(); params = params.tail())
+      if (const auto name = params.head().maybe_symbol())
+        shadowed_.push_back(*name);
+    auto expanded = expand_elements(std::move(elems), tail, 2);
+    shadowed_.erase(shadowed_.begin() + static_cast<ptrdiff_t>(shadow_mark),
+        shadowed_.end());
+    return expanded;
+  }
+
+  // Whether an enclosing lambda or macro parameter shadows `name`.
+  [[nodiscard]] bool is_shadowed(symbol name) const noexcept {
+    return find_opt(shadowed_, name).has_value();
+  }
+
+  // Expand the macro call `(name args...)`, invoking the macro on the
+  // unevaluated argument forms and expanding its result in place of the
+  // call.
+  //
+  // The body runs in a frame binding the parameters to the argument forms,
+  // scoped inside the macro's captured environment. Safe-point collection is
+  // inhibited for the duration, since the expansion in flight is not pinned.
+  [[nodiscard]] result<value> expand_macro_call(symbol name,
+      const closure& mac, std::span<const value> args) {
+    if (args.size() != mac.params.size())
+      return expand_error{
+          name.name() + ": expects " + std::to_string(mac.params.size()) +
+          " arguments, got " + std::to_string(args.size())};
+    auto& frame = rt_.make_env(*mac.env);
+    for (size_t ndx = 0; ndx < args.size(); ++ndx)
+      frame.bind(mac.params[ndx], args[ndx]);
+    gc_inhibitor guard(rt_);
+    value out;
+    for (const auto& form : mac.body) {
+      auto r = ev_.eval(form, frame);
+      if (!r) return expand_error{name.name() + ": " + r.as_error().reason};
+      out = *r;
+    }
+    return expand(out);
+  }
+
+#pragma endregion
 
   runtime& rt_;
+  evaluator ev_;
   size_t depth_{};
   std::unordered_map<symbol, symbol, symbol_hash> gensyms_;
+  std::vector<symbol> shadowed_;
 };
 
 #pragma endregion

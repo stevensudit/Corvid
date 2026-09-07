@@ -163,28 +163,46 @@ struct repl {
   // Read and run `pending` as Hall forms; incomplete input keeps
   // collecting instead.
   void step_hall() {
-    auto forms = hall_reader::read_all(*rt, pending);
-    if (!forms) {
-      const auto& err = forms.as_error();
+    auto read = hall_reader::read_all(*rt, pending);
+    if (!read) {
+      const auto& err = read.as_error();
       if (err.incomplete()) return;
       report("read", err);
       reset();
       return;
     }
     reset();
-    gc_pin pin(*rt, *forms);
-    run_forms(*forms, false);
+    auto forms = *std::move(read);
+    gc_pin pin(*rt, forms);
+    run_forms(forms, false);
   }
 
-  // Evaluate the pinned forms in order, printing each value; when
-  // translating, each form is prefaced by its Hall form and the Monty the
-  // unparser round-trips it to.
-  void run_forms(std::span<const value> forms, bool translate) const {
+  // Expand and evaluate the pinned forms in order, printing each value.
+  //
+  // When translating, each form is prefaced by its Hall form, the Monty the
+  // unparser round-trips it to, and, when expansion rewrote it, the
+  // expanded kernel form.
+  //
+  // Each expansion replaces its form in place, so the caller's pin covers
+  // the expanded form during evaluation.
+  void run_forms(std::span<value> forms, bool translate) const {
     evaluator ev(*rt);
-    for (const auto& form : forms) {
+    expander ex(*rt);
+    for (auto& form : forms) {
+      const auto hall_text = form.print();
       if (translate) {
-        std::cout << "hall:  " << form.print() << '\n';
-        std::cout << "monty: " << monty::unparser::unparse(*rt, form) << '\n';
+        std::cout << "hall:   " << hall_text << '\n';
+        std::cout << "monty:  " << monty::unparser::unparse(*rt, form) << '\n';
+      }
+      auto code = ex.expand(form);
+      if (!code) {
+        std::cout << "error: " << code.as_error().reason << '\n';
+        break;
+      }
+      form = *code;
+      if (translate) {
+        if (const auto expanded = form.print(); expanded != hall_text)
+          std::cout << "expand: " << expanded << '\n';
       }
       const auto v = ev.eval(form);
       if (!v) {
@@ -208,8 +226,10 @@ struct repl {
 // Definitions persist across switches, both modes evaluating against the
 // same runtime.
 //
-// Monty mode shows each statement's desugared Hall form and canonical Monty
-// round trip before its value; Hall mode prints values only. Either way,
+// Monty mode shows each statement's desugared Hall form, its canonical
+// Monty round trip, and, when macro or template expansion rewrote it, the
+// expanded kernel form, all before its value; Hall mode prints values only.
+// Both modes expand before evaluating. Either way,
 // input left lexically open (an unbalanced list, bracket, or Hall escape)
 // continues onto the next line, and a Monty statement whose parse fails at
 // the end of input (a block header, say) collects lines until a blank line

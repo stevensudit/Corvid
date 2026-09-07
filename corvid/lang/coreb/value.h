@@ -54,7 +54,7 @@ namespace corvid { inline namespace lang { namespace coreb {
 // of:
 //
 // A small copyable `value` holds one of: nil, boolean, integer, float,
-// interned symbol, string, cons cell, closure, or primitive function.
+// interned symbol, string, cons cell, closure, macro, or primitive function.
 //
 // A lexical `environment` maps symbols to values, chained to its enclosing
 // scope.
@@ -129,6 +129,10 @@ struct primitive;
 class environment;
 
 // Discriminator for the alternatives a `value` can hold.
+//
+// Note that a macro holds the same `closure` payload a closure does. The
+// distinct kind is what carries its calling convention, so any consumer that
+// does not know about macros rejects them by default.
 enum class kind : uint8_t {
   nil,
   boolean,
@@ -138,15 +142,17 @@ enum class kind : uint8_t {
   string,
   cell,
   closure,
+  macro,
   primitive
 };
 consteval auto corvid_enum_spec(kind*) {
   return corvid::enums::sequence::make_sequence_enum_spec<kind,
-      "nil,boolean,integer,floating,symbol,string,cell,closure,primitive">();
+      "nil,boolean,integer,floating,symbol,string,cell,closure,macro,"
+      "primitive">();
 }
 
 // CoreB value: nil, a boolean, an integer, a float, a symbol, or a handle to
-// a heap-allocated string, cons cell, or function (closure or primitive).
+// a heap-allocated string, cons cell, closure, macro, or primitive.
 //
 // A `value` is small and cheap. Copying is always shallow and never touches
 // heap data. The owning runtime must outlive every `value` handed out from
@@ -160,7 +166,7 @@ consteval auto corvid_enum_spec(kind*) {
 // requested alternative.
 class value final {
   using variant_t = enum_variant<kind, std::monostate, bool, int64_t, double,
-      symbol, heap_string*, cell*, closure*, primitive*>;
+      symbol, heap_string*, cell*, closure*, closure*, primitive*>;
 
 public:
 #pragma region Construction
@@ -169,13 +175,16 @@ public:
   constexpr value() noexcept = default;
 
   // Implicit construction from each alternative.
+  //
+  // A `closure&` means a closure; macros are made through
+  // `runtime_core::make_macro`.
   value(bool b) noexcept : v_{b} {}
   value(Integer auto n) noexcept : v_{static_cast<int64_t>(n)} {}
   value(double d) noexcept : v_{d} {}
   value(symbol s) noexcept : v_{s} {}
   value(heap_string& s) noexcept : v_{&s} {}
   value(cell& c) noexcept : v_{&c} {}
-  value(closure& c) noexcept : v_{&c} {}
+  value(closure& c) noexcept : v_{variant_t::make<kind::closure>(&c)} {}
   value(primitive& p) noexcept : v_{&p} {}
 
   // Strings are made through `runtime_core::make_string` and symbols through
@@ -206,6 +215,9 @@ public:
   [[nodiscard]] bool is_cell() const noexcept { return type() == kind::cell; }
   [[nodiscard]] bool is_closure() const noexcept {
     return type() == kind::closure;
+  }
+  [[nodiscard]] bool is_macro() const noexcept {
+    return type() == kind::macro;
   }
   [[nodiscard]] bool is_primitive() const noexcept {
     return type() == kind::primitive;
@@ -249,6 +261,10 @@ public:
     assert(is_closure());
     return *v_.get<kind::closure>();
   }
+  [[nodiscard]] closure& as_macro() const {
+    assert(is_macro());
+    return *v_.get<kind::macro>();
+  }
   [[nodiscard]] primitive& as_primitive() const {
     assert(is_primitive());
     return *v_.get<kind::primitive>();
@@ -274,6 +290,10 @@ public:
   }
   [[nodiscard]] optional_ptr<closure*> maybe_closure() const noexcept {
     const auto pp = v_.get_if<kind::closure>();
+    return pp ? *pp : nullptr;
+  }
+  [[nodiscard]] optional_ptr<closure*> maybe_macro() const noexcept {
+    const auto pp = v_.get_if<kind::macro>();
     return pp ? *pp : nullptr;
   }
   [[nodiscard]] optional_ptr<primitive*> maybe_primitive() const noexcept {
@@ -306,10 +326,11 @@ public:
   // Append the printed s-expression form to `out`.
   //
   // The output is what the reader accepts: symbols bare, strings quoted and
-  // escaped, proper lists as "(a b c)", improper ones dotted. Function values
-  // are the exception: they have no readable form and print as display forms,
-  // "#<primitive name>" and "#<lambda (params) body...>", the latter showing
-  // the closure's code but not its captured environment.
+  // escaped, proper lists as "(a b c)", improper ones dotted. Function and
+  // macro values are the exception: they have no readable form and print as
+  // display forms, "#<primitive name>", "#<lambda (params) body...>", and
+  // "#<macro (params) body...>", the latter two showing the code but not the
+  // captured environment.
   //
   // Nesting deeper than `max_depth` is the other exception: the subtree
   // renders as the display form "#<too deep>" instead of overflowing the C++
@@ -368,6 +389,13 @@ private:
         break;
       }
     if (integral_form) out += ".0";
+  }
+
+  // Wrap `c` as a macro value.
+  [[nodiscard]] static value do_make_macro(closure& c) noexcept {
+    value v;
+    v.v_ = variant_t::make<kind::macro>(&c);
+    return v;
   }
 
 #pragma endregion
@@ -514,6 +542,9 @@ public:
 // That captured environment is what makes it a closure: the body sees the
 // variables of its birthplace even when called from somewhere else entirely.
 //
+// A macro value (`kind::macro`) shares this payload unchanged; what makes it
+// a macro is the calling convention, which the value's kind carries.
+//
 // Constructed only by the runtime, which owns it.
 struct closure final: gc_object {
 private:
@@ -525,12 +556,14 @@ public:
       environment& env) noexcept
       : params{std::move(params)}, body{std::move(body)}, env{&env} {}
 
-  // Append the display form, "#<lambda (params) body...>".
+  // Append the display form, "#<label (params) body...>", with "label"
+  // replaced by the value's kind: "lambda" or "macro".
   //
   // Closures have no readable form: the parameters and body are shown, but the
   // captured environment has no printed spelling. Returns false if a subtree
   // was truncated for depth (see `max_depth`).
-  bool append(std::string& out, size_t depth = 0) const;
+  bool append(std::string& out, size_t depth = 0,
+      std::string_view label = "lambda") const;
 
   std::vector<symbol> params;
   std::vector<value> body;
@@ -610,6 +643,7 @@ private:
 
 // Fwd.
 class gc_pin;
+class gc_inhibitor;
 
 // The symbol table and the heap: the half of the runtime that knows nothing
 // of what any particular symbol means.
@@ -708,6 +742,15 @@ public:
     return value{*closures_.back()};
   }
 
+  // Construct a macro over `env`.
+  [[nodiscard]] value make_macro(std::vector<symbol> params,
+      std::vector<value> body, environment& env) {
+    ++allocs_;
+    closures_.push_back(std::make_unique<closure>(closure::allow::ctor,
+        std::move(params), std::move(body), env));
+    return value::do_make_macro(*closures_.back());
+  }
+
   // Expose a C++ function as a function value named `name`.
   [[nodiscard]] value make_primitive(symbol name, primitive::fn_t fn) {
     ++allocs_;
@@ -751,11 +794,13 @@ public:
   // last collection has crossed `gc_threshold`, tracing `live` and `env` as
   // extra roots.
   //
+  // A live `gc_inhibitor` suppresses it entirely.
+  //
   // The evaluator calls this at its outermost trampoline loop top, where its
   // entire live set is the expression about to be evaluated and the current
   // environment.
   void maybe_collect(value live, environment& env) {
-    if (allocs_ < gc_threshold) return;
+    if (gc_inhibits_ || allocs_ < gc_threshold) return;
     do_collect(live, &env);
   }
 
@@ -784,6 +829,7 @@ private:
 #pragma region Collection helpers
 
   friend class gc_pin;
+  friend class gc_inhibitor;
 
   void do_pin(const gc_pin& pin) { pins_.push_back(&pin); }
   void do_unpin(const gc_pin& pin) noexcept { std::erase(pins_, &pin); }
@@ -812,6 +858,7 @@ private:
   size_t gen_{};
   size_t allocs_{};
   size_t gensyms_{};
+  size_t gc_inhibits_{};
 
 #pragma endregion
 };
@@ -862,6 +909,30 @@ private:
 };
 
 #pragma endregion
+#pragma region gc_inhibitor
+
+// Scoped suspension of safe-point collection.
+//
+// While any inhibitor lives, `maybe_collect` does nothing, so a caller
+// holding many unpinned values across evaluation can suspend collection
+// wholesale instead of pinning each one. Explicit `collect` is unaffected.
+// Allocation is not blocked, so the heap grows unchecked until the last
+// inhibitor dies.
+class gc_inhibitor final {
+public:
+  explicit gc_inhibitor(runtime_core& rt) noexcept : rt_{rt} {
+    ++rt_.gc_inhibits_;
+  }
+  ~gc_inhibitor() { --rt_.gc_inhibits_; }
+
+  gc_inhibitor(const gc_inhibitor&) = delete;
+  gc_inhibitor& operator=(const gc_inhibitor&) = delete;
+
+private:
+  runtime_core& rt_;
+};
+
+#pragma endregion
 #pragma region Printing definitions
 
 inline const std::string& value::as_string() const {
@@ -882,17 +953,19 @@ inline bool value::append(std::string& out, size_t depth) const {
   case kind::string: v_.get<kind::string>()->append(out); break;
   case kind::cell: return as_cell().append(out, depth);
   case kind::closure: return as_closure().append(out, depth);
+  case kind::macro: return as_macro().append(out, depth, "macro");
   case kind::primitive: as_primitive().append(out); break;
   }
   return true;
 }
 
-inline bool closure::append(std::string& out, size_t depth) const {
+inline bool
+closure::append(std::string& out, size_t depth, std::string_view label) const {
   if (depth >= max_depth) {
     out += "#<too deep>";
     return false;
   }
-  out += "#<lambda (";
+  strings::shared_builder{out} << "#<" << label << " (";
   for (size_t ndx = 0; ndx < params.size(); ++ndx) {
     if (ndx) out += ' ';
     out += params[ndx].name();
@@ -962,8 +1035,9 @@ inline void runtime_core::do_collect(value live, environment* extra_env) {
       vals.push_back(c.tail);
       break;
     }
-    case kind::closure: {
-      auto& c = v.as_closure();
+    case kind::closure:
+    case kind::macro: {
+      auto& c = (v.type() == kind::closure) ? v.as_closure() : v.as_macro();
       if (!do_mark(c)) break;
       vals.insert(vals.end(), c.body.begin(), c.body.end());
       envs.push_back(c.env);

@@ -789,10 +789,6 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   // the data itself is already in its final form, so the expander just passes
   // it through unchanged.
   //
-  // When there are holes, the expander has to convert the input to code that
-  // evaluates those holes later and fills them in. In the process, it replaces
-  // the quoted template input with unquoted code that generates its contents.
-
   // What makes something a template is that it's code being treated as data.
   // Specifically, this means that it's a quote form encountered by the
   // expander in the context of code. So if we're already inside a quote and
@@ -991,6 +987,128 @@ TEST_CASE("CoreB expander templates", "[coreb]") {
   const auto code = ex.expand(deep);
   REQUIRE_FALSE(code.has_value());
   CHECK(code.as_error().reason == "expansion too deep");
+}
+
+#pragma endregion
+#pragma region CoreB macros
+
+namespace {
+
+// Read every form in `src`, expand and evaluate each until one fails,
+// returning the error message. Completing them all successfully fails the
+// test.
+std::string
+run_expanded_err(runtime& rt, evaluator& ev, std::string_view src) {
+  CAPTURE(src);
+  auto forms = hall_reader::read_all(rt, src);
+  REQUIRE(forms.has_value());
+  auto pending = *std::move(forms);
+  gc_pin pin(rt, pending);
+  expander ex(rt);
+  for (auto& form : pending) {
+    auto code = ex.expand(form);
+    if (!code) return code.as_error().reason;
+    form = *code;
+    auto v = ev.eval(form);
+    if (!v) return v.as_error().reason;
+  }
+  FAIL("expansion and evaluation succeeded");
+  return {};
+}
+
+} // namespace
+
+TEST_CASE("CoreB macros", "[coreb]") {
+  runtime rt;
+  evaluator ev(rt);
+
+  // A macro is defined like anything else: `define` is the one binder, and
+  // the `macro` form is shaped exactly like `lambda`. The macro's own body
+  // is expanded at definition time, so its template is already the
+  // list-construction code by the time the display form shows it.
+  CHECK(run_expanded(rt, ev,
+            "(define unless (macro (c e) '(if $c nil $e)))") == "unless");
+  CHECK(run(rt, ev, "unless") == "#<macro (c e) (list (quote if) c nil e)>");
+
+  // A call on the macro expands to the filled template, which is what
+  // evaluates.
+  CHECK(expand(rt, "(unless (== x 0) (f x))") == "(if (== x 0) nil (f x))");
+  CHECK(run_expanded(rt, ev, "(unless false 42)") == "42");
+  CHECK(run_expanded(rt, ev, "(unless true 42)") == "nil");
+
+  // The arguments arrive unevaluated, as read: `unless` guards its branch
+  // the way `if` does, and a macro can hand its argument back quoted. The
+  // quoting macro builds its output as plain code, because the template
+  // spelling `'(quote $x)` would make the inner quote a nested one, which
+  // is data, hole and all.
+  CHECK(run_expanded(rt, ev, "(unless true (/ 1 0))") == "nil");
+  CHECK(run_expanded(rt, ev, "(define show (macro (x) (list 'quote x)))") ==
+        "show");
+  CHECK(run_expanded(rt, ev, "(show (+ 1 2))") == "(+ 1 2)");
+
+  // Auto-gensym: the macro's temporary is a fresh `%` name, so it cannot
+  // capture a use-site name, and the expression still evaluates once bound.
+  CHECK(run_expanded(rt, ev,
+            "(define twice (macro (e) '((lambda (%v) (+ %v %v)) $e)))") ==
+        "twice");
+  CHECK(run_expanded(rt, ev, "(twice (+ 1 2))") == "6");
+  CHECK(run_expanded(rt, ev, "(define v 10) (twice v)") == "20");
+
+  // A macro can expand into another macro's call; the result is expanded
+  // in turn.
+  CHECK(run_expanded(rt, ev,
+            "(define unless2 (macro (c e) '(unless $c $e)))") == "unless2");
+  CHECK(run_expanded(rt, ev, "(unless2 false 7)") == "7");
+
+  // A macro whose output is itself a template: the quote was data inside
+  // the macro's body, and becomes a template when the output is expanded,
+  // per the one-level-per-quote rule.
+  CHECK(run_expanded(rt, ev,
+            "(define quo (macro (x)"
+            " (list 'quote (list 'a (list 'unquote x)))))") == "quo");
+  CHECK(expand(rt, "(quo foo)") == "(list (quote a) foo)");
+  CHECK(run_expanded(rt, ev, "(define foo 9) (quo foo)") == "(a 9)");
+
+  // A lambda parameter shadows a macro of the same name for its body, and
+  // the parameter list itself is names, not code; the macro is back in
+  // force outside.
+  CHECK(run_expanded(rt, ev, "((lambda (unless) (unless)) (lambda () 8))") ==
+        "8");
+  CHECK(run_expanded(rt, ev, "(unless false 42)") == "42");
+
+  // The evaluator never sees a macro call: unexpanded, it is an error, not
+  // a function application. That covers both a skipped expansion pass and
+  // a macro value flowing into call position at run time.
+  CHECK(run_err(rt, ev, "(unless false 1)") ==
+        "macro call not expanded: unless");
+  CHECK(run_expanded_err(rt, ev, "((lambda (m) (m 1)) unless)") ==
+        "macro call not expanded: m");
+
+  // Malformed macros and calls.
+  CHECK(expand_err(rt, "(unless false)") ==
+        "unless: expects 2 arguments, got 1");
+  CHECK(run_err(rt, ev, "(macro (x))") ==
+        "macro: expects a parameter list and a body");
+  CHECK(run_err(rt, ev, "(macro (x x) 1)") == "macro: duplicate parameter: x");
+  CHECK(run_err(rt, ev, "(macro args 1)") ==
+        "macro: variadic parameters are not yet supported");
+  CHECK(run_err(rt, ev, "(define macro 1)") ==
+        "cannot rebind special form: macro");
+
+  // A body failure surfaces as an expansion error, prefixed with the
+  // call-site name.
+  CHECK(run_expanded_err(rt, ev, "(define bad (macro () (mystery))) (bad)") ==
+        "bad: unbound symbol: mystery");
+
+  // A macro that expands to its own call never finishes; the depth guard
+  // reports it instead of recursing forever.
+  CHECK(run_expanded(rt, ev, "(define looper (macro () '(looper)))") ==
+        "looper");
+  CHECK(expand_err(rt, "(looper)") == "expansion too deep");
+
+  // Collection traces a macro's payload the way it traces a closure's.
+  rt.collect();
+  CHECK(run_expanded(rt, ev, "(unless false 42)") == "42");
 }
 
 #pragma endregion

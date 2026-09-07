@@ -63,9 +63,13 @@ using eval_error = error_value<struct EvalTag>;
 // lexical environment; a list is a special form or, failing that, a function
 // call.
 //
-// The special forms are `quote`, `if`, `define`, `lambda`, and `begin`;
-// they are recognized by symbol identity in call position, are not values,
-// and cannot be rebound.
+// The special forms are `quote`, `if`, `define`, `lambda`, `macro`, and
+// `begin`; they are recognized by symbol identity in call position, are not
+// values, and cannot be rebound.
+//
+// Evaluation runs downstream of expansion. The `macro` form builds a macro
+// value here, but macro calls are the expander's business, so one reaching
+// `eval` unexpanded is an error rather than a silent function application.
 //
 // The global scope is the runtime's persistent root environment, so while an
 // evaluator is transient, definitions made through one evaluator are visible
@@ -236,7 +240,8 @@ private:
       return step::make_evaluated(value{});
     }
     if (form == rt_.sym_define) return finish_step(eval_define(args, env));
-    if (form == rt_.sym_lambda) return finish_step(eval_lambda(args, env));
+    if (form == rt_.sym_lambda || form == rt_.sym_macro)
+      return finish_step(eval_abstraction(form, args, env));
     assert(form == rt_.sym_begin);
     if (args.empty()) return step::make_evaluated(value{});
     auto last = eval_leading(args, env);
@@ -267,7 +272,11 @@ private:
       return finish_step(apply_primitive(*prim, args));
 
     const auto fun = callee->maybe_closure();
-    if (!fun) return eval_error{"not callable: " + callee->print()};
+    if (!fun) {
+      if (callee->maybe_macro())
+        return eval_error{"macro call not expanded: " + op.print()};
+      return eval_error{"not callable: " + callee->print()};
+    }
 
     auto frame = bind_frame(*fun, args);
     if (!frame) return frame;
@@ -311,40 +320,48 @@ private:
     return args[0];
   }
 
-  // Evaluate a `(lambda (params...) body...)` form into a closure capturing
-  // `env`.
-  [[nodiscard]] result<value>
-  eval_lambda(std::span<const value> args, environment& env) {
+  // Evaluate a `(lambda (params...) body...)` or `(macro (params...)
+  // body...)` form into the closure or macro value capturing `env`.
+  //
+  // The two forms share one shape. `form` picks the result's kind and
+  // prefixes the error messages.
+  [[nodiscard]] result<value> eval_abstraction(symbol form,
+      std::span<const value> args, environment& env) {
     if (args.size() < 2)
-      return eval_error{"lambda: expects a parameter list and a body"};
+      return eval_error{form.name() + ": expects a parameter list and a body"};
     std::vector<symbol> params;
-    if (auto objection = parse_params(args[0], params))
+    if (auto objection = parse_params(form, args[0], params))
       return eval_error{std::move(*objection)};
-    return rt_.make_closure(std::move(params), {args.begin() + 1, args.end()},
-        env);
+    std::vector<value> body{args.begin() + 1, args.end()};
+    if (form == rt_.sym_macro)
+      return rt_.make_macro(std::move(params), std::move(body), env);
+    return rt_.make_closure(std::move(params), std::move(body), env);
   }
 
   // Parse a parameter list into symbols, returning the objection if it is
   // not a proper list of unique, bindable symbols.
   //
+  // `form` names the form being parsed for, prefixing each objection.
+  //
   // A dotted tail or a bare symbol in place of the list is the classic
   // spelling for variadic parameters, which are planned but not yet
   // supported; the dedicated message reserves the spelling.
   [[nodiscard]] std::optional<std::string>
-  parse_params(value list, std::vector<symbol>& out) const {
+  parse_params(symbol form, value list, std::vector<symbol>& out) const {
     for (; list.is_cell(); list = list.tail()) {
       const auto param = list.head();
       const auto name = param.maybe_symbol();
-      if (!name) return "lambda: parameter is not a symbol: " + param.print();
+      if (!name)
+        return form.name() + ": parameter is not a symbol: " + param.print();
       if (auto objection = check_bindable(*name)) return objection;
       if (find_opt(out, *name))
-        return "lambda: duplicate parameter: " + name->name();
+        return form.name() + ": duplicate parameter: " + name->name();
       out.push_back(*name);
     }
     if (list.is_nil()) return std::nullopt;
     if (list.is_symbol())
-      return "lambda: variadic parameters are not yet supported";
-    return "lambda: malformed parameter list";
+      return form.name() + ": variadic parameters are not yet supported";
+    return form.name() + ": malformed parameter list";
   }
 
   // Whether `name` may be bound, returning the objection if not.
@@ -363,7 +380,7 @@ private:
   [[nodiscard]] bool is_special(symbol name) const noexcept {
     return name == rt_.sym_quote || name == rt_.sym_if ||
            name == rt_.sym_define || name == rt_.sym_lambda ||
-           name == rt_.sym_begin;
+           name == rt_.sym_macro || name == rt_.sym_begin;
   }
 
   // Bind a call frame for `fun` over `args`, scoped inside the closure's

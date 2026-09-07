@@ -52,8 +52,8 @@ public:
         sym_unquote_splicing{intern("unquote_splicing")},
         sym_unquote_literal{intern("%unquote")}, sym_if{intern("if")},
         sym_define{intern("define")}, sym_lambda{intern("lambda")},
-        sym_begin{intern("begin")}, sym_plus{intern("+")},
-        sym_minus{intern("-")}, sym_times{intern("*")},
+        sym_macro{intern("macro")}, sym_begin{intern("begin")},
+        sym_plus{intern("+")}, sym_minus{intern("-")}, sym_times{intern("*")},
         sym_divide{intern("/")}, sym_eq{intern("==")}, sym_ne{intern("!=")},
         sym_lt{intern("<")}, sym_le{intern("<=")}, sym_gt{intern(">")},
         sym_ge{intern(">=")}, sym_cons{intern("cons")},
@@ -64,7 +64,7 @@ public:
   // The special forms, and the template marks the reader spells inside a
   // quote (special to the expander rather than the evaluator).
   symbol sym_quote, sym_unquote, sym_unquote_splicing, sym_unquote_literal;
-  symbol sym_if, sym_define, sym_lambda, sym_begin;
+  symbol sym_if, sym_define, sym_lambda, sym_macro, sym_begin;
 
   // The builtin primitives.
   symbol sym_plus, sym_minus, sym_times, sym_divide;
