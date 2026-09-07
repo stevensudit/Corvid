@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -32,6 +33,29 @@ using row_ndx = view_t::row_ndx;
 using col_ndx = view_t::col_ndx;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
+
+TEST_CASE("Row reductions", "[Gpt2ForwardTest]") {
+  constexpr std::array values{1.0F, 2.0F, 3.0F, 4.0F};
+  static_assert(sum(values) == 10.0F);
+  static_assert(mean(values) == 2.5F);
+  static_assert(squared_deviation_sum(values, 2.5F) == 5.0F);
+  static_assert(variance(values, 2.5F) == 1.25F);
+  constexpr std::array flat{5.0F, 5.0F};
+  static_assert(variance(flat, 5.0F) == 0.0F);
+  static_assert(sum(std::span<const float>{}) == 0.0F);
+  CHECK(std::isnan(mean(std::span<const float>{})));
+  CHECK(std::isnan(variance(std::span<const float>{}, 0.0F)));
+  CHECK_THAT(inverse_std_dev(values, 2.5F, 0.0F),
+      WithinAbs(1.0 / std::sqrt(1.25), 1e-6));
+  CHECK(std::isinf(inverse_std_dev(flat, 5.0F, 0.0F)));
+  CHECK_THAT(inverse_std_dev(flat, 5.0F, 0.25F), WithinAbs(2.0, 1e-6));
+}
+
+TEST_CASE("Elementwise steps", "[Gpt2ForwardTest]") {
+  static_assert(standardize(4.0F, 2.5F, 2.0F) == 3.0F);
+  static_assert(standardize(2.5F, 2.5F, 2.0F) == 0.0F);
+  static_assert(scale_shift(3.0F, 2.0F, 0.5F) == 6.5F);
+}
 
 TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
   // Row 0 has mean 2.5 and biased variance 1.25; row 1 is constant, so it
