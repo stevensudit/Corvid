@@ -16,10 +16,6 @@
 // limitations under the License.
 #pragma once
 
-// Linux-only: rests on "linux_mmap.h".
-#ifdef _WIN32
-#error "\"safetensors.h\" is Linux-only."
-#endif
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -37,10 +33,10 @@
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/transparent.h"
 #include "../../enums/sequence_enum.h"
-#include "../../filesys/linux_mmap.h"
+#include "../../filesys/os_file.h"
+#include "../../filesys/os_mmap_file.h"
 #include "../../math/endian.h"
 #include "../../proto/misc/json_parser.h"
-#include "../../strings/cstring_view.h"
 
 // A reader for the safetensors weight file format.
 //
@@ -51,9 +47,9 @@
 // claims against the file, which `safetensors_file` does before exposing any
 // tensor.
 //
-// Loading a file:
+// Loading an open file:
 //   safetensors_file weights;
-//   if (!weights.load("model.safetensors")) ...
+//   if (!weights.load(file)) ...
 //   if (const auto* wte = weights.find("wte.weight"); wte && wte->is<float>())
 //     std::span<const float> values = wte->as<float>();
 namespace corvid::llm {
@@ -169,12 +165,13 @@ public:
 #pragma endregion
 #pragma region Loading
 
-  // Map the file at `path` and parse it, keeping the mapping.
+  // Map the open `file` and parse it, keeping the mapping.
   //
+  // The mapping holds the file, so `file` may be closed once this returns.
   // On failure (the file cannot be mapped, or `parse` rejects it), returns
   // false, leaving the object as it was.
-  [[nodiscard]] bool load(cstring_view path) {
-    auto mapping = memory_map::map_file(path);
+  [[nodiscard]] bool load(const os_file& file) {
+    auto mapping = os_mmap_file::map(file);
     if (!mapping) return false;
     if (!parse(mapping.bytes())) return false;
     mapping_ = std::move(mapping);
@@ -333,7 +330,7 @@ private:
 #pragma endregion
 #pragma region Data members
 
-  memory_map mapping_;
+  os_mmap_file mapping_;
   std::vector<tensor> tensors_;
   string_unordered_map<size_t> index_;
   string_map<std::string> metadata_;
