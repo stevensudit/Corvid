@@ -32,7 +32,7 @@
 #include "iou_buffer.h"
 #include "iou_wrap.h"
 #include "../../filesys/os_error.h"
-#include "../../filesys/mmap.h"
+#include "../../filesys/linux_mmap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
 

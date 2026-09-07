@@ -104,12 +104,12 @@ Each is a proper Corvid module with its own tests, not an LLM-private helper.
   mapped-file abstraction: there is no basis yet for knowing what the
   abstraction may hide. Hugepages are not offered (WSL does not support
   them, learned earlier in the io_uring work). DONE 2026-09-05:
-  `filesys/mmap.h` holds the `mmap_*` enums (moved out of the OS enums,
+  `filesys/linux_mmap.h` holds the `mmap_*` enums (moved out of the OS enums,
   closing the TODO there) and the RAII `memory_map` class: `create` over
   the raw call, `map` and `map_all` over an `os_file`, `map_file` over a
   path, `advise` over `madvise`, plus `unmap` and `release`. General rather
   than read-only, since the io_uring pools want the same wrapper; tested in
-  `tests/linux/mmap_test.cpp`. Named `memory_map` rather than `mmap`
+  `tests/linux/linux_mmap_test.cpp`. Named `memory_map` rather than `mmap`
   because the bare class name was ambiguous with `::mmap` under
   `using namespace corvid`.
 
@@ -245,7 +245,7 @@ Rulings (2026-09-06):
   alignment before handing out a typed view, so an arbitrary file cannot
   produce undefined behavior. Uploading to the device never needed the
   alignment: `cudaMemcpy` has no host alignment requirement.
-- The reader rests on `filesys/mmap.h` and is therefore Linux-only, as is
+- The reader rests on `filesys/linux_mmap.h` and is therefore Linux-only, as is
   its test. Noted for later, not planned: a portable "map this whole file
   and hand me a span, RAII" facade over the Linux `memory_map` and a
   Windows twin, rather than making `memory_map` itself cross-platform.

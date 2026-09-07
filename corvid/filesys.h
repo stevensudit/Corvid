@@ -22,14 +22,14 @@
 //  os_error  - value wrapper for an OS error code
 //  os_file   - RAII OS file-handle ownership and read/write
 //  os_event  - wake-up event for signaling across threads
-//  epoll     - RAII Linux epoll handle with control and wait helpers (Linux)
-//  mmap      - memory_map, RAII mapping with file and advice helpers (Linux)
-//  net_socket - RAII socket handle with type-safe option methods (Linux)
+//  linux_epoll - RAII epoll handle with control and wait helpers (Linux)
+//  linux_mmap  - memory_map, RAII mapping with file and advice helpers (Linux)
+//  net_socket  - RAII socket handle with type-safe option methods (Linux)
 #include "filesys/os_enums.h"
 #include "filesys/os_error.h"
 #include "filesys/os_file.h"
 #include "filesys/os_event.h"
 #ifndef _WIN32
-#include "filesys/epoll.h"
-#include "filesys/mmap.h"
+#include "filesys/linux_epoll.h"
+#include "filesys/linux_mmap.h"
 #endif

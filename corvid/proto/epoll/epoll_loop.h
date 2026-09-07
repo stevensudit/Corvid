@@ -40,7 +40,7 @@
 #include "../../infra/scope_exit.h"
 #include "../../containers/core/opt_find.h"
 #include "../../filesys/os_error.h"
-#include "../../filesys/epoll.h"
+#include "../../filesys/linux_epoll.h"
 #include "../../filesys/os_event.h"
 #include "../net_socket.h"
 #include "../../meta/invoke/fixed_function.h"

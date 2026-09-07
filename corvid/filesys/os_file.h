@@ -18,8 +18,8 @@
 #include "../meta/formatting.h"
 
 // `os_file`: RAII wrapper around an OS file handle. The shared interface is
-// defined and documented by `os_file_base` in "os_file_base.h"; each platform
-// derives its `os_file` from it, adding its own extras.
+// defined and documented by `os_file_base` in "details/os_file_base.h"; each
+// platform derives its `os_file` from it, adding its own extras.
 
 #define CORVID_OS_FILE_ENTRY
 #ifdef _WIN32

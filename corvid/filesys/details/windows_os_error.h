@@ -31,7 +31,7 @@
 #include <cstdint>
 
 #include "../os_enums.h"
-#include "../os_error_base.h"
+#include "os_error_base.h"
 
 // Link Winsock for `WSAGetLastError`.
 #pragma comment(lib, "ws2_32.lib")

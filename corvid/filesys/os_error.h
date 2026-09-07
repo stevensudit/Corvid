@@ -18,8 +18,8 @@
 #include "../enums/enum_formatter.h"
 
 // `os_error`: value wrapper for an OS error code. The interface is defined
-// and documented by `os_error_base` in "os_error_base.h"; each platform
-// derives its `os_error` from it.
+// and documented by `os_error_base` in "details/os_error_base.h"; each
+// platform derives its `os_error` from it.
 
 #define CORVID_OS_ERROR_ENTRY
 #ifdef _WIN32
