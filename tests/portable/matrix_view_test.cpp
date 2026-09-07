@@ -18,6 +18,7 @@
 #include <limits>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "corvid/containers/utils/matrix_view.h"
@@ -122,6 +123,15 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   CHECK(unset.row_interval().empty());
   CHECK(unset.col_interval().empty());
   CHECK(unset.as_span().empty());
+}
+
+TEST_CASE("Element-type aliases", "[MatrixViewTest]") {
+  static_assert(std::is_same_v<float_matrix_view, matrix_view<float>>);
+  static_assert(
+      std::is_same_v<const_float_matrix_view, matrix_view<const float>>);
+  static_assert(std::is_same_v<double_matrix_view, matrix_view<double>>);
+  static_assert(
+      std::is_same_v<const_double_matrix_view, matrix_view<const double>>);
 }
 
 TEST_CASE("Mutable view converts to read-only", "[MatrixViewTest]") {
