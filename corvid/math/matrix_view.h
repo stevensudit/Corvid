@@ -20,15 +20,16 @@
 #include <span>
 #include <type_traits>
 
-// `matrix_view` is a view over contiguous memory that treats it as a row-major
-// matrix.
+// `matrix_view` is a two-dimensional view over contiguous memory, providing
+// row-major access.
 //
-// Like `std::mdspan`, of which it is a simplification of, it does not
+// Like `std::mdspan`, which this is an extreme simplification of, it does not
 // own the memory. It pairs a pointer with a row count, a column count, and a
 // stride, which is the element distance between the starts of consecutive
-// rows. For a packed matrix, which is typical, the stride is the column count.
+// rows.
 //
-// A larger stride allows a view to refer to a rectangular slice of a matrix.
+// For a packed matrix, which is typical, the stride is the column count. A
+// larger stride allows a view to refer to a rectangular slice of a matrix.
 //
 // Viewing packed storage and indexing it:
 //   std::vector<float> storage(rows * cols);
@@ -63,7 +64,8 @@ public:
     assert(stride >= cols);
   }
 
-  // Read-only view of a mutable view of the same element type.
+  // Implicit conversion to a read-only view of a mutable view of the same
+  // element type.
   template<typename U>
   requires(std::is_same_v<const U, T> && !std::is_same_v<U, T>)
   constexpr matrix_view(matrix_view<U> other) noexcept
@@ -75,7 +77,7 @@ public:
   [[nodiscard]] constexpr size_t cols() const noexcept { return cols_; }
   [[nodiscard]] constexpr size_t stride() const noexcept { return stride_; }
   [[nodiscard]] constexpr bool empty() const noexcept {
-    return (rows_ == 0) || (cols_ == 0);
+    return !rows_ || !cols_;
   }
 
   // Element at row `r`, column `c`, both of which must be in range
