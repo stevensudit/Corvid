@@ -15,54 +15,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <cstddef>
-#include <filesystem>
-#include <format>
 #include <string>
 #include <string_view>
 #include <utility>
 
-#ifndef _WIN32
-#include <fcntl.h>
-#endif
-
 #include "corvid/filesys.h"
 #include "corvid/strings/conversion.h"
 #include "catch2_main.h"
+#include "test_files.h"
 
 using namespace corvid;
+using corvid::tests::temp_file;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 namespace {
-
-// A temporary file holding `content`, open read-write.
-//
-// The file takes the OS's self-deleting form, `O_TMPFILE` on Linux and
-// `FILE_FLAG_DELETE_ON_CLOSE` on Windows, so it disappears once the last
-// reference to it is gone, a mapping's included; an aborted test leaves
-// nothing behind. The open is platform-specific because `os_file` has no
-// path-based open on either platform.
-struct temp_file {
-  os_file file;
-
-  explicit temp_file(std::string_view content) {
-    const auto dir = std::filesystem::temp_directory_path();
-#ifdef _WIN32
-    static int counter{};
-    const auto path =
-        dir / std::format("corvid_os_mmap_file_{}_{}.tmp",
-                  ::GetCurrentProcessId(), ++counter);
-    file = os_file{::CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
-        nullptr, CREATE_ALWAYS,
-        FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr)};
-#else
-    file = os_file{::open(dir.c_str(),
-        *(o_flags::tmpfile | o_flags::rdwr | o_flags::cloexec), 0600)};
-#endif
-    REQUIRE(file);
-    REQUIRE(file.write_all(content));
-  }
-};
 
 // Several pages' worth on any platform, with a recognizable byte pattern.
 std::string make_content() {

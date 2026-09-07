@@ -245,10 +245,11 @@ Rulings (2026-09-06):
   alignment before handing out a typed view, so an arbitrary file cannot
   produce undefined behavior. Uploading to the device never needed the
   alignment: `cudaMemcpy` has no host alignment requirement.
-- The reader rests on `filesys/linux_mmap.h` and is therefore Linux-only, as is
-  its test. Noted for later, not planned: a portable "map this whole file
-  and hand me a span, RAII" facade over the Linux `memory_map` and a
-  Windows twin, rather than making `memory_map` itself cross-platform.
+- The reader maps through `filesys/os_mmap_file.h`, the portable read-only
+  facade over the Linux `memory_map` and the Windows `mapped_view` (added
+  2026-09-07, replacing the original Linux-only `linux_mmap.h` dependency).
+  `load` takes an open `os_file`, so the reader holds no platform code and
+  its test lives in tests/portable.
 - The 548 MB model is never committed. The reader's format cases use
   tiny files built inline in the test; the GPT-2 checks run only when the
   gitignored file is present and skip otherwise.
@@ -256,11 +257,11 @@ Rulings (2026-09-06):
 Status (2026-09-06): WRITTEN, tests green with clang-tidy. `safetensors.h`
 holds `tensor_dtype` (a named sequence enum using the header's names), `dtype_size`, the `TensorElement` concept with `dtype_of`, and class
 `safetensors_file`: `parse` over a caller-owned image, `load` over a kept
-`memory_map`, `find` by name, `tensors` in header order, `metadata`, and a
+`os_mmap_file`, `find` by name, `tensors` in header order, `metadata`, and a
 `tensor` record whose `is<T>` checks dtype and alignment before `as<T>`
 hands out a typed span. Validation follows the reference implementation,
 including the exact tiling of the buffer. The test is
-`tests/linux/safetensors_test.cpp`: inline images for the format and every
+`tests/portable/safetensors_test.cpp`: inline images for the format and every
 rejection, a temp file for `load`, and, when the oracle dumps exist, the
 160 GPT-2 tensors' shapes and dtypes plus a value-level spot check that
 `embed/out` for the bisect prompt equals `wte[id] + wpe[pos]` to 1e-6,
@@ -318,7 +319,7 @@ Design decisions (2026-09-07), settled before the code:
   `float`, so the CPU pass stays a faithful reference for the device pass.
 - Weights stay in the mapping: each parameter is a `std::span<const float>`
   from the reader, viewed with the shape from the header.
-- The test in `tests/linux/` has two modes. Isolated feeds each op the
+- The test in `tests/portable/` has two modes. Isolated feeds each op the
   oracle's dumped input and compares its output alone, so an error in a
   late block cannot hide behind drift from an early one. Chained runs the
   whole model on the bisect prompt and compares every dump in order. Plus
@@ -424,7 +425,8 @@ Settled 2026-09-05, recorded so they are not reopened:
 
 - PyTorch is permitted in the oracle script only, never for inference.
 - The mmap wrapper is Linux-only and read-only; no cross-platform
-  abstraction yet.
+  abstraction yet. Superseded 2026-09-07: `os_mmap_file` is the portable
+  read-only facade, while the per-OS wrappers stay separate and dissimilar.
 - UTF-8 support goes in `corvid/strings` as a side quest, sized to the
   tokenizer's needs.
 - No regex engine anywhere in the tokenizer.

@@ -27,14 +27,13 @@
 #include <string_view>
 #include <vector>
 
-#include <unistd.h>
-
 #include "corvid/cuda/llm/gpt2_tokenizer.h"
 #include "corvid/cuda/llm/safetensors.h"
 #include "corvid/filesys/os_file.h"
 #include "corvid/proto/misc/json_parser.h"
 #include "corvid/strings/conversion.h"
 #include "catch2_main.h"
+#include "test_files.h"
 
 using namespace std::literals;
 using namespace corvid;
@@ -70,26 +69,6 @@ image_t make_image(std::string_view header, const image_t& payload = {},
   std::ranges::copy(payload, image.data() + 8 + padded.size());
   return image;
 }
-
-// A temporary file holding `image`, unlinked when destroyed.
-struct temp_file {
-  std::string path;
-  os_file file;
-
-  explicit temp_file(const image_t& image) {
-    path =
-        (std::filesystem::temp_directory_path() / "corvid_safetensors_XXXXXX")
-            .string();
-    file = os_file{::mkstemp(path.data())};
-    REQUIRE(file);
-    REQUIRE(file.write_all(as_string_view(std::span{image})));
-  }
-
-  ~temp_file() { ::unlink(path.c_str()); }
-
-  temp_file(const temp_file&) = delete;
-  temp_file& operator=(const temp_file&) = delete;
-};
 
 // A directory of the GPT-2 artifacts, relative to this source: the committed
 // fixtures under "data", or the gitignored oracle dumps under ".local".
@@ -261,17 +240,18 @@ TEST_CASE("Typed views require alignment", "[SafetensorsTest]") {
 }
 
 TEST_CASE("Load maps a file", "[SafetensorsTest]") {
-  const temp_file tf{make_image(small_header, small_payload())};
+  const auto image = make_image(small_header, small_payload());
+  const tests::temp_file tf{as_string_view(std::span{image})};
   safetensors_file file;
-  REQUIRE(file.load(tf.path));
+  REQUIRE(file.load(tf.file));
   CHECK(file.size() == 2);
   const auto* a = file.find("a");
   REQUIRE(a);
   REQUIRE(a->is<float>());
   CHECK(a->as<float>()[5] == 6);
 
-  // A missing file fails and leaves the previous contents in place.
-  CHECK_FALSE(file.load("/nonexistent/corvid_safetensors_test"));
+  // A closed file fails and leaves the previous contents in place.
+  CHECK_FALSE(file.load(os_file{}));
   CHECK(file.size() == 2);
   CHECK(file.find("a")->as<float>()[0] == 1);
 }
@@ -285,7 +265,7 @@ TEST_CASE("GPT-2 weights", "[SafetensorsTest]") {
     SKIP("no " << model_path.string() << "; run the oracle to create it");
 
   safetensors_file weights;
-  REQUIRE(weights.load(model_path.string()));
+  REQUIRE(weights.load(tests::open_read_only(model_path)));
   CHECK(weights.size() == 160);
   REQUIRE(weights.metadata().contains("format"));
   CHECK(weights.metadata().find("format")->second == "pt");
@@ -345,9 +325,9 @@ TEST_CASE("GPT-2 embeddings match the oracle", "[SafetensorsTest]") {
 
   // The embedding output is the token embedding plus the position embedding.
   safetensors_file weights;
-  REQUIRE(weights.load(model_path.string()));
+  REQUIRE(weights.load(tests::open_read_only(model_path)));
   safetensors_file activations;
-  REQUIRE(activations.load(activations_path.string()));
+  REQUIRE(activations.load(tests::open_read_only(activations_path)));
   const auto* wte = weights.find("wte.weight");
   const auto* wpe = weights.find("wpe.weight");
   const auto* embed = activations.find("embed/out");
