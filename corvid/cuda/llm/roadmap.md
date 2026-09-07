@@ -303,11 +303,14 @@ and then stated here.
 
 Design decisions (2026-09-07), settled before the code:
 
-- Activations are `matrix_view<T>` from "corvid/math/matrix_view.h": a
-  row-major, non-owning view with a row stride, so a head's block of
-  columns is a view over the projection output rather than a copy. It
-  lives in `corvid::math` because nothing in it is LLM-specific. Written
-  as a starting point for iteration; tested in
+- Activations are `matrix_view<T>` from
+  "corvid/containers/utils/matrix_view.h": a row-major, non-owning view
+  with a row stride, so a head's block of columns is a `subview` over the
+  projection output rather than a copy. Rows and columns are indexed by the
+  sequence enums `row_ndx` and `col_ndx` (aliased into the class with
+  `coord` and `extent`), so the two cannot be swapped by accident; that
+  enum dependency is why it lives in `containers/utils` rather than `math`
+  (2026-09-07 redesign). Nothing in it is LLM-specific. Tested in
   `tests/portable/matrix_view_test.cpp`. `std::mdspan` was considered
   and rejected because libstdc++ on g++-15, the CUDA host compiler, does
   not ship it.

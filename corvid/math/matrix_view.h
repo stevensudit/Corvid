@@ -21,7 +21,7 @@
 #include <span>
 #include <type_traits>
 
-#include "../../enums/sequence_enum.h"
+#include "../enums/sequence_enum.h"
 
 // `matrix_view` is a two-dimensional view over contiguous memory, providing
 // row-major access.
@@ -49,7 +49,7 @@
 // Slicing out a block:
 //   const auto block = m.subview({view_t::row_ndx{1}, view_t::col_ndx{2}},
 //       {.row_count = 2, .col_count = 3});
-namespace corvid { inline namespace container { inline namespace matrices {
+namespace corvid { inline namespace math { inline namespace matrices {
 
 #pragma region details
 
@@ -72,12 +72,12 @@ consteval auto corvid_enum_spec(col_ndx*) {
 
 // The position of an element: a row and a column.
 struct coord {
-  row_ndx row;
-  col_ndx col;
+  row_ndx row = row_ndx::npos;
+  col_ndx col = col_ndx::npos;
 
   static const coord npos;
 };
-inline constexpr coord coord::npos{row_ndx::npos, col_ndx::npos};
+inline constexpr coord coord::npos{};
 
 // The size of a rectangle of elements, as row and column counts.
 struct extent {
@@ -115,7 +115,7 @@ public:
   // (asserted).
   constexpr matrix_view(std::span<T> data, extent size) noexcept
       : matrix_view{data, size, size.col_count} {
-    assert(data.size() == size.row_count * size.col_count);
+    assert(data.size() == rows_ * cols_);
   }
 
   // Strided view over `data`, whose rows start `stride` elements apart and
@@ -124,8 +124,9 @@ public:
   // `stride` must be at least `size.col_count`, and `data` must reach the
   // last element of the last row (both asserted).
   constexpr matrix_view(std::span<T> data, extent size, size_t stride) noexcept
-      : data_{data.data()}, extent_{size}, stride_{stride} {
-    assert(stride >= extent_.col_count);
+      : data_{data.data()}, rows_{size.row_count}, cols_{size.col_count},
+        stride_{stride} {
+    assert(stride >= cols_);
     assert(data.size() >= footprint(size, stride));
   }
 
@@ -134,7 +135,7 @@ public:
   template<typename U>
   requires(std::is_same_v<const U, T> && !std::is_same_v<U, T>)
   constexpr matrix_view(matrix_view<U> other) noexcept
-      : data_{other.data()}, extent_{*other.rows(), *other.cols()},
+      : data_{other.data()}, rows_{*other.rows()}, cols_{*other.cols()},
         stride_{other.stride()} {}
 
 #pragma endregion
@@ -142,20 +143,20 @@ public:
 
   [[nodiscard]] constexpr T* data() const noexcept { return data_; }
   [[nodiscard]] constexpr row_ndx rows() const noexcept {
-    return row_ndx{extent_.row_count};
+    return row_ndx{rows_};
   }
   [[nodiscard]] constexpr col_ndx cols() const noexcept {
-    return col_ndx{extent_.col_count};
+    return col_ndx{cols_};
   }
   [[nodiscard]] constexpr size_t stride() const noexcept { return stride_; }
   [[nodiscard]] constexpr bool empty() const noexcept {
-    return !extent_.row_count || !extent_.col_count;
+    return !rows_ || !cols_;
   }
 
   // Element at row `r`, column `c`, both of which must be in range
   // (asserted).
   [[nodiscard]] constexpr T& operator[](row_ndx r, col_ndx c) const noexcept {
-    assert((*r < extent_.row_count) && (*c < extent_.col_count));
+    assert((*r < rows_) && (*c < cols_));
     return data_[(*r * stride_) + *c];
   }
 
@@ -170,9 +171,9 @@ public:
   // `r` must be in range, and `first <= last <= cols()` (asserted).
   [[nodiscard]] constexpr std::span<T> row_span(row_ndx r, col_ndx first = {},
       col_ndx last = col_ndx::npos) const noexcept {
-    assert(*r < extent_.row_count);
-    const auto end = (last == col_ndx::npos) ? extent_.col_count : *last;
-    assert((*first <= end) && (end <= extent_.col_count));
+    assert(*r < rows_);
+    const auto end = (last == col_ndx::npos) ? cols_ : *last;
+    assert((*first <= end) && (end <= cols_));
     // Parens, not braces: C++26 gives span an initializer_list constructor.
     // NOLINTNEXTLINE(modernize-return-braced-init-list)
     return std::span<T>(data_ + (*r * stride_) + *first, end - *first);
@@ -187,12 +188,10 @@ public:
   // The rectangle must lie within the view (asserted).
   [[nodiscard]] constexpr matrix_view
   subview(coord from, coord to) const noexcept {
-    const auto row_end =
-        (to.row == row_ndx::npos) ? extent_.row_count : *to.row;
-    const auto col_end =
-        (to.col == col_ndx::npos) ? extent_.col_count : *to.col;
-    assert((*from.row <= row_end) && (row_end <= extent_.row_count));
-    assert((*from.col <= col_end) && (col_end <= extent_.col_count));
+    const auto row_end = (to.row == row_ndx::npos) ? rows_ : *to.row;
+    const auto col_end = (to.col == col_ndx::npos) ? cols_ : *to.col;
+    assert((*from.row <= row_end) && (row_end <= rows_));
+    assert((*from.col <= col_end) && (col_end <= cols_));
     return do_subview(from, {row_end - *from.row, col_end - *from.col});
   }
 
@@ -203,10 +202,9 @@ public:
   // The rectangle must lie within the view (asserted).
   [[nodiscard]] constexpr matrix_view
   subview(coord from, extent size = extent::npos) const noexcept {
-    assert(
-        (*from.row <= extent_.row_count) && (*from.col <= extent_.col_count));
-    const auto rows_left = extent_.row_count - *from.row;
-    const auto cols_left = extent_.col_count - *from.col;
+    assert((*from.row <= rows_) && (*from.col <= cols_));
+    const auto rows_left = rows_ - *from.row;
+    const auto cols_left = cols_ - *from.col;
     const auto row_count =
         (size.row_count == extent::npos.row_count)
             ? rows_left
@@ -243,8 +241,8 @@ private:
 #pragma region Data members
 
   T* data_{};
-  // Zeroed explicitly: `extent` defaults to `npos`.
-  extent extent_{0, 0};
+  size_t rows_{};
+  size_t cols_{};
   size_t stride_{};
 
 #pragma endregion
@@ -257,4 +255,4 @@ template<typename T>
 matrix_view(std::span<T>, details::extent, size_t) -> matrix_view<T>;
 
 #pragma endregion
-}}} // namespace corvid::container::matrices
+}}} // namespace corvid::math::matrices
