@@ -332,8 +332,22 @@ Design decisions (2026-09-07), settled before the code:
 Status (2026-09-07): `layer_norm` drafted in
 `corvid/cuda/llm/gpt2_forward.h` (namespace `corvid::llm`, the header that
 will hold every CPU op), with hand-computed cases in
-`tests/portable/gpt2_forward_test.cpp`. Next: the oracle loader and the
-isolated `block_0 ln_1` case in that test.
+`tests/portable/gpt2_forward_test.cpp`. The row reductions it rests on
+(`sum`, `mean`, `squared_deviation_sum`, `variance`, `inverse_std_dev`) and
+the elementwise steps (`standardize`, `scale_shift`) are public functions in
+the same header, candidates for `corvid/math` once a second consumer appears.
+
+Status (2026-09-07, later): the oracle runs on Windows too
+(`scripts/llm_oracle/setup.ps1`, pinned to the manifest's torch 2.14.0+cpu,
+transformers 5.16.1, safetensors 0.8.0; greedy text and loss reproduce
+exactly, while the dump checksums differ from the Linux run at the ulp
+level, as expected across BLAS backends). The forward test has the oracle
+loader, an allclose helper reporting the largest absolute and relative
+errors, and the isolated layer norm gate over all 25 dumped sites (each
+block's `ln_1` and `ln_2`, plus `ln_f`). First measured run: every site
+passes at `atol = rtol = 1e-5`; the largest absolute error is 9.2e-5 on a
+large-magnitude residual coordinate, and the typical one is a few 1e-6. That
+tolerance is the gate. Next: the projection, written by Steven.
 
 ### 4. CUDA forward pass
 
