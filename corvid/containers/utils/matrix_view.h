@@ -37,17 +37,17 @@
 // Rows and columns are indexed by distinct types, `row_ndx` and `col_ndx`, so
 // the two cannot be swapped by accident. `coord` pairs one of each to name an
 // element, and `extent` holds a rectangle's row and column counts. All four
-// are aliased into `matrix_view`.
+// are nested under `matrix_view`.
 //
 // Viewing packed storage and indexing it:
 //   using view_t = matrix_view<float>;
 //   std::vector<float> storage(rows * cols);
 //   view_t m(storage, {.row_count = rows, .col_count = cols});
-//   m[view_t::row_ndx{r}, view_t::col_ndx{c}] = 1.0F;
-//   for (const auto value : m.row_span(view_t::row_ndx{r})) ...
+//   m[r, c] = 1.0F;
+//   for (const auto value : m.row_span(r)) ...
 //
 // Slicing out a block:
-//   const auto block = m.subview({view_t::row_ndx{1}, view_t::col_ndx{2}},
+//   const auto block = m.subview({r, c},
 //       {.row_count = 2, .col_count = 3});
 namespace corvid { inline namespace container { inline namespace matrices {
 
@@ -72,8 +72,8 @@ consteval auto corvid_enum_spec(col_ndx*) {
 
 // The position of an element: a row and a column.
 struct coord {
-  row_ndx row;
-  col_ndx col;
+  row_ndx row{};
+  col_ndx col{};
 
   static const coord npos;
 };
@@ -89,8 +89,6 @@ struct extent {
 inline constexpr extent extent::npos{};
 
 } // namespace details
-
-using corvid::enums::sequence::ops::operator*;
 
 #pragma endregion
 #pragma region matrix_view
@@ -181,10 +179,10 @@ public:
 #pragma endregion
 #pragma region Slicing
 
-  // View of the rectangle from `from` up to, not including, `to`, where a
-  // member of `to` at its `npos` means the end of that dimension.
+  // View of the rectangle from `from` up to, but not including, `to`.
   //
-  // The rectangle must lie within the view (asserted).
+  // A member of `to` at its `npos` means to the end of that dimension. The
+  // rectangle must lie within the view (asserted).
   [[nodiscard]] constexpr matrix_view
   subview(coord from, coord to) const noexcept {
     const auto row_end =
@@ -196,9 +194,10 @@ public:
     return do_subview(from, {row_end - *from.row, col_end - *from.col});
   }
 
-  // View of the rectangle of `size` starting at `from`, where a count of
-  // `size` at its maximum means the rest of that dimension; the default takes
-  // everything from `from` on.
+  // View of the rectangle of `size` starting at `from`.
+  //
+  // A count of `size` at its `npos` means the rest of that dimension, so the
+  // default takes everything from `from` on.
   //
   // The rectangle must lie within the view (asserted).
   [[nodiscard]] constexpr matrix_view
@@ -243,7 +242,6 @@ private:
 #pragma region Data members
 
   T* data_{};
-  // Zeroed explicitly: `extent` defaults to `npos`.
   extent extent_{0, 0};
   size_t stride_{};
 
