@@ -94,6 +94,7 @@ scale_shift(float x, float weight, float bias) noexcept {
 }
 
 // Add `scale` times each of `values` to the matching element of `acc`.
+// Conceptually: `acc += scale * values`
 constexpr void
 add_scaled(float_span acc, float scale, const_float_span values) noexcept {
   assert(acc.size() == values.size());
@@ -113,8 +114,8 @@ inline constexpr float layer_norm_eps = 1e-5F;
 // The variance is biased (divided by the size, not the size minus one), with
 // `eps` added inside the square root. `row_out` and `row_in` must be the same
 // size, and can refer to the same memory.
-inline void standardize_row(float_col_span row_out,
-    const_float_col_span row_in, float eps) noexcept {
+inline void standardize_row(float_row_span row_out,
+    const_float_row_span row_in, float eps) noexcept {
   assert(row_out.size() == row_in.size());
   assert(is_same_or_disjoint(row_out, row_in));
 
@@ -129,9 +130,9 @@ inline void standardize_row(float_col_span row_out,
 //
 // All four spans must be the same size, and `row_out` and `row_in` can refer
 // to the same memory.
-constexpr void scale_shift_row(float_col_span row_out,
-    const_float_col_span row_in, const_float_col_span weight,
-    const_float_col_span bias) noexcept {
+constexpr void scale_shift_row(float_row_span row_out,
+    const_float_row_span row_in, const_float_row_span weight,
+    const_float_row_span bias) noexcept {
   assert(row_out.size() == row_in.size());
   assert(is_same_or_disjoint(row_out, row_in));
   assert((weight.size() == row_in.size()) && (bias.size() == row_in.size()));
@@ -150,14 +151,14 @@ constexpr void scale_shift_row(float_col_span row_out,
 // `weight` and `bias`. `out` can be the same view as `in`, normalizing in
 // place, but must not otherwise overlap it.
 inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
-    const_float_col_span weight, const_float_col_span bias,
+    const_float_row_span weight, const_float_row_span bias,
     float eps = layer_norm_eps) noexcept {
   [[maybe_unused]] const auto width = in.col_extent();
   assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
   assert((weight.size() == width) && (bias.size() == width));
   assert(is_same_or_disjoint(out.as_span(), in.as_span()));
-  assert(is_disjoint(out.as_span(), weight.as_span()) &&
-         is_disjoint(out.as_span(), bias));
+  assert(
+      is_disjoint(out.as_span(), weight) && is_disjoint(out.as_span(), bias));
 
   for (const auto r : in.row_interval()) {
     const auto out_row = out.row_as_span(r);
@@ -178,7 +179,7 @@ inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
 // out_features columns. `out` must not overlap `in`, `weight`, or `bias`
 // (all asserted).
 inline void linear(float_matrix_view out, const_float_matrix_view in,
-    const_float_matrix_view weight, const_float_col_span bias) noexcept {
+    const_float_matrix_view weight, const_float_row_span bias) noexcept {
   assert(weight.row_extent() == in.col_extent());
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == weight.col_extent()));
@@ -188,13 +189,13 @@ inline void linear(float_matrix_view out, const_float_matrix_view in,
          is_disjoint(out.as_span(), bias));
 
   for (const auto r : in.row_interval()) {
-    const auto in_row = *(in.row_as_span(r));
+    const auto in_row = const_float_col_span(in.row_as_span(r));
     const auto out_row = out.row_as_span(r);
     std::ranges::copy(bias, out_row.begin());
 
     // Each input feature is a column of `in` and a row of `weight`.
     for (const auto feature : weight.row_interval())
-      add_scaled(out_row, in_row[*feature], weight.row_as_span(feature));
+      add_scaled(out_row, in_row[feature], weight.row_as_span(feature));
   }
 }
 
