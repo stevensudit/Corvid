@@ -360,7 +360,7 @@ row, so the row is still in cache for the second step: `standardize_row`
 (the statistics and the z-scores) and `scale_shift_row` (the affine step).
 Either runs in place when the output span is the input span. Per-feature
 parameters (`weight` and `bias` of both `layer_norm` and `linear`) are now
-`const_float_col_span`, indexed by `col_ndx` directly instead of through
+`const_float_row_span`, indexed by `col_ndx` directly instead of through
 `*c` on a `size_t` span. The aliasing contracts are asserted rather than
 described: the row ops and `layer_norm` require the output to be the same
 memory as the input or none of it, and `linear` requires its output apart

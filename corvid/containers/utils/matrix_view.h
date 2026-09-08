@@ -111,7 +111,7 @@ public:
   using col_ndx = matrix_types::col_ndx;
   using coord = matrix_types::coord;
   using extent_t = matrix_types::matrix_extent;
-  using col_span = enum_span<T, col_ndx>;
+  using row_span = enum_span<T, col_ndx>;
 
 #pragma endregion
 #pragma region Construction
@@ -211,12 +211,12 @@ public:
   // `last`, where `col_ndx::npos` means the end of the row.
   //
   // `r` must be in range, and `first <= last <= col_extent()` (asserted).
-  [[nodiscard]] constexpr col_span row_as_span(row_ndx r, col_ndx first = {},
+  [[nodiscard]] constexpr row_span row_as_span(row_ndx r, col_ndx first = {},
       col_ndx last = col_ndx::npos) const noexcept {
     assert(*r < extent_.row_count);
     const auto end = (last == col_ndx::npos) ? extent_.col_count : *last;
     assert((*first <= end) && (end <= extent_.col_count));
-    return col_span{data_.subspan((*r * stride_) + *first, end - *first)};
+    return {data_.subspan((*r * stride_) + *first, end - *first)};
   }
 
 #pragma endregion
@@ -310,15 +310,16 @@ using const_float_span = std::span<const float>;
 using double_span = std::span<double>;
 using const_double_span = std::span<const double>;
 
-using float_row_span = enum_span<float, matrix_types::row_ndx>;
-using const_float_row_span = enum_span<const float, matrix_types::row_ndx>;
-using float_col_span = enum_span<float, matrix_types::col_ndx>;
-using const_float_col_span = enum_span<const float, matrix_types::col_ndx>;
+// A span of one row is indexed by column, and a span of one column by row.
+using float_col_span = enum_span<float, matrix_types::row_ndx>;
+using const_float_col_span = enum_span<const float, matrix_types::row_ndx>;
+using float_row_span = enum_span<float, matrix_types::col_ndx>;
+using const_float_row_span = enum_span<const float, matrix_types::col_ndx>;
 
-using double_row_span = enum_span<double, matrix_types::row_ndx>;
-using const_double_row_span = enum_span<const double, matrix_types::row_ndx>;
-using double_col_span = enum_span<double, matrix_types::col_ndx>;
-using const_double_col_span = enum_span<const double, matrix_types::col_ndx>;
+using double_col_span = enum_span<double, matrix_types::row_ndx>;
+using const_double_col_span = enum_span<const double, matrix_types::row_ndx>;
+using double_row_span = enum_span<double, matrix_types::col_ndx>;
+using const_double_row_span = enum_span<const double, matrix_types::col_ndx>;
 
 #pragma endregion
 }}} // namespace corvid::container::matrices
