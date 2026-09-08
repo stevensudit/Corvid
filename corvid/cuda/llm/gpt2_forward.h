@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -37,20 +38,20 @@ namespace corvid::llm {
 // them a home in `corvid/math`.
 
 // The sum of `values`.
-[[nodiscard]] constexpr float sum(std::span<const float> values) noexcept {
+[[nodiscard]] constexpr float sum(const_float_span values) noexcept {
   float total{};
   for (const auto x : values) total += x;
   return total;
 }
 
 // The arithmetic mean of `values`, NaN when empty.
-[[nodiscard]] constexpr float mean(std::span<const float> values) noexcept {
+[[nodiscard]] constexpr float mean(const_float_span values) noexcept {
   return sum(values) / static_cast<float>(values.size());
 }
 
 // The sum of the squared deviations of `values` from `center`.
 [[nodiscard]] constexpr float
-squared_deviation_sum(std::span<const float> values, float center) noexcept {
+squared_deviation_sum(const_float_span values, float center) noexcept {
   float total{};
   for (const auto x : values) total += (x - center) * (x - center);
   return total;
@@ -60,15 +61,15 @@ squared_deviation_sum(std::span<const float> values, float center) noexcept {
 // are divided by the count, not the count minus one (in other words, Bessel's
 // correction is not applied). NaN when empty.
 [[nodiscard]] constexpr float
-variance(std::span<const float> values, float mean) noexcept {
+variance(const_float_span values, float mean) noexcept {
   return squared_deviation_sum(values, mean) /
          static_cast<float>(values.size());
 }
 
 // The reciprocal of the standard deviation of `values` around their `mean`,
 // with `eps` added to the variance inside the square root.
-[[nodiscard]] inline float inverse_std_dev(std::span<const float> values,
-    float mean, float eps) noexcept {
+[[nodiscard]] inline float
+inverse_std_dev(const_float_span values, float mean, float eps) noexcept {
   return 1.0F / std::sqrt(variance(values, mean) + eps);
 }
 
@@ -86,6 +87,15 @@ standardize(float x, float mean, float inv_std) noexcept {
 [[nodiscard]] constexpr float
 scale_shift(float x, float weight, float bias) noexcept {
   return (x * weight) + bias;
+}
+
+// Add `scale` times each of `values` to the matching element of `acc`, which
+// must be the same size (asserted).
+constexpr void
+add_scaled(float_span acc, float scale, const_float_span values) noexcept {
+  assert(acc.size() == values.size());
+  for (size_t ndx = 0; ndx < acc.size(); ++ndx)
+    acc[ndx] += scale * values[ndx];
 }
 
 #pragma endregion
@@ -116,6 +126,34 @@ inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
     for (size_t col = 0; col < width; ++col)
       out_row[col] = scale_shift(standardize(in_row[col], row_mean, inv_std),
           weight[col], bias[col]);
+  }
+}
+
+#pragma endregion
+#pragma region linear
+
+// Project each row of `in` through `weight` and add `bias`, into `out`, so
+// that `out = in * weight + bias`.
+//
+// `weight` is laid out as GPT-2 stores its projections: one row per input
+// feature and one column per output feature. So `in` is rows by in_features,
+// `weight` is in_features by out_features, and `out` and `bias` have
+// out_features columns (asserted). `out` must not overlap `in` or `weight`.
+inline void linear(float_matrix_view out, const_float_matrix_view in,
+    const_float_matrix_view weight, const_float_span bias) noexcept {
+  assert(weight.row_extent() == in.col_extent());
+  assert((out.row_extent() == in.row_extent()) &&
+         (out.col_extent() == weight.col_extent()));
+  assert(bias.size() == weight.col_extent());
+
+  for (const auto r : in.row_interval()) {
+    const auto in_row = in.row_span(r);
+    const auto out_row = out.row_span(r);
+    std::ranges::copy(bias, out_row.begin());
+
+    // Each input feature is a column of `in` and a row of `weight`.
+    for (const auto feature : weight.row_interval())
+      add_scaled(out_row, in_row[*feature], weight.row_span(feature));
   }
 }
 

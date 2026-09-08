@@ -167,6 +167,39 @@ TEST_CASE("Elementwise steps", "[Gpt2ForwardTest]") {
   static_assert(scale_shift(3.0F, 2.0F, 0.5F) == 6.5F);
 }
 
+TEST_CASE("Add scaled", "[Gpt2ForwardTest]") {
+  std::array acc{1.0F, 2.0F, 3.0F};
+  constexpr std::array values{10.0F, 20.0F, 30.0F};
+  add_scaled(acc, 0.5F, values);
+  CHECK(acc == std::array{6.0F, 12.0F, 18.0F});
+}
+
+TEST_CASE("Linear on hand-computed rows", "[Gpt2ForwardTest]") {
+  // Two rows of three features through a three-by-two weight: the first
+  // output column sums features 0 and 2, the second sums features 1 and 2,
+  // and each gets its bias.
+  const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F};
+  const std::vector<float> weight_storage{1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F};
+  constexpr std::array bias{10.0F, 20.0F};
+  const const_float_matrix_view in(in_storage,
+      {.row_count = 2, .col_count = 3});
+  const const_float_matrix_view weight(weight_storage,
+      {.row_count = 3, .col_count = 2});
+
+  // The output lands in the middle two columns of a wider buffer, the way a
+  // projection fills one block of columns and leaves the rest alone.
+  std::vector<float> out_storage(2UZ * 4, -1.0F);
+  const auto out =
+      float_matrix_view(out_storage, {.row_count = 2, .col_count = 4})
+          .subview({row_ndx{0}, col_ndx{1}}, {.row_count = 2, .col_count = 2});
+
+  linear(out, in, weight, bias);
+
+  CHECK(out_storage ==
+        std::vector<float>{-1.0F, 14.0F, 25.0F, -1.0F, -1.0F, 20.0F, 31.0F,
+            -1.0F});
+}
+
 TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
   // Row 0 has mean 2.5 and biased variance 1.25; row 1 is constant, so it
   // normalizes to zero and the output is the bias alone.

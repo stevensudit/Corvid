@@ -306,5 +306,10 @@ using const_float_matrix_view = matrix_view<const float>;
 using double_matrix_view = matrix_view<double>;
 using const_double_matrix_view = matrix_view<const double>;
 
+using float_span = std::span<float>;
+using const_float_span = std::span<const float>;
+using double_span = std::span<double>;
+using const_double_span = std::span<const double>;
+
 #pragma endregion
 }}} // namespace corvid::container::matrices
