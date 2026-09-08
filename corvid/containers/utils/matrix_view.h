@@ -207,6 +207,11 @@ public:
     return (*this)[at.row, at.col];
   }
 
+  // Row at `r`, as a span of its columns.
+  [[nodiscard]] constexpr row_span operator[](row_ndx r) const noexcept {
+    return row_as_span(r);
+  }
+
   // The elements of row `r` from column `first` up to, but not including,
   // `last`, where `col_ndx::npos` means the end of the row.
   //
