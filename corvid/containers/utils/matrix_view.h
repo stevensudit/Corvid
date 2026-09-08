@@ -18,10 +18,10 @@
 #include <cassert>
 #include <cstddef>
 #include <limits>
-#include <span>
 #include <type_traits>
 
 #include "../../enums/sequence_enum.h"
+#include "enum_span.h"
 #include "interval.h"
 
 // `matrix_view` is a two-dimensional view over contiguous memory, providing
@@ -53,9 +53,10 @@
 //       {.row_count = 2, .col_count = 3});
 namespace corvid { inline namespace container { inline namespace matrices {
 
-#pragma region details
+#pragma region matrix_types
 
-namespace details {
+// Add `using matrix_types;` to bring these into scope.
+namespace matrix_types {
 
 // Row index. `npos` is the end of the rows, used through `coord::npos`.
 enum class row_ndx : size_t { npos = std::numeric_limits<size_t>::max() };
@@ -82,15 +83,20 @@ struct coord {
 inline constexpr coord coord::npos{row_ndx::npos, col_ndx::npos};
 
 // The size of a rectangle of elements, as row and column counts.
-struct extent {
-  size_t row_count = std::numeric_limits<size_t>::max();
-  size_t col_count = std::numeric_limits<size_t>::max();
+struct matrix_extent {
+  size_t row_count = dynamic_extent;
+  size_t col_count = dynamic_extent;
 
-  static const extent npos;
+  static constexpr size_t dynamic_extent = std::numeric_limits<size_t>::max();
+
+  static const matrix_extent npos;
+  static const matrix_extent dynamic;
 };
-inline constexpr extent extent::npos{};
+inline constexpr matrix_extent matrix_extent::npos{};
+inline constexpr matrix_extent matrix_extent::dynamic{
+    matrix_extent::dynamic_extent, matrix_extent::dynamic_extent};
 
-} // namespace details
+} // namespace matrix_types
 
 #pragma endregion
 #pragma region matrix_view
@@ -101,10 +107,11 @@ public:
 #pragma region Types
 
   using element_t = T;
-  using row_ndx = details::row_ndx;
-  using col_ndx = details::col_ndx;
-  using coord = details::coord;
-  using extent = details::extent;
+  using row_ndx = matrix_types::row_ndx;
+  using col_ndx = matrix_types::col_ndx;
+  using coord = matrix_types::coord;
+  using extent_t = matrix_types::matrix_extent;
+  using col_span = enum_span<T, col_ndx>;
 
 #pragma endregion
 #pragma region Construction
@@ -113,7 +120,7 @@ public:
 
   // Packed view over `data`, which must hold exactly the elements of `size`
   // (asserted).
-  constexpr matrix_view(std::span<T> data, extent size) noexcept
+  constexpr matrix_view(std::span<T> data, extent_t size) noexcept
       : matrix_view{data, size, size.col_count} {
     assert(data.size() == size.row_count * size.col_count);
   }
@@ -123,7 +130,8 @@ public:
   //
   // `stride` must be at least `size.col_count`, and `data` must reach the
   // last element of the last row (both asserted).
-  constexpr matrix_view(std::span<T> data, extent size, size_t stride) noexcept
+  constexpr matrix_view(std::span<T> data, extent_t size,
+      size_t stride) noexcept
       : data_{data.data()}, extent_{size}, stride_{stride} {
     assert(stride >= extent_.col_count);
     assert(data.size() >= footprint(size, stride));
@@ -134,7 +142,7 @@ public:
   template<typename U>
   requires(std::is_same_v<const U, T> && !std::is_same_v<U, T>)
   constexpr matrix_view(matrix_view<U> other) noexcept
-      : data_{other.as_span().data()}, extent_{other.get_extent()},
+      : data_{other.as_span().data()}, extent_{other.extent()},
         stride_{other.stride()} {}
 
 #pragma endregion
@@ -157,9 +165,13 @@ public:
   [[nodiscard]] constexpr size_t col_extent() const noexcept {
     return extent_.col_count;
   }
-  [[nodiscard]] constexpr extent get_extent() const noexcept {
-    return extent_;
+  [[nodiscard]] constexpr row_ndx row_extent_as_enum() const noexcept {
+    return row_ndx{extent_.row_count};
   }
+  [[nodiscard]] constexpr col_ndx col_extent_as_enum() const noexcept {
+    return col_ndx{extent_.col_count};
+  }
+  [[nodiscard]] constexpr extent_t extent() const noexcept { return extent_; }
   [[nodiscard]] constexpr size_t size() const noexcept {
     return extent_.row_count * extent_.col_count;
   }
@@ -177,11 +189,11 @@ public:
 
   // The row or column indexes as a closed interval, for ranged-for:
   //   for (const auto r : m.row_interval())
-  [[nodiscard]] constexpr interval<row_ndx> row_interval() const noexcept {
-    return make_index_interval<row_ndx>(extent_.row_count);
+  [[nodiscard]] constexpr auto row_interval() const noexcept {
+    return interval<row_ndx>::iota(extent_.row_count);
   }
-  [[nodiscard]] constexpr interval<col_ndx> col_interval() const noexcept {
-    return make_index_interval<col_ndx>(extent_.col_count);
+  [[nodiscard]] constexpr auto col_interval() const noexcept {
+    return interval<col_ndx>::iota(extent_.col_count);
   }
 
   // Element at row `r`, column `c`, both of which must be in range
@@ -200,14 +212,14 @@ public:
   // `last`, where `col_ndx::npos` means the end of the row.
   //
   // `r` must be in range, and `first <= last <= col_extent()` (asserted).
-  [[nodiscard]] constexpr std::span<T> row_span(row_ndx r, col_ndx first = {},
+  [[nodiscard]] constexpr col_span row_as_span(row_ndx r, col_ndx first = {},
       col_ndx last = col_ndx::npos) const noexcept {
     assert(*r < extent_.row_count);
     const auto end = (last == col_ndx::npos) ? extent_.col_count : *last;
     assert((*first <= end) && (end <= extent_.col_count));
     // Parens, not braces: C++26 gives span an initializer_list constructor.
     // NOLINTNEXTLINE(modernize-return-braced-init-list)
-    return std::span<T>(data_ + (*r * stride_) + *first, end - *first);
+    return col_span(data_ + (*r * stride_) + *first, end - *first);
   }
 
 #pragma endregion
@@ -235,17 +247,17 @@ public:
   //
   // The rectangle must lie within the view (asserted).
   [[nodiscard]] constexpr matrix_view
-  subview(coord from, extent size = extent::npos) const noexcept {
+  subview(coord from, extent_t size = extent_t::npos) const noexcept {
     assert(
         (*from.row <= extent_.row_count) && (*from.col <= extent_.col_count));
     const auto rows_left = extent_.row_count - *from.row;
     const auto cols_left = extent_.col_count - *from.col;
     const auto row_count =
-        (size.row_count == extent::npos.row_count)
+        (size.row_count == extent_t::npos.row_count)
             ? rows_left
             : size.row_count;
     const auto col_count =
-        (size.col_count == extent::npos.col_count)
+        (size.col_count == extent_t::npos.col_count)
             ? cols_left
             : size.col_count;
     assert((row_count <= rows_left) && (col_count <= cols_left));
@@ -258,24 +270,14 @@ private:
   // The element count from the first element of the first row through the
   // last element of the last row, which is what a view of `size` reaches.
   [[nodiscard]] static constexpr size_t
-  footprint(extent size, size_t stride) noexcept {
+  footprint(extent_t size, size_t stride) noexcept {
     return size.row_count ? ((size.row_count - 1) * stride) + size.col_count
                           : 0;
   }
 
-  // The indexes below `count` as a closed interval, empty when `count` is
-  // zero.
-  template<typename Ndx>
-  [[nodiscard]] static constexpr interval<Ndx>
-  make_index_interval(size_t count) noexcept {
-    interval<Ndx> indexes{Ndx{}};
-    indexes.resize(count);
-    return indexes;
-  }
-
   // View of the rectangle of `size` at `from`, both already checked.
   [[nodiscard]] constexpr matrix_view
-  do_subview(coord from, extent size) const noexcept {
+  do_subview(coord from, extent_t size) const noexcept {
     // Parens, not braces: C++26 gives span an initializer_list constructor.
     return {std::span<T>(data_ + (*from.row * stride_) + *from.col,
                 footprint(size, stride_)),
@@ -286,17 +288,18 @@ private:
 #pragma region Data members
 
   T* data_{};
-  extent extent_{0, 0};
+  extent_t extent_{0, 0};
   size_t stride_{};
 
 #pragma endregion
 };
 
 template<typename T>
-matrix_view(std::span<T>, details::extent) -> matrix_view<T>;
+matrix_view(std::span<T>, matrix_types::matrix_extent) -> matrix_view<T>;
 
 template<typename T>
-matrix_view(std::span<T>, details::extent, size_t) -> matrix_view<T>;
+matrix_view(std::span<T>, matrix_types::matrix_extent, size_t)
+    -> matrix_view<T>;
 
 #pragma endregion
 #pragma region Aliases
@@ -310,6 +313,16 @@ using float_span = std::span<float>;
 using const_float_span = std::span<const float>;
 using double_span = std::span<double>;
 using const_double_span = std::span<const double>;
+
+using float_row_span = enum_span<float, matrix_types::row_ndx>;
+using const_float_row_span = enum_span<const float, matrix_types::row_ndx>;
+using float_col_span = enum_span<float, matrix_types::col_ndx>;
+using const_float_col_span = enum_span<const float, matrix_types::col_ndx>;
+
+using double_row_span = enum_span<double, matrix_types::row_ndx>;
+using const_double_row_span = enum_span<const double, matrix_types::row_ndx>;
+using double_col_span = enum_span<double, matrix_types::col_ndx>;
+using const_double_col_span = enum_span<const double, matrix_types::col_ndx>;
 
 #pragma endregion
 }}} // namespace corvid::container::matrices

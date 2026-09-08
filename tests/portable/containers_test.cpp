@@ -16,6 +16,11 @@
 // limitations under the License.
 
 #include <cstddef>
+#include <span>
+#include <limits>
+#include <format>
+#include <array>
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -1069,6 +1074,82 @@ TEST_CASE("Basic", "[EnumVector]") {
 
   v.clear();
   CHECK(v.empty());
+}
+
+#pragma endregion
+#pragma region EnumSpan_Basic
+
+TEST_CASE("Basic", "[EnumSpan]") {
+  using id_t = test_id_t;
+  std::vector<int> storage{10, 11, 12};
+  const enum_span<int, id_t> s = storage;
+  CHECK(s.size() == 3U);
+  CHECK_FALSE(s.empty());
+  CHECK(s.size_bytes() == 3 * sizeof(int));
+  CHECK(s[id_t{0}] == 10);
+  s.at(id_t{1}) = 21;
+  CHECK(storage[1] == 21);
+  CHECK_THROWS_AS(s.at(id_t{3}), std::out_of_range);
+  CHECK(s.front() == 10);
+  CHECK(s.back() == 12);
+  CHECK(s.data() == storage.data());
+  CHECK(s.size_as_enum() == id_t{3});
+  CHECK(std::ranges::equal(s, storage));
+  CHECK(*s.rbegin() == 12);
+  CHECK(*s.crbegin() == 12);
+  CHECK(std::ranges::borrowed_range<enum_span<int, id_t>>);
+  CHECK(std::ranges::view<enum_span<int, id_t>>);
+
+  // A read-only view of a mutable one, and a view of an `enum_vector`.
+  const enum_span<const int, id_t> cs = s;
+  CHECK(cs[id_t{2}] == 12);
+  enum_vector<int, id_t> v{1, 2};
+  const enum_span<int, id_t> vs = v;
+  CHECK(vs.size_as_enum() == v.size_as_enum());
+  CHECK(vs.data() == v.data());
+
+  // The static extent is an enum value, with `dynamic_extent` at the top of
+  // the underlying type.
+  std::array<int, 2> pair{5, 6};
+  const enum_span<int, id_t, 2> fixed{pair};
+  static_assert(decltype(fixed)::extent == 2);
+  static_assert(enum_span<int, id_t>::extent == std::dynamic_extent);
+  CHECK(fixed[id_t{1}] == 6);
+  CHECK(fixed.size_as_enum() == id_t{2});
+
+  // Subspans shift the index origin, as an index enum expects; the static
+  // forms carry their extent in the enum.
+  const auto tail = s.subspan(id_t{1});
+  CHECK(tail.size() == 2U);
+  CHECK(tail[id_t{0}] == 21);
+  CHECK(s.subspan(id_t{1}, 1).size() == 1U);
+  CHECK(s.first(1)[id_t{0}] == 10);
+  CHECK(s.last(1)[id_t{0}] == 12);
+  auto x = s.first<2>();
+  static_assert(
+      std::is_same_v<decltype(s.first<2>()), enum_span<int, id_t, 2>>);
+  CHECK(s.first<2>()[id_t{1}] == 21);
+  CHECK(s.last<1>()[id_t{0}] == 12);
+  static_assert(
+      std::is_same_v<decltype(s.subspan<1>()), enum_span<int, id_t>>);
+  static_assert(
+      std::is_same_v<decltype(fixed.subspan<1>()), enum_span<int, id_t, 1>>);
+  CHECK(fixed.subspan<1>()[id_t{0}] == 6);
+  CHECK(s.subspan<1, 1>()[id_t{0}] == 21);
+
+  // Underlying access.
+  auto& u = s.underlying();
+  static_assert(std::is_same_v<decltype(u), const std::span<int>&>);
+  CHECK((*s).size() == 3U);
+
+  // The wrap pin, as for `enum_vector`.
+  std::vector<int> wide(256);
+  const enum_span<int, small_id_t> ws = wide;
+  CHECK(ws.size_as_enum() == small_id_t{0});
+
+  // As a plain sequence, `enum_span` formats for free through the std range
+  // formatter.
+  CHECK(std::format("{}", s) == "[10, 21, 12]");
 }
 
 #pragma endregion
