@@ -23,6 +23,7 @@
 #include <span>
 
 #include "../../containers/utils/matrix_view.h"
+#include "../../meta/containers.h"
 
 // The GPT-2 forward pass on the CPU, in fp32, one free function per op.
 //
@@ -53,13 +54,16 @@ namespace corvid::llm {
 [[nodiscard]] constexpr float
 squared_deviation_sum(const_float_span values, float center) noexcept {
   float total{};
-  for (const auto x : values) total += (x - center) * (x - center);
+  for (const auto x : values) {
+    const auto deviation = x - center;
+    total += deviation * deviation;
+  }
   return total;
 }
 
-// The biased variance of `values` around their `mean`. The squared deviations
-// are divided by the count, not the count minus one (in other words, Bessel's
-// correction is not applied). NaN when empty.
+// The biased variance of `values` around their `mean`. It's biased because the
+// squared deviations are divided by the count, not the count minus one (in
+// other words, Bessel's correction is not applied). NaN when empty.
 [[nodiscard]] constexpr float
 variance(const_float_span values, float mean) noexcept {
   return squared_deviation_sum(values, mean) /
@@ -77,7 +81,7 @@ inverse_std_dev(const_float_span values, float mean, float eps) noexcept {
 #pragma region Elementwise
 
 // The z-score of `x`, which is its distance from `mean` in units of the
-// standard deviation, that was given as the reciprocal `inv_std`.
+// standard deviation (which is the reciprocal of `inv_std`).
 [[nodiscard]] constexpr float
 standardize(float x, float mean, float inv_std) noexcept {
   return (x - mean) * inv_std;
@@ -89,11 +93,11 @@ scale_shift(float x, float weight, float bias) noexcept {
   return (x * weight) + bias;
 }
 
-// Add `scale` times each of `values` to the matching element of `acc`, which
-// must be the same size (asserted).
+// Add `scale` times each of `values` to the matching element of `acc`.
 constexpr void
 add_scaled(float_span acc, float scale, const_float_span values) noexcept {
   assert(acc.size() == values.size());
+
   for (size_t ndx = 0; ndx < acc.size(); ++ndx)
     acc[ndx] += scale * values[ndx];
 }
@@ -104,30 +108,61 @@ add_scaled(float_span acc, float scale, const_float_span values) noexcept {
 // The epsilon GPT-2 adds to the variance before the square root.
 inline constexpr float layer_norm_eps = 1e-5F;
 
+// Normalize `row_in` to a mean of 0 and a variance of 1, into `row_out`.
+//
+// The variance is biased (divided by the size, not the size minus one), with
+// `eps` added inside the square root. `row_out` and `row_in` must be the same
+// size, and can refer to the same memory.
+inline void standardize_row(float_col_span row_out,
+    const_float_col_span row_in, float eps) noexcept {
+  assert(row_out.size() == row_in.size());
+  assert(is_same_or_disjoint(row_out, row_in));
+
+  const auto row_mean = mean(row_in);
+  const auto inv_std = inverse_std_dev(row_in, row_mean, eps);
+  for (const auto c : row_in.range_interval())
+    row_out[c] = standardize(row_in[c], row_mean, inv_std);
+}
+
+// Scale `row_in` by `weight` and shift by `bias`, elementwise, into
+// `row_out`.
+//
+// All four spans must be the same size, and `row_out` and `row_in` can refer
+// to the same memory.
+constexpr void scale_shift_row(float_col_span row_out,
+    const_float_col_span row_in, const_float_col_span weight,
+    const_float_col_span bias) noexcept {
+  assert(row_out.size() == row_in.size());
+  assert(is_same_or_disjoint(row_out, row_in));
+  assert((weight.size() == row_in.size()) && (bias.size() == row_in.size()));
+
+  for (const auto c : row_in.range_interval())
+    row_out[c] = scale_shift(row_in[c], weight[c], bias[c]);
+}
+
 // Normalize each row of `in` to a mean of 0 and a variance of 1, then scale by
 // `weight` and shift by `bias`, elementwise, into `out`.
 //
-// The variance is biased (divided by the width, not the width minus one),
-// with `eps` added inside the square root. `out` and `in` must have the same
-// extent, and its width must be the size of `weight` and `bias` (asserted).
-// `out` may be the same view as `in`, normalizing in place. Any other overlap
-// is unsupported.
+// This is `standardize_row` followed by `scale_shift_row`, one row at a time
+// so that the row is still in cache for the second step.
+//
+// `out` and `in` must have the same extent, and its width must be the size of
+// `weight` and `bias`. `out` can be the same view as `in`, normalizing in
+// place, but must not otherwise overlap it.
 inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
-    const_float_span weight, const_float_span bias,
+    const_float_col_span weight, const_float_col_span bias,
     float eps = layer_norm_eps) noexcept {
   [[maybe_unused]] const auto width = in.col_extent();
   assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
   assert((weight.size() == width) && (bias.size() == width));
+  assert(is_same_or_disjoint(out.as_span(), in.as_span()));
+  assert(is_disjoint(out.as_span(), weight.as_span()) &&
+         is_disjoint(out.as_span(), bias));
 
   for (const auto r : in.row_interval()) {
-    const auto in_row = in.row_as_span(r);
-    const auto row_mean = mean(in_row);
-    const auto inv_std = inverse_std_dev(in_row, row_mean, eps);
-
-    auto out_row = out.row_as_span(r);
-    for (const auto c : in.col_interval())
-      out_row[c] = scale_shift(standardize(in_row[c], row_mean, inv_std),
-          weight[*c], bias[*c]);
+    const auto out_row = out.row_as_span(r);
+    standardize_row(out_row, in.row_as_span(r), eps);
+    scale_shift_row(out_row, out_row, weight, bias);
   }
 }
 
@@ -140,13 +175,17 @@ inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
 // `weight` is laid out as GPT-2 stores its projections: one row per input
 // feature and one column per output feature. So `in` is rows by in_features,
 // `weight` is in_features by out_features, and `out` and `bias` have
-// out_features columns (asserted). `out` must not overlap `in` or `weight`.
+// out_features columns. `out` must not overlap `in`, `weight`, or `bias`
+// (all asserted).
 inline void linear(float_matrix_view out, const_float_matrix_view in,
-    const_float_matrix_view weight, const_float_span bias) noexcept {
+    const_float_matrix_view weight, const_float_col_span bias) noexcept {
   assert(weight.row_extent() == in.col_extent());
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == weight.col_extent()));
   assert(bias.size() == weight.col_extent());
+  assert(is_disjoint(out.as_span(), in.as_span()));
+  assert(is_disjoint(out.as_span(), weight.as_span()) &&
+         is_disjoint(out.as_span(), bias));
 
   for (const auto r : in.row_interval()) {
     const auto in_row = *(in.row_as_span(r));

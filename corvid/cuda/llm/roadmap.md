@@ -355,6 +355,19 @@ passes at `atol = rtol = 1e-5`; the largest absolute error is 9.2e-5 on a
 large-magnitude residual coordinate, and the typical one is a few 1e-6. That
 tolerance is the gate. Next: the projection, written by Steven.
 
+Status (2026-09-08): `layer_norm` split into two row ops it composes per
+row, so the row is still in cache for the second step: `standardize_row`
+(the statistics and the z-scores) and `scale_shift_row` (the affine step).
+Either runs in place when the output span is the input span. Per-feature
+parameters (`weight` and `bias` of both `layer_norm` and `linear`) are now
+`const_float_col_span`, indexed by `col_ndx` directly instead of through
+`*c` on a `size_t` span. The aliasing contracts are asserted rather than
+described: the row ops and `layer_norm` require the output to be the same
+memory as the input or none of it, and `linear` requires its output apart
+from all three inputs. The predicates behind those asserts,
+`is_disjoint` and `is_same_or_disjoint` over any two contiguous ranges,
+live in `corvid/meta/containers.h`.
+
 ### 4. CUDA forward pass
 
 The same model on the device:

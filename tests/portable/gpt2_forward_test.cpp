@@ -229,6 +229,33 @@ TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
   CHECK_THAT(second[col_ndx{3}], WithinAbs(0.5, tolerance));
 }
 
+TEST_CASE("Row ops match layer norm step by step", "[Gpt2ForwardTest]") {
+  // Standardize into a fresh row, then scale and shift it in place, and
+  // expect the same output as the fused op.
+  const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F};
+  std::vector<float> out_storage(in_storage.size());
+  std::vector<float> expected(in_storage.size());
+  const const_float_matrix_view in(in_storage,
+      {.row_count = 1, .col_count = 4});
+  const float_matrix_view out(out_storage, {.row_count = 1, .col_count = 4});
+  const float_matrix_view fused(expected, {.row_count = 1, .col_count = 4});
+  constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
+  constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
+
+  const auto out_row = out.row_as_span(row_ndx{0});
+  standardize_row(out_row, in.row_as_span(row_ndx{0}), layer_norm_eps);
+
+  constexpr auto tolerance = 1e-5;
+  const auto inv_std = 1.0F / std::sqrt(1.25F + layer_norm_eps);
+  CHECK_THAT(out_row[col_ndx{0}], WithinAbs(-1.5F * inv_std, tolerance));
+  CHECK_THAT(out_row[col_ndx{3}], WithinAbs(1.5F * inv_std, tolerance));
+
+  scale_shift_row(out_row, out_row, weight, bias);
+  layer_norm(fused, in, weight, bias);
+
+  CHECK(out_storage == expected);
+}
+
 TEST_CASE("Layer norm in place", "[Gpt2ForwardTest]") {
   std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
   std::vector<float> expected(storage.size());
