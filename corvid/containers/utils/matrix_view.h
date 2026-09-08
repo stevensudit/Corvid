@@ -46,7 +46,7 @@
 //   view_t m(storage, {.row_count = rows, .col_count = cols});
 //   for (const auto r : m.row_interval())
 //     for (const auto c : m.col_interval()) m[r, c] = 1.0F;
-//   for (const auto value : m.row_span(r)) ...
+//   for (const auto value : m.row_as_span(r)) ...
 //
 // Slicing out a block:
 //   const auto block = m.subview({r, c},
@@ -66,7 +66,7 @@ consteval auto corvid_enum_spec(row_ndx*) {
 }
 
 // Column index. `npos` is the end of the columns, used through `coord::npos`
-// and as the `last` default of `row_span`.
+// and as the `last` default of `row_as_span`.
 enum class col_ndx : size_t { npos = std::numeric_limits<size_t>::max() };
 consteval auto corvid_enum_spec(col_ndx*) {
   return corvid::enums::sequence::make_sequence_enum_spec<col_ndx,
@@ -132,9 +132,10 @@ public:
   // last element of the last row (both asserted).
   constexpr matrix_view(std::span<T> data, extent_t size,
       size_t stride) noexcept
-      : data_{data.data()}, extent_{size}, stride_{stride} {
+      : data_{data}, extent_{size}, stride_{stride} {
     assert(stride >= extent_.col_count);
     assert(data.size() >= footprint(size, stride));
+    data_ = data_.first(footprint(size, stride));
   }
 
   // Implicit conversion to a read-only view of a mutable view of the same
@@ -142,7 +143,7 @@ public:
   template<typename U>
   requires(std::is_same_v<const U, T> && !std::is_same_v<U, T>)
   constexpr matrix_view(matrix_view<U> other) noexcept
-      : data_{other.as_span().data()}, extent_{other.extent()},
+      : data_{other.as_span()}, extent_{other.extent()},
         stride_{other.stride()} {}
 
 #pragma endregion
@@ -152,9 +153,7 @@ public:
   // the last of the last row, so a strided view includes the gaps between
   // its rows.
   [[nodiscard]] constexpr std::span<T> as_span() const noexcept {
-    // Parens, not braces: C++26 gives span an initializer_list constructor.
-    // NOLINTNEXTLINE(modernize-return-braced-init-list)
-    return std::span<T>(data_, footprint(extent_, stride_));
+    return data_;
   }
 
   [[nodiscard]] constexpr size_t stride() const noexcept { return stride_; }
@@ -217,9 +216,7 @@ public:
     assert(*r < extent_.row_count);
     const auto end = (last == col_ndx::npos) ? extent_.col_count : *last;
     assert((*first <= end) && (end <= extent_.col_count));
-    // Parens, not braces: C++26 gives span an initializer_list constructor.
-    // NOLINTNEXTLINE(modernize-return-braced-init-list)
-    return col_span(data_ + (*r * stride_) + *first, end - *first);
+    return col_span{data_.subspan((*r * stride_) + *first, end - *first)};
   }
 
 #pragma endregion
@@ -278,8 +275,7 @@ private:
   // View of the rectangle of `size` at `from`, both already checked.
   [[nodiscard]] constexpr matrix_view
   do_subview(coord from, extent_t size) const noexcept {
-    // Parens, not braces: C++26 gives span an initializer_list constructor.
-    return {std::span<T>(data_ + (*from.row * stride_) + *from.col,
+    return {data_.subspan((*from.row * stride_) + *from.col,
                 footprint(size, stride_)),
         size, stride_};
   }
@@ -287,7 +283,7 @@ private:
 #pragma endregion
 #pragma region Data members
 
-  T* data_{};
+  std::span<T> data_;
   extent_t extent_{0, 0};
   size_t stride_{};
 
