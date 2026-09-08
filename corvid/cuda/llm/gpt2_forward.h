@@ -110,7 +110,7 @@ inline constexpr float layer_norm_eps = 1e-5F;
 // The variance is biased (divided by the width, not the width minus one),
 // with `eps` added inside the square root. `out` and `in` must have the same
 // extent, and its width must be the size of `weight` and `bias` (asserted).
-// `out` may be the same view as `in`, normalizing in place; any other overlap
+// `out` may be the same view as `in`, normalizing in place. Any other overlap
 // is unsupported.
 inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
     const_float_span weight, const_float_span bias,
