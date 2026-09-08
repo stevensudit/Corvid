@@ -31,7 +31,7 @@ using view_t = matrix_view<float>;
 using row_ndx = view_t::row_ndx;
 using col_ndx = view_t::col_ndx;
 using coord = view_t::coord;
-using extent = view_t::extent;
+using extent = view_t::extent_t;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -84,8 +84,8 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   view_t m(storage, {.row_count = 2, .col_count = 3});
   REQUIRE(m.row_extent() == 2);
   REQUIRE(m.col_extent() == 3);
-  REQUIRE(m.get_extent().row_count == 2);
-  REQUIRE(m.get_extent().col_count == 3);
+  REQUIRE(m.extent().row_count == 2);
+  REQUIRE(m.extent().col_count == 3);
   REQUIRE(m.size() == 6);
   REQUIRE(m.stride() == 3);
   REQUIRE_FALSE(m.empty());
@@ -105,17 +105,17 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   CHECK(storage[1] == 7.0F);
 
   // A row, whole and trimmed at either end.
-  const auto second = m.row_span(row_ndx{1});
+  const auto second = m.row_as_span(row_ndx{1});
   CHECK(second.size() == 3);
   CHECK(second.data() == storage.data() + 3);
-  CHECK(second[2] == 5.0F);
-  const auto tail = m.row_span(row_ndx{1}, col_ndx{1});
+  CHECK(second[col_ndx{2}] == 5.0F);
+  const auto tail = m.row_as_span(row_ndx{1}, col_ndx{1});
   CHECK(tail.size() == 2);
   CHECK(tail.data() == storage.data() + 4);
-  const auto middle = m.row_span(row_ndx{1}, col_ndx{1}, col_ndx{2});
+  const auto middle = m.row_as_span(row_ndx{1}, col_ndx{1}, col_ndx{2});
   CHECK(middle.size() == 1);
-  CHECK(middle[0] == storage[4]);
-  CHECK(m.row_span(row_ndx{0}, col_ndx{3}).empty());
+  CHECK(middle[col_ndx{0}] == storage[4]);
+  CHECK(m.row_as_span(row_ndx{0}, col_ndx{3}).empty());
 
   const view_t unset;
   CHECK(unset.empty());
@@ -161,8 +161,8 @@ TEST_CASE("Subview keeps the stride", "[MatrixViewTest]") {
   CHECK(block.as_span().size() == 9);
   CHECK(block[row_ndx{0}, col_ndx{0}] == 2.0F);
   CHECK(block[row_ndx{1}, col_ndx{2}] == 14.0F);
-  CHECK(block.row_span(row_ndx{1}).size() == 3);
-  CHECK(block.row_span(row_ndx{1})[0] == 12.0F);
+  CHECK(block.row_as_span(row_ndx{1}).size() == 3);
+  CHECK(block.row_as_span(row_ndx{1})[col_ndx{0}] == 12.0F);
 
   // Writes through the block land in the original storage.
   block[row_ndx{1}, col_ndx{1}] = -1.0F;
@@ -212,7 +212,7 @@ TEST_CASE("Strided view over a larger buffer", "[MatrixViewTest]") {
   CHECK(m.size() == 6);
   CHECK(m.as_span().size() == 10);
   CHECK(m[row_ndx{2}, col_ndx{1}] == 21.0F);
-  CHECK(m.row_span(row_ndx{1}).size() == 2);
+  CHECK(m.row_as_span(row_ndx{1}).size() == 2);
 
   // The buffer only has to reach the last element of the last row.
   const view_t tight(std::span{storage}.first(10),

@@ -113,9 +113,9 @@ closeness compare(const_float_matrix_view actual,
   REQUIRE(actual.col_extent() == expected.col_extent());
   closeness result;
   for (const auto r : actual.row_interval()) {
-    const auto actual_row = actual.row_span(r);
-    const auto expected_row = expected.row_span(r);
-    for (size_t col = 0; col < actual_row.size(); ++col) {
+    const auto actual_row = actual.row_as_span(r);
+    const auto expected_row = expected.row_as_span(r);
+    for (auto const col : actual.col_interval()) {
       const auto magnitude = std::abs(expected_row[col]);
       const auto abs_error = std::abs(actual_row[col] - expected_row[col]);
       result.max_abs_error = std::max(result.max_abs_error, abs_error);
@@ -216,16 +216,17 @@ TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
 
   constexpr auto tolerance = 1e-5;
   const auto inv_std = 1.0F / std::sqrt(1.25F + layer_norm_eps);
-  const auto first = out.row_span(row_ndx{0});
-  CHECK_THAT(first[0], WithinAbs(-1.5F * inv_std, tolerance));
-  CHECK_THAT(first[1], WithinAbs(-0.5F * inv_std * 2.0F, tolerance));
-  CHECK_THAT(first[2], WithinAbs((0.5F * inv_std) + 0.5F, tolerance));
-  CHECK_THAT(first[3], WithinAbs((1.5F * inv_std * 2.0F) + 0.5F, tolerance));
-  const auto second = out.row_span(row_ndx{1});
-  CHECK_THAT(second[0], WithinAbs(0.0, tolerance));
-  CHECK_THAT(second[1], WithinAbs(0.0, tolerance));
-  CHECK_THAT(second[2], WithinAbs(0.5, tolerance));
-  CHECK_THAT(second[3], WithinAbs(0.5, tolerance));
+  const auto first = out.row_as_span(row_ndx{0});
+  CHECK_THAT(first[col_ndx{0}], WithinAbs(-1.5F * inv_std, tolerance));
+  CHECK_THAT(first[col_ndx{1}], WithinAbs(-0.5F * inv_std * 2.0F, tolerance));
+  CHECK_THAT(first[col_ndx{2}], WithinAbs((0.5F * inv_std) + 0.5F, tolerance));
+  CHECK_THAT(first[col_ndx{3}],
+      WithinAbs((1.5F * inv_std * 2.0F) + 0.5F, tolerance));
+  const auto second = out.row_as_span(row_ndx{1});
+  CHECK_THAT(second[col_ndx{0}], WithinAbs(0.0, tolerance));
+  CHECK_THAT(second[col_ndx{1}], WithinAbs(0.0, tolerance));
+  CHECK_THAT(second[col_ndx{2}], WithinAbs(0.5, tolerance));
+  CHECK_THAT(second[col_ndx{3}], WithinAbs(0.5, tolerance));
 }
 
 TEST_CASE("Layer norm in place", "[Gpt2ForwardTest]") {
@@ -291,7 +292,7 @@ TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
       REQUIRE(in.row_extent() == 14);
 
       std::vector<float> storage(in.size());
-      const float_matrix_view out(storage, in.get_extent());
+      const float_matrix_view out(storage, in.extent());
       layer_norm(out, in, weight, bias);
 
       check_close(out, expected, 1e-5F, 1e-5F);

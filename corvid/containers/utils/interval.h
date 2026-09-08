@@ -180,6 +180,16 @@ public:
 
   constexpr interval& operator=(const interval&) = default;
 
+  // Construct an interval representing the first `count` indices, starting
+  // from zero.
+  [[nodiscard]] static constexpr interval iota(size_t count) noexcept {
+    interval indexes{V{}};
+    indexes.resize(count);
+    return indexes;
+  }
+
+#pragma endregion
+#pragma region Modifiers
   constexpr void clear() noexcept { *this = interval{}; }
 
   constexpr void swap(interval& other) noexcept { pair_.swap(other.pair_); }

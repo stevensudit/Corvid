@@ -113,19 +113,21 @@ inline constexpr float layer_norm_eps = 1e-5F;
 // `out` may be the same view as `in`, normalizing in place; any other overlap
 // is unsupported.
 inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
-    std::span<const float> weight, std::span<const float> bias,
+    const_float_span weight, const_float_span bias,
     float eps = layer_norm_eps) noexcept {
-  const auto width = in.col_extent();
+  [[maybe_unused]] const auto width = in.col_extent();
   assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
   assert((weight.size() == width) && (bias.size() == width));
+
   for (const auto r : in.row_interval()) {
-    const auto in_row = in.row_span(r);
+    const auto in_row = in.row_as_span(r);
     const auto row_mean = mean(in_row);
     const auto inv_std = inverse_std_dev(in_row, row_mean, eps);
-    const auto out_row = out.row_span(r);
-    for (size_t col = 0; col < width; ++col)
-      out_row[col] = scale_shift(standardize(in_row[col], row_mean, inv_std),
-          weight[col], bias[col]);
+
+    auto out_row = out.row_as_span(r);
+    for (const auto c : in.col_interval())
+      out_row[c] = scale_shift(standardize(in_row[c], row_mean, inv_std),
+          weight[*c], bias[*c]);
   }
 }
 
@@ -147,13 +149,13 @@ inline void linear(float_matrix_view out, const_float_matrix_view in,
   assert(bias.size() == weight.col_extent());
 
   for (const auto r : in.row_interval()) {
-    const auto in_row = in.row_span(r);
-    const auto out_row = out.row_span(r);
+    const auto in_row = *(in.row_as_span(r));
+    const auto out_row = out.row_as_span(r);
     std::ranges::copy(bias, out_row.begin());
 
     // Each input feature is a column of `in` and a row of `weight`.
     for (const auto feature : weight.row_interval())
-      add_scaled(out_row, in_row[*feature], weight.row_span(feature));
+      add_scaled(out_row, in_row[*feature], weight.row_as_span(feature));
   }
 }
 

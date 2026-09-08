@@ -138,9 +138,11 @@ public:
   }
 
   // Access underlying type.
-  auto& underlying(this auto& self) noexcept { return self.data_; }
+  [[nodiscard]] auto& underlying(this auto& self) noexcept {
+    return self.data_;
+  }
 
-  auto& operator*(this auto& self) { return self.data_; }
+  [[nodiscard]] auto& operator*(this auto& self) { return self.data_; }
 
   [[nodiscard]] allocator_type get_allocator() const noexcept {
     return data_.get_allocator();
