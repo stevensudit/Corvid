@@ -222,6 +222,12 @@ concept SmartPointer = PointerLike<T> && (!RawPointer<T>);
 template<typename T>
 concept Range = std::ranges::range<T>;
 
+// `T` must be a contiguous range of known size, so that the memory behind it
+// can be addressed as a whole.
+template<typename T>
+concept ContiguousSizedRange =
+    std::ranges::contiguous_range<T> && std::ranges::sized_range<T>;
+
 // `T` must be `std::optional` or act like it.
 //
 // `std::optional` itself qualifies outright; the look-alike test excludes

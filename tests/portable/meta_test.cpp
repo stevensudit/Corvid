@@ -18,13 +18,17 @@
 #include "corvid/meta.h"
 #include "catch2_main.h"
 
+#include <array>
 #include <bit>
+#include <cstddef>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
 #include <set>
+#include <span>
 #include <tuple>
+#include <vector>
 
 // #include "Interval.h"
 
@@ -479,6 +483,40 @@ TEST_CASE("ContainerElement", "[MetaTest]") {
 #pragma endregion
 #pragma region KeyFind
 
+TEST_CASE("Overlap", "[MetaTest]") {
+  std::vector<float> buffer(8);
+  const std::span<float> whole{buffer};
+  const auto front = whole.first(4);
+  const auto back = whole.last(4);
+  const auto middle = whole.subspan(2, 4);
+  const std::array<double, 2> other{};
+
+  // Across container and element types.
+  CHECK(is_disjoint(buffer, other));
+  CHECK(is_same_or_disjoint(other, buffer));
+
+  CHECK(is_disjoint(front, back));
+  CHECK_FALSE(is_disjoint(front, middle));
+  CHECK_FALSE(is_disjoint(whole, buffer));
+
+  // The same memory through a container and through a view of it.
+  CHECK(is_same_or_disjoint(whole, buffer));
+  CHECK(is_same_or_disjoint(buffer, whole));
+  CHECK_FALSE(is_same_or_disjoint(front, whole));
+  CHECK_FALSE(is_same_or_disjoint(front, middle));
+
+  // The same memory as bytes.
+  const auto bytes = std::as_bytes(whole);
+  CHECK(is_same_or_disjoint(bytes, buffer));
+  CHECK_FALSE(is_disjoint(bytes, back));
+  CHECK_FALSE(is_same_or_disjoint(std::as_bytes(front), whole));
+
+  // An empty range shares nothing, even with itself.
+  const std::vector<float> empty;
+  CHECK(is_disjoint(empty, buffer));
+  CHECK(is_disjoint(empty, empty));
+}
+
 TEST_CASE("KeyFind", "[MetaTest]") {
   // has_key_find_v checks if container has find(key_type) method
   using M = std::map<int, Foo>;
@@ -522,8 +560,8 @@ TEST_CASE("TypeName", "[MetaTest]") {
         "std::allocator<std::vector<std::vector<int, std::allocator<int>>, "
         "std::allocator<std::vector<int, std::allocator<int>>>>>>");
 
-  // An incomplete collapse used to leave a space that broke the
-  // `std::string` contraction for nested strings.
+  // An incomplete collapse used to leave a space that broke the `std::string`
+  // contraction for nested strings.
   CHECK(friendly_type_name<std::vector<std::string>>() ==
         "std::vector<std::string, std::allocator<std::string>>");
 
@@ -1353,6 +1391,7 @@ static int g_ref_val = 42;
 static int double_it(int x) { return x * 2; }
 
 // Mirrors the cppreference.com `std::function` sample.
+//
 // Member functions return values instead of printing so results are
 // verifiable.
 #pragma region FixedFunction_CppRef
@@ -1662,9 +1701,9 @@ TEST_CASE("SignatureTraits", "[MetaTest]") {
 
 #pragma region EmptyCallTraits
 
-// Result types for the empty-call table: one that cannot be
-// value-initialized, and one whose value-initialization may throw (its
-// defaulted constructor allocates through the member initializer).
+// Result types for the empty-call table: one that cannot be value-initialized,
+// and one whose value-initialization may throw (its defaulted constructor
+// allocates through the member initializer).
 struct nondefault_result {
   explicit nondefault_result(int) {}
 };
