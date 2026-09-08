@@ -48,6 +48,12 @@ manager. So the division of labor is fixed up front:
   an explicit request for that edit.
 - **Review after each stage**, the same way the module review quest reviews
   a band.
+- **Refined 2026-09-07, stage 3:** Steven asked Claude for the first draft
+  of each CPU op as well, starting with `layer_norm` and the projection,
+  because reviewing a draft line by line teaches the same things as writing
+  it, in less time. Claude names every decision in the draft; the review
+  reshapes it. The kernels and the backward pass keep the original split
+  until Steven says otherwise.
 
 ## Layout
 
