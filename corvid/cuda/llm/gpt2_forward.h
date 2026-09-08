@@ -195,7 +195,7 @@ inline void linear(float_matrix_view out, const_float_matrix_view in,
 
     // Each input feature is a column of `in` and a row of `weight`.
     for (const auto feature : weight.row_interval())
-      add_scaled(out_row, in_row[feature], weight.row_as_span(feature));
+      add_scaled(out_row, in_row[feature], weight[feature]);
   }
 }
 
