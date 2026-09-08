@@ -189,8 +189,8 @@ inline void linear(float_matrix_view out, const_float_matrix_view in,
          is_disjoint(out.as_span(), bias));
 
   for (const auto r : in.row_interval()) {
-    const auto in_row = const_float_col_span(in.row_as_span(r));
-    const auto out_row = out.row_as_span(r);
+    const auto in_row = const_float_col_span(in[r]);
+    const auto out_row = out[r];
     std::ranges::copy(bias, out_row.begin());
 
     // Each input feature is a column of `in` and a row of `weight`.
