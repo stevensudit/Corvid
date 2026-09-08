@@ -129,8 +129,8 @@ public:
   //
   // Warning: this is only meaningful when the size fits the enum's underlying
   // type. A vector spanning the enum's full domain has a size one past the
-  // largest representable value, so it wraps; for an 8-bit enum, 256 elements
-  // report as `enum_t{0}`.
+  // largest representable value, so it wraps. As a result, for an 8-bit enum,
+  // 256 elements report as `enum_t{0}`.
   [[nodiscard]] enum_t size_as_enum() const noexcept {
     // The explicit cast keeps the conversion legal for enums narrower than
     // `size_t`, which brace-init alone would reject as narrowing.

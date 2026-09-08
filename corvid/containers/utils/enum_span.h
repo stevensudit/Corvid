@@ -43,7 +43,7 @@ using corvid::enums::sequence::ops::operator*;
 // for an enum that is an index, such as a row number, and meaningless for one
 // that is a key, such as a color.
 template<typename T, sequence::SequentialEnum E,
-    std::size_t Extent = std::dynamic_extent>
+    size_t Extent = std::dynamic_extent>
 class enum_span {
 public:
 #pragma region Types
@@ -182,8 +182,8 @@ public:
   //
   // Warning: this is only meaningful when the size fits the enum's underlying
   // type. A span covering the enum's full domain has a size one past the
-  // largest representable value, so it wraps; for an 8-bit enum, 256 elements
-  // report as `enum_t{0}`.
+  // largest representable value, so it wraps. As a result, for an 8-bit enum,
+  // 256 elements report as `enum_t{0}`.
   [[nodiscard]] constexpr enum_t size_as_enum() const noexcept {
     // The explicit cast keeps the conversion legal for enums narrower than
     // `size_t`, which brace-init alone would reject as narrowing.
@@ -206,21 +206,11 @@ public:
 #pragma endregion
 #pragma region Workers
 private:
-  // The static extent `N` of a `std::span` as an enum value, with
-  // `std::dynamic_extent` mapping to `dynamic_extent`.
-  template<size_type N>
-  [[nodiscard]] static consteval enum_t as_extent() noexcept {
-    if constexpr (N == std::dynamic_extent)
-      return std::dynamic_extent;
-    else
-      return enum_t{N};
-  }
-
   // `span` as the `enum_span` with the same static extent.
   template<size_type N>
   [[nodiscard]] static constexpr auto
   as_enum_span(std::span<T, N> span) noexcept {
-    return enum_span<T, E, as_extent<N>()>{span};
+    return enum_span<T, E, N>{span};
   }
 
 #pragma endregion
@@ -237,10 +227,10 @@ private:
 // NOLINTBEGIN(bugprone-std-namespace-modification)
 
 // Like `std::span`, an `enum_span` is a borrowed range and a view.
-template<typename T, corvid::sequence::SequentialEnum E, E Extent>
+template<typename T, corvid::sequence::SequentialEnum E, size_t Extent>
 inline constexpr bool
     std::ranges::enable_borrowed_range<corvid::enum_span<T, E, Extent>> = true;
-template<typename T, corvid::sequence::SequentialEnum E, E Extent>
+template<typename T, corvid::sequence::SequentialEnum E, size_t Extent>
 inline constexpr bool
     std::ranges::enable_view<corvid::enum_span<T, E, Extent>> = true;
 

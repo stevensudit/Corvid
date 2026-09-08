@@ -1108,8 +1108,7 @@ TEST_CASE("Basic", "[EnumSpan]") {
   CHECK(vs.size_as_enum() == v.size_as_enum());
   CHECK(vs.data() == v.data());
 
-  // The static extent is an enum value, with `dynamic_extent` at the top of
-  // the underlying type.
+  // The static extent is a size, as for `std::span`.
   std::array<int, 2> pair{5, 6};
   const enum_span<int, id_t, 2> fixed{pair};
   static_assert(decltype(fixed)::extent == 2);
@@ -1117,25 +1116,24 @@ TEST_CASE("Basic", "[EnumSpan]") {
   CHECK(fixed[id_t{1}] == 6);
   CHECK(fixed.size_as_enum() == id_t{2});
 
-  // Subspans shift the index origin, as an index enum expects; the static
-  // forms carry their extent in the enum.
+  // Subspans shift the index origin, as an index enum expects. The static
+  // forms carry their extent, as for `std::span`.
   const auto tail = s.subspan(id_t{1});
   CHECK(tail.size() == 2U);
   CHECK(tail[id_t{0}] == 21);
   CHECK(s.subspan(id_t{1}, 1).size() == 1U);
   CHECK(s.first(1)[id_t{0}] == 10);
   CHECK(s.last(1)[id_t{0}] == 12);
-  auto x = s.first<2>();
   static_assert(
       std::is_same_v<decltype(s.first<2>()), enum_span<int, id_t, 2>>);
   CHECK(s.first<2>()[id_t{1}] == 21);
   CHECK(s.last<1>()[id_t{0}] == 12);
   static_assert(
-      std::is_same_v<decltype(s.subspan<1>()), enum_span<int, id_t>>);
-  static_assert(
-      std::is_same_v<decltype(fixed.subspan<1>()), enum_span<int, id_t, 1>>);
-  CHECK(fixed.subspan<1>()[id_t{0}] == 6);
-  CHECK(s.subspan<1, 1>()[id_t{0}] == 21);
+      std::is_same_v<decltype(s.subspan<id_t{1}>()), enum_span<int, id_t>>);
+  static_assert(std::is_same_v<decltype(fixed.subspan<id_t{1}>()),
+      enum_span<int, id_t, 1>>);
+  CHECK(fixed.subspan<id_t{1}>()[id_t{0}] == 6);
+  CHECK(s.subspan<id_t{1}, 1>()[id_t{0}] == 21);
 
   // Underlying access.
   auto& u = s.underlying();

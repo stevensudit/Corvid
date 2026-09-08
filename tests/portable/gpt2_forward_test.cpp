@@ -201,7 +201,7 @@ TEST_CASE("Linear on hand-computed rows", "[Gpt2ForwardTest]") {
 }
 
 TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
-  // Row 0 has mean 2.5 and biased variance 1.25; row 1 is constant, so it
+  // Row 0 has mean 2.5 and biased variance 1.25. Row 1 is constant, so it
   // normalizes to zero and the output is the bias alone.
   const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 5.0F, 5.0F,
       5.0F};
