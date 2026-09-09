@@ -95,6 +95,8 @@ scale_shift(float x, float weight, float bias) noexcept {
 
 // Add `scale` times each of `values` to the matching element of `acc`.
 // Conceptually: `acc += scale * values`
+//
+// BLAS calls this operation BLAS axpy, because it's "a times x plus y".
 constexpr void
 add_scaled(float_span acc, float scale, const_float_span values) noexcept {
   assert(acc.size() == values.size());
@@ -171,13 +173,17 @@ inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
 #pragma region linear
 
 // Project each row of `in` through `weight` and add `bias`, into `out`, so
-// that `out = in * weight + bias`.
+// that `out = in * weight + bias`. GPT-2 calls this Conv1D, but it's the same
+// as nn.Linear except for the rows and columns being transposed.
+//
+// Each row of `in` contains the features for a given token, and each row of
+// `out` will contain the projected features for the same token. The `weight`
+// matrix defines how each input feature contributes to each output feature.
 //
 // `weight` is laid out as GPT-2 stores its projections: one row per input
 // feature and one column per output feature. So `in` is rows by in_features,
 // `weight` is in_features by out_features, and `out` and `bias` have
-// out_features columns. `out` must not overlap `in`, `weight`, or `bias`
-// (all asserted).
+// out_features columns. `out` must not overlap `in`, `weight`, or `bias`.
 inline void linear(float_matrix_view out, const_float_matrix_view in,
     const_float_matrix_view weight, const_float_row_span bias) noexcept {
   assert(weight.row_extent() == in.col_extent());
@@ -188,14 +194,23 @@ inline void linear(float_matrix_view out, const_float_matrix_view in,
   assert(is_disjoint(out.as_span(), weight.as_span()) &&
          is_disjoint(out.as_span(), bias));
 
-  for (const auto r : in.row_interval()) {
-    const auto in_row = const_float_col_span(in[r]);
-    const auto out_row = out[r];
+  // Each `token_row_ndx` is a row index corresponding to a token in `in`.
+  for (const auto token_row_ndx : in.row_interval()) {
+    // `in_row` holds the features for a given token, indexed by
+    // `feature_row_ndx`.
+    const auto in_row = const_float_col_span(in[token_row_ndx]);
+    // `out_row` will hold the projected features for the same token.
+    const auto out_row = out[token_row_ndx];
+
+    // We start by adding in the biases for this token. `bias` has a value for
+    // each feature.
     std::ranges::copy(bias, out_row.begin());
 
-    // Each input feature is a column of `in` and a row of `weight`.
-    for (const auto feature : weight.row_interval())
-      add_scaled(out_row, in_row[feature], weight[feature]);
+    // `weight` has a row for each input feature and a column for each output
+    // feature.
+
+    for (const auto feature_row_ndx : weight.row_interval())
+      add_scaled(out_row, in_row[feature_row_ndx], weight[feature_row_ndx]);
   }
 }
 
