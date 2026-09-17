@@ -141,6 +141,9 @@ void check_close(const_float_matrix_view actual,
 
 constexpr auto n_layer = 12UZ;
 constexpr auto n_embd = 768UZ;
+// The MLP widens each token to four times the embedding before projecting it
+// back down.
+constexpr auto n_hidden = 4 * n_embd;
 
 } // namespace
 
@@ -292,6 +295,56 @@ TEST_CASE("Layer norm honors the stride of both views", "[Gpt2ForwardTest]") {
   CHECK_THAT(out_storage[2], WithinAbs(1.0, tolerance));
 }
 
+TEST_CASE("GELU on hand-computed values", "[Gpt2ForwardTest]") {
+  // Reference values from torch's gelu with approximate="tanh". Zero maps to
+  // zero, the far tails pass through or vanish, and the negative side dips
+  // below zero before it does.
+  constexpr auto tolerance = 1e-6;
+  CHECK(gelu_new(0.0F) == 0.0F);
+  CHECK_THAT(gelu_new(1.0F), WithinAbs(0.841192, tolerance));
+  CHECK_THAT(gelu_new(-1.0F), WithinAbs(-0.158808, tolerance));
+  CHECK_THAT(gelu_new(2.0F), WithinAbs(1.954598, tolerance));
+  CHECK_THAT(gelu_new(-2.0F), WithinAbs(-0.045402, tolerance));
+  CHECK_THAT(gelu_new(10.0F), WithinAbs(10.0, tolerance));
+  CHECK_THAT(gelu_new(-10.0F), WithinAbs(0.0, tolerance));
+}
+
+TEST_CASE("GELU honors the stride of both views", "[Gpt2ForwardTest]") {
+  // Two rows of two features inside three-column buffers: the input's rows
+  // occupy the first two columns and the output's the last two, so the
+  // untouched column of each output row proves the stride is honored.
+  const std::vector<float> in_storage{1.0F, -1.0F, 99.0F, 2.0F, 0.0F, 99.0F};
+  std::vector<float> out_storage(in_storage.size(), -1.0F);
+  const auto in =
+      const_float_matrix_view(in_storage, {.row_count = 2, .col_count = 3})
+          .subview({row_ndx{0}, col_ndx{0}}, {.row_count = 2, .col_count = 2});
+  const auto out =
+      float_matrix_view(out_storage, {.row_count = 2, .col_count = 3})
+          .subview({row_ndx{0}, col_ndx{1}});
+
+  gelu_new(out, in);
+
+  constexpr auto tolerance = 1e-6;
+  CHECK(out_storage[0] == -1.0F);
+  CHECK_THAT(out_storage[1], WithinAbs(0.841192, tolerance));
+  CHECK_THAT(out_storage[2], WithinAbs(-0.158808, tolerance));
+  CHECK(out_storage[3] == -1.0F);
+  CHECK_THAT(out_storage[4], WithinAbs(1.954598, tolerance));
+  CHECK(out_storage[5] == 0.0F);
+}
+
+TEST_CASE("GELU in place", "[Gpt2ForwardTest]") {
+  std::vector<float> storage{1.0F, -1.0F, 2.0F, 0.5F};
+  std::vector<float> expected(storage.size());
+  const float_matrix_view m(storage, {.row_count = 2, .col_count = 2});
+  const float_matrix_view out(expected, {.row_count = 2, .col_count = 2});
+
+  gelu_new(out, m);
+  gelu_new(m, m);
+
+  CHECK(storage == expected);
+}
+
 TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
@@ -323,6 +376,47 @@ TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
       layer_norm(out, in, weight, bias);
 
       check_close(out, expected, 1e-5F, 1e-5F);
+    }
+  }
+}
+
+TEST_CASE("MLP path matches the oracle", "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // Every block's MLP, fed its own dumped `ln_2/out` and compared against its
+  // dumped `mlp/out`, which is the first point after `c_fc`, `gelu_new`, and
+  // `c_proj` that the oracle captures. This gates `linear` as well, since no
+  // dump sits between the two projections.
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    DYNAMIC_SECTION("block_" << n) {
+      const auto dump = std::format("block_{}", n);
+      const auto param = std::format("h.{}.mlp", n);
+      const auto in =
+          matrix_of(oracle.activations, dump + "/ln_2/out", n_embd);
+      const auto expected =
+          matrix_of(oracle.activations, dump + "/mlp/out", n_embd);
+      const auto fc_weight =
+          matrix_of(oracle.weights, param + ".c_fc.weight", n_hidden);
+      const auto fc_bias =
+          vector_of(oracle.weights, param + ".c_fc.bias", n_hidden);
+      const auto proj_weight =
+          matrix_of(oracle.weights, param + ".c_proj.weight", n_embd);
+      const auto proj_bias =
+          vector_of(oracle.weights, param + ".c_proj.bias", n_embd);
+      REQUIRE(in.row_extent() == 14);
+
+      std::vector<float> hidden_storage(in.row_extent() * n_hidden);
+      const float_matrix_view hidden(hidden_storage,
+          {.row_count = in.row_extent(), .col_count = n_hidden});
+      std::vector<float> out_storage(in.size());
+      const float_matrix_view out(out_storage, in.extent());
+
+      linear(hidden, in, fc_weight, fc_bias);
+      gelu_new(hidden, hidden);
+      linear(out, hidden, proj_weight, proj_bias);
+
+      check_close(out, expected, 1e-4F, 1e-4F);
     }
   }
 }

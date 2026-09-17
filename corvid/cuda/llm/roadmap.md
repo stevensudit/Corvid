@@ -368,6 +368,37 @@ from all three inputs. The predicates behind those asserts,
 `is_disjoint` and `is_same_or_disjoint` over any two contiguous ranges,
 live in `corvid/meta/containers.h`.
 
+Status (2026-09-17): `linear` done. It takes `weight` in the Conv1D layout
+GPT-2 stores (one row per input feature, one column per output feature),
+copies `bias` into each output row and then adds each input feature's
+scaled weight row with `add_scaled`, so the inner loop is one axpy per
+input feature rather than one dot product per output feature. Its doc
+block carries the formula, a table of which operand each index is a row or
+column of, and the four GPT-2 call sites with their feature counts; that
+table is what made the op legible, so the op headers keep call-site shape
+tables even though comments elsewhere face inward. The hand-computed test
+writes into a strided subview of a wider buffer. There is no dumped
+activation on either side of a projection alone, so the projections are
+gated through the MLP path below.
+
+Status (2026-09-17): `gelu_new` drafted, as a scalar overload holding the
+tanh formula and a matrix overload applying it elementwise with the same
+in-place-or-disjoint contract as `layer_norm`. The two constants are named:
+`gelu_tanh_scale` is `sqrt(2 / pi)` built from `std::numbers` (`sqrt2` times
+`inv_sqrtpi`, which rounds to the same `float` as the direct square root),
+and `gelu_cubic_coeff` is the paper's 0.044715. Hand-computed cases take
+their reference values from torch's `gelu(approximate="tanh")`. There is no
+dumped activation between `c_fc` and `c_proj`, so the oracle gate for it is
+the MLP path as a whole: each block's dumped `ln_2/out` through `c_fc`,
+`gelu_new` in place, and `c_proj`, against its dumped `mlp/out`. First
+measured run over all 12 blocks: every block passes at `atol = rtol =
+1e-4`, and that is the gate. At the layer norm's 1e-5, blocks 3 and 11
+fail, with largest absolute errors of 3.5e-4 and 8.4e-5; the sums here run
+over 768 and 3072 terms in a different order than the oracle's BLAS, so
+the looser gate is the accumulation order, not a defect. The largest
+absolute error anywhere is 9.8e-4 in block 2, exactly 2^-10, one ulp on a
+residual coordinate near 1000. Next: attention.
+
 ### 4. CUDA forward pass
 
 The same model on the device:

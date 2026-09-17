@@ -20,6 +20,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <span>
 
 #include "../../containers/utils/matrix_view.h"
@@ -241,6 +242,58 @@ inline void linear(float_matrix_view out, const_float_matrix_view in,
     // output features.
     for (const auto feature_row_ndx : weight.row_interval())
       add_scaled(out_row, in_as_col[feature_row_ndx], weight[feature_row_ndx]);
+  }
+}
+
+#pragma endregion
+#pragma region gelu_new
+
+// The `sqrt(2 / pi)` that scales the argument of the tanh.
+inline constexpr float gelu_tanh_scale =
+    std::numbers::sqrt2_v<float> * std::numbers::inv_sqrtpi_v<float>;
+
+// The coefficient of the cubic term inside the tanh, from the original
+// paper's fit of the tanh form to the exact one.
+inline constexpr float gelu_cubic_coeff = 0.044715F;
+
+// The GELU (Gaussian Error Linear Unit) of `x`, in the tanh form that GPT-2
+// was trained with.
+//
+// GELU is `x` times the probability that a standard normal draw is below `x`.
+// So it passes large positive inputs through unchanged, squashes large
+// negative ones to zero, and bends smoothly between the two, dipping a little
+// below zero on the way. The exact probability needs `erf`. This form
+// replaces it with a tanh of a cubic, which is close but not identical:
+//
+//   0.5 * x * (1 + tanh(sqrt(2 / pi) * (x + 0.044715 * x^3)))
+//
+// The weights were fit to this curve, so this is the form that matches the
+// oracle, and the `erf` form would not. Not `constexpr` because it uses
+// `std::tanh`.
+[[nodiscard]] inline float gelu_new(float x) noexcept {
+  const auto inner = gelu_tanh_scale * (x + (gelu_cubic_coeff * x * x * x));
+  return 0.5F * x * (1.0F + std::tanh(inner));
+}
+
+// Apply `gelu_new` to every element of `in`, into `out`.
+//
+// GPT-2 applies it once per block, to the 3072-wide rows that `c_fc`
+// produces, before `mlp c_proj` projects them back down to 768. It is the
+// only nonlinearity in the MLP, and without it the two projections would
+// collapse into one.
+//
+// `out` and `in` must have the same extent. `out` can be the same view as
+// `in`, applying it in place, but must not otherwise overlap it.
+inline void
+gelu_new(float_matrix_view out, const_float_matrix_view in) noexcept {
+  assert((out.row_extent() == in.row_extent()) &&
+         (out.col_extent() == in.col_extent()));
+  assert(is_same_or_disjoint(out.as_span(), in.as_span()));
+
+  for (const auto r : in.row_interval()) {
+    const auto out_row = out.row_as_span(r);
+    const auto in_row = in.row_as_span(r);
+    for (const auto c : in.col_interval()) out_row[c] = gelu_new(in_row[c]);
   }
 }
 
