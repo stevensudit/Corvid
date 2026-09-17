@@ -172,18 +172,42 @@ inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
 #pragma endregion
 #pragma region linear
 
-// Project each row of `in` through `weight` and add `bias`, into `out`, so
-// that `out = in * weight + bias`. GPT-2 calls this Conv1D, but it's the same
-// as nn.Linear except for the rows and columns being transposed.
+// Project each row of `in` through `weight` and add `bias`, into `out`.
 //
-// Each row of `in` contains the features for a given token, and each row of
-// `out` will contain the projected features for the same token. The `weight`
-// matrix defines how each input feature contributes to each output feature.
+// Each row of `in` holds the input features of one token, and the same row of
+// `out` receives that token's output features, only expanded by a factor of 4.
+// Every output value is a weighted sum of the token's input features, plus a
+// bias, with the weights for output feature `j` in column `j` of `weight`:
 //
-// `weight` is laid out as GPT-2 stores its projections: one row per input
-// feature and one column per output feature. So `in` is rows by in_features,
-// `weight` is in_features by out_features, and `out` and `bias` have
-// out_features columns. `out` must not overlap `in`, `weight`, or `bias`.
+//   out[t][j] = bias[j] + sum over i of in[t][i] * weight[i][j]
+//
+// The three indices each play one part:
+//
+//   t  token           row of `in`, row of `out`
+//   i  input feature   column of `in`, row of `weight`
+//   j  output feature  column of `weight`, column of `out`, index of `bias`
+//
+// Note that `i` has 768 values while `j` has 3072. The summed index, `i`, is
+// the one the operands must agree on, so `in` has as many columns as `weight`
+// has rows. The surviving indices label `out`, which has a row per token and a
+// column per output feature. In matrix terms, `out = in * weight + bias`, with
+// `bias` added to every row.
+//
+// Column `j` of `weight` is a 768-long direction. The value `out[t][j]` is the
+// dot product of the token's feature vector with that direction, plus a bias.
+// The magnitude of the output is a reflection of whether the two vectors point
+// the same way. So each output feature answers one question: how much does
+// this token resemble learned pattern `j`?
+//
+// The c_fc projection asks 3072 such questions of every token, and then GELU
+// keeps the questions that got a positive answer while muting the rest.
+//
+// `weight` is laid out as GPT-2 stores its projections (Conv1D): one row per
+// input feature and one column per output feature. That is the transpose of
+// nn.Linear, which keeps one row per output feature. The projection is the
+// same either way.
+//
+// `out` must not overlap `in`, `weight`, or `bias`.
 inline void linear(float_matrix_view out, const_float_matrix_view in,
     const_float_matrix_view weight, const_float_row_span bias) noexcept {
   assert(weight.row_extent() == in.col_extent());
@@ -194,23 +218,22 @@ inline void linear(float_matrix_view out, const_float_matrix_view in,
   assert(is_disjoint(out.as_span(), weight.as_span()) &&
          is_disjoint(out.as_span(), bias));
 
-  // Each `token_row_ndx` is a row index corresponding to a token in `in`.
+  // Each `token_row_ndx` is a row index corresponding to a token in `in`. Each
+  // column of that row contains a feature.
   for (const auto token_row_ndx : in.row_interval()) {
-    // `in_row` holds the features for a given token, indexed by
-    // `feature_row_ndx`.
-    const auto in_row = const_float_col_span(in[token_row_ndx]);
-    // `out_row` will hold the projected features for the same token.
+    // The 768 input features for a given token
+    const auto in_row = in[token_row_ndx];
+    // The same input features but viewed as a column vector,
+    // so that it can use the same index as the weight.
+    const auto in_as_col = const_float_col_span(in_row);
+    // Will hold hold the 3072 projected features for the same token.
     const auto out_row = out[token_row_ndx];
 
-    // We start by adding in the biases for this token. `bias` has a value for
-    // each feature.
+    // We start by adding in the biases for this token.
     std::ranges::copy(bias, out_row.begin());
 
-    // `weight` has a row for each input feature and a column for each output
-    // feature.
-
     for (const auto feature_row_ndx : weight.row_interval())
-      add_scaled(out_row, in_row[feature_row_ndx], weight[feature_row_ndx]);
+      add_scaled(out_row, in_as_col[feature_row_ndx], weight[feature_row_ndx]);
   }
 }
 
