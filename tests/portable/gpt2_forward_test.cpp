@@ -175,6 +175,64 @@ constexpr auto n_ctx = 1024UZ;
 // manifest.
 constexpr auto bisect_prompt = 1UZ;
 
+#pragma region Block
+
+// The parameters of block `n`, as views over the oracle's weights.
+block_params block_params_of(const oracle_dumps& oracle, size_t n) {
+  const auto& w = oracle.weights;
+  const auto h = std::format("h.{}", n);
+  return {
+      .ln_1_weight = vector_of(w, h + ".ln_1.weight", n_embd),
+      .ln_1_bias = vector_of(w, h + ".ln_1.bias", n_embd),
+      .attn_c_attn_weight = matrix_of(w, h + ".attn.c_attn.weight", n_qkv),
+      .attn_c_attn_bias = vector_of(w, h + ".attn.c_attn.bias", n_qkv),
+      .attn_c_proj_weight = matrix_of(w, h + ".attn.c_proj.weight", n_embd),
+      .attn_c_proj_bias = vector_of(w, h + ".attn.c_proj.bias", n_embd),
+      .ln_2_weight = vector_of(w, h + ".ln_2.weight", n_embd),
+      .ln_2_bias = vector_of(w, h + ".ln_2.bias", n_embd),
+      .mlp_c_fc_weight = matrix_of(w, h + ".mlp.c_fc.weight", n_hidden),
+      .mlp_c_fc_bias = vector_of(w, h + ".mlp.c_fc.bias", n_hidden),
+      .mlp_c_proj_weight = matrix_of(w, h + ".mlp.c_proj.weight", n_embd),
+      .mlp_c_proj_bias = vector_of(w, h + ".mlp.c_proj.bias", n_embd),
+  };
+}
+
+// Owned working storage for `block`, sized for `token_count` tokens of the
+// model's widths.
+struct owned_block_scratch {
+  std::vector<float> normed;
+  std::vector<float> qkv;
+  std::vector<float> heads_out;
+  std::vector<float> sublayer_out;
+  std::vector<float> hidden;
+  std::vector<float> scores;
+  size_t token_count{};
+
+  explicit owned_block_scratch(size_t token_count)
+      : normed(token_count * n_embd), qkv(token_count * n_qkv),
+        heads_out(token_count * n_embd), sublayer_out(token_count * n_embd),
+        hidden(token_count * n_hidden), scores(token_count),
+        token_count{token_count} {}
+
+  // The views `block` takes.
+  block_scratch views() {
+    const auto rows = [&](std::vector<float>& storage, size_t cols) {
+      return float_matrix_view(storage,
+          {.row_count = token_count, .col_count = cols});
+    };
+    return {
+        .normed = rows(normed, n_embd),
+        .qkv = rows(qkv, n_qkv),
+        .heads_out = rows(heads_out, n_embd),
+        .sublayer_out = rows(sublayer_out, n_embd),
+        .hidden = rows(hidden, n_hidden),
+        .scores = scores,
+    };
+  }
+};
+
+#pragma endregion
+
 } // namespace
 
 TEST_CASE("Row reductions", "[Gpt2ForwardTest]") {
@@ -685,6 +743,38 @@ TEST_CASE("Embed matches the oracle", "[Gpt2ForwardTest][oracle]") {
   embed(out, ids, wte, wpe);
 
   check_close(out, expected, 0.0F, 0.0F);
+}
+
+TEST_CASE("Block matches the oracle", "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // Every block, fed its own dumped residual and compared against the
+  // residual that leaves it, which is the next block's `ln_1/in` or, for the
+  // last block, `ln_f/in`. The gate is the attention and MLP paths' 1e-4,
+  // since both run inside.
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    DYNAMIC_SECTION("block_" << n) {
+      const auto in = matrix_of(oracle.activations,
+          std::format("block_{}/ln_1/in", n), n_embd);
+      const auto exit =
+          (n + 1 < n_layer)
+              ? std::format("block_{}/ln_1/in", n + 1)
+              : std::string{"ln_f/in"};
+      const auto expected = matrix_of(oracle.activations, exit, n_embd);
+      const auto params = block_params_of(oracle, n);
+      const auto token_count = in.row_extent();
+      REQUIRE(token_count == 14);
+
+      std::vector<float> residual_storage(in.as_span().begin(),
+          in.as_span().end());
+      const float_matrix_view residual(residual_storage, in.extent());
+      owned_block_scratch scratch(token_count);
+      block(residual, params, scratch.views(), n_head);
+
+      check_close(residual, expected, 1e-4F, 1e-4F);
+    }
+  }
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
