@@ -18,6 +18,7 @@
 #include <cassert>
 #include <cstddef>
 #include <limits>
+#include <ranges>
 #include <type_traits>
 
 #include "../../enums/sequence_enum.h"
@@ -47,6 +48,10 @@
 //   for (const auto r : m.row_interval())
 //     for (const auto c : m.col_interval()) m[r, c] = 1.0F;
 //   for (const auto value : m.row_as_span(r)) ...
+//
+// Walking the rows of two views together:
+//   for (auto [out_row, in_row] : std::views::zip(out.rows(), in.rows()))
+//     std::ranges::copy(in_row, out_row.begin());
 //
 // Slicing out a block:
 //   const auto block = m.subview({r, c},
@@ -222,6 +227,18 @@ public:
     const auto end = (last == col_ndx::npos) ? extent_.col_count : *last;
     assert((*first <= end) && (end <= extent_.col_count));
     return {data_.subspan((*r * stride_) + *first, end - *first)};
+  }
+
+  // The rows in order, as a random-access range of `row_span`, so that two
+  // views' rows can be walked together with `std::views::zip`.
+  //
+  // The range holds a copy of the view, so it remains valid when taken from
+  // a temporary.
+  [[nodiscard]] constexpr auto rows() const noexcept {
+    return std::views::iota(size_t{0}, extent_.row_count) |
+           std::views::transform([m = *this](size_t r) {
+             return m.row_as_span(row_ndx{r});
+           });
   }
 
 #pragma endregion

@@ -144,6 +144,9 @@ constexpr auto n_embd = 768UZ;
 // The MLP widens each token to four times the embedding before projecting it
 // back down.
 constexpr auto n_hidden = 4 * n_embd;
+constexpr auto n_head = 12UZ;
+// The `c_attn` projection yields queries, keys, and values side by side.
+constexpr auto n_qkv = 3 * n_embd;
 
 } // namespace
 
@@ -345,6 +348,92 @@ TEST_CASE("GELU in place", "[Gpt2ForwardTest]") {
   CHECK(storage == expected);
 }
 
+TEST_CASE("Dot product", "[Gpt2ForwardTest]") {
+  constexpr std::array a{1.0F, 2.0F, 3.0F};
+  constexpr std::array b{4.0F, 5.0F, 6.0F};
+  static_assert(dot(a, b) == 32.0F);
+  static_assert(
+      dot(std::span<const float>{}, std::span<const float>{}) == 0.0F);
+}
+
+TEST_CASE("Softmax row", "[Gpt2ForwardTest]") {
+  constexpr auto tolerance = 1e-5;
+
+  // Scores 0 and 0.707 differ by 0.707, so the second gets twice the weight:
+  // exp(0.707) is 2.028 times exp(0).
+  std::array scores{0.0F, 0.707F};
+  softmax_row(scores, scores);
+  CHECK_THAT(scores[0], WithinAbs(0.330262, tolerance));
+  CHECK_THAT(scores[1], WithinAbs(0.669738, tolerance));
+
+  // Equal scores share equally, even when exp of the raw score would
+  // overflow a float.
+  std::array huge{1000.0F, 1000.0F, 1000.0F, 1000.0F};
+  std::array weights{0.0F, 0.0F, 0.0F, 0.0F};
+  softmax_row(weights, huge);
+  CHECK(weights == std::array{0.25F, 0.25F, 0.25F, 0.25F});
+
+  // A single score gets all the weight.
+  std::array one{-3.0F};
+  softmax_row(one, one);
+  CHECK(one[0] == 1.0F);
+}
+
+TEST_CASE("Attention on three tokens of width two", "[Gpt2ForwardTest]") {
+  // The napkin example: three tokens with features [1, 0], [0, 1], [1, 1].
+  // The `c_attn` weight copies the features into the query and key columns
+  // and swaps them into the value columns, with no bias, so q and k equal
+  // the input and v is the input with its columns swapped.
+  const std::vector<float> in_storage{1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F};
+  const std::vector<float> c_attn_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+      0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F};
+  constexpr std::array no_bias{0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+  const const_float_matrix_view in(in_storage,
+      {.row_count = 3, .col_count = 2});
+  const const_float_matrix_view c_attn(c_attn_storage,
+      {.row_count = 2, .col_count = 6});
+
+  std::vector<float> qkv_storage(3UZ * 6);
+  const float_matrix_view qkv(qkv_storage, {.row_count = 3, .col_count = 6});
+  linear(qkv, in, c_attn, no_bias);
+  CHECK(qkv_storage ==
+        std::vector<float>{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F,
+            0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F});
+
+  std::vector<float> out_storage(3UZ * 2);
+  const float_matrix_view out(out_storage, {.row_count = 3, .col_count = 2});
+  std::array<float, 3> scores{};
+  constexpr auto tolerance = 1e-5;
+
+  SECTION("one head of width two") {
+    // Token 0 sees only itself, so its output is its own value, [0, 1].
+    // Token 1 scores itself 0.707 and token 0 zero, for weights 0.670 and
+    // 0.330. Token 2 scores itself 1.414 and the others 0.707, for weights
+    // 0.503, 0.248, and 0.248.
+    attention(out, qkv, 1, scores);
+    CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
+    CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
+    CHECK_THAT(out_storage[2], WithinAbs(0.669762, tolerance));
+    CHECK_THAT(out_storage[3], WithinAbs(0.330238, tolerance));
+    CHECK_THAT(out_storage[4], WithinAbs(0.751745, tolerance));
+    CHECK_THAT(out_storage[5], WithinAbs(0.751745, tolerance));
+  }
+
+  SECTION("two heads of width one") {
+    // Each head sees one column of q, k, and v. For token 1, head 0 has a
+    // zero query, so both scores are zero and it takes half of each value:
+    // (0 + 1) / 2. Head 1 scores itself 1 and token 0 zero, for weights
+    // 0.731 and 0.269 on values 0 and 1.
+    attention(out, qkv, 2, scores);
+    CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
+    CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
+    CHECK_THAT(out_storage[2], WithinAbs(0.5, tolerance));
+    CHECK_THAT(out_storage[3], WithinAbs(0.268941, tolerance));
+    CHECK_THAT(out_storage[4], WithinAbs(0.577681, tolerance));
+    CHECK_THAT(out_storage[5], WithinAbs(0.577681, tolerance));
+  }
+}
+
 TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
@@ -415,6 +504,50 @@ TEST_CASE("MLP path matches the oracle", "[Gpt2ForwardTest][oracle]") {
       linear(hidden, in, fc_weight, fc_bias);
       gelu_new(hidden, hidden);
       linear(out, hidden, proj_weight, proj_bias);
+
+      check_close(out, expected, 1e-4F, 1e-4F);
+    }
+  }
+}
+
+TEST_CASE("Attention path matches the oracle", "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // Every block's attention, fed its own dumped `ln_1/out` and compared
+  // against its dumped `attn/out`, which is the first point after `c_attn`,
+  // the heads, and `c_proj` that the oracle captures.
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    DYNAMIC_SECTION("block_" << n) {
+      const auto dump = std::format("block_{}", n);
+      const auto param = std::format("h.{}.attn", n);
+      const auto in =
+          matrix_of(oracle.activations, dump + "/ln_1/out", n_embd);
+      const auto expected =
+          matrix_of(oracle.activations, dump + "/attn/out", n_embd);
+      const auto attn_weight =
+          matrix_of(oracle.weights, param + ".c_attn.weight", n_qkv);
+      const auto attn_bias =
+          vector_of(oracle.weights, param + ".c_attn.bias", n_qkv);
+      const auto proj_weight =
+          matrix_of(oracle.weights, param + ".c_proj.weight", n_embd);
+      const auto proj_bias =
+          vector_of(oracle.weights, param + ".c_proj.bias", n_embd);
+      const auto token_count = in.row_extent();
+      REQUIRE(token_count == 14);
+
+      std::vector<float> qkv_storage(token_count * n_qkv);
+      const float_matrix_view qkv(qkv_storage,
+          {.row_count = token_count, .col_count = n_qkv});
+      std::vector<float> heads_storage(in.size());
+      const float_matrix_view heads_out(heads_storage, in.extent());
+      std::vector<float> scores(token_count);
+      std::vector<float> out_storage(in.size());
+      const float_matrix_view out(out_storage, in.extent());
+
+      linear(qkv, in, attn_weight, attn_bias);
+      attention(heads_out, qkv, n_head, scores);
+      linear(out, heads_out, proj_weight, proj_bias);
 
       check_close(out, expected, 1e-4F, 1e-4F);
     }

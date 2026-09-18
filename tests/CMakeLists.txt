@@ -85,11 +85,12 @@ if(WIN32)
     # same driver and warning flags as Linux clang, which also keeps clangd's
     # parsing aligned. cl is the conformance-mode second compiler. (The CUDA
     # bucket also uses clang++, because nvcc's MSVC device frontend has no C++23
-    # dialect; see the CUDA section.) The libc++/clang knobs in the Linux
-    # branches (-nostdinc++, the libc++ include prefix, -march=native,
-    # -fexperimental-library, the libc++ link options) have no MSVC-ABI analog,
-    # so none apply here. The Linux network stack is excluded at the
-    # source-bucket level. See crossplatform.md.
+    # dialect; see the CUDA section.) The libc++ knobs in the Linux branches
+    # (-nostdinc++, the libc++ include prefix, -fexperimental-library, the
+    # libc++ link options) have no MSVC-ABI analog, so none apply here;
+    # -march=native does, and is passed for parity with Linux so the same
+    # loops vectorize the same way on both. The Linux network stack is
+    # excluded at the source-bucket level. See crossplatform.md.
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         # clang++ (GNU-like driver, MSVC ABI). Plain -Wall -Wextra -Werror as on
         # Linux (no /clang: escape, unlike the retired clang-cl path); CMake's
@@ -97,7 +98,7 @@ if(WIN32)
         # correctly. -fms-runtime-lib=dll selects the dynamic (/MD) CRT to match
         # the .cu bucket and keep ASAN's dynamic runtime usable; clang++ would
         # otherwise default to the static (/MT) CRT.
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -fms-runtime-lib=dll")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -Wall -Wextra -Werror -fms-runtime-lib=dll")
     else()
         # MSVC cl, the conformance-mode second compiler. cl has no /std:c++26, so
         # request C++26 as /std:c++latest (overriding CMake's default), which cl
@@ -117,6 +118,12 @@ if(WIN32)
         # (e.g. a JSON `\uXXXX` inside a Catch2 CHECK re-forms as an invalid
         # universal-character-name).
         #
+        # /Zc:u8EscapeEncoding makes each `\x` escape in a u8 literal one
+        # char8_t code unit, as the standard says, without which cl treats
+        # `\xC2` as the code point U+00C2 and re-encodes it as two bytes,
+        # breaking every test that spells UTF-8 sequences byte by byte
+        # (warning C5321 marks the extension firing).
+        #
         # /wd silences warnings that fire beyond clang's -Wall -Wextra (the level
         # this build mirrors) on correct, idiomatic code rather than real bugs:
         #   4244 - narrowing on conversion to a smaller arithmetic type
@@ -129,7 +136,9 @@ if(WIN32)
         #   4310 - cast truncates a constant value (deliberate wraparound tests).
         #   4805 - "unsafe" bool/arithmetic mix in comparison (strong_type's
         #          heterogeneous comparisons are exact in the common type).
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /Zc:preprocessor /W4 /WX /wd4244 /wd4245 /wd4267 /wd4305 /wd4310 /wd4805")
+        # cl has no -march=native; /arch:AVX2 (which implies FMA) is the floor
+        # every desktop this builds on clears, in place of the SSE2 default.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2 /EHsc /permissive- /Zc:preprocessor /Zc:u8EscapeEncoding /W4 /WX /wd4244 /wd4245 /wd4267 /wd4305 /wd4310 /wd4805")
     endif()
     # cleanbuild.ps1 drives this as a Release build: optimization and NDEBUG come
     # from CMAKE_BUILD_TYPE=Release (like Linux's -O3). ide_build.ps1 is the
