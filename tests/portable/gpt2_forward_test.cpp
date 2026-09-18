@@ -18,6 +18,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <span>
@@ -50,21 +51,25 @@ std::filesystem::path oracle_path(std::string_view name) {
          ".local" / "llm" / "gpt2" / name;
 }
 
-// The model weights and the bisect prompt's activations, as the oracle dumped
-// them.
+// The model weights, the bisect prompt's activations, and every prompt's IDs
+// and logits, as the oracle dumped them.
 struct oracle_dumps {
   safetensors_file weights;
   safetensors_file activations;
+  safetensors_file logits;
 
-  // Load both files, skipping the test when the oracle has not run here.
+  // Load the files, skipping the test when the oracle has not run here.
   void load() {
     const auto model_path = oracle_path("model.safetensors");
     const auto activations_path = oracle_path("activations.safetensors");
+    const auto logits_path = oracle_path("logits.safetensors");
     if (!std::filesystem::exists(model_path) ||
-        !std::filesystem::exists(activations_path))
+        !std::filesystem::exists(activations_path) ||
+        !std::filesystem::exists(logits_path))
       SKIP("no oracle dumps under tests/.local/llm/gpt2; run the oracle");
     REQUIRE(weights.load(tests::open_read_only(model_path)));
     REQUIRE(activations.load(tests::open_read_only(activations_path)));
+    REQUIRE(logits.load(tests::open_read_only(logits_path)));
   }
 };
 
@@ -92,6 +97,23 @@ vector_of(const safetensors_file& file, std::string_view name, size_t size) {
   REQUIRE(entry->shape == std::vector<size_t>{size});
   REQUIRE(entry->is<float>());
   return entry->as<float>();
+}
+
+// The int32 tensor `name` of `file`, which must be one-dimensional, as token
+// IDs.
+std::vector<token_id>
+ids_of(const safetensors_file& file, std::string_view name) {
+  INFO(name);
+  const auto* entry = file.find(name);
+  REQUIRE(entry);
+  REQUIRE(entry->shape.size() == 1);
+  REQUIRE(entry->is<int32_t>());
+  std::vector<token_id> ids;
+  for (const auto id : entry->as<int32_t>()) {
+    REQUIRE(id >= 0);
+    ids.push_back(token_id{static_cast<uint32_t>(id)});
+  }
+  return ids;
 }
 
 #pragma endregion
@@ -147,6 +169,11 @@ constexpr auto n_hidden = 4 * n_embd;
 constexpr auto n_head = 12UZ;
 // The `c_attn` projection yields queries, keys, and values side by side.
 constexpr auto n_qkv = 3 * n_embd;
+constexpr auto n_vocab = 50257UZ;
+constexpr auto n_ctx = 1024UZ;
+// The prompt whose activations the oracle dumped, by its index in the
+// manifest.
+constexpr auto bisect_prompt = 1UZ;
 
 } // namespace
 
@@ -459,6 +486,24 @@ TEST_CASE("Add on hand-computed rows", "[Gpt2ForwardTest]") {
   }
 }
 
+TEST_CASE("Embed on hand-computed rows", "[Gpt2ForwardTest]") {
+  // Three tokens in the vocabulary, two positions, width two.
+  const std::vector<float> wte_storage{1.0F, 2.0F, 10.0F, 20.0F, 100.0F,
+      200.0F};
+  const std::vector<float> wpe_storage{0.5F, 0.25F, 0.125F, 0.0625F};
+  const const_float_matrix_view wte(wte_storage,
+      {.row_count = 3, .col_count = 2});
+  const const_float_matrix_view wpe(wpe_storage,
+      {.row_count = 2, .col_count = 2});
+  const std::vector<token_id> ids{token_id{2}, token_id{0}};
+
+  std::vector<float> storage(ids.size() * 2);
+  const float_matrix_view out(storage, {.row_count = 2, .col_count = 2});
+  embed(out, ids, wte, wpe);
+
+  CHECK(storage == std::vector<float>{100.5F, 200.25F, 1.125F, 2.0625F});
+}
+
 TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
@@ -617,6 +662,29 @@ TEST_CASE("Residual adds match the oracle", "[Gpt2ForwardTest][oracle]") {
       check_close(out, expected, 0.0F, 0.0F);
     }
   }
+}
+
+TEST_CASE("Embed matches the oracle", "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // The bisect prompt's IDs come from the logits dump, the only place the
+  // oracle wrote them. As with the residual add, the sum of two fp32 rows is
+  // exact.
+  const auto ids =
+      ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
+  REQUIRE(ids.size() == 14);
+  const auto wte = matrix_of(oracle.weights, "wte.weight", n_embd);
+  const auto wpe = matrix_of(oracle.weights, "wpe.weight", n_embd);
+  REQUIRE(wte.row_extent() == n_vocab);
+  REQUIRE(wpe.row_extent() == n_ctx);
+  const auto expected = matrix_of(oracle.activations, "embed/out", n_embd);
+
+  std::vector<float> storage(ids.size() * n_embd);
+  const float_matrix_view out(storage, expected.extent());
+  embed(out, ids, wte, wpe);
+
+  check_close(out, expected, 0.0F, 0.0F);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
