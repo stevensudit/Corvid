@@ -594,14 +594,12 @@ struct block_params {
 //   mlp_out    [T, C]   the MLP sublayer's correction
 //   scores     [T]      the attention scratch
 //
-// Buffers for intermediate activations within a block.
-//
 // The names follow the dump points in "gpt-2.md", so every one of them can
 // be read after the block returns. While storage may be distinct, so as to
 // allow inspection at every point, if the caller doesn't plan to inspect them
-// then some of buffers may share memory. Specifically, `ln_1_out` can share
-// with `ln_2_out`, and `attn_out` with `mlp_out`. `ln_2_in` may be the block's
-// `in` or `out` view, which is the in-place form.
+// then some of the buffers may share memory. Specifically, `ln_1_out` can
+// share with `ln_2_out`, and `attn_out` with `mlp_out`. `ln_2_in` may be the
+// block's `in` or `out` view, which is the in-place form.
 struct block_activations {
   float_matrix_view ln_1_out;
   float_matrix_view qkv;
