@@ -184,6 +184,27 @@ constexpr bool is_span_impl_v<std::span<T, N>> = true;
 template<typename T>
 constexpr bool is_span_v = details::is_span_impl_v<std::remove_cvref_t<T>>;
 
+// Determine the element count of `T` when it is fixed at compile time (a C
+// array, a `std::array`, or a static-extent `std::span`), else
+// `std::dynamic_extent`.
+namespace details {
+template<typename T>
+constexpr size_t static_size_impl_v = std::dynamic_extent;
+
+template<typename T, size_t Size>
+constexpr size_t static_size_impl_v<T[Size]> = Size;
+
+template<typename T, size_t Size>
+constexpr size_t static_size_impl_v<std::array<T, Size>> = Size;
+
+template<typename T, size_t Extent>
+constexpr size_t static_size_impl_v<std::span<T, Extent>> = Extent;
+} // namespace details
+
+template<typename T>
+constexpr size_t static_size_v =
+    details::static_size_impl_v<std::remove_cvref_t<T>>;
+
 // Helper for span compatibility check.
 template<typename T, typename V>
 constexpr bool is_span_compatible_impl() noexcept {
