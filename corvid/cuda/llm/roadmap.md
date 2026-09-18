@@ -550,6 +550,26 @@ gate is the final logits, and per-block inspection is calling `block`
 directly, as this test does. Next: the forward pass, the head, and greedy
 decoding.
 
+Status (2026-09-18, forward): the forward pass is drafted as `forward`,
+which is everything before the head: `embed` into `out`, the twelve blocks
+in place on `out`, then `layer_norm` with `ln_f` in place, so `out` is
+`ln_f/out` and doubles as the residual with no extra buffer. `gpt2_params`
+holds the model as views: `wte`, `wpe`, a span of `block_params` in `h.N`
+order, and `ln_f`; head count stays an argument, as it is for `block` and
+`attention`. One `block_activations` is reused by every block, so on return
+it holds the last block's. No observer and no callback, per the block
+ruling. Loading `gpt2_params` from a safetensors file by name is still test-
+side (`oracle_params`, which owns the twelve `block_params` the span points
+at); a library loader with a failure return is infrastructure for when
+generation needs it. The gate is the first chained one: the bisect prompt's
+IDs from "logits.safetensors" through the whole trunk against `ln_f/out`, at
+the block's 1e-4. It passes with a largest absolute error of 2.7e-4 and a
+largest relative error of 1.1e-2, the latter on a coordinate near zero;
+twelve blocks of accumulated one-ulp residual differences wash out through
+the final layer norm rather than compound. Next: the head (`ln_f/out`
+against every `wte` row, the transposed-weight decision), greedy decoding,
+then the five-prompt logits gate and the greedy text from the manifest.
+
 ### 4. CUDA forward pass
 
 The same model on the device:
