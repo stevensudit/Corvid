@@ -17,7 +17,6 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -97,30 +96,14 @@ inverse_std_dev(const_float_span values, float mean, float eps) noexcept {
 // The dot product of `a` and `b`, which must be the same size.
 [[nodiscard]] constexpr float
 dot(const_float_span a, const_float_span b) noexcept {
+  // In IEEE order the sum is one serial chain of fused multiply-adds, 8x
+  // slower on a 768-wide row than the vectorized reduction this permits.
+  PRAGMA_FP_REASSOCIATE
   assert(a.size() == b.size());
 
-  // Conceptually, the code here could be:
-  // ```
-  // float total{};
-  // for (auto i = 0; i < a.size(); ++i) total += a[i] * b[i];
-  // return total;
-  // ```
-  //
-  // Howevever, we implement eight independent partial sums, in an index loop
-  // rather than a zip. IEEE order forbids reassociating a single accumulator,
-  // which makes the sum one serial chain of fused multiply-adds at one latency
-  // per element, 8x slower than this on a 768-wide row. The `views::chunk`
-  // expression of the same idea hides the fixed lane count from the vectorizer
-  // and is slower still.
-  constexpr auto lanes = 8UZ;
-  std::array<float, lanes> partial{};
-  const auto size = a.size();
-  auto i = 0UZ;
-  for (; i + lanes <= size; i += lanes)
-    for (auto lane = 0UZ; lane < lanes; ++lane)
-      partial[lane] += a[i + lane] * b[i + lane];
-  for (; i < size; ++i) partial[i % lanes] += a[i] * b[i];
-  return sum(partial);
+  float total{};
+  for (const auto [x, y] : zip(a, b)) total += x * y;
+  return total;
 }
 
 #pragma endregion
