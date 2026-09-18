@@ -475,4 +475,36 @@ inline void attention(float_matrix_view out, const_float_matrix_view qkv,
 }
 
 #pragma endregion
+#pragma region add
+
+// Add `a` and `b` elementwise, into `out`.
+//
+// This is the residual add. Each of a block's two sublayers reads the
+// residual stream through a layer norm and produces a correction the same
+// shape as the stream, and this op adds that correction back onto it. For
+// GPT-2 with T tokens:
+//
+// step        |  a                  |  b                  |  produces
+// ------------+---------------------+---------------------+------------------
+// after attn  |  residual [T, 768]  |  attn/out [T, 768]  |  residual [T, 768]
+// after mlp   |  residual [T, 768]  |  mlp/out  [T, 768]  |  residual [T, 768]
+//
+// All three views must have the same extent. `out` can be the same view as
+// `a` or as `b`, adding in place, but must not otherwise overlap either.
+inline void add(float_matrix_view out, const_float_matrix_view a,
+    const_float_matrix_view b) noexcept {
+  assert((a.row_extent() == b.row_extent()) &&
+         (a.col_extent() == b.col_extent()));
+  assert((out.row_extent() == a.row_extent()) &&
+         (out.col_extent() == a.col_extent()));
+  assert(is_same_or_disjoint(out.as_span(), a.as_span()));
+  assert(is_same_or_disjoint(out.as_span(), b.as_span()));
+
+  for (const auto [out_row, a_row, b_row] :
+      zip(out.rows(), a.rows(), b.rows()))
+    for (auto [out_value, a_value, b_value] : zip(out_row, a_row, b_row))
+      out_value = a_value + b_value;
+}
+
+#pragma endregion
 } // namespace corvid::llm
