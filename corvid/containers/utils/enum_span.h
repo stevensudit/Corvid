@@ -51,6 +51,7 @@ public:
   using enum_t = E;
   static constexpr size_t extent = Extent;
   using span_type = std::span<T, extent>;
+  using const_span_type = std::span<const T, extent>;
 
   using element_type = T;
   using value_type = std::remove_cv_t<T>;
@@ -61,9 +62,11 @@ public:
   using reference = T&;
   using const_reference = const T&;
   using iterator = span_type::iterator;
-  using const_iterator = span_type::const_iterator;
+  // The const iterators come from a span over const elements; libc++ lacks
+  // `std::span::const_iterator` (see crossplatform.md).
+  using const_iterator = const_span_type::iterator;
   using reverse_iterator = span_type::reverse_iterator;
-  using const_reverse_iterator = span_type::const_reverse_iterator;
+  using const_reverse_iterator = const_span_type::reverse_iterator;
 
 #pragma endregion
 #pragma region Construction
@@ -157,10 +160,10 @@ public:
   }
   [[nodiscard]] constexpr iterator end() const noexcept { return data_.end(); }
   [[nodiscard]] constexpr const_iterator cbegin() const noexcept {
-    return data_.cbegin();
+    return const_span_type(data_).begin();
   }
   [[nodiscard]] constexpr const_iterator cend() const noexcept {
-    return data_.cend();
+    return const_span_type(data_).end();
   }
   [[nodiscard]] constexpr reverse_iterator rbegin() const noexcept {
     return data_.rbegin();
@@ -169,10 +172,10 @@ public:
     return data_.rend();
   }
   [[nodiscard]] constexpr const_reverse_iterator crbegin() const noexcept {
-    return data_.crbegin();
+    return const_span_type(data_).rbegin();
   }
   [[nodiscard]] constexpr const_reverse_iterator crend() const noexcept {
-    return data_.crend();
+    return const_span_type(data_).rend();
   }
 
 #pragma endregion

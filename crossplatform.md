@@ -128,9 +128,11 @@ keeps its dynamic runtime. `CMAKE_CUDA_ARCHITECTURES` is passed explicitly
 silently produces a binary whose kernels never run.
 
 Versions used during bring-up: clang++ and clang-format from the LLVM Windows
-installer, kept at the same major as the Linux Dockerfile pins; MSVC STL 14.51
-and Windows SDK via VS 2026 (MSVC `_MSC_VER` 1951); CMake 4.3, Ninja, nvcc 13.3
-(toolkit headers/libs and `ptxas`; the compiler driver is clang++).
+installer (23.1.1), kept at the same major as the Linux Dockerfile pins, which
+also gates the image build on clang-format 23.1.1 or later so that both
+formatters agree; MSVC STL 14.51 and Windows SDK via VS 2026 (MSVC `_MSC_VER`
+1951); CMake 4.3, Ninja, nvcc 13.3 (toolkit headers/libs and `ptxas`; the
+compiler driver is clang++).
 
 ## 4. Building
 
@@ -318,6 +320,12 @@ adding code the portable bucket will compile, follow these:
   `crossplatform.h` to silence a known-safe warning at its single call site. Do
   not reach for a blanket `/D_CRT_SECURE_NO_WARNINGS`, which would hide future
   unsafe instances.
+- C++23 library additions are not uniformly implemented: the MSVC STL has
+  P2278R4 (`std::span::const_iterator`, `cbegin`, `crbegin`) and libc++ 23
+  does not, which a Windows-authored `enum_span` hit on the next Linux build.
+  `enum_span` derives its const iterators from a `std::span<const T>` instead.
+  Before using a C++23 library feature that only one platform's build has
+  exercised, check the other standard library's status page.
 
 ## 6. Windows conformance notes
 
