@@ -391,10 +391,10 @@ public:
   // Insert components for an entity already in staging (`store_id ==
   // store_id_t{}`).
   //
-  // The ID must be valid (asserted). Returns false if the entity is not in
-  // staging or if the limit would be exceeded. Trailing components may be
-  // omitted; they are default-constructed. Passing more args than components
-  // is a compile-time error.
+  // The ID must be valid. Returns false if the entity is not in staging or if
+  // the limit would be exceeded. Trailing components may be omitted; they are
+  // default-constructed. Passing more args than components is a compile-time
+  // error.
   template<typename... Args>
   [[nodiscard]] bool add(id_t id, Args&&... args) {
     static_assert(sizeof...(Args) <= sizeof...(Cs),

@@ -33,8 +33,7 @@
 //
 // Every op writes into a caller-owned output view. Activations are
 // `matrix_view` rows of features, one row per token, and parameters are
-// spans over the weight file. Shape mismatches are contract violations
-// (asserted).
+// spans over the weight file. Shape mismatches are contract violations.
 namespace corvid::llm {
 
 // The loop idiom of this file.
@@ -542,7 +541,7 @@ inline void embed(float_matrix_view out, std::span<const token_id> ids,
       zip(ids, out.rows(), wpe.rows()))
   {
     assert(*id < wte.row_extent());
-    const auto token_row = wte.row_as_span(row_ndx{*id});
+    const auto token_row = wte[row_ndx{*id}];
     // Loop over features for each token.
     for (auto [out_value, token_value, position_value] :
         zip(out_row, token_row, position_row))
@@ -632,9 +631,8 @@ struct block_activations {
 //
 // `out` and `in` must have the same extent and may be the same view. The
 // activation views must have the extents above for that extent and may
-// share storage only as `block_activations` allows. A buffer that overlaps
-// the residual it is later added to is asserted against, since the ops'
-// own checks would pass it. Parameter shapes are asserted by the ops.
+// share storage only as `block_activations` allows; in particular, no
+// buffer may overlap the residual it is later added to.
 //
 // Note that the `const` on `acts` is shallow.
 inline void block(float_matrix_view out, const_float_matrix_view in,

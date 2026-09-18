@@ -151,7 +151,7 @@ public:
              std::bit_cast<uintptr_t>(bytes.data()) % alignof(T) == 0;
     }
 
-    // The elements as `T`, which `is` must confirm first (asserted).
+    // The elements as `T`, which `is` must confirm first.
     template<TensorElement T>
     [[nodiscard]] std::span<const T> as() const {
       assert(is<T>());

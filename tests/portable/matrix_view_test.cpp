@@ -106,7 +106,7 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   CHECK(storage[1] == 7.0F);
 
   // A row, whole and trimmed at either end.
-  const auto second = m.row_as_span(row_ndx{1});
+  const auto second = m[row_ndx{1}];
   CHECK(second.size() == 3);
   CHECK(second.data() == storage.data() + 3);
   CHECK(second[col_ndx{2}] == 5.0F);
@@ -162,8 +162,8 @@ TEST_CASE("Subview keeps the stride", "[MatrixViewTest]") {
   CHECK(block.as_span().size() == 9);
   CHECK(block[row_ndx{0}, col_ndx{0}] == 2.0F);
   CHECK(block[row_ndx{1}, col_ndx{2}] == 14.0F);
-  CHECK(block.row_as_span(row_ndx{1}).size() == 3);
-  CHECK(block.row_as_span(row_ndx{1})[col_ndx{0}] == 12.0F);
+  CHECK(block[row_ndx{1}].size() == 3);
+  CHECK(block[row_ndx{1}, col_ndx{0}] == 12.0F);
 
   // Writes through the block land in the original storage.
   block[row_ndx{1}, col_ndx{1}] = -1.0F;
@@ -213,7 +213,7 @@ TEST_CASE("Strided view over a larger buffer", "[MatrixViewTest]") {
   CHECK(m.size() == 6);
   CHECK(m.as_span().size() == 10);
   CHECK(m[row_ndx{2}, col_ndx{1}] == 21.0F);
-  CHECK(m.row_as_span(row_ndx{1}).size() == 2);
+  CHECK(m[row_ndx{1}].size() == 2);
 
   // The buffer only has to reach the last element of the last row.
   const view_t tight(std::span{storage}.first(10),

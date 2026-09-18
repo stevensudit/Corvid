@@ -66,9 +66,11 @@ castable_count(const std::span<T, Extent>& to, const auto& from) noexcept {
 // Replacement for `std::bit_cast` when the source is a run of bytes.
 //
 // Reinterprets the leading `sizeof(T)` bytes of `from` as a `T`, which must
-// be trivially copyable. The range must hold at least that many bytes, which
-// is asserted at runtime and, when the size is static, checked at compile
-// time. For a runtime check, use `try_bit_cast_from` or `try_bit_cast_to`.
+// be trivially copyable.
+//
+// The range must hold at least that many bytes, which is asserted at runtime
+// and, when the size is static, checked at compile time. For a runtime check,
+// use `try_bit_cast_from` or `try_bit_cast_to`.
 template<typename T>
 requires std::is_trivially_copyable_v<T>
 [[nodiscard]] T bit_cast_from(ByteRange auto&& from) noexcept {

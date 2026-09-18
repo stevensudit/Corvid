@@ -140,7 +140,7 @@ dedent_size(std::basic_string_view<CharT> sv, size_t margin) noexcept {
 
 // Write the dedented form of `sv` into `out_span`, stripping `margin` from
 // each content line and keeping only the break of whitespace-only lines. The
-// caller sizes `out_span` exactly, via `dedent_size`; this is asserted.
+// caller sizes `out_span` exactly, via `dedent_size`.
 template<CharType CharT>
 constexpr void dedent_fill(std::basic_string_view<CharT> sv, size_t margin,
     std::span<std::type_identity_t<CharT>> out_span) noexcept {
