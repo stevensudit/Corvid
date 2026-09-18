@@ -159,6 +159,14 @@ concept CharType =
     SameAs<char, T> || SameAs<char8_t, T> || SameAs<char16_t, T> ||
     SameAs<char32_t, T> || SameAs<wchar_t, T>;
 
+// `T` must be one of the byte types through which an object representation
+// may be examined: `std::byte`, `char`, `unsigned char`, `signed char`, or
+// `char8_t`.
+template<typename T>
+concept ByteLike =
+    SameAs<std::byte, T> || SameAs<char, T> || SameAs<unsigned char, T> ||
+    SameAs<signed char, T> || SameAs<char8_t, T>;
+
 // `T` must be a char*.
 template<typename T>
 concept CharPtr = SameAs<char*, std::remove_cvref_t<T>>;
@@ -227,6 +235,26 @@ concept Range = std::ranges::range<T>;
 template<typename T>
 concept ContiguousSizedRange =
     std::ranges::contiguous_range<T> && std::ranges::sized_range<T>;
+
+// `T` must be a `ContiguousSizedRange` of `ByteLike` elements, which may be
+// const.
+template<typename T>
+concept ByteRange =
+    ContiguousSizedRange<T> && ByteLike<std::ranges::range_value_t<T>>;
+
+// `T` must be a `ContiguousSizedRange` of trivially copyable elements, so that
+// the memory behind it is an object representation.
+template<typename T>
+concept TriviallyCopyableRange =
+    ContiguousSizedRange<T> &&
+    std::is_trivially_copyable_v<std::ranges::range_value_t<T>>;
+
+// `T` must be a `ByteRange` whose elements can be written.
+template<typename T>
+concept MutableByteRange =
+    ByteRange<T> &&
+    !std::is_const_v<
+        std::remove_reference_t<std::ranges::range_reference_t<T>>>;
 
 // `T` must be `std::optional` or act like it.
 //
