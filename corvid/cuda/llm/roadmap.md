@@ -499,6 +499,31 @@ file's `oracle_dumps` now loads that file too and gained an `ids_of` reader,
 which the five-prompt logits gate will reuse. Next: the block, the forward
 pass with an observer, the head, and greedy decoding.
 
+Status (2026-09-18, block): the block is drafted as `block`, which runs both
+sublayers in place on the residual: `layer_norm`, `linear` to qkv,
+`attention`, `linear` back, `add`; then `layer_norm`, `linear` to the hidden
+width, `gelu_new` in place, `linear` back, `add`. No new math. Two
+aggregates carry the plumbing: `block_params` holds the twelve parameter
+views of one `h.N`, named after the tensors with the sublayer prefixed so
+the two `c_proj` read apart, and `block_scratch` holds six caller-owned
+working views, with `normed` and `sublayer_out` shared by the two sublayers
+since each is consumed before the other writes it. Ownership stays outside
+the header: the test has an `owned_block_scratch` that allocates the vectors
+and hands out the views, and the forward pass decides where owning storage
+lives for real. `block` asserts only what the ops cannot: that `normed` and
+`sublayer_out` are disjoint from the residual, since a layer norm into the
+residual would pass the op's own same-or-disjoint check and destroy the
+stream. The oracle gate feeds each block its dumped `ln_1/in` and compares
+the residual that leaves it against the next block's `ln_1/in`, or `ln_f/in`
+for the last; all twelve pass at `atol = rtol = 1e-4`. Largest absolute
+errors are 9.8e-4 (block 2) and 7.3e-4 (block 1), the same one-ulp-near-1000
+residual coordinates the MLP path showed, and the rest are under 2.5e-4. Not
+decided yet: how the forward pass's observer reaches `attn/out`, `ln_2/in`,
+and `mlp/out`, which exist only inside the block; the choices are a callback
+parameter on `block` or separate scratch buffers the caller reads afterward,
+and the mid-block residual rules out the second on its own. Next: the
+forward pass with an observer, the head, and greedy decoding.
+
 ### 4. CUDA forward pass
 
 The same model on the device:

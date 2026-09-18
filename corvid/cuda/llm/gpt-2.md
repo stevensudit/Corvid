@@ -71,7 +71,9 @@ this step nothing reads the IDs again.
 The block has two sublayers, attention and MLP. Each one reads the residual
 through a layer norm, computes a correction of shape [T, C], and adds it to
 the residual. The layer norm outputs are consumed by their sublayer and
-discarded; only the residual carries forward.
+discarded; only the residual carries forward. `block` runs both sublayers
+in place on the residual, taking its parameters as `block_params` and its
+working storage as `block_scratch`.
 
 ### Attention sublayer
 
