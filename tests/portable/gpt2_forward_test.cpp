@@ -434,6 +434,31 @@ TEST_CASE("Attention on three tokens of width two", "[Gpt2ForwardTest]") {
   }
 }
 
+TEST_CASE("Add on hand-computed rows", "[Gpt2ForwardTest]") {
+  std::vector<float> a_storage{1.0F, 2.0F, 3.0F, 4.0F};
+  std::vector<float> b_storage{10.0F, 20.0F, 30.0F, 40.0F};
+  const float_matrix_view a(a_storage, {.row_count = 2, .col_count = 2});
+  const float_matrix_view b(b_storage, {.row_count = 2, .col_count = 2});
+  const std::vector<float> expected{11.0F, 22.0F, 33.0F, 44.0F};
+
+  SECTION("into a separate matrix") {
+    std::vector<float> storage(a.size());
+    const float_matrix_view out(storage, a.extent());
+    add(out, a, b);
+    CHECK(storage == expected);
+  }
+
+  SECTION("in place on the left") {
+    add(a, a, b);
+    CHECK(a_storage == expected);
+  }
+
+  SECTION("in place on the right") {
+    add(b, a, b);
+    CHECK(b_storage == expected);
+  }
+}
+
 TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
@@ -550,6 +575,46 @@ TEST_CASE("Attention path matches the oracle", "[Gpt2ForwardTest][oracle]") {
       linear(out, heads_out, proj_weight, proj_bias);
 
       check_close(out, expected, 1e-4F, 1e-4F);
+    }
+  }
+}
+
+TEST_CASE("Residual adds match the oracle", "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // Both adds of every block, each fed its own dumped operands. Adding two
+  // fp32 values is the same IEEE operation here and in the oracle, so the
+  // match is exact, with no tolerance at all.
+  struct site {
+    std::string residual;
+    std::string correction;
+    std::string sum;
+  };
+  std::vector<site> sites;
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    const auto block = std::format("block_{}", n);
+    const auto after_mlp =
+        (n + 1 < n_layer)
+            ? std::format("block_{}/ln_1/in", n + 1)
+            : std::string{"ln_f/in"};
+    sites.push_back(
+        {block + "/ln_1/in", block + "/attn/out", block + "/ln_2/in"});
+    sites.push_back({block + "/ln_2/in", block + "/mlp/out", after_mlp});
+  }
+
+  for (const auto& [residual, correction, sum] : sites) {
+    DYNAMIC_SECTION(sum) {
+      const auto a = matrix_of(oracle.activations, residual, n_embd);
+      const auto b = matrix_of(oracle.activations, correction, n_embd);
+      const auto expected = matrix_of(oracle.activations, sum, n_embd);
+      REQUIRE(a.row_extent() == 14);
+
+      std::vector<float> storage(a.size());
+      const float_matrix_view out(storage, a.extent());
+      add(out, a, b);
+
+      check_close(out, expected, 0.0F, 0.0F);
     }
   }
 }

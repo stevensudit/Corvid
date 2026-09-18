@@ -473,6 +473,18 @@ Deferred, not rejected: going further with ranges, in particular
 `std::views::transform` in place of the elementwise `for` loops. Not
 wanted yet.
 
+Status (2026-09-18, later): the residual add is drafted as `add`, an
+elementwise `out = a + b` over three matrix views, with `out` allowed to be
+either input for the in-place form the block will use. It is the one op with
+an exact oracle gate: both adds of every block, 24 sites, fed the dumped
+residual and the dumped sublayer output, match the dumped result at `atol =
+rtol = 0`, since adding two fp32 values is a single IEEE operation on both
+sides and no accumulation order is involved. The sites chain across blocks,
+so the sum after block N's MLP add is compared against block N+1's
+`ln_1/in`, and the last against `ln_f/in`, which also confirms those dumps
+are the same tensor. Next: the embedding gather, the block, the forward pass
+with an observer, the head, and greedy decoding.
+
 ### 4. CUDA forward pass
 
 The same model on the device:

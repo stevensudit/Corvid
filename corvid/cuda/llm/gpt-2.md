@@ -87,7 +87,7 @@ discarded; only the residual carries forward.
 | weighted sum | w [T, T], v_h [T, D] | | head_out_h [T, D], row i = sum over j <= i of w[i][j] * v_h[j] | `attention_head`, via `add_scaled` |
 | concat | H of head_out_h [T, D] | | heads_out [T, C], head h in columns h*D..h*D+D-1 | `attention` writes each head's slice in place |
 | c_proj | heads_out [T, C] | `h.N.attn.c_proj.weight` [C, C], `.bias` [C] | attn/out [T, C] | `linear` |
-| residual add | residual [T, C], attn/out [T, C] | | residual [T, C] | not yet |
+| residual add | residual [T, C], attn/out [T, C] | | residual [T, C] | `add` |
 
 The scores, mask, softmax, and weighted sum run once per head, on that
 head's D-wide slices, independently of the other heads. Those slices are
@@ -107,7 +107,7 @@ j <= i only.
 | c_fc | ln_2/out [T, C] | `h.N.mlp.c_fc.weight` [C, F], `.bias` [F] | hidden [T, F] | `linear` |
 | gelu | hidden [T, F] | | hidden [T, F], in place | `gelu_new` |
 | c_proj | hidden [T, F] | `h.N.mlp.c_proj.weight` [F, C], `.bias` [C] | mlp/out [T, C] | `linear` |
-| residual add | residual [T, C], mlp/out [T, C] | | residual [T, C] | not yet |
+| residual add | residual [T, C], mlp/out [T, C] | | residual [T, C] | `add` |
 
 The GELU is the tanh form (`gelu_new`), not the erf form; the weights were
 trained against the tanh curve.
