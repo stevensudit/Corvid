@@ -119,7 +119,7 @@ trained against the tanh curve.
 
 | step | reads | looks up | produces | Corvid |
 |---|---|---|---|---|
-| ln_f | residual [T, C] | `ln_f.weight`, `ln_f.bias` | ln_f/out [T, C] | `layer_norm` |
+| ln_f | residual [T, C] | `ln_f.weight`, `ln_f.bias` | ln_f/out [T, C] | `layer_norm`, as the last step of `forward` |
 | logits | ln_f/out [T, C] | `wte.weight` [V, C], transposed, no bias | logits [T, V] | not yet |
 | greedy | logits row T - 1 | | the ID with the largest logit | not yet |
 

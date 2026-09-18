@@ -665,4 +665,49 @@ inline void block(float_matrix_view out, const_float_matrix_view in,
 }
 
 #pragma endregion
+#pragma region forward
+
+// The parameters of the whole model, as views over the weight file.
+//
+// For GPT-2, with V = 50257 vocabulary entries, a context of 1024, C = 768,
+// and L = 12 blocks:
+//
+//   wte                     [V, C]     the token embedding, reused by the head
+//   wpe                     [1024, C]  the position embedding
+//   blocks                  [L]        one `block_params` per `h.N`, in order
+//   ln_f_weight, ln_f_bias  [C]        the final layer norm
+struct gpt2_params {
+  const_float_matrix_view wte;
+  const_float_matrix_view wpe;
+  std::span<const block_params> blocks;
+  const_float_row_span ln_f_weight;
+  const_float_row_span ln_f_bias;
+};
+
+// Run the model over `ids`, writing the final layer norm's output to `out`.
+//
+// This is everything before the head: the residual stream starts as the
+// embedding, every block adds to it in place, and `ln_f` normalizes what
+// leaves the last block. For GPT-2 with T tokens:
+//
+// step         |  reads     |  produces
+// -------------+------------+-------------------
+// embed        |  ids [T]   |  out [T, 768]
+// block, x 12  |  out       |  out, in place
+// ln_f         |  out       |  out, in place
+//
+// `out` doubles as the residual, so it must have one row per ID and the
+// model's width. `acts` is reused by every block, so it holds the last
+// block's activations on return; its `ln_2_in` may be `out`, the in-place
+// form, but no other buffer may overlap `out`.
+inline void forward(float_matrix_view out, std::span<const token_id> ids,
+    const gpt2_params& params, const block_activations& acts,
+    size_t head_count) noexcept {
+  embed(out, ids, params.wte, params.wpe);
+  for (const auto& block_params : params.blocks)
+    block(out, out, block_params, acts, head_count);
+  layer_norm(out, out, params.ln_f_weight, params.ln_f_bias);
+}
+
+#pragma endregion
 } // namespace corvid::llm

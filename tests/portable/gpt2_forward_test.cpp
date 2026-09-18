@@ -239,6 +239,31 @@ struct owned_block_activations {
 };
 
 #pragma endregion
+#pragma region Model
+
+// The whole model's parameters, as views over the oracle's weights, with the
+// per-block views owned here since `gpt2_params` only spans them.
+struct oracle_params {
+  std::vector<block_params> blocks;
+  gpt2_params params;
+
+  explicit oracle_params(const oracle_dumps& oracle) {
+    for (auto n = 0UZ; n < n_layer; ++n)
+      blocks.push_back(block_params_of(oracle, n));
+    const auto& w = oracle.weights;
+    params = {
+        .wte = matrix_of(w, "wte.weight", n_embd),
+        .wpe = matrix_of(w, "wpe.weight", n_embd),
+        .blocks = blocks,
+        .ln_f_weight = vector_of(w, "ln_f.weight", n_embd),
+        .ln_f_bias = vector_of(w, "ln_f.bias", n_embd),
+    };
+    REQUIRE(params.wte.row_extent() == n_vocab);
+    REQUIRE(params.wpe.row_extent() == n_ctx);
+  }
+};
+
+#pragma endregion
 
 } // namespace
 
@@ -810,6 +835,28 @@ TEST_CASE("Block matches the oracle", "[Gpt2ForwardTest][oracle]") {
       CHECK(residual_storage == out_storage);
     }
   }
+}
+
+TEST_CASE("Forward pass matches the oracle", "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // The bisect prompt from its IDs through every block to `ln_f/out`, the
+  // last dump before the head. Nothing here is fed a dumped intermediate, so
+  // this is the first check that the ops chain, and the gate is the block's.
+  const auto ids =
+      ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
+  const auto token_count = ids.size();
+  REQUIRE(token_count == 14);
+  const oracle_params model(oracle);
+  const auto expected = matrix_of(oracle.activations, "ln_f/out", n_embd);
+
+  std::vector<float> out_storage(token_count * n_embd);
+  const float_matrix_view out(out_storage, expected.extent());
+  owned_block_activations owned(token_count);
+  forward(out, ids, model.params, owned.views(), n_head);
+
+  check_close(out, expected, 1e-4F, 1e-4F);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
