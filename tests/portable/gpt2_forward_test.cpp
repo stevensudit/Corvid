@@ -135,8 +135,8 @@ closeness compare(const_float_matrix_view actual,
   REQUIRE(actual.col_extent() == expected.col_extent());
   closeness result;
   for (const auto r : actual.row_interval()) {
-    const auto actual_row = actual.row_as_span(r);
-    const auto expected_row = expected.row_as_span(r);
+    const auto actual_row = actual[r];
+    const auto expected_row = expected[r];
     for (auto const col : actual.col_interval()) {
       const auto magnitude = std::abs(expected_row[col]);
       const auto abs_error = std::abs(actual_row[col] - expected_row[col]);
@@ -314,13 +314,13 @@ TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
 
   constexpr auto tolerance = 1e-5;
   const auto inv_std = 1.0F / std::sqrt(1.25F + layer_norm_eps);
-  const auto first = out.row_as_span(row_ndx{0});
+  const auto first = out[row_ndx{0}];
   CHECK_THAT(first[col_ndx{0}], WithinAbs(-1.5F * inv_std, tolerance));
   CHECK_THAT(first[col_ndx{1}], WithinAbs(-0.5F * inv_std * 2.0F, tolerance));
   CHECK_THAT(first[col_ndx{2}], WithinAbs((0.5F * inv_std) + 0.5F, tolerance));
   CHECK_THAT(first[col_ndx{3}],
       WithinAbs((1.5F * inv_std * 2.0F) + 0.5F, tolerance));
-  const auto second = out.row_as_span(row_ndx{1});
+  const auto second = out[row_ndx{1}];
   CHECK_THAT(second[col_ndx{0}], WithinAbs(0.0, tolerance));
   CHECK_THAT(second[col_ndx{1}], WithinAbs(0.0, tolerance));
   CHECK_THAT(second[col_ndx{2}], WithinAbs(0.5, tolerance));
@@ -340,8 +340,8 @@ TEST_CASE("Row ops match layer norm step by step", "[Gpt2ForwardTest]") {
   constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
   constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
 
-  const auto out_row = out.row_as_span(row_ndx{0});
-  standardize_row(out_row, in.row_as_span(row_ndx{0}), layer_norm_eps);
+  const auto out_row = out[row_ndx{0}];
+  standardize_row(out_row, in[row_ndx{0}], layer_norm_eps);
 
   constexpr auto tolerance = 1e-5;
   const auto inv_std = 1.0F / std::sqrt(1.25F + layer_norm_eps);

@@ -424,7 +424,7 @@ public:
     return piece_starts_.empty() ? 0 : piece_starts_.size() - 1;
   }
 
-  // The bytes of piece `id`, which must be below `size` (asserted).
+  // The bytes of piece `id`, which must be below `size`.
   [[nodiscard]] std::u8string_view piece(token_id id) const {
     assert(*id < size());
     return std::u8string_view{pieces_}.substr(piece_starts_[*id],

@@ -47,7 +47,7 @@
 //   view_t m(storage, {.row_count = rows, .col_count = cols});
 //   for (const auto r : m.row_interval())
 //     for (const auto c : m.col_interval()) m[r, c] = 1.0F;
-//   for (const auto value : m.row_as_span(r)) ...
+//   for (const auto value : m[r]) ...
 //
 // Walking the rows of two views together:
 //   for (auto [out_row, in_row] : std::views::zip(out.rows(), in.rows()))
@@ -123,8 +123,7 @@ public:
 
   constexpr matrix_view() = default;
 
-  // Packed view over `data`, which must hold exactly the elements of `size`
-  // (asserted).
+  // Packed view over `data`, which must hold exactly the elements of `size`.
   constexpr matrix_view(std::span<T> data, extent_t size) noexcept
       : matrix_view{data, size, size.col_count} {
     assert(data.size() == size.row_count * size.col_count);
@@ -134,7 +133,7 @@ public:
   // show only their first `size.col_count` elements.
   //
   // `stride` must be at least `size.col_count`, and `data` must reach the
-  // last element of the last row (both asserted).
+  // last element of the last row.
   constexpr matrix_view(std::span<T> data, extent_t size,
       size_t stride) noexcept
       : data_{data}, extent_{size}, stride_{stride} {
@@ -200,14 +199,13 @@ public:
     return interval<col_ndx>::iota(extent_.col_count);
   }
 
-  // Element at row `r`, column `c`, both of which must be in range
-  // (asserted).
+  // Element at row `r`, column `c`, both of which must be in range.
   [[nodiscard]] constexpr T& operator[](row_ndx r, col_ndx c) const noexcept {
     assert((*r < extent_.row_count) && (*c < extent_.col_count));
     return data_[(*r * stride_) + *c];
   }
 
-  // Element at `at`, which must be in range (asserted).
+  // Element at `at`, which must be in range.
   [[nodiscard]] constexpr T& operator[](coord at) const noexcept {
     return (*this)[at.row, at.col];
   }
@@ -218,9 +216,10 @@ public:
   }
 
   // The elements of row `r` from column `first` up to, but not including,
-  // `last`, where `col_ndx::npos` means the end of the row.
+  // `last`, where `col_ndx::npos` means the end of the row. Prefer
+  // `operator[row_ndx]` instead.
   //
-  // `r` must be in range, and `first <= last <= col_extent()` (asserted).
+  // `r` must be in range, and `first <= last <= col_extent()`.
   [[nodiscard]] constexpr row_span row_as_span(row_ndx r, col_ndx first = {},
       col_ndx last = col_ndx::npos) const noexcept {
     assert(*r < extent_.row_count);
@@ -237,7 +236,7 @@ public:
   [[nodiscard]] constexpr auto rows() const noexcept {
     return std::views::iota(size_t{0}, extent_.row_count) |
            std::views::transform([m = *this](size_t r) {
-             return m.row_as_span(row_ndx{r});
+             return m[row_ndx{r}];
            });
   }
 
@@ -247,7 +246,7 @@ public:
   // View of the rectangle from `from` up to, but not including, `to`.
   //
   // A member of `to` at its `npos` means to the end of that dimension. The
-  // rectangle must lie within the view (asserted).
+  // rectangle must lie within the view.
   [[nodiscard]] constexpr matrix_view
   subview(coord from, coord to) const noexcept {
     const auto row_end =
@@ -264,7 +263,7 @@ public:
   // A count of `size` at its `npos` means the rest of that dimension, so the
   // default takes everything from `from` on.
   //
-  // The rectangle must lie within the view (asserted).
+  // The rectangle must lie within the view.
   [[nodiscard]] constexpr matrix_view
   subview(coord from, extent_t size = extent_t::npos) const noexcept {
     assert(
