@@ -352,9 +352,10 @@ inline void softmax_row(float_span row_out, const_float_span row_in) noexcept {
 //
 // In GPT-2, D is 64 and the views are column slices of the `attn.c_attn`
 // output. For each token `i`, we compute the dot product of its query,
-// `q[i]` against the keys of all previous tokens, `k[j]`, where `j <= i`.
-// This is a measure of how relevant that previous token is to the current
-// token. Tokens after `i` get no weight at all, which is the causal rule.
+// `q[i]`, against the keys of all non-subsequent tokens, `k[j]`, where `j`
+// ranges from 0 to `i`, inclusive. This is a measure of how relevant that
+// non-subsequent token is to the current token. Tokens after `i` get no weight
+// at all, which is the causal rule.
 //
 // We scale the dot product by `1/sqrt(D)` to prevent the scores from growing
 // too large with the width, and then apply the softmax to convert the scores
@@ -409,7 +410,7 @@ inline void attention_head(float_matrix_view out, const_float_matrix_view q,
 // projection, and writes the weighted sum to `out`.
 //
 // The `qkv` matrix has one row per token, which contains its queries, then
-// its keys, then its values, each as wide as `out` (which is 768).
+// its keys, then its values, each as wide as `out` (which is 768 for GPT-2).
 //
 // token_row: 768 * q, 768 * k, 768 * v
 //
@@ -419,10 +420,10 @@ inline void attention_head(float_matrix_view out, const_float_matrix_view q,
 // respectively; and so on.
 //
 // This means that a given head cannot query using the key features from
-// another head. However, as each head's queries were computed by
-// `attn.c_attn` from all input features, they still capture information from
-// all of them. The heads partition the projection, not the input, and
-// `attn.c_proj` afterward mixes their outputs back together.
+// another head. However, as each head's inputs were computed by `attn.c_attn`
+// from all input features, they still capture information from all of them.
+// The heads partition the projection, not the input, and `attn.c_proj`
+// afterward mixes their outputs back together.
 //
 // Each head operates independently on its slice of the queries, keys, and
 // values. It writes to the portion of `out` corresponding to its input. In
