@@ -195,17 +195,17 @@ Design decisions (2026-09-05), agreed before the user writes the code:
   forward direction. In memory, symbols are bytes.
 - The split rule runs over decoded code points but yields byte offsets into
   the input, so a chunk's bytes are the initial symbol sequence with no copy.
-- The merge loop runs over token ids, not strings. Verified in the fixture:
-  the merge at rank r yields id 256 + r, every merge piece and result is in
-  vocab.json, and ids 0-255 are the 256 mapped code points in sorted order
+- The merge loop runs over token IDs, not strings. Verified in the fixture:
+  the merge at rank r yields ID 256 + r, every merge piece and result is in
+  vocab.json, and IDs 0-255 are the 256 mapped code points in sorted order
   (the 188 identity bytes in byte order, then the 68 remapped bytes in byte
   order). So vocab.json is redundant for encode and decode; the tokenizer
-  builds the byte-to-id table from the mapping and reads only merges.txt,
+  builds the byte-to-ID table from the mapping and reads only merges.txt,
   and `<|endoftext|>` is the constant 50256. The fixture test loads
   vocab.json once and asserts the invariant, so the assumption is checked
   rather than trusted.
 - Merge table: `std::flat_map<uint32_t, token_id>` keyed on the packed pair
-  (left id << 16 | right id), value the result id; rank is id - 256.
+  (left ID << 16 | right ID), value the result ID; rank is ID - 256.
   Probed on libc++, clang + libstdc++, and nvcc + g++-15; Windows still to
   probe. Built once from a vector, never inserted into per element.
 - `token_id` is `uint32_t`, the type the model side indexes embeddings and
@@ -226,9 +226,9 @@ line by line and accepted 2026-09-06.
 inline expectations, a small inline merge table for the loop, and the
 fixtures found relative to `__FILE__` (the first test to read
 `tests/data`, so no build wiring was added): every vocab.json entry names
-the piece at its id, the whole corpus and every line encode as the
-reference did, and the reference ids decode to the file byte for byte.
-Open: the end-of-text id (50256) is not a piece, so `decode` rejects it;
+the piece at its ID, the whole corpus and every line encode as the
+reference did, and the reference IDs decode to the file byte for byte.
+Open: the end-of-text ID (50256) is not a piece, so `decode` rejects it;
 stage 4 decides how generation stops before calling `decode`. Not yet run
 on the Windows leg.
 
@@ -484,6 +484,20 @@ so the sum after block N's MLP add is compared against block N+1's
 `ln_1/in`, and the last against `ln_f/in`, which also confirms those dumps
 are the same tensor. Next: the embedding gather, the block, the forward pass
 with an observer, the head, and greedy decoding.
+
+Status (2026-09-18, embed): the embedding gather is drafted as `embed`,
+which writes row `t` of the output as the `wte` row that `ids[t]` selects
+plus row `t` of `wpe`. The IDs are a span of the tokenizer's `token_id`, so
+the forward header now includes "gpt2_tokenizer.h"; the ID type is the
+interface between the two, and inventing a second one would only add a cast
+at the seam. The position rows ride along as a third leg of the zip, which
+stops at the IDs, so the context-length check (no more IDs than `wpe` rows)
+is the load-bearing assert. The oracle gate is exact, like the residual
+add's: the bisect prompt's IDs are read from "logits.safetensors"
+(`prompt_1/input_ids`, int32), the only dump that holds them, so the test
+file's `oracle_dumps` now loads that file too and gained an `ids_of` reader,
+which the five-prompt logits gate will reuse. Next: the block, the forward
+pass with an observer, the head, and greedy decoding.
 
 ### 4. CUDA forward pass
 

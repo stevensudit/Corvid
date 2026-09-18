@@ -27,6 +27,7 @@
 #include "../../containers/utils/matrix_view.h"
 #include "../../meta/containers.h"
 #include "../../meta/crossplatform.h"
+#include "gpt2_tokenizer.h"
 
 // The GPT-2 forward pass on the CPU, in fp32, one free function per op.
 //
@@ -504,6 +505,49 @@ inline void add(float_matrix_view out, const_float_matrix_view a,
       zip(out.rows(), a.rows(), b.rows()))
     for (auto [out_value, a_value, b_value] : zip(out_row, a_row, b_row))
       out_value = a_value + b_value;
+}
+
+#pragma endregion
+#pragma region embed
+
+// Look up each token's embedding, into `out`.
+//
+// The residual stream starts here. Row `t` of `out` is the row of `wte`
+// indexed by `ids[t]`, the token embedding, plus row `t` of `wpe`, the
+// position embedding. Nothing after this step reads the IDs. For GPT-2 with
+// T tokens:
+//
+// step   |  reads    |  looks up                           |  produces
+// -------+-----------+-------------------------------------+---------------
+// embed  |  ids [T]  |  wte [50257, 768], wpe [1024, 768]  |  out [T, 768]
+//
+// where 50257 is the vocabulary size and 1024 the context length.
+//
+// `out` must have one row per ID and the width of both tables, every ID must
+// index a row of `wte`, and there must be no more IDs than rows of `wpe`.
+// `out` must not overlap either table.
+inline void embed(float_matrix_view out, std::span<const token_id> ids,
+    const_float_matrix_view wte, const_float_matrix_view wpe) noexcept {
+  using row_ndx = float_matrix_view::row_ndx;
+
+  [[maybe_unused]] const auto width = out.col_extent();
+  assert(out.row_extent() == ids.size());
+  assert((wte.col_extent() == width) && (wpe.col_extent() == width));
+  assert(ids.size() <= wpe.row_extent());
+  assert(is_disjoint(out.as_span(), wte.as_span()) &&
+         is_disjoint(out.as_span(), wpe.as_span()));
+
+  // Loop over token IDs.
+  for (const auto [id, out_row, position_row] :
+      zip(ids, out.rows(), wpe.rows()))
+  {
+    assert(*id < wte.row_extent());
+    const auto token_row = wte.row_as_span(row_ndx{*id});
+    // Loop over features for each token.
+    for (auto [out_value, token_value, position_value] :
+        zip(out_row, token_row, position_row))
+      out_value = token_value + position_value;
+  }
 }
 
 #pragma endregion

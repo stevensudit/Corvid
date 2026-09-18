@@ -60,11 +60,11 @@ transposed, with no bias.
 | step | reads | looks up | produces | Corvid |
 |---|---|---|---|---|
 | tokenize | text | vocab, merges | ids [T] | `gpt2_tokenizer.h` |
-| embed | ids [T] | `wte.weight` row per id, `wpe.weight` row per position | residual [T, C] | not yet (verified in the safetensors test) |
+| embed | ids [T] | `wte.weight` row per ID, `wpe.weight` row per position | residual [T, C] | `embed` |
 
 The embedding is `wte[id[t]] + wpe[t]` for each position `t`. Positions
 past n_ctx have no row, so a longer prompt is refused, not wrapped. After
-this step nothing reads the ids again.
+this step nothing reads the IDs again.
 
 ## One block, repeated L times
 
@@ -118,11 +118,11 @@ trained against the tanh curve.
 |---|---|---|---|---|
 | ln_f | residual [T, C] | `ln_f.weight`, `ln_f.bias` | ln_f/out [T, C] | `layer_norm` |
 | logits | ln_f/out [T, C] | `wte.weight` [V, C], transposed, no bias | logits [T, V] | not yet |
-| greedy | logits row T - 1 | | the id with the largest logit | not yet |
+| greedy | logits row T - 1 | | the ID with the largest logit | not yet |
 
 Row t of the logits scores every vocabulary entry as the token after
 position t, so all T rows are predictions and only the last one is used to
-generate. The next id is appended to the stream and the whole pass runs
+generate. The next ID is appended to the stream and the whole pass runs
 again on T + 1 tokens.
 
 ## Oracle dumps
