@@ -261,18 +261,19 @@ Rulings (2026-09-06):
   gitignored file is present and skip otherwise.
 
 Status (2026-09-06): WRITTEN, tests green with clang-tidy. `safetensors.h`
-holds `tensor_dtype` (a named sequence enum using the header's names), `dtype_size`, the `TensorElement` concept with `dtype_of`, and class
+holds `tensor_dtype` (a named sequence enum using the header's names),
+`dtype_size`, the `TensorElement` concept with `dtype_of`, and class
 `safetensors_file`: `parse` over a caller-owned image, `load` over a kept
 `os_mmap_file`, `find` by name, `tensors` in header order, `metadata`, and a
-`tensor` record whose `is<T>` checks dtype and alignment before `as<T>`
-hands out a typed span. Validation follows the reference implementation,
-including the exact tiling of the buffer. The test is
+`tensor` record whose `is<T>` checks dtype and alignment before `as<T>` hands
+out a typed span. Validation follows the reference implementation, including
+the exact tiling of the buffer. The test is
 `tests/portable/safetensors_test.cpp`: inline images for the format and every
-rejection, a temp file for `load`, and, when the oracle dumps exist, the
-160 GPT-2 tensors' shapes and dtypes plus a value-level spot check that
-`embed/out` for the bisect prompt equals `wte[id] + wpe[pos]` to 1e-6,
-which ties stages 1 and 2 to the oracle. The oracle gained `align`, and
-the manifest's model hash was updated for the rewritten file.
+rejection, a temp file for `load`, and, when the oracle dumps exist, the 160
+GPT-2 tensors' shapes and dtypes plus a value-level spot check that `embed/out`
+for the bisect prompt equals `wte[id] + wpe[pos]` to 1e-6, which ties stages 1
+and 2 to the oracle. The oracle gained `align`, and the manifest's model hash
+was updated for the rewritten file.
 
 ### 3. CPU forward pass
 
@@ -398,6 +399,79 @@ over 768 and 3072 terms in a different order than the oracle's BLAS, so
 the looser gate is the accumulation order, not a defect. The largest
 absolute error anywhere is 9.8e-4 in block 2, exactly 2^-10, one ulp on a
 residual coordinate near 1000. Next: attention.
+
+Status (2026-09-17, later): attention drafted, after a worked example on
+three tokens of width two (in conversation; the numbers are now the
+hand-computed test). Two ops: `attention_head` runs one head on its
+`q`, `k`, `v` views, scoring each token against the tokens at or before it
+with `dot` scaled by `1 / sqrt(width)`, taking `softmax_row` over those
+scores, and accumulating the value rows with `add_scaled`; `attention`
+splits the `c_attn` output into its query, key, and value thirds, cuts each
+into `head_count` column slices, and runs `attention_head` per slice into
+the matching slice of the output. Decisions: the causal mask is the loop
+bound (only tokens 0 through `i` are ever scored, nothing is set to minus
+infinity); the scratch is one row of `token_count` scores passed in by the
+caller, since each token's weights are consumed before the next token's are
+computed, and the ops stay allocation-free; `softmax_row` takes plain spans
+because its row is indexed by token here and by vocabulary entry at the
+head, so neither `row_span` nor `col_span` fits; and the max-subtraction
+is a body comment, not contract. The oracle gate is the attention path,
+`ln_1/out` through `c_attn`, the heads, and `c_proj` against `attn/out`,
+since no dump sits inside it. First measured run over all 12 blocks: every
+block passes at `atol = rtol = 1e-4`, the same gate as the MLP path; at
+1e-5, blocks 10 and 11 fail with largest absolute errors of 2.8e-5 and
+2.4e-4 (the latter exactly 2^-12, one ulp near 512). The reference
+"gpt-2.md" beside this file tabulates every step, shape, and tensor name.
+Next: the residual add, the embedding gather, the block, the forward pass
+with an observer, the head, and greedy decoding.
+
+Status (2026-09-18): every index loop in the header now walks its spans
+in lockstep with `std::views::zip`, Steven's suggestion and the first use
+of it in the repository. `matrix_view` gained `rows()`, a random-access
+range of `row_span` that copies the view so it survives a temporary, which
+lets the row loops of `layer_norm`, `gelu_new`, and `linear` zip two views'
+rows, and `linear`'s inner loop zip the token's row against the weight's
+rows, retiring the `in_as_col` retype that existed only to share an index.
+In `attention_head` the causal mask became the length of the `weights`
+prefix, since zipping it against every key or value row stops there. With
+`zip` the equal-size asserts are load-bearing rather than redundant,
+because a mismatch would silently process the shorter range. The cl leg
+surfaced a pre-existing C4723 (potential divide by zero) in `mean` and
+`variance`, whose empty-span NaN is the contract; it is bracketed with
+`PRAGMA_MSVC_IGNORED` from "corvid/meta/crossplatform.h", the ruling being
+that a global `/wd` would hide real divisions and a raw pragma is not
+cross-platform.
+
+Codegen notes from the same day, checked in the assembly rather than
+assumed. The `zip` and `rows()` machinery dissolves completely at `-O2`:
+no `zip_view`, `transform_view`, or `iota_view` survives, and the hot axpy
+loop of `linear` is instruction for instruction the loop the index version
+produced. The one artifact is the MSVC STL's out-of-line `__std_min_8u`,
+called once per `zip` construction to take the minimum of the sizes; that
+is once per token per input feature in `linear`, each ahead of a 3072-wide
+axpy, so well under a percent, and libc++ and libstdc++ inline their
+`std::min`. Prompted by this, the Windows clang leg gained `-march=native`
+and cl `/arch:AVX2` (see "crossplatform.md"), so the loops use fused
+multiply-add and 256-bit registers on both. On `inverse_std_dev`: it is a
+square root and a division like any other, and the saving is that they
+happen once per row while `standardize` multiplies 768 times, in place of
+768 divisions; a packed divide runs at roughly a tenth the throughput of a
+multiply and cannot be fused, the compiler may not make the substitution
+itself without fast-math, and torch's layer norm computes `rstd` the same
+way, which is part of why the gate holds at 1e-5. The deferred
+`-fno-math-errno` decision, which would remove the `sqrtf` fallback branch
+from each row, is analyzed in "crossplatform.md" under Building.
+
+Review notes on the zip pass (2026-09-18, Steven): the zip code is better
+on the whole. By removing the need for indexes it also removed much of the
+point of `row_span` and `col_span`, whose type-safe indexes no longer guard
+anything in these ops, and it removed the `in_as_col` retype; both count
+as positives. `attention_head` lost its last index loop too: the position
+rides along as a third leg of the zip, an `iota` beside the query and
+output rows, since it is also the count of tokens the row may read.
+Deferred, not rejected: going further with ranges, in particular
+`std::views::transform` in place of the elementwise `for` loops. Not
+wanted yet.
 
 ### 4. CUDA forward pass
 

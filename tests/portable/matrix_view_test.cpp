@@ -16,6 +16,7 @@
 // limitations under the License.
 #include <cstddef>
 #include <limits>
+#include <ranges>
 #include <span>
 #include <string_view>
 #include <type_traits>
@@ -218,6 +219,55 @@ TEST_CASE("Strided view over a larger buffer", "[MatrixViewTest]") {
   const view_t tight(std::span{storage}.first(10),
       {.row_count = 3, .col_count = 2}, 4);
   CHECK(tight[row_ndx{2}, col_ndx{1}] == 21.0F);
+}
+
+TEST_CASE("Rows as a range", "[MatrixViewTest]") {
+  static_assert(std::ranges::random_access_range<decltype(view_t{}.rows())>);
+  static_assert(std::ranges::view<decltype(view_t{}.rows())>);
+
+  std::vector<float> storage(3UZ * 4);
+  const view_t m(storage, {.row_count = 3, .col_count = 4});
+
+  if (true) {
+    // Each row comes in order, as a writable span of its columns.
+    auto expected_row = 0UZ;
+    for (auto row : m.rows()) {
+      CHECK(row.size() == 4);
+      row[col_ndx{0}] = static_cast<float>(expected_row);
+      ++expected_row;
+    }
+    CHECK(expected_row == 3);
+    CHECK(storage[0] == 0.0F);
+    CHECK(storage[4] == 1.0F);
+    CHECK(storage[8] == 2.0F);
+  }
+
+  if (true) {
+    // The range of a temporary subview stays valid after the temporary is
+    // gone, and honors the subview's stride.
+    const auto sub_rows =
+        m.subview({row_ndx{0}, col_ndx{2}}, {.row_count = 3, .col_count = 2})
+            .rows();
+    for (auto row : sub_rows) row[col_ndx{1}] = 9.0F;
+    CHECK(storage[3] == 9.0F);
+    CHECK(storage[7] == 9.0F);
+    CHECK(storage[11] == 9.0F);
+    CHECK(storage[2] == 0.0F);
+  }
+
+  if (true) {
+    // Two views' rows walk together, and a read-only view yields read-only
+    // rows.
+    std::vector<float> copy_storage(storage.size());
+    const view_t copy(copy_storage, m.extent());
+    const matrix_view<const float> source = m;
+    for (auto [out_row, in_row] : std::views::zip(copy.rows(), source.rows()))
+      std::ranges::copy(in_row, out_row.begin());
+    CHECK(copy_storage == storage);
+    static_assert(
+        std::is_same_v<std::ranges::range_value_t<decltype(source.rows())>,
+            enum_span<const float, col_ndx>>);
+  }
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

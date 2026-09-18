@@ -21,10 +21,12 @@
 #include <cmath>
 #include <cstddef>
 #include <numbers>
+#include <ranges>
 #include <span>
 
 #include "../../containers/utils/matrix_view.h"
 #include "../../meta/containers.h"
+#include "../../meta/crossplatform.h"
 
 // The GPT-2 forward pass on the CPU, in fp32, one free function per op.
 //
@@ -33,6 +35,9 @@
 // spans over the weight file. Shape mismatches are contract violations
 // (asserted).
 namespace corvid::llm {
+
+// The loop idiom of this file.
+using std::views::zip;
 
 #pragma region Reductions
 
@@ -47,9 +52,14 @@ namespace corvid::llm {
 }
 
 // The arithmetic mean of `values`, NaN when empty.
+//
+// cl C4723: Division by zero is intentionally allowed.
+PRAGMA_DIAG(push)
+PRAGMA_MSVC_IGNORED(4723)
 [[nodiscard]] constexpr float mean(const_float_span values) noexcept {
   return sum(values) / static_cast<float>(values.size());
 }
+PRAGMA_DIAG(pop)
 
 // The sum of the squared deviations of `values` from `center`.
 [[nodiscard]] constexpr float
@@ -65,17 +75,32 @@ squared_deviation_sum(const_float_span values, float center) noexcept {
 // The biased variance of `values` around their `mean`. It's biased because the
 // squared deviations are divided by the count, not the count minus one (in
 // other words, Bessel's correction is not applied). NaN when empty.
+//
+// cl C4723: as for `mean`.
+PRAGMA_DIAG(push)
+PRAGMA_MSVC_IGNORED(4723)
 [[nodiscard]] constexpr float
 variance(const_float_span values, float mean) noexcept {
   return squared_deviation_sum(values, mean) /
          static_cast<float>(values.size());
 }
+PRAGMA_DIAG(pop)
 
 // The reciprocal of the standard deviation of `values` around their `mean`,
 // with `eps` added to the variance inside the square root.
 [[nodiscard]] inline float
 inverse_std_dev(const_float_span values, float mean, float eps) noexcept {
   return 1.0F / std::sqrt(variance(values, mean) + eps);
+}
+
+// The dot product of `a` and `b`, which must be the same size.
+[[nodiscard]] constexpr float
+dot(const_float_span a, const_float_span b) noexcept {
+  assert(a.size() == b.size());
+
+  float total{};
+  for (const auto [x, y] : zip(a, b)) total += x * y;
+  return total;
 }
 
 #pragma endregion
@@ -102,8 +127,7 @@ constexpr void
 add_scaled(float_span acc, float scale, const_float_span values) noexcept {
   assert(acc.size() == values.size());
 
-  for (size_t ndx = 0; ndx < acc.size(); ++ndx)
-    acc[ndx] += scale * values[ndx];
+  for (auto [acc_value, value] : zip(acc, values)) acc_value += scale * value;
 }
 
 #pragma endregion
@@ -124,8 +148,8 @@ inline void standardize_row(float_row_span row_out,
 
   const auto row_mean = mean(row_in);
   const auto inv_std = inverse_std_dev(row_in, row_mean, eps);
-  for (const auto c : row_in.range_interval())
-    row_out[c] = standardize(row_in[c], row_mean, inv_std);
+  for (auto [out_value, in_value] : zip(row_out, row_in))
+    out_value = standardize(in_value, row_mean, inv_std);
 }
 
 // Scale `row_in` by `weight` and shift by `bias`, elementwise, into
@@ -140,12 +164,13 @@ constexpr void scale_shift_row(float_row_span row_out,
   assert(is_same_or_disjoint(row_out, row_in));
   assert((weight.size() == row_in.size()) && (bias.size() == row_in.size()));
 
-  for (const auto c : row_in.range_interval())
-    row_out[c] = scale_shift(row_in[c], weight[c], bias[c]);
+  for (auto [out_value, in_value, w, b] : zip(row_out, row_in, weight, bias))
+    out_value = scale_shift(in_value, w, b);
 }
 
 // Normalize each row of `in` to a mean of 0 and a variance of 1, then scale by
-// `weight` and shift by `bias`, elementwise, into `out`.
+// `weight` and shift by `bias`, elementwise, into `out`, performing a diagonal
+// affine transformation.
 //
 // This is `standardize_row` followed by `scale_shift_row`, one row at a time
 // so that the row is still in cache for the second step.
@@ -160,12 +185,11 @@ inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
   assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
   assert((weight.size() == width) && (bias.size() == width));
   assert(is_same_or_disjoint(out.as_span(), in.as_span()));
-  assert(
-      is_disjoint(out.as_span(), weight) && is_disjoint(out.as_span(), bias));
+  assert(is_disjoint(out.as_span(), weight));
+  assert(is_disjoint(out.as_span(), bias));
 
-  for (const auto r : in.row_interval()) {
-    const auto out_row = out.row_as_span(r);
-    standardize_row(out_row, in.row_as_span(r), eps);
+  for (const auto [out_row, in_row] : zip(out.rows(), in.rows())) {
+    standardize_row(out_row, in_row, eps);
     scale_shift_row(out_row, out_row, weight, bias);
   }
 }
@@ -225,23 +249,16 @@ inline void linear(float_matrix_view out, const_float_matrix_view in,
          is_disjoint(out.as_span(), bias));
 
   // Loop over each row of the input matrix, which corresponds to a token, and
-  // in which each column contains a feature.
-  for (const auto token_row_ndx : in.row_interval()) {
-    // The input features for a given token.
-    const auto in_row = in[token_row_ndx];
-    // The same input features but viewed as a column vector, so that it can
-    // use the same index as the weight.
-    const auto in_as_col = const_float_col_span(in_row);
-    // Will hold the projected features for the same token.
-    const auto out_row = out[token_row_ndx];
-
+  // in which each column contains a feature, together with the row of the
+  // output matrix that will hold the projected features for the same token.
+  for (const auto [out_row, in_row] : zip(out.rows(), in.rows())) {
     // We start by adding in the biases for this token.
     std::ranges::copy(bias, out_row.begin());
 
     // We then sum up the scaled contributions of each input feature to the
-    // output features.
-    for (const auto feature_row_ndx : weight.row_interval())
-      add_scaled(out_row, in_as_col[feature_row_ndx], weight[feature_row_ndx]);
+    // output features. Input feature `i` pairs with row `i` of the weight.
+    for (const auto [in_value, weight_row] : zip(in_row, weight.rows()))
+      add_scaled(out_row, in_value, weight_row);
   }
 }
 
@@ -290,10 +307,144 @@ gelu_new(float_matrix_view out, const_float_matrix_view in) noexcept {
          (out.col_extent() == in.col_extent()));
   assert(is_same_or_disjoint(out.as_span(), in.as_span()));
 
-  for (const auto r : in.row_interval()) {
-    const auto out_row = out.row_as_span(r);
-    const auto in_row = in.row_as_span(r);
-    for (const auto c : in.col_interval()) out_row[c] = gelu_new(in_row[c]);
+  for (const auto [out_row, in_row] : zip(out.rows(), in.rows()))
+    for (auto [out_value, in_value] : zip(out_row, in_row))
+      out_value = gelu_new(in_value);
+}
+
+#pragma endregion
+#pragma region softmax
+
+// Turn the scores in `row_in` into weights that sum to 1, into `row_out`.
+//
+// Each weight is the exponential of its score divided by the sum of all the
+// exponentials, so a larger score gets a larger share and the gaps between
+// scores are sharpened. Large scores do not overflow.
+//
+// `row_out` and `row_in` must be the same size, and can refer to the same
+// memory. Both must be non-empty.
+inline void softmax_row(float_span row_out, const_float_span row_in) noexcept {
+  assert(row_out.size() == row_in.size());
+  assert(is_same_or_disjoint(row_out, row_in));
+  assert(!row_in.empty());
+
+  // Shifting every score by the same amount leaves the weights unchanged, and
+  // shifting by the maximum keeps `exp` at or below 1.
+  const auto peak = std::ranges::max(row_in);
+  float total{};
+  for (auto [out_value, in_value] : zip(row_out, row_in)) {
+    out_value = std::exp(in_value - peak);
+    total += out_value;
+  }
+  for (auto& weight : row_out) weight /= total;
+}
+
+#pragma endregion
+#pragma region attention
+
+// Let each token read from the tokens at or before it, for one head.
+//
+// For T tokens and a head D features wide, the shapes are:
+//
+//   q, k, v   [T, D]   the head's queries, keys, and values, a row per token
+//   out       [T, D]   a row per token, written
+//   scores    [T]      scratch for one row of weights, at least T long
+//
+// In GPT-2, D is 64 and the views are column slices of the `c_attn` output.
+// Token `i`'s row of `out` is a weighted sum of the value rows of tokens 0
+// through `i`, where the weights are the softmax over `j` of:
+//
+//   q[i] . k[j] / sqrt(D)
+//
+// Tokens after `i` get no weight at all, which is the causal rule. The
+// division keeps the scores from growing with the width, so a 64-wide head
+// scales by 1/8.
+//
+// All four views must have the same row count, and `out` must not overlap
+// any of the others.
+inline void attention_head(float_matrix_view out, const_float_matrix_view q,
+    const_float_matrix_view k, const_float_matrix_view v,
+    float_col_span scores) noexcept {
+  [[maybe_unused]] const auto token_count = q.row_extent();
+  const auto width = q.col_extent();
+  assert((k.row_extent() == token_count) && (k.col_extent() == width));
+  assert((v.row_extent() == token_count) && (v.col_extent() == width));
+  assert((out.row_extent() == token_count) && (out.col_extent() == width));
+  assert(scores.size() >= token_count);
+  assert(is_disjoint(out.as_span(), q.as_span()) &&
+         is_disjoint(out.as_span(), k.as_span()) &&
+         is_disjoint(out.as_span(), v.as_span()));
+  assert(is_disjoint(out.as_span(), scores));
+  assert(is_disjoint(scores, v.as_span()));
+
+  const auto scale = 1.0F / std::sqrt(static_cast<float>(width));
+
+  for (const auto [i, query, out_row] :
+      zip(std::views::iota(size_t{0}), q.rows(), out.rows()))
+  {
+    // Only tokens 0 through `i` get a weight, so the mask is the length of
+    // `weights`: zipping it against all the key or value rows stops there.
+    const auto weights = scores.first(i + 1);
+    for (auto [weight, key] : zip(weights, k.rows()))
+      weight = dot(query, key) * scale;
+
+    softmax_row(weights, weights);
+
+    std::ranges::fill(out_row, 0.0F);
+    for (const auto [weight, value] : zip(weights, v.rows()))
+      add_scaled(out_row, weight, value);
+  }
+}
+
+// Let each token read from the tokens at or before it, across all heads.
+//
+// `qkv` is the output of the `c_attn` projection: per token, its queries,
+// then its keys, then its values, each as wide as `out`. Every third is
+// cut into `head_count` slices of equal width, and `attention_head` runs on
+// each slice, writing the matching slice of `out`. For GPT-2 with T tokens:
+//
+// step             |  reads              |  produces
+// -----------------+---------------------+-----------------------------
+// split            |  qkv [T, 2304]      |  q, k, v each [T, 768]
+// heads            |  q, k, v [T, 768]   |  12 slices each of [T, 64]
+// attention_head   |  one slice of each  |  one [T, 64] slice of out
+// (all heads)      |                     |  out [T, 768]
+//
+// where 2304 = 3 x 768 and 64 = 768 / 12. The slices are columns of the
+// projection's output, so each head's 64 query features were computed from
+// all 768 input features. The heads partition the projection, not the
+// input, and `c_proj` afterward mixes their outputs back together.
+//
+// `scores` is scratch for one row of weights, and must hold at least one
+// element per token. `qkv` must be three times as wide as `out`, whose
+// width must divide evenly by `head_count`. `out` must not overlap `qkv` or
+// `scores`.
+inline void attention(float_matrix_view out, const_float_matrix_view qkv,
+    size_t head_count, float_col_span scores) noexcept {
+  using row_ndx = float_matrix_view::row_ndx;
+  using col_ndx = float_matrix_view::col_ndx;
+
+  const auto token_count = out.row_extent();
+  const auto width = out.col_extent();
+  assert(qkv.row_extent() == token_count);
+  assert(qkv.col_extent() == 3 * width);
+  assert(head_count && (width % head_count == 0));
+  const auto head_width = width / head_count;
+
+  const auto third = [&](size_t which) {
+    return qkv.subview({row_ndx{0}, col_ndx{which * width}},
+        {.row_count = token_count, .col_count = width});
+  };
+  const auto q = third(0);
+  const auto k = third(1);
+  const auto v = third(2);
+
+  for (size_t head = 0; head < head_count; ++head) {
+    const auto slice = [&](const auto& m) {
+      return m.subview({row_ndx{0}, col_ndx{head * head_width}},
+          {.row_count = token_count, .col_count = head_width});
+    };
+    attention_head(slice(out), slice(q), slice(k), slice(v), scores);
   }
 }
 
