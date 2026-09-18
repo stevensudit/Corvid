@@ -307,14 +307,14 @@ TEST_CASE("bit_cast_to span, dynamic extent", "[BitCast]") {
   SECTION("exact fit") {
     std::array<uint32_t, 2> words{};
     auto out = std::span<uint32_t>{words};
-    CHECK(try_bit_cast_to(out, one_to_eight));
+    CHECK(try_bit_cast_to(out, one_to_eight) == 2);
     CHECK(out.size() == 2);
     CHECK(words == std::array{first_word, second_word});
   }
   SECTION("destination shorter than source") {
     std::array<uint32_t, 4> words{};
     auto out = std::span<uint32_t>{words}.first(1);
-    CHECK(try_bit_cast_to(out, one_to_eight));
+    CHECK(try_bit_cast_to(out, one_to_eight) == 1);
     CHECK(out.size() == 1);
     CHECK(words == std::array{first_word, 0U, 0U, 0U});
   }
@@ -322,7 +322,7 @@ TEST_CASE("bit_cast_to span, dynamic extent", "[BitCast]") {
     std::array<uint32_t, 4> words{};
     words.fill(0xFFFFFFFFU);
     auto out = std::span<uint32_t>{words};
-    CHECK(try_bit_cast_to(out, one_to_eight));
+    CHECK(try_bit_cast_to(out, one_to_eight) == 2);
     CHECK(out.size() == 2);
     CHECK(words ==
           std::array{first_word, second_word, 0xFFFFFFFFU, 0xFFFFFFFFU});
@@ -330,7 +330,7 @@ TEST_CASE("bit_cast_to span, dynamic extent", "[BitCast]") {
   SECTION("partial trailing element is dropped") {
     std::array<uint32_t, 4> words{};
     auto out = std::span<uint32_t>{words};
-    CHECK(try_bit_cast_to(out, std::span{one_to_eight}.first(7)));
+    CHECK(try_bit_cast_to(out, std::span{one_to_eight}.first(7)) == 1);
     CHECK(out.size() == 1);
     CHECK(words[0] == first_word);
     CHECK(words[1] == 0);
@@ -339,7 +339,7 @@ TEST_CASE("bit_cast_to span, dynamic extent", "[BitCast]") {
     const std::array<float, 2> floats{1.5F, -2.0F};
     std::array<uint32_t, 2> words{};
     auto out = std::span<uint32_t>{words};
-    CHECK(try_bit_cast_to(out, floats));
+    CHECK(try_bit_cast_to(out, floats) == 2);
     CHECK(out.size() == 2);
     CHECK(words[0] == std::bit_cast<uint32_t>(1.5F));
     CHECK(words[1] == std::bit_cast<uint32_t>(-2.0F));
@@ -347,7 +347,7 @@ TEST_CASE("bit_cast_to span, dynamic extent", "[BitCast]") {
   SECTION("same element type") {
     std::array<uint32_t, 3> words{};
     auto out = std::span<uint32_t>{words};
-    CHECK(try_bit_cast_to(out, std::array{7U, 8U}));
+    CHECK(try_bit_cast_to(out, std::array{7U, 8U}) == 2);
     CHECK(out.size() == 2);
     CHECK(words == std::array{7U, 8U, 0U});
   }
@@ -355,19 +355,21 @@ TEST_CASE("bit_cast_to span, dynamic extent", "[BitCast]") {
     const std::array<uint32_t, 2> words{first_word, second_word};
     bytes8 out_bytes{};
     auto out = std::span<std::byte>{out_bytes};
-    CHECK(try_bit_cast_to(out, words));
+    CHECK(try_bit_cast_to(out, words) == 8);
     CHECK(out.size() == 8);
     CHECK(out_bytes == one_to_eight);
   }
-  SECTION("nothing to copy") {
+  SECTION("nothing to copy leaves an empty span") {
     std::array<uint32_t, 2> words{};
     auto out = std::span<uint32_t>{words};
-    CHECK_FALSE(try_bit_cast_to(out, std::span<const std::byte>{}));
-    CHECK(out.size() == 2);
-    CHECK_FALSE(try_bit_cast_to(out, std::span{one_to_eight}.first(3)));
-    CHECK(out.size() == 2);
+    CHECK(try_bit_cast_to(out, std::span<const std::byte>{}) == 0);
+    CHECK(out.empty());
+    out = std::span<uint32_t>{words};
+    CHECK(try_bit_cast_to(out, std::span{one_to_eight}.first(3)) == 0);
+    CHECK(out.empty());
     auto empty = std::span<uint32_t>{};
-    CHECK_FALSE(try_bit_cast_to(empty, one_to_eight));
+    CHECK(try_bit_cast_to(empty, one_to_eight) == 0);
+    CHECK(empty.empty());
     CHECK(words == std::array{0U, 0U});
   }
 }
@@ -376,22 +378,23 @@ TEST_CASE("bit_cast_to span, static extent", "[BitCast]") {
   SECTION("exact fit") {
     std::array<uint32_t, 2> words{};
     auto out = std::span<uint32_t, 2>{words};
-    CHECK(try_bit_cast_to(out, one_to_eight));
+    CHECK(try_bit_cast_to(out, one_to_eight) == 2);
     CHECK(words == std::array{first_word, second_word});
   }
   SECTION("longer source is fine") {
     uint32_t pair[2]{};
     auto out = std::span{pair};
     static_assert(out.extent == 2);
-    CHECK(try_bit_cast_to(out, one_to_eight));
+    CHECK(try_bit_cast_to(out, one_to_eight) == 2);
     CHECK(pair[0] == first_word);
     CHECK(pair[1] == second_word);
   }
-  SECTION("short source is refused") {
+  SECTION("short source is refused and leaves the span alone") {
     std::array<uint32_t, 2> words{};
     words.fill(0xFFFFFFFFU);
     auto out = std::span<uint32_t, 2>{words};
-    CHECK_FALSE(try_bit_cast_to(out, std::span{one_to_eight}.first(7)));
+    CHECK(try_bit_cast_to(out, std::span{one_to_eight}.first(7)) == 0);
+    CHECK(out.size() == 2);
     CHECK(words == std::array{0xFFFFFFFFU, 0xFFFFFFFFU});
   }
 }

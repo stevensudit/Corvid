@@ -65,7 +65,7 @@ castable_count(const std::span<T, Extent>& to, const auto& from) noexcept {
 
 // Replacement for `std::bit_cast` when the source is a run of bytes.
 //
-// Reinterprets the leading `sizeof(T)` bytes of `bytes` as a `T`, which must
+// Reinterprets the leading `sizeof(T)` bytes of `from` as a `T`, which must
 // be trivially copyable. The range must hold at least that many bytes, which
 // is asserted at runtime and, when the size is static, checked at compile
 // time. For a runtime check, use `try_bit_cast_from` or `try_bit_cast_to`.
@@ -164,7 +164,7 @@ requires std::is_trivially_copyable_v<T> && (!ContiguousSizedRange<T>) &&
 // many whole elements as can fit in both, and shrinking a dynamic-extent `to`
 // to the elements written. Both element types must be trivially copyable.
 //
-// Returns count of elements writter to `to`, resizing `to` to that size as
+// Returns count of elements written to `to`, resizing `to` to that size as
 // well. For a static extent, returns 0 if the span would not be filled
 // exactly.
 template<typename T, size_t Extent>
