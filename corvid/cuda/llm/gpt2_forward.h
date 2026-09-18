@@ -350,15 +350,23 @@ inline void softmax_row(float_span row_out, const_float_span row_in) noexcept {
 //   out       [T, D]   a row per token, written
 //   scores    [T]      scratch for one row of weights, at least T long
 //
-// In GPT-2, D is 64 and the views are column slices of the `c_attn` output.
-// Token `i`'s row of `out` is a weighted sum of the value rows of tokens 0
-// through `i`, where the weights are the softmax over `j` of:
+// In GPT-2, D is 64 and the views are column slices of the `attn.c_attn`
+// output. For each token `i`, we compute the dot product of its query,
+// `q[i]` against the keys of all previous tokens, `k[j]`, where `j <= i`.
+// This is a measure of how relevant that previous token is to the current
+// token. Tokens after `i` get no weight at all, which is the causal rule.
 //
-//   q[i] . k[j] / sqrt(D)
+// We scale the dot product by `1/sqrt(D)` to prevent the scores from growing
+// too large with the width, and then apply the softmax to convert the scores
+// into probabilities that add up to 1.
 //
-// Tokens after `i` get no weight at all, which is the causal rule. The
-// division keeps the scores from growing with the width, so a 64-wide head
-// scales by 1/8.
+// These probabilities are the attention weights, and they're used to compute
+// the weighted sum of the value rows corresponding to each key. Those weighted
+// sums form the output rows.
+//
+// So, for example, for token `i`, we sum up the value rows for tokens 0
+// through `i`, weighing each with the corresponding attention weight. That
+// ends up in `out[i]`.
 //
 // All four views must have the same row count, and `out` must not overlap
 // any of the others.
@@ -383,7 +391,7 @@ inline void attention_head(float_matrix_view out, const_float_matrix_view q,
       zip(std::views::iota(size_t{0}), q.rows(), out.rows()))
   {
     // Only tokens 0 through `i` get a weight, so the mask is the length of
-    // `weights`: zipping it against all the key or value rows stops there.
+    // `weights`. Zipping it against all the key or value rows stops there.
     const auto weights = scores.first(i + 1);
     for (auto [weight, key] : zip(weights, k.rows()))
       weight = dot(query, key) * scale;
@@ -396,29 +404,46 @@ inline void attention_head(float_matrix_view out, const_float_matrix_view q,
   }
 }
 
-// Let each token read from the tokens at or before it, across all heads.
+// Let each token read from the tokens at or before it, across all
+// attention heads. Takes `qkv`, which is the output of the `attn.c_attn`
+// projection, and writes the weighted sum to `out`.
 //
-// `qkv` is the output of the `c_attn` projection: per token, its queries,
-// then its keys, then its values, each as wide as `out`. Every third is
-// cut into `head_count` slices of equal width, and `attention_head` runs on
-// each slice, writing the matching slice of `out`. For GPT-2 with T tokens:
+// The `qkv` matrix has one row per token, which contains its queries, then
+// its keys, then its values, each as wide as `out` (which is 768).
 //
-// step             |  reads              |  produces
-// -----------------+---------------------+-----------------------------
-// split            |  qkv [T, 2304]      |  q, k, v each [T, 768]
-// heads            |  q, k, v [T, 768]   |  12 slices each of [T, 64]
-// attention_head   |  one slice of each  |  one [T, 64] slice of out
-// (all heads)      |                     |  out [T, 768]
+// token_row: 768 * q, 768 * k, 768 * v
 //
-// where 2304 = 3 x 768 and 64 = 768 / 12. The slices are columns of the
-// projection's output, so each head's 64 query features were computed from
-// all 768 input features. The heads partition the projection, not the
-// input, and `c_proj` afterward mixes their outputs back together.
+// This matrix is cut up into `q`, `k`, and `v` matrices, each of which is [T,
+// 768]. Then each attention head is passed a slice of these columns. In other
+// words, the first head gets the first 64 columns of `q`, `k`, and `v`,
+// respectively; and so on.
+//
+// This means that a given head cannot query using the key features from
+// another head. However, as each head's queries were computed by
+// `attn.c_attn` from all input features, they still capture information from
+// all of them. The heads partition the projection, not the input, and
+// `attn.c_proj` afterward mixes their outputs back together.
+//
+// Each head operates independently on its slice of the queries, keys, and
+// values. It writes to the portion of `out` corresponding to its input. In
+// other words, the first head writes to the first 64 columns of `out`, and so
+// on.
+//
+// For GPT-2 with T tokens:
+//
+// step             |  reads                 |  produces
+// -----------------+------------------------+----------------------------
+// split            |  qkv [T, 2304]         |  q, k, v each [T, 768]
+// heads            |  q, k, v [T, 768]      |  12 slices each of [T, 64]
+// attention_head   |  [T, 64] q/k/v slices  |  one [T, 64] slice of out
+// (all heads)      |                        |  out [T, 768]
+//
+// where 2304 = 3 x 768 and 64 = 768 / 12.
 //
 // `scores` is scratch for one row of weights, and must hold at least one
 // element per token. `qkv` must be three times as wide as `out`, whose
-// width must divide evenly by `head_count`. `out` must not overlap `qkv` or
-// `scores`.
+// width must divide evenly by `head_count`. `out` must not overlap `qkv`
+// or `scores`.
 inline void attention(float_matrix_view out, const_float_matrix_view qkv,
     size_t head_count, float_col_span scores) noexcept {
   using row_ndx = float_matrix_view::row_ndx;
@@ -431,13 +456,13 @@ inline void attention(float_matrix_view out, const_float_matrix_view qkv,
   assert(head_count && (width % head_count == 0));
   const auto head_width = width / head_count;
 
-  const auto third = [&](size_t which) {
+  const auto one_third = [&](size_t which) {
     return qkv.subview({row_ndx{0}, col_ndx{which * width}},
         {.row_count = token_count, .col_count = width});
   };
-  const auto q = third(0);
-  const auto k = third(1);
-  const auto v = third(2);
+  const auto q = one_third(0);
+  const auto k = one_third(1);
+  const auto v = one_third(2);
 
   for (size_t head = 0; head < head_count; ++head) {
     const auto slice = [&](const auto& m) {
