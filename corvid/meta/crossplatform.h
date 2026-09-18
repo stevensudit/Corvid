@@ -76,6 +76,19 @@ namespace corvid { inline namespace meta { inline namespace crossplatform {
 #endif
 
 #pragma endregion
+#pragma region Floating point
+
+// Allow floating-point sums to be reassociated for the rest of the enclosing
+// block, so a reduction loop can vectorize instead of running as one serial
+// chain. Must be the first thing in the block. Only clang has a block-scoped
+// form; elsewhere this expands to nothing and the loop stays in IEEE order.
+#ifdef __clang__
+#define PRAGMA_FP_REASSOCIATE _Pragma("clang fp reassociate(on)")
+#else
+#define PRAGMA_FP_REASSOCIATE
+#endif
+
+#pragma endregion
 
 #pragma region Attributes
 

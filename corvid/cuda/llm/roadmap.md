@@ -609,35 +609,54 @@ and `variance` have the same shape but run once per row, not 50257 times per
 token, and are not worth touching. Next: greedy decoding and the greedy text
 from the manifest.
 
-Status (2026-09-18, dot and greedy): `dot` now keeps eight independent
-partial sums in an index loop (the one loop in the header that is not a zip,
-with a body comment saying why), summed at the end. Measured on the clang
-leg: the head on 14 tokens went from 0.44 s to 0.10 s, the five-prompt end-
-to-end gate from 1.0 s to 0.38 s, and the gates moved within tolerance (head
-alone: largest absolute error 3.5e-4 to 1.7e-4; attention path: 2.4e-4).
-Greedy decoding is `greedy`, the vocabulary entry with the largest logit,
-first on a tie, which is also what `torch.argmax` returns. The demonstration
-is the manifest's greedy continuation: from prompt 1's IDs, twenty steps of
-`forward`, `token_logits` on the last row, and `greedy`, appending each
-pick; the twenty IDs match the manifest exactly and decode through
-`gpt2_tokenizer` to its text, ' the "Moon Express" and was a test of the
-technology that would eventually lead to the first human'. The generation
-loop lives in the test, since every step re-runs the whole model over the
-IDs so far and the stage 4 KV cache changes that loop anyway. With this, the
-stage's done-when is met: every per-layer activation of the bisect prompt
-and the logits of all five prompts match within tolerance, and the text
-comes out.
+Status (2026-09-18, dot and greedy): `dot` is the plain zipped reduction it
+always was, now under `PRAGMA_FP_REASSOCIATE`, a new helper in
+"crossplatform.h" that expands to `#pragma clang fp reassociate(on)` for the
+rest of the block and to nothing elsewhere. Steven's ruling over the eight-
+lane index loop that was drafted first: a compiler-specific pragma around a
+simple loop is localized, the lanes are not, and cl is supported
+reluctantly, so its serial `dot` is accepted. Measured in the standalone
+bench with the project's flags, the pragma ties the lanes exactly (3.4 ms
+per token against 28 serial) and the global alternative, `-fassociative-
+math` and kin, was not wanted because it changes every floating-point
+expression in the build. Measured on the clang leg: the head on 14 tokens
+went from 0.44 s to 0.10 s, the five-prompt end- to-end gate from 1.0 s to
+0.38 s, and the gates moved within tolerance (head alone: largest absolute
+error 3.5e-4 to 1.7e-4; attention path: 2.4e-4). Greedy decoding is
+`greedy`, the vocabulary entry with the largest logit, first on a tie, which
+is also what `torch.argmax` returns. The demonstration is the manifest's
+greedy continuation: from prompt 1's IDs, twenty steps of `forward`,
+`token_logits` on the last row, and `greedy`, appending each pick; the
+twenty IDs match the manifest exactly and decode through `gpt2_tokenizer` to
+its text, ' the "Moon Express" and was a test of the technology that would
+eventually lead to the first human'. The generation loop lives in the test,
+since every step re-runs the whole model over the IDs so far and the stage 4
+KV cache changes that loop anyway. With this, the stage's done-when is met:
+every per-layer activation of the bisect prompt and the logits of all five
+prompts match within tolerance, and the text comes out.
 
 Timing notes for the record. The greedy demonstration costs 2.3 s on the
 clang leg, twenty full passes over 14 to 33 tokens with no cache, which is
 the one test in the file over a second; Steven decides whether that stands.
-The trunk runs at about 13 ms per token on clang, roughly 6.5 GMAC/s against
-a machine peak several times that, so `linear`'s axpy loop is the next
-candidate if the CPU baseline is to be fair to CUDA. The cl leg is slower
-throughout: the trunk 2.1x (0.38 s against 0.18 s for the 14-token pass),
-the head 1.7x, and the greedy demonstration 3.8x (8.9 s against 2.3 s), the
-last gap larger than the ops explain and not yet investigated; the stage 4
-comparison should be measured against the clang leg.
+The trunk's 0.19 s for the 14-token pass is mostly not compute: an op-by-op
+profile on the real weights shows 151 ms for the first pass and 64 ms for
+every later one, the difference being first-touch page faults on the memory-
+mapped weight file, so a warm pass costs about 4.6 ms per token and `linear`
+is 91 percent of it (the two MLP projections 30 percent each, `c_attn` 22,
+the attention `c_proj` 7), `gelu_new` 8 percent, everything else under 2.
+Feature-major loop order in `linear`, each weight row read once per pass and
+applied to every token, measured only 15 percent faster than the current
+token-major order at T = 14, so the axpy form is not bandwidth-starved at
+this size; a real speedup there means register tiling over several tokens or
+several threads, neither a small change. The cl leg is slower throughout,
+and with the pragma a no-op there its `dot` is the serial one again: the
+whole test binary takes 15.4 s against 4.8 s on clang. Steven's ruling: cl
+is supported reluctantly and is not optimized for; the stage 4 comparison is
+measured against the clang leg. Deferred by ruling (2026-09-18):
+parallelizing `linear` across tokens or output columns, which could be an
+order of magnitude on this machine but is an architectural shift and out of
+stage 3's scope; and replacing `std::tanh` in `gelu_new` with a vectorizable
+approximation, low-hanging but a tolerance question, so also deferred.
 
 ### 4. CUDA forward pass
 
