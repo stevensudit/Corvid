@@ -147,6 +147,15 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
     update-alternatives --install /usr/bin/gcc gcc /opt/gcc-16/bin/gcc-16 100 \
     --slave /usr/bin/g++ g++ /opt/gcc-16/bin/g++-16
 
+# llvm.sh installs from a moving snapshot of the 23.x release branch, so the
+# point release cannot be chosen at install time. The tree is formatted with
+# clang-format 23.1.1 (the Windows LLVM install), and the 23.1.0 snapshots
+# space a requires-clause `U&&` differently, so the image build fails below
+# 23.1.1 instead of producing a formatter that disagrees with the checked-in
+# formatting. The trailing `~` makes a "23.1.1~++<date>" snapshot pass.
+RUN dpkg --compare-versions \
+    "$(dpkg-query -W -f='${Version}' clang-format-23)" ge 1:23.1.1~
+
 # The PPA snapshot's <format> gets one local patch, libstdcxx-format-clang.patch,
 # so that clang can constant-evaluate format strings with a dynamic width or
 # precision in C++26 mode (LLVM issue 73232 plus a static_assert clang rejects;

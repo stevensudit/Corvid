@@ -19,44 +19,26 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
-#include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <string_view>
 #include <utility>
 
 #include <sys/mman.h>
-#include <unistd.h>
 
 #include "corvid/filesys.h"
 #include "corvid/enums/enum_conversion.h"
+#include "corvid/strings/conversion.h"
 #include "catch2_main.h"
+#include "test_files.h"
 
 using namespace corvid;
+using corvid::tests::temp_file;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 namespace {
-
-// A temporary file holding `content`, unlinked when destroyed.
-struct temp_file {
-  std::string path;
-  os_file file;
-
-  explicit temp_file(std::string_view content) {
-    path = (std::filesystem::temp_directory_path() / "corvid_mmap_XXXXXX")
-               .string();
-    file = os_file{::mkstemp(path.data())};
-    REQUIRE(file);
-    REQUIRE(file.write_all(content));
-  }
-
-  ~temp_file() { ::unlink(path.c_str()); }
-
-  temp_file(const temp_file&) = delete;
-  temp_file& operator=(const temp_file&) = delete;
-};
 
 // Two pages and a bit, with a recognizable byte pattern.
 std::string make_content() {
@@ -71,11 +53,6 @@ size_t resident_pages() {
   size_t resident{};
   std::ifstream{"/proc/self/statm"} >> total >> resident;
   return resident;
-}
-
-bool same_bytes(std::span<const std::byte> bytes, std::string_view s) {
-  return (bytes.size() == s.size()) &&
-         (std::memcmp(bytes.data(), s.data(), s.size()) == 0);
 }
 
 } // namespace
@@ -205,21 +182,24 @@ TEST_CASE("Release", "[Mmap]") {
 TEST_CASE("File mapping", "[Mmap]") {
   const auto page = memory_map::page_size();
   const auto content = make_content();
-  const temp_file tf{content};
+  temp_file tf{content};
 
-  // Whole file by path: the descriptor is opened and closed inside.
+  // Whole file by path: the descriptor is opened and closed inside. An
+  // `O_TMPFILE` file is unnamed, so the path is its descriptor's entry in
+  // "/proc/self/fd".
   if (true) {
-    const auto m = memory_map::map_file(tf.path);
+    const auto path = std::format("/proc/self/fd/{}", tf.file.handle());
+    const auto m = memory_map::map_file(path);
     REQUIRE(m);
     CHECK(m.size() == content.size());
-    CHECK(same_bytes(m.bytes(), content));
+    CHECK(strings::as_string_view(m.bytes()) == content);
   }
 
   // Whole file through an open `os_file`.
   if (true) {
     const auto m = memory_map::map_all(tf.file);
     REQUIRE(m);
-    CHECK(same_bytes(m.bytes(), content));
+    CHECK(strings::as_string_view(m.bytes()) == content);
   }
 
   // A range from a page-aligned offset.
@@ -227,7 +207,8 @@ TEST_CASE("File mapping", "[Mmap]") {
     const auto m = memory_map::map(tf.file, 100, static_cast<off_t>(page));
     REQUIRE(m);
     CHECK(m.size() == 100);
-    CHECK(same_bytes(m.bytes(), std::string_view{content}.substr(page, 100)));
+    CHECK(strings::as_string_view(m.bytes()) ==
+          std::string_view{content}.substr(page, 100));
   }
 
   // An unaligned offset is rejected.
@@ -238,13 +219,11 @@ TEST_CASE("File mapping", "[Mmap]") {
     CHECK(map_errno == EINVAL);
   }
 
-  // The mapping outlives the file: unlink and close, then read it again.
-  auto m = memory_map::map_all(tf.file);
+  // The mapping holds the file: close the `os_file` and read again.
+  const auto m = memory_map::map_all(tf.file);
   REQUIRE(m);
-  ::unlink(tf.path.c_str());
-  auto file = std::move(const_cast<temp_file&>(tf).file);
-  CHECK(file.close());
-  CHECK(same_bytes(m.bytes(), content));
+  CHECK(tf.file.close());
+  CHECK(strings::as_string_view(m.bytes()) == content);
 }
 
 TEST_CASE("File mapping failures", "[Mmap]") {
