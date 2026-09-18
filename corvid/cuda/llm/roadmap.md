@@ -570,6 +570,75 @@ the final layer norm rather than compound. Next: the head (`ln_f/out`
 against every `wte` row, the transposed-weight decision), greedy decoding,
 then the five-prompt logits gate and the greedy text from the manifest.
 
+Status (2026-09-18, head): the head is drafted as two ops. `token_logits`
+scores one token: its row of `ln_f/out` dotted against every row of `wte`,
+the same table that embedded the input, with no bias, into a row of one
+logit per vocabulary entry. `logits` loops it over every row of `ln_f/out`
+into [T, V]. Steven's ruling: the per-token op is the one generation calls,
+on the last row only; the all-rows op exists because the oracle dumps every
+row, the same split as the activations struct, where the tests want every
+step and generation does not. Not a transposed-weight variant of `linear`:
+the math is the same projection with the weight read the other way round
+(`logits[t][v] = sum over c of h[t][c] * wte[v][c]`, against `linear`'s
+`weight[i][j]`), which is what tied weights means and becomes one transpose
+flag on the BLAS call in stage 4, but on the CPU the loop follows the
+storage, a `dot` per vocabulary row, and the intent is scoring, not
+projecting. Gates: the head alone on the dumped `ln_f/out` against the
+dumped logits, largest absolute error 3.5e-4 on values of magnitude around
+100 (largest relative error 2.6e-6); and the first end-to-end gate, IDs
+through `forward` and `logits` against the dumped logits of all five prompts
+(1, 14, 10, 27, and 25 tokens), every one passing at `atol = rtol = 1e-4`
+with largest absolute errors of 3.4e-4, 4.0e-4, 4.3e-4, 7.9e-4, and 2.9e-4.
+
+Performance finding from the same run: the head is the hot spot. Fourteen
+tokens of `logits` take 0.44 s while the whole twelve-block trunk for the
+same tokens takes 0.19 s. The cause is `dot`'s single accumulator: strict
+IEEE ordering (no fast-math, by policy) forbids the compiler from
+reassociating the 768-term sum, so it runs as one serial chain of fused
+multiply-adds at one instruction latency per element, and the head runs
+50257 such chains per token. A standalone measurement with the project's
+flags (clang, `-O3 -march=native`) over 14 tokens: the serial `dot` costs 28
+ms per token; eight independent partial sums in an index loop cost 3.5 ms
+per token, an 8x speedup, and sixteen lanes 3.3 ms; the same eight lanes
+written with `views::chunk` and `zip` cost 38 ms, because the view machinery
+hides the fixed lane count from the vectorizer, so this is the one loop
+where the zip ruling yields to an index loop with a body comment saying why.
+The change alters summation order, so the attention and logit gates shift
+within their tolerances. Applied on Steven's go-ahead, below. `sum`, `mean`,
+and `variance` have the same shape but run once per row, not 50257 times per
+token, and are not worth touching. Next: greedy decoding and the greedy text
+from the manifest.
+
+Status (2026-09-18, dot and greedy): `dot` now keeps eight independent
+partial sums in an index loop (the one loop in the header that is not a zip,
+with a body comment saying why), summed at the end. Measured on the clang
+leg: the head on 14 tokens went from 0.44 s to 0.10 s, the five-prompt end-
+to-end gate from 1.0 s to 0.38 s, and the gates moved within tolerance (head
+alone: largest absolute error 3.5e-4 to 1.7e-4; attention path: 2.4e-4).
+Greedy decoding is `greedy`, the vocabulary entry with the largest logit,
+first on a tie, which is also what `torch.argmax` returns. The demonstration
+is the manifest's greedy continuation: from prompt 1's IDs, twenty steps of
+`forward`, `token_logits` on the last row, and `greedy`, appending each
+pick; the twenty IDs match the manifest exactly and decode through
+`gpt2_tokenizer` to its text, ' the "Moon Express" and was a test of the
+technology that would eventually lead to the first human'. The generation
+loop lives in the test, since every step re-runs the whole model over the
+IDs so far and the stage 4 KV cache changes that loop anyway. With this, the
+stage's done-when is met: every per-layer activation of the bisect prompt
+and the logits of all five prompts match within tolerance, and the text
+comes out.
+
+Timing notes for the record. The greedy demonstration costs 2.3 s on the
+clang leg, twenty full passes over 14 to 33 tokens with no cache, which is
+the one test in the file over a second; Steven decides whether that stands.
+The trunk runs at about 13 ms per token on clang, roughly 6.5 GMAC/s against
+a machine peak several times that, so `linear`'s axpy loop is the next
+candidate if the CPU baseline is to be fair to CUDA. The cl leg is slower
+throughout: the trunk 2.1x (0.38 s against 0.18 s for the 14-token pass),
+the head 1.7x, and the greedy demonstration 3.8x (8.9 s against 2.3 s), the
+last gap larger than the ops explain and not yet investigated; the stage 4
+comparison should be measured against the clang leg.
+
 ### 4. CUDA forward pass
 
 The same model on the device:

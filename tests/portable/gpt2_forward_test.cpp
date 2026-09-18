@@ -21,6 +21,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -28,12 +30,15 @@
 
 #include "corvid/cuda/llm/gpt2_forward.h"
 #include "corvid/cuda/llm/safetensors.h"
+#include "corvid/proto/misc/json_parser.h"
+#include "corvid/strings/conversion.h"
 #include "catch2_main.h"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 #include "test_files.h"
 
 using namespace corvid;
 using namespace corvid::llm;
+using namespace corvid::strings::conversion;
 using Catch::Matchers::WithinAbs;
 
 using row_ndx = float_matrix_view::row_ndx;
@@ -49,6 +54,19 @@ namespace {
 std::filesystem::path oracle_path(std::string_view name) {
   return std::filesystem::path{__FILE__}.parent_path().parent_path() /
          ".local" / "llm" / "gpt2" / name;
+}
+
+// The path of one committed fixture under tests/data/llm/gpt2.
+std::filesystem::path fixture_path(std::string_view name) {
+  return std::filesystem::path{__FILE__}.parent_path().parent_path() / "data" /
+         "llm" / "gpt2" / name;
+}
+
+// The whole of the file at `path`; an unreadable file fails the test.
+std::string read_file(const std::filesystem::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  REQUIRE(in);
+  return std::string{std::istreambuf_iterator<char>{in}, {}};
 }
 
 // The model weights, the bisect prompt's activations, and every prompt's IDs
@@ -594,6 +612,29 @@ TEST_CASE("Embed on hand-computed rows", "[Gpt2ForwardTest]") {
   CHECK(storage == std::vector<float>{100.5F, 200.25F, 1.125F, 2.0625F});
 }
 
+TEST_CASE("Logits on hand-computed rows", "[Gpt2ForwardTest]") {
+  // Two tokens of width two against a three-entry vocabulary.
+  const std::vector<float> wte_storage{1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F};
+  const const_float_matrix_view wte(wte_storage,
+      {.row_count = 3, .col_count = 2});
+  const std::vector<float> in_storage{2.0F, 3.0F, -1.0F, 0.5F};
+  const const_float_matrix_view in(in_storage,
+      {.row_count = 2, .col_count = 2});
+
+  std::vector<float> storage(2 * 3);
+  const float_matrix_view out(storage, {.row_count = 2, .col_count = 3});
+  logits(out, in, wte);
+
+  CHECK(storage == std::vector<float>{2.0F, 3.0F, 5.0F, -1.0F, 0.5F, -0.5F});
+}
+
+TEST_CASE("Greedy picks the largest logit", "[Gpt2ForwardTest]") {
+  const std::vector<float> rising{-1.0F, 3.0F, 2.0F};
+  CHECK(greedy(rising) == token_id{1});
+  const std::vector<float> tied{2.0F, 2.0F, 1.0F};
+  CHECK(greedy(tied) == token_id{0});
+}
+
 TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
@@ -857,6 +898,111 @@ TEST_CASE("Forward pass matches the oracle", "[Gpt2ForwardTest][oracle]") {
   forward(out, ids, model.params, owned.views(), n_head);
 
   check_close(out, expected, 1e-4F, 1e-4F);
+}
+
+TEST_CASE("Logits match the oracle", "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // The head alone, fed the dumped `ln_f/out`, against the dumped logits of
+  // the bisect prompt.
+  const auto in = matrix_of(oracle.activations, "ln_f/out", n_embd);
+  const auto expected = matrix_of(oracle.activations, "logits", n_vocab);
+  const auto wte = matrix_of(oracle.weights, "wte.weight", n_embd);
+  REQUIRE(in.row_extent() == 14);
+
+  std::vector<float> storage(expected.size());
+  const float_matrix_view out(storage, expected.extent());
+  logits(out, in, wte);
+
+  check_close(out, expected, 1e-4F, 1e-4F);
+}
+
+TEST_CASE("Model matches the oracle on every prompt",
+    "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // The whole model, IDs to logits, on each of the manifest's prompts. The
+  // logits dump holds all five; only the bisect prompt has activations.
+  const oracle_params model(oracle);
+  for (auto n = 0UZ; n < 5; ++n) {
+    DYNAMIC_SECTION("prompt_" << n) {
+      const auto prefix = std::format("prompt_{}", n);
+      const auto ids = ids_of(oracle.logits, prefix + "/input_ids");
+      const auto expected =
+          matrix_of(oracle.logits, prefix + "/logits", n_vocab);
+      const auto token_count = ids.size();
+      REQUIRE(expected.row_extent() == token_count);
+
+      std::vector<float> trunk_storage(token_count * n_embd);
+      const float_matrix_view trunk(trunk_storage,
+          {.row_count = token_count, .col_count = n_embd});
+      owned_block_activations owned(token_count);
+      forward(trunk, ids, model.params, owned.views(), n_head);
+
+      std::vector<float> storage(expected.size());
+      const float_matrix_view out(storage, expected.extent());
+      logits(out, trunk, model.params.wte);
+
+      check_close(out, expected, 1e-4F, 1e-4F);
+    }
+  }
+}
+
+TEST_CASE("Greedy decoding reproduces the manifest",
+    "[Gpt2ForwardTest][oracle]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // The manifest records the oracle's greedy continuation of one prompt: the
+  // twenty IDs it appended, and their text. Each step here runs the whole
+  // model over the IDs so far and appends the most likely next token, so
+  // one wrong pick would derail every later one.
+  const auto manifest_text = read_file(fixture_path("manifest.json"));
+  json_value_view root;
+  REQUIRE(parse_json(manifest_text, root));
+  const auto spec = root.as_object().get_object("greedy");
+  const auto prompt = spec.get_number<size_t>("prompt");
+  REQUIRE(prompt);
+  std::vector<token_id> expected_ids;
+  for (const auto item : spec.get_array("tokens")) {
+    const auto id = item.as_number<uint32_t>();
+    REQUIRE(id);
+    expected_ids.push_back(token_id{*id});
+  }
+  REQUIRE(expected_ids.size() == 20);
+  std::string expected_text;
+  REQUIRE(spec.get_string("text", expected_text));
+
+  const oracle_params model(oracle);
+  auto ids =
+      ids_of(oracle.logits, std::format("prompt_{}/input_ids", *prompt));
+  const auto prompt_count = ids.size();
+  std::vector<float> logits_storage(n_vocab);
+  const float_row_span next_logits(logits_storage);
+  for (auto step = 0UZ; step < expected_ids.size(); ++step) {
+    const auto token_count = ids.size();
+    std::vector<float> trunk_storage(token_count * n_embd);
+    const float_matrix_view trunk(trunk_storage,
+        {.row_count = token_count, .col_count = n_embd});
+    owned_block_activations owned(token_count);
+    forward(trunk, ids, model.params, owned.views(), n_head);
+    token_logits(next_logits, trunk[row_ndx{token_count - 1}],
+        model.params.wte);
+    ids.push_back(greedy(next_logits));
+  }
+  const std::vector<token_id> generated(ids.begin() + prompt_count, ids.end());
+  CHECK(generated == expected_ids);
+
+  // And as text, through the tokenizer.
+  gpt2_tokenizer tok;
+  const auto merges = read_file(fixture_path("merges.txt"));
+  const auto merges_span = as_byte_span<char8_t>(merges);
+  REQUIRE(tok.load({merges_span.data(), merges_span.size()}));
+  std::u8string bytes;
+  REQUIRE(tok.decode(bytes, generated));
+  CHECK(std::string(bytes.begin(), bytes.end()) == expected_text);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

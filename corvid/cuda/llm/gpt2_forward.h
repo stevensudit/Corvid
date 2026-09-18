@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -98,9 +99,28 @@ inverse_std_dev(const_float_span values, float mean, float eps) noexcept {
 dot(const_float_span a, const_float_span b) noexcept {
   assert(a.size() == b.size());
 
-  float total{};
-  for (const auto [x, y] : zip(a, b)) total += x * y;
-  return total;
+  // Conceptually, the code here could be:
+  // ```
+  // float total{};
+  // for (auto i = 0; i < a.size(); ++i) total += a[i] * b[i];
+  // return total;
+  // ```
+  //
+  // Howevever, we implement eight independent partial sums, in an index loop
+  // rather than a zip. IEEE order forbids reassociating a single accumulator,
+  // which makes the sum one serial chain of fused multiply-adds at one latency
+  // per element, 8x slower than this on a 768-wide row. The `views::chunk`
+  // expression of the same idea hides the fixed lane count from the vectorizer
+  // and is slower still.
+  constexpr auto lanes = 8UZ;
+  std::array<float, lanes> partial{};
+  const auto size = a.size();
+  auto i = 0UZ;
+  for (; i + lanes <= size; i += lanes)
+    for (auto lane = 0UZ; lane < lanes; ++lane)
+      partial[lane] += a[i + lane] * b[i + lane];
+  for (; i < size; ++i) partial[i % lanes] += a[i] * b[i];
+  return sum(partial);
 }
 
 #pragma endregion
@@ -707,6 +727,67 @@ inline void forward(float_matrix_view out, std::span<const token_id> ids,
   for (const auto& block_params : params.blocks)
     block(out, out, block_params, acts, head_count);
   layer_norm(out, out, params.ln_f_weight, params.ln_f_bias);
+}
+
+#pragma endregion
+#pragma region logits
+
+// Score every vocabulary entry as the next token after `features`, into
+// `out`.
+//
+// `features` is one token's row of the final layer norm's output, and each
+// score is its dot product with that vocabulary entry's row of `wte`, the
+// same table that embedded the input. There is no bias. For GPT-2:
+//
+//   features  [768]         one row of `ln_f/out`
+//   wte       [50257, 768]  the token embedding, read row by row
+//   out       [50257]       one logit per vocabulary entry, written
+//
+// `out` must have one element per row of `wte`, `features` must be as wide
+// as `wte`, and `out` must not overlap either.
+inline void token_logits(float_row_span out, const_float_row_span features,
+    const_float_matrix_view wte) noexcept {
+  assert(out.size() == wte.row_extent());
+  assert(features.size() == wte.col_extent());
+  assert(is_disjoint(out, features) && is_disjoint(out, wte.as_span()));
+
+  for (auto [logit, embedding] : zip(out, wte.rows()))
+    logit = dot(features, embedding);
+}
+
+// Score every vocabulary entry after every token of `in`, into `out`.
+//
+// Row `t` of `out` is `token_logits` of row `t` of `in`. Generation only
+// needs the last row, and calls `token_logits` on it directly; every row is
+// what the oracle dumps. For GPT-2 with T tokens:
+//
+// step          |  reads              |  produces
+// --------------+---------------------+------------------
+// token_logits  |  one row of `in`    |  one row of out
+// (all rows)    |  in [T, 768]        |  out [T, 50257]
+//
+// `out` and `in` must have the same row count, and the shapes of each row
+// are as `token_logits` requires.
+inline void logits(float_matrix_view out, const_float_matrix_view in,
+    const_float_matrix_view wte) noexcept {
+  assert(out.row_extent() == in.row_extent());
+
+  for (const auto [out_row, in_row] : zip(out.rows(), in.rows()))
+    token_logits(out_row, in_row, wte);
+}
+
+#pragma endregion
+#pragma region greedy
+
+// The vocabulary entry with the largest logit, the first on a tie.
+//
+// This is greedy decoding: the next token is the single most likely one,
+// with no sampling. `logits` must not be empty.
+[[nodiscard]] inline token_id greedy(const_float_row_span logits) noexcept {
+  assert(!logits.empty());
+
+  const auto largest = std::ranges::max_element(logits);
+  return token_id{static_cast<uint32_t>(largest - logits.begin())};
 }
 
 #pragma endregion

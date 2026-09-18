@@ -120,8 +120,8 @@ trained against the tanh curve.
 | step | reads | looks up | produces | Corvid |
 |---|---|---|---|---|
 | ln_f | residual [T, C] | `ln_f.weight`, `ln_f.bias` | ln_f/out [T, C] | `layer_norm`, as the last step of `forward` |
-| logits | ln_f/out [T, C] | `wte.weight` [V, C], transposed, no bias | logits [T, V] | not yet |
-| greedy | logits row T - 1 | | the ID with the largest logit | not yet |
+| logits | ln_f/out [T, C] | `wte.weight` [V, C], transposed, no bias | logits [T, V] | `logits`, one `token_logits` per row |
+| greedy | logits row T - 1 | | the ID with the largest logit | `greedy` |
 
 Row t of the logits scores every vocabulary entry as the token after
 position t, so all T rows are predictions and only the last one is used to
