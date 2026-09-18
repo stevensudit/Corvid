@@ -197,35 +197,42 @@ block_params block_params_of(const oracle_dumps& oracle, size_t n) {
   };
 }
 
-// Owned working storage for `block`, sized for `token_count` tokens of the
-// model's widths.
-struct owned_block_scratch {
-  std::vector<float> normed;
+// Owned storage for every activation of `block`, all distinct, sized for
+// `token_count` tokens of the model's widths.
+struct owned_block_activations {
+  std::vector<float> ln_1_out;
   std::vector<float> qkv;
   std::vector<float> heads_out;
-  std::vector<float> sublayer_out;
+  std::vector<float> attn_out;
+  std::vector<float> ln_2_in;
+  std::vector<float> ln_2_out;
   std::vector<float> hidden;
+  std::vector<float> mlp_out;
   std::vector<float> scores;
   size_t token_count{};
 
-  explicit owned_block_scratch(size_t token_count)
-      : normed(token_count * n_embd), qkv(token_count * n_qkv),
-        heads_out(token_count * n_embd), sublayer_out(token_count * n_embd),
-        hidden(token_count * n_hidden), scores(token_count),
-        token_count{token_count} {}
+  explicit owned_block_activations(size_t token_count)
+      : ln_1_out(token_count * n_embd), qkv(token_count * n_qkv),
+        heads_out(token_count * n_embd), attn_out(token_count * n_embd),
+        ln_2_in(token_count * n_embd), ln_2_out(token_count * n_embd),
+        hidden(token_count * n_hidden), mlp_out(token_count * n_embd),
+        scores(token_count), token_count{token_count} {}
 
   // The views `block` takes.
-  block_scratch views() {
+  block_activations views() {
     const auto rows = [&](std::vector<float>& storage, size_t cols) {
       return float_matrix_view(storage,
           {.row_count = token_count, .col_count = cols});
     };
     return {
-        .normed = rows(normed, n_embd),
+        .ln_1_out = rows(ln_1_out, n_embd),
         .qkv = rows(qkv, n_qkv),
         .heads_out = rows(heads_out, n_embd),
-        .sublayer_out = rows(sublayer_out, n_embd),
+        .attn_out = rows(attn_out, n_embd),
+        .ln_2_in = rows(ln_2_in, n_embd),
+        .ln_2_out = rows(ln_2_out, n_embd),
         .hidden = rows(hidden, n_hidden),
+        .mlp_out = rows(mlp_out, n_embd),
         .scores = scores,
     };
   }
@@ -749,14 +756,15 @@ TEST_CASE("Block matches the oracle", "[Gpt2ForwardTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
 
-  // Every block, fed its own dumped residual and compared against the
-  // residual that leaves it, which is the next block's `ln_1/in` or, for the
-  // last block, `ln_f/in`. The gate is the attention and MLP paths' 1e-4,
-  // since both run inside.
+  // Every block, fed its own dumped residual. The residual that leaves it is
+  // the next block's `ln_1/in` or, for the last block, `ln_f/in`, and the
+  // four activations the oracle also dumped are checked on the way. The
+  // gate is the attention and MLP paths' 1e-4, except `ln_1/out`, which
+  // reads the dumped input directly and so gets the layer norm's 1e-5.
   for (auto n = 0UZ; n < n_layer; ++n) {
     DYNAMIC_SECTION("block_" << n) {
-      const auto in = matrix_of(oracle.activations,
-          std::format("block_{}/ln_1/in", n), n_embd);
+      const auto dump = std::format("block_{}", n);
+      const auto in = matrix_of(oracle.activations, dump + "/ln_1/in", n_embd);
       const auto exit =
           (n + 1 < n_layer)
               ? std::format("block_{}/ln_1/in", n + 1)
@@ -766,13 +774,40 @@ TEST_CASE("Block matches the oracle", "[Gpt2ForwardTest][oracle]") {
       const auto token_count = in.row_extent();
       REQUIRE(token_count == 14);
 
+      std::vector<float> out_storage(in.size());
+      const float_matrix_view out(out_storage, in.extent());
+      owned_block_activations owned(token_count);
+      const auto acts = owned.views();
+      block(out, in, params, acts, n_head);
+
+      check_close(out, expected, 1e-4F, 1e-4F);
+      struct dumped {
+        const char* name;
+        const_float_matrix_view actual;
+        float tolerance;
+      };
+      for (const auto& [name, actual, tolerance] :
+          {dumped{"ln_1/out", acts.ln_1_out, 1e-5F},
+              dumped{"attn/out", acts.attn_out, 1e-4F},
+              dumped{"ln_2/in", acts.ln_2_in, 1e-4F},
+              dumped{"ln_2/out", acts.ln_2_out, 1e-4F},
+              dumped{"mlp/out", acts.mlp_out, 1e-4F}})
+      {
+        INFO(name);
+        check_close(actual,
+            matrix_of(oracle.activations, dump + "/" + name, n_embd),
+            tolerance, tolerance);
+      }
+
+      // In place, with `ln_2_in` aliased to the residual too, is the same
+      // arithmetic in the same order, so it matches bit for bit.
       std::vector<float> residual_storage(in.as_span().begin(),
           in.as_span().end());
       const float_matrix_view residual(residual_storage, in.extent());
-      owned_block_scratch scratch(token_count);
-      block(residual, params, scratch.views(), n_head);
-
-      check_close(residual, expected, 1e-4F, 1e-4F);
+      auto in_place = acts;
+      in_place.ln_2_in = residual;
+      block(residual, residual, params, in_place, n_head);
+      CHECK(residual_storage == out_storage);
     }
   }
 }

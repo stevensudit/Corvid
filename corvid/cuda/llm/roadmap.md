@@ -524,6 +524,32 @@ parameter on `block` or separate scratch buffers the caller reads afterward,
 and the mid-block residual rules out the second on its own. Next: the
 forward pass with an observer, the head, and greedy decoding.
 
+Status (2026-09-18, block, second pass): the observer question is closed
+without an observer. Steven's proposal: give every intermediate its own
+buffer, allowing but not requiring the pairs that were shared to alias, so
+the caller reads each dump point back after the call. Applied one step
+further to the residual: `block` now takes `out` and `in` like the other
+ops, and the residual between the two adds is its own activation, so in
+place means passing one view as `out`, `in`, and that buffer.
+`block_scratch` became `block_activations`, its fields named after the dump
+points (`ln_1_out`, `qkv`, `heads_out`, `attn_out`, `ln_2_in`, `ln_2_out`,
+`hidden`, `mlp_out`, `scores`), which also, as Steven noted, removes the
+ambiguity a shared `normed` had: the body of `block` shows `ln_1` and `ln_2`
+at a glance. The doc block states which pairs may share storage (`ln_1_out`
+with `ln_2_out`, `attn_out` with `mlp_out`, `ln_2_in` with `in` or `out`),
+and `block` asserts the four overlaps the ops would pass: a layer norm or
+projection output on the residual it is later added to. The gate now checks
+the five dumped activations too, `ln_1/out` at the layer norm's 1e-5 since
+it reads the dumped input directly and the rest at 1e-4, and runs the block
+a second time in place, pinning that result bit for bit against the out-of-
+place one. Worst absolute errors per dump point: `ln_1/out` 4.3e-6,
+`ln_2/out` 4.3e-6, `attn/out` 7.3e-4, `ln_2/in` 7.3e-4, `mlp/out` 9.8e-4,
+the block exit 9.8e-4; the large ones are the one-ulp-near-1000 residual
+coordinates again. The forward pass therefore needs no callback: its own
+gate is the final logits, and per-block inspection is calling `block`
+directly, as this test does. Next: the forward pass, the head, and greedy
+decoding.
+
 ### 4. CUDA forward pass
 
 The same model on the device:

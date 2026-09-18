@@ -556,8 +556,8 @@ inline void embed(float_matrix_view out, std::span<const token_id> ids,
 // The parameters of one block, as views over the weight file.
 //
 // The names follow the tensor names under `h.N`, with the sublayer prefixed
-// so the two `c_proj` projections read apart. For GPT-2, with C = 768 and
-// F = 3072:
+// so the two `c_proj` projections can be told apart. For GPT-2, with C = 768
+// and F = 3072:
 //
 //   ln_1_weight, ln_1_bias                [C]
 //   attn_c_attn_weight, attn_c_attn_bias  [C, 3C], [3C]
@@ -580,72 +580,92 @@ struct block_params {
   const_float_row_span mlp_c_proj_bias;
 };
 
-// Caller-owned working storage for `block`, as views.
+// The intermediate activations of `block`, as caller-owned views.
 //
-// For T tokens of width C and MLP width F:
+// For T tokens of width C and MLP width F, in the order written:
 //
-//   normed        [T, C]   the output of either layer norm
-//   qkv           [T, 3C]  the `c_attn` output
-//   heads_out     [T, C]   the attention output before `c_proj`
-//   sublayer_out  [T, C]   the correction either sublayer adds
-//   hidden        [T, F]   the MLP's widened rows
-//   scores        [T]      the attention scratch
+//   ln_1_out   [T, C]   the first layer norm's output
+//   qkv        [T, 3C]  the `attn.c_attn` output
+//   heads_out  [T, C]   the attention output before `attn.c_proj`
+//   attn_out   [T, C]   the attention sublayer's correction
+//   ln_2_in    [T, C]   the residual after the attention add
+//   ln_2_out   [T, C]   the second layer norm's output
+//   hidden     [T, F]   the MLP's widened rows
+//   mlp_out    [T, C]   the MLP sublayer's correction
+//   scores     [T]      the attention scratch
 //
-// Each buffer is consumed within the sublayer that writes it, which is why
-// the two sublayers can share `normed` and `sublayer_out`.
-struct block_scratch {
-  float_matrix_view normed;
+// Buffers for intermediate activations within a block.
+//
+// The names follow the dump points in "gpt-2.md", so every one of them can
+// be read after the block returns. While storage may be distinct, so as to
+// allow inspection at every point, if the caller doesn't plan to inspect them
+// then some of buffers may share memory. Specifically, `ln_1_out` can share
+// with `ln_2_out`, and `attn_out` with `mlp_out`. `ln_2_in` may be the block's
+// `in` or `out` view, which is the in-place form.
+struct block_activations {
+  float_matrix_view ln_1_out;
   float_matrix_view qkv;
   float_matrix_view heads_out;
-  float_matrix_view sublayer_out;
+  float_matrix_view attn_out;
+  float_matrix_view ln_2_in;
+  float_matrix_view ln_2_out;
   float_matrix_view hidden;
+  float_matrix_view mlp_out;
   float_col_span scores;
 };
 
-// Run one block over `residual`, in place.
+// Run one block over the residual, reading `in` and writing `out`.
 //
 // Each sublayer reads the residual through its layer norm, computes a
 // correction of the same shape, and adds it back. For GPT-2 with T tokens:
 //
-// step        |  reads                    |  produces
-// ------------+---------------------------+-------------------------
-// ln_1        |  residual [T, 768]        |  normed [T, 768]
-// attn.c_attn |  normed                   |  qkv [T, 2304]
-// attention   |  qkv                      |  heads_out [T, 768]
-// attn.c_proj |  heads_out                |  sublayer_out [T, 768]
-// add         |  residual, sublayer_out   |  residual, in place
-// ln_2        |  residual                 |  normed
-// mlp.c_fc    |  normed                   |  hidden [T, 3072]
-// gelu_new    |  hidden                   |  hidden, in place
-// mlp.c_proj  |  hidden                   |  sublayer_out
-// add         |  residual, sublayer_out   |  residual, in place
+// step        |  reads              |  produces
+// ------------+---------------------+---------------------
+// ln_1        |  in [T, 768]        |  ln_1_out [T, 768]
+// attn.c_attn |  ln_1_out           |  qkv [T, 2304]
+// attention   |  qkv                |  heads_out [T, 768]
+// attn.c_proj |  heads_out          |  attn_out [T, 768]
+// add         |  in, attn_out       |  ln_2_in [T, 768]
+// ln_2        |  ln_2_in            |  ln_2_out [T, 768]
+// mlp.c_fc    |  ln_2_out           |  hidden [T, 3072]
+// gelu_new    |  hidden             |  hidden, in place
+// mlp.c_proj  |  hidden             |  mlp_out [T, 768]
+// add         |  ln_2_in, mlp_out   |  out [T, 768]
 //
-// The scratch views must have the extents above for `residual`'s row count
-// and width, and must not overlap `residual` (asserted); the parameter
-// shapes are asserted by the ops.
-inline void block(float_matrix_view residual, const block_params& params,
-    const block_scratch& scratch, size_t head_count) noexcept {
-  // A layer norm into the residual itself would pass the op's own aliasing
-  // check and then destroy the stream it was about to read; the ops catch
-  // every other overlap.
-  assert(is_disjoint(residual.as_span(), scratch.normed.as_span()));
-  assert(is_disjoint(residual.as_span(), scratch.sublayer_out.as_span()));
+// `out` and `in` must have the same extent and may be the same view. The
+// activation views must have the extents above for that extent and may
+// share storage only as `block_activations` allows. A buffer that overlaps
+// the residual it is later added to is asserted against, since the ops'
+// own checks would pass it. Parameter shapes are asserted by the ops.
+//
+// Note that the `const` on `acts` is shallow.
+inline void block(float_matrix_view out, const_float_matrix_view in,
+    const block_params& params, const block_activations& acts,
+    size_t head_count) noexcept {
+  // Each of these four writes is followed by an add that reads the residual
+  // it would have destroyed; the ops' same-or-disjoint checks allow all
+  // four, and the ops catch every other overlap.
+  assert(is_disjoint(in.as_span(), acts.ln_1_out.as_span()));
+  assert(is_disjoint(in.as_span(), acts.attn_out.as_span()));
+  assert(is_disjoint(acts.ln_2_in.as_span(), acts.ln_2_out.as_span()));
+  assert(is_disjoint(acts.ln_2_in.as_span(), acts.mlp_out.as_span()));
 
-  layer_norm(scratch.normed, residual, params.ln_1_weight, params.ln_1_bias);
-  linear(scratch.qkv, scratch.normed, params.attn_c_attn_weight,
+  layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias);
+  linear(acts.qkv, acts.ln_1_out, params.attn_c_attn_weight,
       params.attn_c_attn_bias);
-  attention(scratch.heads_out, scratch.qkv, head_count, scratch.scores);
-  linear(scratch.sublayer_out, scratch.heads_out, params.attn_c_proj_weight,
+  attention(acts.heads_out, acts.qkv, head_count, acts.scores);
+  linear(acts.attn_out, acts.heads_out, params.attn_c_proj_weight,
       params.attn_c_proj_bias);
-  add(residual, residual, scratch.sublayer_out);
+  add(acts.ln_2_in, in, acts.attn_out);
 
-  layer_norm(scratch.normed, residual, params.ln_2_weight, params.ln_2_bias);
-  linear(scratch.hidden, scratch.normed, params.mlp_c_fc_weight,
+  layer_norm(acts.ln_2_out, acts.ln_2_in, params.ln_2_weight,
+      params.ln_2_bias);
+  linear(acts.hidden, acts.ln_2_out, params.mlp_c_fc_weight,
       params.mlp_c_fc_bias);
-  gelu_new(scratch.hidden, scratch.hidden);
-  linear(scratch.sublayer_out, scratch.hidden, params.mlp_c_proj_weight,
+  gelu_new(acts.hidden, acts.hidden);
+  linear(acts.mlp_out, acts.hidden, params.mlp_c_proj_weight,
       params.mlp_c_proj_bias);
-  add(residual, residual, scratch.sublayer_out);
+  add(out, acts.ln_2_in, acts.mlp_out);
 }
 
 #pragma endregion
