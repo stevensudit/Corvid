@@ -22,7 +22,6 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <limits>
 #include <span>
 #include <string>
@@ -36,6 +35,7 @@
 #include "../../filesys/os_file.h"
 #include "../../filesys/os_mmap_file.h"
 #include "../../math/endian.h"
+#include "../../meta/bit_cast.h"
 #include "../../proto/misc/json_parser.h"
 
 // A reader for the safetensors weight file format.
@@ -185,8 +185,7 @@ public:
   [[nodiscard]] bool parse(std::span<const std::byte> file) {
     // The header length, then the header, then the buffer.
     uint64_t header_size{};
-    if (file.size() < sizeof(header_size)) return false;
-    std::memcpy(&header_size, file.data(), sizeof(header_size));
+    if (!try_bit_cast_to(header_size, file)) return false;
     header_size = swap_not_little(header_size);
     if (header_size > max_header_size ||
         header_size > file.size() - sizeof(header_size))

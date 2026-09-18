@@ -34,6 +34,7 @@
 #include "../../math/arithmetic.h"
 #include "../misc/base_64.h"
 #include "../../math/endian.h"
+#include "../../meta/bit_cast.h"
 #include "../misc/sha_1.h"
 #include "../misc/http_head_codec.h"
 #include "epoll_http_transaction.h"
@@ -261,23 +262,19 @@ public:
   [[nodiscard]] bool parse() noexcept {
     assert(is_complete());
     const auto lb = payload_size_flags();
-    const auto* vs = header_->variable_section;
+    const std::span vs{header_->variable_section};
     header_length_ = 2;
 
     // Decode length, rejecting non-minimal encodings.
     if (lb <= 125)
       payload_length_ = lb;
     else if (lb == 126) {
-      uint16_t v{};
-      std::memcpy(&v, vs, sizeof(v));
-      v = ntoh16(v);
+      const auto v = ntoh16(bit_cast_from<uint16_t>(vs));
       if (v <= 125) return false;
       payload_length_ = v;
       header_length_ += 2;
     } else {
-      uint64_t v{};
-      std::memcpy(&v, vs, sizeof(v));
-      v = ntoh64(v);
+      const auto v = ntoh64(bit_cast_from<uint64_t>(vs));
       if (v <= 0xFFFFULL || v > 0x7FFFFFFFFFFFFFFFULL) return false;
       payload_length_ = v;
       header_length_ += 8;
@@ -286,8 +283,7 @@ public:
     // Decode mask.
     mask_ = 0;
     if (is_masked()) {
-      std::memcpy(&mask_, vs + header_length_ - 2, sizeof(mask_));
-      mask_ = ntoh32(mask_);
+      mask_ = ntoh32(bit_cast_from<uint32_t>(vs.subspan(header_length_ - 2)));
       header_length_ += 4;
     }
 
@@ -363,10 +359,8 @@ public:
     // Godbolt confirms that Clang does an amazing job with this. For the main
     // loop, it XORs 256 bits at a time.
     while (n >= sizeof(uint64_t)) {
-      uint64_t chunk{};
-      std::memcpy(&chunk, s, sizeof(chunk));
-      chunk ^= keybe_64;
-      std::memcpy(p, &chunk, sizeof(chunk));
+      const auto chunk = bit_cast_from<uint64_t>(std::span(s, n)) ^ keybe_64;
+      bit_cast_to(std::span(p, n), chunk);
       p += sizeof(uint64_t);
       s += sizeof(uint64_t);
       n -= sizeof(uint64_t);
@@ -374,8 +368,8 @@ public:
 
     // Handle the stragglers with a bytewise loop.
     if (n != 0) {
-      uint8_t mask[sizeof(uint64_t)];
-      std::memcpy(mask, &keybe_64, sizeof(mask));
+      const auto mask =
+          std::bit_cast<std::array<uint8_t, sizeof(uint64_t)>>(keybe_64);
       for (auto ndx = 0UZ; ndx < n; ++ndx) p[ndx] = s[ndx] ^ mask[ndx];
     }
     return true;
@@ -410,7 +404,7 @@ public:
     ws_frame_wrapper lens{header};
     lens.frame_control() = frame_control;
     uint8_t mask_bit = mask ? uint8_t{0x80} : uint8_t{0};
-    auto vs = lens.variable_section();
+    const std::span vs{header.variable_section};
     lens.payload_length_ = payload_len;
 
     // Encode length.
@@ -419,23 +413,18 @@ public:
       lens.header_length_ = 2;
     } else if (payload_len <= 0xFFFF) {
       header.payload_size_flags = mask_bit | 126;
-      auto v = static_cast<uint16_t>(payload_len);
-      v = hton16(v);
-      std::memcpy(vs, &v, sizeof(v));
+      bit_cast_to(vs, hton16(static_cast<uint16_t>(payload_len)));
       lens.header_length_ = 4;
     } else {
       header.payload_size_flags = mask_bit | 127;
-      auto v = static_cast<uint64_t>(payload_len);
-      v = hton64(v);
-      std::memcpy(vs, &v, sizeof(v));
+      bit_cast_to(vs, hton64(static_cast<uint64_t>(payload_len)));
       lens.header_length_ = 10;
     }
 
     // Encode mask.
     if (mask) {
       lens.mask_ = *mask;
-      uint32_t be_mask = hton32(lens.mask_);
-      std::memcpy(vs + lens.header_length_ - 2, &be_mask, sizeof(be_mask));
+      bit_cast_to(vs.subspan(lens.header_length_ - 2), hton32(lens.mask_));
       lens.header_length_ += 4;
     }
     return lens;
@@ -752,10 +741,10 @@ public:
   [[nodiscard]] bool send_ping() {
     pending_pong_ = ++ping_seq_;
     const auto be_ping_seq = hton32(ping_seq_);
-    char payload[sizeof(be_ping_seq)]{};
-    std::memcpy(payload, &be_ping_seq, sizeof(be_ping_seq));
+    const auto payload =
+        std::bit_cast<std::array<char, sizeof(be_ping_seq)>>(be_ping_seq);
     return send_frame(ws_frame_control::fin | ws_frame_control::ping,
-        {payload, sizeof(payload)});
+        {payload.data(), payload.size()});
   }
 
   // Send a pong frame. Normally sent automatically in response to a ping; also
@@ -876,11 +865,9 @@ public:
 #pragma region Internals
 private:
   [[nodiscard]] static std::string generate_client_key() {
-    std::array<uint8_t, 16> raw_bytes{};
-    for (auto ndx = 0UZ; ndx < 4; ++ndx) {
-      const auto val = generate_random();
-      std::memcpy(&raw_bytes[ndx * 4], &val, 4);
-    }
+    const std::array<uint32_t, 4> words{generate_random(), generate_random(),
+        generate_random(), generate_random()};
+    const auto raw_bytes = std::bit_cast<std::array<uint8_t, 16>>(words);
     return base_64::encode(raw_bytes);
   }
 
@@ -891,8 +878,7 @@ private:
     // Decode close code and reason first, regardless of other state.
     uint16_t code{};
     std::string_view reason;
-    if (payload.size() >= 2) {
-      std::memcpy(&code, payload.data(), sizeof(code));
+    if (try_bit_cast_to(code, payload)) {
       code = ntoh16(code);
       reason = {payload.data() + 2, payload.size() - 2};
       // Validate close code and reason, closing in a different way if invalid.
@@ -1037,9 +1023,7 @@ private:
     if (opcode == ws_frame_control::pong) {
       // If not the pong we're looking for, just ignore it.
       if (!pending_pong_ || payload.size() != 4) return true;
-      uint32_t received;
-      std::memcpy(&received, payload.data(), sizeof(received));
-      received = ntoh32(received);
+      const auto received = ntoh32(bit_cast_from<uint32_t>(payload));
       if (received == *pending_pong_) {
         pending_pong_.reset();
         if (on_pong) return on_pong(*this);

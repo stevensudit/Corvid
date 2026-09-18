@@ -17,11 +17,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
-#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -30,6 +28,7 @@
 #include "corvid/cuda/llm/gpt2_tokenizer.h"
 #include "corvid/cuda/llm/safetensors.h"
 #include "corvid/filesys/os_file.h"
+#include "corvid/meta/bit_cast.h"
 #include "corvid/proto/misc/json_parser.h"
 #include "corvid/strings/conversion.h"
 #include "catch2_main.h"
@@ -50,7 +49,8 @@ using image_t = std::vector<std::byte>;
 template<typename T>
 image_t bytes_of(std::initializer_list<T> values) {
   image_t bytes(values.size() * sizeof(T));
-  std::memcpy(bytes.data(), std::data(values), bytes.size());
+  auto out = std::span{bytes};
+  REQUIRE(try_bit_cast_to(out, values) == bytes.size());
   return bytes;
 }
 
@@ -64,8 +64,9 @@ image_t make_image(std::string_view header, const image_t& payload = {},
   if (aligned) padded.resize((padded.size() + 7) / 8 * 8, ' ');
   image_t image(8 + padded.size() + payload.size());
   const auto header_size = static_cast<uint64_t>(padded.size());
-  std::memcpy(image.data(), &header_size, 8);
-  std::memcpy(image.data() + 8, padded.data(), padded.size());
+  bit_cast_to(image, header_size);
+  auto after_size = std::span{image}.subspan(sizeof(header_size));
+  REQUIRE(try_bit_cast_to(after_size, padded) == padded.size());
   std::ranges::copy(payload, image.data() + 8 + padded.size());
   return image;
 }
