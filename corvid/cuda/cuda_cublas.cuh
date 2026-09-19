@@ -106,7 +106,10 @@ private:
 #pragma endregion
 #pragma region cublas_handle
 
-// An element type that cuBLAS has a GEMM routine for.
+// An element type that `multiply` has a `gemm` overload for.
+//
+// cuBLAS also has GEMM routines for `__half`, `cuComplex`, and
+// `cuDoubleComplex`, which this wrapper does not cover.
 template<typename T>
 concept GemmElement = std::same_as<T, float> || std::same_as<T, double>;
 
@@ -132,10 +135,7 @@ public:
 
   // General Matrix Multiply (GEMM), `C = alpha * op(A) * op(B) + beta * C`.
   //
-  // Every matrix is column-major, as cuBLAS defines it. `op(X)` is `X` as
-  // stored or its transpose, per `opA` and `opB`, and the shapes below are
-  // those of `op(A)` and `op(B)`, after any transpose:
-  //
+  // These are:
   //   m      rows of `op(A)` and of `C`
   //   n      columns of `op(B)` and of `C`
   //   k      columns of `op(A)` and rows of `op(B)`, the summed dimension
@@ -151,11 +151,21 @@ public:
   //   opA    whether `A` is used as stored or transposed
   //   opB    likewise for `B`
   //
+  // Every matrix is column-major, as cuBLAS defines it. `op(X)` is `X` as
+  // stored when its flag is `none`, and the transpose of `X` as stored when
+  // it is `transpose`. The dimensions describe the operands of the product:
+  // `op(A)` is `m` by `k`, `op(B)` is `k` by `n`, and `C` is `m` by `n`. So a
+  // buffer passed with `transpose` holds the other shape, `k` by `m` for `A`
+  // and `n` by `k` for `B`.
+  //
   // A leading dimension is the element distance between the starts of
-  // consecutive columns of the matrix as stored, before any transpose. For a
-  // packed matrix, that is its stored row count: `lda` is `m` when `opA` is
-  // `none` and `k` when it is `transpose`, `ldb` is `k` or `n` likewise, and
-  // `ldc` is `m`. A larger value addresses a column block of a wider matrix.
+  // consecutive columns of a buffer as stored, which the flags do not change.
+  // For a packed buffer it is the stored row count: `lda` is `m` under `none`
+  // and `k` under `transpose`, `ldb` is `k` or `n` likewise, and `ldc` is `m`.
+  // A larger value addresses a block of a taller stored matrix.
+  //
+  // `alpha` scales the product. `beta` scales `C` before the product is
+  // added, so zero leaves `C` unread and one accumulates onto it.
   template<GemmElement T>
   [[nodiscard]] cublas_last_status
   multiply(int m, int n, int k, std::type_identity_t<T> alpha,
@@ -170,9 +180,15 @@ public:
   // GEMM over row-major matrices, `C = alpha * op(A) * op(B) + beta * C`.
   //
   // The same letters as `multiply`, read row-major: `op(A)` is `m` by `k`,
-  // `op(B)` is `k` by `n`, `C` is `m` by `n`, and each leading dimension is
-  // the element distance between the starts of consecutive rows of that
-  // matrix as stored, which for a packed matrix is its column count.
+  // `op(B)` is `k` by `n`, `C` is `m` by `n`, and a leading dimension is the
+  // element distance between the starts of consecutive rows of a buffer as
+  // stored, which for a packed buffer is its column count.
+  //
+  // cuBLAS reads a row-major buffer as the transpose of the matrix it holds.
+  // Transposing both sides of the product gives `C^T = (op(A) * op(B))^T`,
+  // which is the same as `op(B)^T * op(A)^T`. So the call is `multiply` with
+  // the operands swapped and `m` and `n` swapped, and it all cancels out to
+  // give us a row-major result.
   template<GemmElement T>
   [[nodiscard]] cublas_last_status
   multiply_row_major(int m, int n, int k, std::type_identity_t<T> alpha,
@@ -180,11 +196,6 @@ public:
       std::type_identity_t<T> beta, cuda_buffer<T>& C, int ldc,
       cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
-    // cuBLAS reads each row-major buffer as its column-major transpose, and
-    // transposing both sides gives `C^T = op(B)^T * op(A)^T`. So the operands
-    // swap, `C` is described from the other side, and each flag carries over
-    // unchanged, since a transpose asked for in row-major terms is the same
-    // transpose of the buffer cuBLAS sees.
     return multiply(n, m, k, alpha, B, ldb, A, lda, beta, C, ldc, opB, opA);
   }
 

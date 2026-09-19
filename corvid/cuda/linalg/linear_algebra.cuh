@@ -18,6 +18,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <type_traits>
 
 #include <cuda_runtime.h>
 
@@ -49,7 +50,7 @@ inline constexpr auto threads_per_block = 256U;
 }
 
 #pragma endregion
-#pragma region linear_projection
+#pragma region gemm
 
 namespace details {
 
@@ -62,6 +63,74 @@ __global__ void fill_rows(T* out, size_t size, const T* bias, size_t cols) {
 
 } // namespace details
 
+// General Matrix Multiply (GEMM) over row-major matrices.
+//
+// `out = scale * op(a) * op(b) + bias_scale * bias`, where `op(x)` is `x` or
+// its transpose, as `op_a` and `op_b` select. The shapes must agree: `op(a)`
+// has a row per row of `out`, `op(b)` has a column per column of `out`, and
+// `op(a)` has as many columns as `op(b)` has rows.
+//
+// `bias` is the term added to the product. When given, it is a row with an
+// element per column of `out`, added to every row. When null, it is the prior
+// contents of `out`, so the product accumulates onto them. A `bias_scale` of
+// zero leaves that term unread, which is how a plain product with no `bias`
+// is asked for.
+//
+// `out` must not be `a` or `b`. Returns false when a launch is refused,
+// leaving `out` unspecified.
+//
+// TODO: Handle non-packed views over matrices.
+template<GemmElement T>
+[[nodiscard]] bool gemm(const cublas_handle& blas, cuda_matrix<T>& out,
+    const cuda_matrix<T>& a, const cuda_matrix<T>& b,
+    const cuda_buffer<std::type_identity_t<T>>* bias = nullptr,
+    std::type_identity_t<T> scale = 1, std::type_identity_t<T> bias_scale = 1,
+    cublas_operation op_a = cublas_operation::none,
+    cublas_operation op_b = cublas_operation::none) {
+  // The extent of `op(x)`, which is that of `x` with the sides swapped when
+  // `x` is transposed.
+  const auto op_extent = [](const cuda_matrix<T>& x, cublas_operation op) {
+    return (op == cublas_operation::none)
+               ? x.extent()
+               : matrix_extent{.row_count = x.col_extent(),
+                     .col_count = x.row_extent()};
+  };
+  const auto op_a_extent = op_extent(a, op_a);
+  [[maybe_unused]] const auto op_b_extent = op_extent(b, op_b);
+  assert((out.row_extent() == op_a_extent.row_count) &&
+         (out.col_extent() == op_b_extent.col_count));
+  assert(op_a_extent.col_count == op_b_extent.row_count);
+  assert((&out != &a) && (&out != &b));
+
+  // The bias goes into `out` before the GEMM, so that cuBLAS sees it as the
+  // `C` operand and `bias_scale` reaches it as `beta`. GEMM has no broadcast:
+  // its addend is a full matrix, so the one row is written across every row
+  // of `out`. That costs no extra memory and one write of `out`, where a
+  // product followed by a separate bias add would read and write `out` again.
+  if (bias) {
+    assert(bias->size() == out.col_extent());
+    details::fill_rows<T><<<blocks_for(out.size()), threads_per_block>>>(
+        out.get(), out.size(), bias->get(), out.col_extent());
+    if (!cuda_last_status{}) return false;
+  }
+
+  // Every matrix is packed, so each leading dimension is its stored row
+  // length. The handle's stream is the default one, the same the fill ran on,
+  // so the order holds.
+  const auto m = static_cast<int>(out.row_extent());
+  const auto n = static_cast<int>(out.col_extent());
+  const auto k = static_cast<int>(op_a_extent.col_count);
+  return blas
+      .multiply_row_major(m, n, k, scale, a.buffer(),
+          static_cast<int>(a.col_extent()), b.buffer(),
+          static_cast<int>(b.col_extent()), bias_scale, out.buffer(), n, op_a,
+          op_b)
+      .ok();
+}
+
+#pragma endregion
+#pragma region linear_projection
+
 // Project each row of `in` through `weight` and add `bias`, into `out`.
 //
 // The contract is that of the CPU `corvid::linalg::linear_projection`, which
@@ -71,36 +140,11 @@ __global__ void fill_rows(T* out, size_t size, const T* bias, size_t cols) {
 // `weight`.
 //
 // Returns false when a launch is refused, leaving `out` unspecified.
-//
-// TODO: Handle non-packed views over matrices.
 template<GemmElement T>
 [[nodiscard]] bool linear_projection(const cublas_handle& blas,
     cuda_matrix<T>& out, const cuda_matrix<T>& in,
     const cuda_matrix<T>& weight, const cuda_buffer<T>& bias) {
-  assert(weight.row_extent() == in.col_extent());
-  assert((out.row_extent() == in.row_extent()) &&
-         (out.col_extent() == weight.col_extent()));
-  assert(bias.size() == weight.col_extent());
-  assert((&out != &in) && (&out != &weight));
-
-  // The bias is the starting value of every output row, and the product then
-  // accumulates onto it through `beta`, which is the shape of the CPU op's
-  // copy followed by `add_scaled`.
-  details::fill_rows<T><<<blocks_for(out.size()), threads_per_block>>>(
-      out.get(), out.size(), bias.get(), out.col_extent());
-  if (!cuda_last_status{}) return false;
-
-  // `out = in * weight` in row-major terms: `m` rows, `n` output features,
-  // `k` input features, each leading dimension a packed row length. The
-  // handle's stream is the default one, the same the fill ran on, so the
-  // order holds.
-  const auto m = static_cast<int>(out.row_extent());
-  const auto n = static_cast<int>(out.col_extent());
-  const auto k = static_cast<int>(in.col_extent());
-  return blas
-      .multiply_row_major(m, n, k, 1.0F, in.buffer(), k, weight.buffer(), n,
-          1.0F, out.buffer(), n)
-      .ok();
+  return gemm(blas, out, in, weight, &bias);
 }
 
 #pragma endregion

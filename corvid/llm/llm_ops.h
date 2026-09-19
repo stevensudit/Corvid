@@ -56,8 +56,7 @@ inline void standardize_row(float_row_span row_out,
     out_value = standardize(in_value, row_mean, inv_std);
 }
 
-// Scale `row_in` by `weight` and shift by `bias`, elementwise, into
-// `row_out`.
+// Scale `row_in` by `weight` and shift by `bias`, elementwise, into `row_out`.
 //
 // All four spans must be the same size, and `row_out` and `row_in` can refer
 // to the same memory.
@@ -118,8 +117,8 @@ inline constexpr T gelu_cubic_coeff_v = static_cast<T>(0.044715);
 // GELU is `x` times the probability that a standard normal draw is below `x`.
 // So it passes large positive inputs through unchanged, squashes large
 // negative ones to zero, and bends smoothly between the two, dipping a little
-// The exact probability needs `erf`; this form instead uses a tanh of
-// a cubic, which is close but not identical:
+// to avoid zeroing out small negatives. The exact probability needs `erf`;
+// this form instead uses a tanh of a cubic, which is close but not identical:
 //
 //   0.5 * x * (1 + tanh(sqrt(2 / pi) * (x + 0.044715 * x^3)))
 //
@@ -182,7 +181,7 @@ void gelu_new(matrix_view<T> out, const_view_t<T> in) noexcept {
 //
 // All four views must have the same row count, and `out` must not overlap
 // any of the others.
-inline void attention_head(float_matrix_view out, const_float_matrix_view q,
+inline void attend_head(float_matrix_view out, const_float_matrix_view q,
     const_float_matrix_view k, const_float_matrix_view v,
     float_col_span scores) noexcept {
   [[maybe_unused]] const auto token_count = q.row_extent();
@@ -244,7 +243,7 @@ inline void attention_head(float_matrix_view out, const_float_matrix_view q,
 // element per token. `qkv` must be three times as wide as `out`, whose
 // width must divide evenly by `head_count`. `out` must not overlap `qkv`
 // or `scores`.
-inline void attention(float_matrix_view out, const_float_matrix_view qkv,
+inline void attend(float_matrix_view out, const_float_matrix_view qkv,
     size_t head_count, float_col_span scores) noexcept {
   using row_ndx = float_matrix_view::row_ndx;
   using col_ndx = float_matrix_view::col_ndx;
@@ -269,7 +268,7 @@ inline void attention(float_matrix_view out, const_float_matrix_view qkv,
       return m.subview({row_ndx{0}, col_ndx{head * head_width}},
           {.row_count = token_count, .col_count = head_width});
     };
-    attention_head(slice(out), slice(q), slice(k), slice(v), scores);
+    attend_head(slice(out), slice(q), slice(k), slice(v), scores);
   }
 }
 
@@ -304,11 +303,11 @@ inline void embed_tokens(float_matrix_view out, std::span<const token_id> ids,
 #pragma endregion
 #pragma region logits
 
-// Score every vocabulary entry as the next token after `features`, into
-// `out`.
+// Score every vocabulary entry as the next token after `features`, into `out`.
 //
 // Each score is the dot product of `features` with that entry's row of
-// `vocab`. There is no bias. With V vocabulary entries and width C:
+// `vocab`. This is a projection through the transpose of `vocab`, with no
+// bias term. With V vocabulary entries and width C:
 //
 //   features  [C]     one token's row of the final layer norm's output
 //   vocab     [V, C]  a row per vocabulary entry
@@ -316,8 +315,8 @@ inline void embed_tokens(float_matrix_view out, std::span<const token_id> ids,
 //
 // `out` must have one element per row of `vocab`, `features` must be as wide
 // as `vocab`, and `out` must not overlap either.
-inline void token_logits(float_row_span out, const_float_row_span features,
-    const_float_matrix_view vocab) noexcept {
+inline void compute_token_logits(float_row_span out,
+    const_float_row_span features, const_float_matrix_view vocab) noexcept {
   assert(out.size() == vocab.row_extent());
   assert(features.size() == vocab.col_extent());
   assert(is_disjoint(out, features) && is_disjoint(out, vocab.as_span()));
@@ -328,23 +327,24 @@ inline void token_logits(float_row_span out, const_float_row_span features,
 
 // Score every vocabulary entry after every token of `in`, into `out`.
 //
-// Row `t` of `out` is `token_logits` of row `t` of `in`. Generation only
-// needs the last row, and calls `token_logits` on it directly; every row is
-// what the oracle dumps. With T tokens, V vocabulary entries, and width C:
+// Row `t` of `out` is `compute_token_logits` of row `t` of `in`. Generation
+// only needs the last row, and calls `compute_token_logits` on it directly;
+// every row is what the oracle dumps. With T tokens, V vocabulary entries, and
+// width C:
 //
-// step          |  reads            |  produces
-// --------------+-------------------+------------------
-// token_logits  |  one row of `in`  |  one row of out
-// (all rows)    |  in [T, C]        |  out [T, V]
+// step                  |  reads            |  produces
+// ----------------------+-------------------+------------------
+// compute_token_logits  |  one row of `in`  |  one row of out
+// (all rows)            |  in [T, C]        |  out [T, V]
 //
 // `out` and `in` must have the same row count, and the shapes of each row
-// are as `token_logits` requires.
-inline void logits(float_matrix_view out, const_float_matrix_view in,
-    const_float_matrix_view vocab) noexcept {
+// are as `compute_token_logits` requires.
+inline void compute_all_logits(float_matrix_view out,
+    const_float_matrix_view in, const_float_matrix_view vocab) noexcept {
   assert(out.row_extent() == in.row_extent());
 
   for (const auto [out_row, in_row] : zip(out.rows(), in.rows()))
-    token_logits(out_row, in_row, vocab);
+    compute_token_logits(out_row, in_row, vocab);
 }
 
 #pragma endregion

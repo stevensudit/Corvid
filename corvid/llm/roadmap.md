@@ -825,6 +825,23 @@ hands out `const_handle_t`, a pointer to const. `get()`, the conversion, and
 `cuda_matrix::get()` and `buffer()` are deducing-this on top. Pinned by
 static_asserts in the buffer test; the full suite of 86 is green.
 
+Status (2026-09-19, review round on checkpoint 2): the LLM op names lead
+with a verb: `attention_head` and `attention` are `attend_head` and
+`attend`, and `token_logits` and `logits` are `compute_token_logits` and
+`compute_all_logits`, the last saying that it scores every position where
+the other scores one. The device linalg layer gained `gemm` in
+"linear_algebra.cuh", the mid-level wrapper between `cublas_handle` and the
+ops: `out = scale * op(a) * op(b) + bias_scale * bias` over `cuda_matrix`,
+with an optional `bias` row (null makes the prior contents of `out` the
+addend), `scale` and `bias_scale` defaulting to one, and the transpose flags
+last; `linear_projection` is one call to it. The bias broadcast is explained
+in the body: cuBLAS has no vector addend, so the row is written across `out`
+before the GEMM and `beta` reaches it there. The `multiply` doc in
+"cuda_cublas.cuh" states the operand shapes and leading dimensions directly,
+`multiply_row_major` derives its swap from `(A * B)^T = B^T * A^T`, and
+`GemmElement` names the half and complex GEMMs it leaves out.
+"reflow_comments.py" also flags orphan tails now.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

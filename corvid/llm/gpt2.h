@@ -134,7 +134,7 @@ inline void block(float_matrix_view out, const_float_matrix_view in,
       layer_norm_eps);
   linear_projection(acts.qkv, acts.ln_1_out, params.attn_c_attn_weight,
       params.attn_c_attn_bias);
-  attention(acts.heads_out, acts.qkv, head_count, acts.scores);
+  attend(acts.heads_out, acts.qkv, head_count, acts.scores);
   linear_projection(acts.attn_out, acts.heads_out, params.attn_c_proj_weight,
       params.attn_c_proj_bias);
   add(acts.ln_2_in, in, acts.attn_out);

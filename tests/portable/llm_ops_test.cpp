@@ -217,7 +217,7 @@ TEST_CASE("Attention on three tokens of width two", "[LlmOpsTest]") {
     // Token 1 scores itself 0.707 and token 0 zero, for weights 0.670 and
     // 0.330. Token 2 scores itself 1.414 and the others 0.707, for weights
     // 0.503, 0.248, and 0.248.
-    attention(out, qkv, 1, scores);
+    attend(out, qkv, 1, scores);
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
     CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
     CHECK_THAT(out_storage[2], WithinAbs(0.669762, tolerance));
@@ -231,7 +231,7 @@ TEST_CASE("Attention on three tokens of width two", "[LlmOpsTest]") {
     // zero query, so both scores are zero and it takes half of each value:
     // (0 + 1) / 2. Head 1 scores itself 1 and token 0 zero, for weights
     // 0.731 and 0.269 on values 0 and 1.
-    attention(out, qkv, 2, scores);
+    attend(out, qkv, 2, scores);
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
     CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
     CHECK_THAT(out_storage[2], WithinAbs(0.5, tolerance));
@@ -267,7 +267,7 @@ TEST_CASE("Logits on hand-computed rows", "[LlmOpsTest]") {
 
   std::vector<float> storage(2UZ * 3);
   const float_matrix_view out(storage, {.row_count = 2, .col_count = 3});
-  logits(out, in, wte);
+  compute_all_logits(out, in, wte);
 
   CHECK(storage == std::vector<float>{2.0F, 3.0F, 5.0F, -1.0F, 0.5F, -0.5F});
 }
@@ -391,7 +391,7 @@ TEST_CASE("Attention path matches the oracle", "[LlmOpsTest][oracle]") {
       const float_matrix_view out(out_storage, in.extent());
 
       linear_projection(qkv, in, attn_weight, attn_bias);
-      attention(heads_out, qkv, n_head, scores);
+      attend(heads_out, qkv, n_head, scores);
       linear_projection(out, heads_out, proj_weight, proj_bias);
 
       check_close(out, expected, 1e-4F, 1e-4F);
@@ -477,7 +477,7 @@ TEST_CASE("Logits match the oracle", "[LlmOpsTest][oracle]") {
 
   std::vector<float> storage(expected.size());
   const float_matrix_view out(storage, expected.extent());
-  logits(out, in, wte);
+  compute_all_logits(out, in, wte);
 
   check_close(out, expected, 1e-4F, 1e-4F);
 }
