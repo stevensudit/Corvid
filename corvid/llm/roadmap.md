@@ -877,11 +877,22 @@ dimensions are the strides, closing the non-packed TODO, and the elementwise
 kernels map their flat index through `cuda_kernel::strided_offset`. The
 `cublas_handle` multiplies take device pointers now, as cuBLAS does, since a
 view has no buffer to hand over. The empty addend is a default-constructed
-view, so the one-round `cuda_matrix(std::nullptr_t)` and the buffer-level
-device copy went away. Tests: the linalg test gained a strided case (product
-into a window of a wider matrix with the neighboring column untouched, a
-bias broadcast into it, pitched store and load of the window, and a strided
-device-to-device addend).
+view, so the one-round `cuda_matrix(std::nullptr_t)` went away, while the
+buffer-level device copy stays as functionality buffers deserve on their
+own. Tests: the linalg test gained a strided case (product into a window of a
+wider matrix with the neighboring column untouched, a bias broadcast into it,
+pitched store and load of the window, and a strided device-to-device addend).
+
+Status (2026-09-19, view base and owning overloads): the shape math of the
+two views lives once in `matrix_view_base` ("matrix_view.h"): extent and
+stride, the count accessors, `is_packed`, the index intervals, and the
+protected offset, footprint, and window helpers that both `subview` forms
+resolve through, so `matrix_view` and `cuda_matrix_view` add only their
+storage (a host span, a device pointer) and what touches it. Every device op
+also has an overload taking an owning `cuda_matrix<T>&` for `out` that
+forwards to the view form, so `gemm(blas, out, a, b)` reads the same for a
+matrix and a view, and `cuda_matrix::subview` passes through to its view for
+the same reason.
 
 ### 5. Backward pass and LoRA
 

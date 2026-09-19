@@ -71,6 +71,12 @@ template<Floating T>
   return cuda_last_status{}.ok();
 }
 
+// `gelu_new` over an owning `out`, so the call needs no `view()`.
+template<Floating T>
+[[nodiscard]] bool gelu_new(cuda_matrix<T>& out, const_view_t<T> in) {
+  return gelu_new(out.view(), in);
+}
+
 #pragma endregion
 
 } // namespace corvid::cuda::llm

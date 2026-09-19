@@ -110,59 +110,38 @@ inline constexpr matrix_extent matrix_extent::dynamic{
 } // namespace matrix_types
 
 #pragma endregion
-#pragma region matrix_view
+#pragma region matrix_view_base
 
-template<typename T>
-class matrix_view {
+// The shape of a row-major view, an extent and a stride, with the index math
+// that every storage shares.
+//
+// `matrix_view` and `cuda_matrix_view` derive from it and add their storage,
+// a host span or a device pointer. It never touches an element, so it serves
+// both.
+class matrix_view_base {
 public:
 #pragma region Types
 
-  using element_t = T;
-  using span_t = std::span<T>;
   using row_ndx = matrix_types::row_ndx;
   using col_ndx = matrix_types::col_ndx;
   using coord = matrix_types::coord;
   using extent_t = matrix_types::matrix_extent;
-  using row_span = enum_span<element_t, col_ndx>;
 
 #pragma endregion
 #pragma region Construction
 
-  constexpr matrix_view() = default;
+  constexpr matrix_view_base() = default;
 
-  // Packed view over `data`, which must hold exactly the elements of `size`.
-  constexpr matrix_view(span_t data, extent_t size) noexcept
-      : matrix_view{data, size, size.col_count} {
-    assert(data.size() == size.row_count * size.col_count);
-  }
-
-  // Strided view over `data`, whose rows start `stride` elements apart and
-  // show only their first `size.col_count` elements.
+  // The shape of `extent`, with rows `stride` elements apart.
   //
-  // `stride` must be at least `size.col_count`, and `data` must reach the
-  // last element of the last row.
-  constexpr matrix_view(span_t data, extent_t size, size_t stride) noexcept
-      : data_{data}, extent_{size}, stride_{stride} {
-    assert(stride >= extent_.col_count);
-    assert(data.size() >= footprint(size, stride));
-    data_ = data_.first(footprint(size, stride));
+  // `stride` must be at least `extent.col_count`.
+  constexpr matrix_view_base(extent_t extent, size_t stride) noexcept
+      : extent_{extent}, stride_{stride} {
+    assert(stride >= extent.col_count);
   }
-
-  // Implicit conversion to a read-only view of a mutable view of the same
-  // element type.
-  template<typename U>
-  requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
-  constexpr matrix_view(matrix_view<U> other) noexcept
-      : data_{other.as_span()}, extent_{other.extent()},
-        stride_{other.stride()} {}
 
 #pragma endregion
 #pragma region Accessors
-
-  // The elements the view reaches, from the first of the first row through
-  // the last of the last row, so a strided view includes the gaps between
-  // its rows.
-  [[nodiscard]] constexpr span_t as_span() const noexcept { return data_; }
 
   [[nodiscard]] constexpr size_t stride() const noexcept { return stride_; }
 
@@ -185,6 +164,9 @@ public:
   [[nodiscard]] constexpr bool empty() const noexcept {
     return !extent_.row_count || !extent_.col_count;
   }
+  [[nodiscard]] constexpr bool is_packed() const noexcept {
+    return (stride_ == extent_.col_count);
+  }
 
   // One past the last row or column, as index types.
   [[nodiscard]] constexpr row_ndx end_row() const noexcept {
@@ -203,11 +185,128 @@ public:
     return interval<col_ndx>::iota(extent_.col_count);
   }
 
+#pragma endregion
+#pragma region Workers
+protected:
+  // The element offset of row `r`, column `c`, both of which must be in range.
+  [[nodiscard]] constexpr size_t
+  offset_of(row_ndx r, col_ndx c) const noexcept {
+    assert((*r < extent_.row_count) && (*c < extent_.col_count));
+    return (*r * stride_) + *c;
+  }
+
+  // The element count from the first element of the first row through the
+  // last element of the last row, which is what a view of `size` reaches.
+  [[nodiscard]] static constexpr size_t
+  footprint(extent_t size, size_t stride) noexcept {
+    return size.row_count ? ((size.row_count - 1) * stride) + size.col_count
+                          : 0;
+  }
+  [[nodiscard]] constexpr size_t footprint() const noexcept {
+    return footprint(extent_, stride_);
+  }
+
+  // The size of the rectangle from `from` up to, but not including, `to`,
+  // where a member of `to` at its `npos` means the end of that dimension.
+  //
+  // The rectangle must lie within the view.
+  [[nodiscard]] constexpr extent_t
+  window_size(coord from, coord to) const noexcept {
+    const auto row_end =
+        (to.row == row_ndx::npos) ? extent_.row_count : *to.row;
+    const auto col_end =
+        (to.col == col_ndx::npos) ? extent_.col_count : *to.col;
+    assert((*from.row <= row_end) && (row_end <= extent_.row_count));
+    assert((*from.col <= col_end) && (col_end <= extent_.col_count));
+    return {row_end - *from.row, col_end - *from.col};
+  }
+
+  // The size of the rectangle of `size` at `from`, where a count of `size`
+  // at its `npos` means the rest of that dimension.
+  //
+  // The rectangle must lie within the view.
+  [[nodiscard]] constexpr extent_t
+  window_size(coord from, extent_t size) const noexcept {
+    assert(
+        (*from.row <= extent_.row_count) && (*from.col <= extent_.col_count));
+    const auto rows_left = extent_.row_count - *from.row;
+    const auto cols_left = extent_.col_count - *from.col;
+    const auto row_count =
+        (size.row_count == extent_t::npos.row_count)
+            ? rows_left
+            : size.row_count;
+    const auto col_count =
+        (size.col_count == extent_t::npos.col_count)
+            ? cols_left
+            : size.col_count;
+    assert((row_count <= rows_left) && (col_count <= cols_left));
+    return {row_count, col_count};
+  }
+
+#pragma endregion
+#pragma region Data members
+
+  extent_t extent_{0, 0};
+  size_t stride_{};
+
+#pragma endregion
+};
+
+#pragma endregion
+#pragma region matrix_view
+
+// Shared across CPU and GPU.
+template<typename T>
+class matrix_view: public matrix_view_base {
+public:
+#pragma region Types
+
+  using element_t = T;
+  using span_t = std::span<T>;
+  using row_span = enum_span<element_t, col_ndx>;
+
+#pragma endregion
+#pragma region Construction
+
+  constexpr matrix_view() = default;
+
+  // Packed view over `data`, which must hold exactly the elements of `size`.
+  constexpr matrix_view(span_t data, extent_t size) noexcept
+      : matrix_view{data, size, size.col_count} {
+    assert(data.size() == size.row_count * size.col_count);
+  }
+
+  // Strided view over `data`, whose rows start `stride` elements apart and
+  // show only their first `size.col_count` elements.
+  //
+  // `stride` must be at least `size.col_count`, and `data` must reach the
+  // last element of the last row.
+  constexpr matrix_view(span_t data, extent_t size, size_t stride) noexcept
+      : matrix_view_base{size, stride}, data_{data} {
+    assert(data.size() >= footprint());
+    data_ = data_.first(footprint());
+  }
+
+  // Implicit conversion to a read-only view of a mutable view of the same
+  // element type.
+  template<typename U>
+  requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
+  constexpr matrix_view(matrix_view<U> other) noexcept
+      : matrix_view_base{other.extent(), other.stride()},
+        data_{other.as_span()} {}
+
+#pragma endregion
+#pragma region Accessors
+
+  // The elements the view reaches, from the first of the first row through
+  // the last of the last row, so a strided view includes the gaps between
+  // its rows.
+  [[nodiscard]] constexpr span_t as_span() const noexcept { return data_; }
+
   // Element at row `r`, column `c`, both of which must be in range.
   [[nodiscard]] constexpr element_t&
   operator[](row_ndx r, col_ndx c) const noexcept {
-    assert((*r < extent_.row_count) && (*c < extent_.col_count));
-    return data_[(*r * stride_) + *c];
+    return data_[offset_of(r, c)];
   }
 
   // Element at `at`, which must be in range.
@@ -254,13 +353,7 @@ public:
   // rectangle must lie within the view.
   [[nodiscard]] constexpr matrix_view
   subview(coord from, coord to) const noexcept {
-    const auto row_end =
-        (to.row == row_ndx::npos) ? extent_.row_count : *to.row;
-    const auto col_end =
-        (to.col == col_ndx::npos) ? extent_.col_count : *to.col;
-    assert((*from.row <= row_end) && (row_end <= extent_.row_count));
-    assert((*from.col <= col_end) && (col_end <= extent_.col_count));
-    return do_subview(from, {row_end - *from.row, col_end - *from.col});
+    return do_subview(from, window_size(from, to));
   }
 
   // View of the rectangle of `size` starting at `from`.
@@ -271,20 +364,7 @@ public:
   // The rectangle must lie within the view.
   [[nodiscard]] constexpr matrix_view
   subview(coord from, extent_t size = extent_t::npos) const noexcept {
-    assert(
-        (*from.row <= extent_.row_count) && (*from.col <= extent_.col_count));
-    const auto rows_left = extent_.row_count - *from.row;
-    const auto cols_left = extent_.col_count - *from.col;
-    const auto row_count =
-        (size.row_count == extent_t::npos.row_count)
-            ? rows_left
-            : size.row_count;
-    const auto col_count =
-        (size.col_count == extent_t::npos.col_count)
-            ? cols_left
-            : size.col_count;
-    assert((row_count <= rows_left) && (col_count <= cols_left));
-    return do_subview(from, {row_count, col_count});
+    return do_subview(from, window_size(from, size));
   }
 
 #pragma endregion
@@ -339,14 +419,6 @@ public:
 #pragma endregion
 #pragma region Workers
 private:
-  // The element count from the first element of the first row through the
-  // last element of the last row, which is what a view of `size` reaches.
-  [[nodiscard]] static constexpr size_t
-  footprint(extent_t size, size_t stride) noexcept {
-    return size.row_count ? ((size.row_count - 1) * stride) + size.col_count
-                          : 0;
-  }
-
   // View of the rectangle of `size` at `from`, both already checked.
   [[nodiscard]] constexpr matrix_view
   do_subview(coord from, extent_t size) const noexcept {
@@ -359,8 +431,6 @@ private:
 #pragma region Data members
 
   span_t data_;
-  extent_t extent_{0, 0};
-  size_t stride_{};
 
 #pragma endregion
 };

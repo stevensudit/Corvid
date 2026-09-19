@@ -54,7 +54,7 @@ TEMPLATE_TEST_CASE("Device linear on hand-computed rows",
   REQUIRE(bias.load(bias_storage));
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
 
-  REQUIRE(cuda::linalg::linear_projection(blas, out.view(), in, weight, bias));
+  REQUIRE(cuda::linalg::linear_projection(blas, out, in, weight, bias));
 
   std::vector<T> out_storage(out.size());
   REQUIRE(out.view().store(matrix_view<T>(out_storage, out.extent())));
@@ -82,14 +82,14 @@ TEMPLATE_TEST_CASE("Device gemm product, scale, and addends",
   const matrix_view<T> out_view(out_storage, out.extent());
 
   // The plain product reads nothing from `out`.
-  REQUIRE(cuda::linalg::gemm(blas, out.view(), a, b));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b));
   REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
 
   // Twice the product, accumulated onto ones.
   const std::vector<T> ones_storage(out.size(), T{1});
   REQUIRE(out.view().load(matrix_view<const T>(ones_storage, out.extent())));
-  REQUIRE(cuda::linalg::gemm(blas, out.view(), a, b, {.scale = 2}, out));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {.scale = 2}, out));
   REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{9}, T{11}, T{21}, T{23}});
 
@@ -97,15 +97,14 @@ TEMPLATE_TEST_CASE("Device gemm product, scale, and addends",
   const std::vector<T> addend_storage{T{100}, T{200}, T{300}, T{400}};
   const cuda_matrix<T> addend(
       matrix_view<const T>(addend_storage, out.extent()));
-  REQUIRE(cuda::linalg::gemm(blas, out.view(), a, b, {}, addend));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {}, addend));
   REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{104}, T{205}, T{310}, T{411}});
   REQUIRE(addend.view().store(out_view));
   CHECK(out_storage == addend_storage);
 
   // A zero addend scale drops the addend, copy and all.
-  REQUIRE(
-      cuda::linalg::gemm(blas, out.view(), a, b, {.addend_scale = 0}, addend));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {.addend_scale = 0}, addend));
   REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
 
@@ -113,8 +112,7 @@ TEMPLATE_TEST_CASE("Device gemm product, scale, and addends",
   constexpr std::array bias_storage{T{10}, T{20}};
   cuda_buffer<T> bias(bias_storage.size());
   REQUIRE(bias.load(bias_storage));
-  REQUIRE(
-      cuda::linalg::gemm(blas, out.view(), a, b, bias, {.addend_scale = 2}));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, bias, {.addend_scale = 2}));
   REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{24}, T{45}, T{30}, T{51}});
 }
@@ -134,7 +132,7 @@ TEMPLATE_TEST_CASE("Device gemm on a transposed operand",
       matrix_view<const T>(b_storage, {.row_count = 3, .col_count = 2}));
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
 
-  REQUIRE(cuda::linalg::gemm(blas, out.view(), a, b,
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b,
       {.op_a = cublas_operation::transpose}));
 
   std::vector<T> out_storage(out.size());
@@ -163,11 +161,11 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
       matrix_view<const T>(b_storage, {.row_count = 3, .col_count = 3}));
   cuda_matrix<T> out_wide(
       matrix_view<const T>(out_start, {.row_count = 2, .col_count = 3}));
-  const auto a = a_wide.view().subview({row_ndx{0}, col_ndx{0}},
+  const auto a = a_wide.subview({row_ndx{0}, col_ndx{0}},
       {.row_count = 2, .col_count = 3});
-  const auto b = b_wide.view().subview({row_ndx{0}, col_ndx{0}},
+  const auto b = b_wide.subview({row_ndx{0}, col_ndx{0}},
       {.row_count = 3, .col_count = 2});
-  const auto out = out_wide.view().subview({row_ndx{0}, col_ndx{0}},
+  const auto out = out_wide.subview({row_ndx{0}, col_ndx{0}},
       {.row_count = 2, .col_count = 2});
   CHECK(a.stride() == 4);
   CHECK(!a.is_packed());
@@ -201,8 +199,7 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
   CHECK(wide_storage == std::vector<T>{T{1}, T{1}, T{9}, T{1}, T{1}, T{9}});
 
   // A strided addend, copied device to device: columns 1 and 2 of `a_wide`.
-  const auto addend =
-      a_wide.view().subview({row_ndx{0}, col_ndx{1}}, out.extent());
+  const auto addend = a_wide.subview({row_ndx{0}, col_ndx{1}}, out.extent());
   REQUIRE(cuda::linalg::gemm(blas, out, a, b, {}, addend));
   REQUIRE(out_wide.view().store(wide_view));
   CHECK(wide_storage == std::vector<T>{T{6}, T{8}, T{9}, T{15}, T{17}, T{9}});

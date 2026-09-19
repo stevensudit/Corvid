@@ -158,6 +158,15 @@ gemm(const cublas_handle& blas, cuda_matrix_view<T> out, const_view_t<T> a,
       .ok();
 }
 
+// `gemm` over an owning `out`, so the call needs no `view()`.
+template<GemmElement T>
+[[nodiscard]] bool
+gemm(const cublas_handle& blas, cuda_matrix<T>& out, const_view_t<T> a,
+    const_view_t<T> b, gemm_options<std::type_identity_t<T>> options = {},
+    const_view_t<T> addend = {}) {
+  return gemm(blas, out.view(), a, b, options, addend);
+}
+
 // GEMM over row-major matrices, with a bias row added to every row.
 //
 // `out = scale * op(a) * op(b) + addend_scale * bias`, where `bias` has an
@@ -186,6 +195,14 @@ template<GemmElement T>
   return gemm(blas, out, a, b, options, out);
 }
 
+// `gemm` with a bias row over an owning `out`, so the call needs no `view()`.
+template<GemmElement T>
+[[nodiscard]] bool gemm(const cublas_handle& blas, cuda_matrix<T>& out,
+    const_view_t<T> a, const_view_t<T> b, const cuda_buffer<T>& bias,
+    gemm_options<std::type_identity_t<T>> options = {}) {
+  return gemm(blas, out.view(), a, b, bias, options);
+}
+
 #pragma endregion
 #pragma region linear_projection
 
@@ -203,6 +220,14 @@ template<GemmElement T>
 linear_projection(const cublas_handle& blas, cuda_matrix_view<T> out,
     const_view_t<T> in, const_view_t<T> weight, const cuda_buffer<T>& bias) {
   return gemm(blas, out, in, weight, bias);
+}
+
+// `linear_projection` over an owning `out`, so the call needs no `view()`.
+template<GemmElement T>
+[[nodiscard]] bool
+linear_projection(const cublas_handle& blas, cuda_matrix<T>& out,
+    const_view_t<T> in, const_view_t<T> weight, const cuda_buffer<T>& bias) {
+  return linear_projection(blas, out.view(), in, weight, bias);
 }
 
 #pragma endregion
