@@ -113,10 +113,9 @@ __global__ void apply_layer_norm(T* out, size_t out_stride, const T* in,
 // unspecified.
 template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
-[[nodiscard]] bool layer_norm(Out&& out, input_view_t<Out> in,
-    const cuda_buffer<device_element_t<Out>>& weight,
-    const cuda_buffer<device_element_t<Out>>& bias,
-    device_element_t<Out> eps) {
+[[nodiscard]] bool
+layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
+    const input_buffer_t<Out>& bias, device_element_t<Out> eps) {
   const auto& out_view = out.as_view();
   [[maybe_unused]] const auto width = in.col_extent();
   assert((out_view.row_extent() == in.row_extent()) &&
