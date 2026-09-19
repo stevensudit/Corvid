@@ -219,8 +219,7 @@ using device_element_t = std::remove_cvref_t<M>::element_t;
 
 // A device matrix, or a view of one, whose elements can be written.
 //
-// That is a `cuda_matrix<T>`, or a `cuda_matrix_view<T>` for a non-const
-// `T`.
+// That is a `cuda_matrix<T>`, or a `cuda_matrix_view<T>` for a non-const `T`.
 template<typename M>
 concept DeviceMatrixLike = requires(M& m) {
   requires !std::is_const_v<device_element_t<M>>;

@@ -958,8 +958,9 @@ for `StringViewLike`. `cuda_matrix::view()` became `as_view()`, and the view
 gained an `as_view()` that returns itself, so the local binds a reference
 either way. The element type comes from `device_element_t<Out>` rather than
 deduction, so `std::type_identity_t` left the CUDA headers, `const_view_t`
-is a plain `cuda_matrix_view<const T>`, and the element constraint moved to
-a trailing `requires`. Deep const survives: a `const cuda_matrix` fails the
+is a plain `cuda_matrix_view<const T>`, the inputs are spelled
+`input_view_t<Out>` over it, and the element constraint moved to a trailing
+`requires`. Deep const survives: a `const cuda_matrix` fails the
 concept because its mutable conversion is a non-const member, while a `const
 cuda_matrix_view` passes, which is right for a shallow-const view; a
 static_assert table in the linalg test pins both sides.
