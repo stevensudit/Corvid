@@ -22,6 +22,7 @@
 #include <functional>
 #include <initializer_list>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -228,6 +229,10 @@ constexpr bool is_span_compatible_v = is_span_compatible_impl<T, V>();
 template<typename T>
 constexpr bool is_initializer_list_v =
     is_specialization_of_v<T, std::initializer_list>;
+
+// The element type of range `R`, without its constness.
+template<typename R>
+using element_of_t = std::remove_cv_t<std::ranges::range_value_t<R>>;
 
 #pragma endregion
 #pragma endregion

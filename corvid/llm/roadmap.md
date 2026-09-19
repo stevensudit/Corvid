@@ -766,6 +766,28 @@ needs more, and the element-type dispatch of checkpoint 2 is an overload
 set, one per cuBLAS routine, with a traits class deferred until bf16 needs
 `cublasGemmEx`.
 
+Status (2026-09-19, checkpoint 2, CPU half): "linear_algebra.h" is a
+template on the element type. The row ops take any contiguous range and read
+the element type from it, so arrays, vectors, spans, and `enum_span` rows
+all pass unchanged; the matrix ops deduce it from `out` alone and take their
+inputs as `const_view_t<T>`, a `matrix_view<const T>` behind
+`std::type_identity_t` so a mutable view converts. The constraints are
+`Arithmetic` and `Floating` in "concepts.h" beside `Integer`, with the range
+forms `ArithmeticRange`, `FloatingRange`, `MutableRange` (which
+`MutableByteRange` now composes), and `SameElement` beside `ByteRange`, and
+`element_of_t<R>` in "traits.h"; only `const_view_t` stays in the linalg
+header, since it names `matrix_view`. Sums, products, `add_scaled`,
+`linear_projection`, `add`, and `subtract` take `Arithmetic`; the mean,
+variances, standard deviations, `standardize`, and `softmax` take
+`Floating`. Return types stay spelled as `element_of_t<R>` rather than
+`auto`, and `std::ranges::size` is accepted as the price of taking ranges.
+Deferred: an optional accumulator-type parameter (`mean<float>(int_span)`),
+which the first quantized consumer brings, with the promotion inside the
+loop. The test is a `TEMPLATE_TEST_CASE` over float and double, 16 cases,
+green on clang and cl, with asserts live under the IDE debug tree. The
+device half (cuda_matrix<T>, the Sgemm/Dgemm overloads, the device
+linear_projection) is next.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
