@@ -17,23 +17,18 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <format>
 #include <span>
 #include <string>
 #include <vector>
 
-#include "corvid/cuda/llm/gpt2_forward.h"
-#include "corvid/cuda/llm/safetensors.h"
-#include "corvid/proto/misc/json_parser.h"
-#include "corvid/strings/conversion.h"
+#include "corvid/llm/llm_ops.h"
 #include "catch2_main.h"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 #include "gpt2_oracle.h"
 
 using namespace corvid;
 using namespace corvid::llm;
-using namespace corvid::strings::conversion;
 using namespace corvid::tests::gpt2;
 using Catch::Matchers::WithinAbs;
 
@@ -42,157 +37,7 @@ using col_ndx = float_matrix_view::col_ndx;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-namespace {
-
-#pragma region Block
-
-// The parameters of block `n`, as views over the oracle's weights.
-block_params block_params_of(const oracle_dumps& oracle, size_t n) {
-  const auto& w = oracle.weights;
-  const auto h = std::format("h.{}", n);
-  return {
-      .ln_1_weight = vector_of(w, h + ".ln_1.weight", n_embd),
-      .ln_1_bias = vector_of(w, h + ".ln_1.bias", n_embd),
-      .attn_c_attn_weight = matrix_of(w, h + ".attn.c_attn.weight", n_qkv),
-      .attn_c_attn_bias = vector_of(w, h + ".attn.c_attn.bias", n_qkv),
-      .attn_c_proj_weight = matrix_of(w, h + ".attn.c_proj.weight", n_embd),
-      .attn_c_proj_bias = vector_of(w, h + ".attn.c_proj.bias", n_embd),
-      .ln_2_weight = vector_of(w, h + ".ln_2.weight", n_embd),
-      .ln_2_bias = vector_of(w, h + ".ln_2.bias", n_embd),
-      .mlp_c_fc_weight = matrix_of(w, h + ".mlp.c_fc.weight", n_hidden),
-      .mlp_c_fc_bias = vector_of(w, h + ".mlp.c_fc.bias", n_hidden),
-      .mlp_c_proj_weight = matrix_of(w, h + ".mlp.c_proj.weight", n_embd),
-      .mlp_c_proj_bias = vector_of(w, h + ".mlp.c_proj.bias", n_embd),
-  };
-}
-
-// Owned storage for every activation of `block`, all distinct, sized for
-// `token_count` tokens of the model's widths.
-struct owned_block_activations {
-  std::vector<float> ln_1_out;
-  std::vector<float> qkv;
-  std::vector<float> heads_out;
-  std::vector<float> attn_out;
-  std::vector<float> ln_2_in;
-  std::vector<float> ln_2_out;
-  std::vector<float> hidden;
-  std::vector<float> mlp_out;
-  std::vector<float> scores;
-  size_t token_count{};
-
-  explicit owned_block_activations(size_t token_count)
-      : ln_1_out(token_count * n_embd), qkv(token_count * n_qkv),
-        heads_out(token_count * n_embd), attn_out(token_count * n_embd),
-        ln_2_in(token_count * n_embd), ln_2_out(token_count * n_embd),
-        hidden(token_count * n_hidden), mlp_out(token_count * n_embd),
-        scores(token_count), token_count{token_count} {}
-
-  // The views `block` takes.
-  block_activations views() {
-    const auto rows = [&](std::vector<float>& storage, size_t cols) {
-      return float_matrix_view(storage,
-          {.row_count = token_count, .col_count = cols});
-    };
-    return {
-        .ln_1_out = rows(ln_1_out, n_embd),
-        .qkv = rows(qkv, n_qkv),
-        .heads_out = rows(heads_out, n_embd),
-        .attn_out = rows(attn_out, n_embd),
-        .ln_2_in = rows(ln_2_in, n_embd),
-        .ln_2_out = rows(ln_2_out, n_embd),
-        .hidden = rows(hidden, n_hidden),
-        .mlp_out = rows(mlp_out, n_embd),
-        .scores = scores,
-    };
-  }
-};
-
-#pragma endregion
-#pragma region Model
-
-// The whole model's parameters, as views over the oracle's weights, with the
-// per-block views owned here since `gpt2_params` only spans them.
-struct oracle_params {
-  std::vector<block_params> blocks;
-  gpt2_params params;
-
-  explicit oracle_params(const oracle_dumps& oracle) {
-    for (auto n = 0UZ; n < n_layer; ++n)
-      blocks.push_back(block_params_of(oracle, n));
-    const auto& w = oracle.weights;
-    params = {
-        .wte = matrix_of(w, "wte.weight", n_embd),
-        .wpe = matrix_of(w, "wpe.weight", n_embd),
-        .blocks = blocks,
-        .ln_f_weight = vector_of(w, "ln_f.weight", n_embd),
-        .ln_f_bias = vector_of(w, "ln_f.bias", n_embd),
-    };
-    REQUIRE(params.wte.row_extent() == n_vocab);
-    REQUIRE(params.wpe.row_extent() == n_ctx);
-  }
-};
-
-#pragma endregion
-
-} // namespace
-
-TEST_CASE("Row reductions", "[Gpt2ForwardTest]") {
-  constexpr std::array values{1.0F, 2.0F, 3.0F, 4.0F};
-  static_assert(sum(values) == 10.0F);
-  static_assert(mean(values) == 2.5F);
-  static_assert(squared_deviation_sum(values, 2.5F) == 5.0F);
-  static_assert(variance(values, 2.5F) == 1.25F);
-  constexpr std::array flat{5.0F, 5.0F};
-  static_assert(variance(flat, 5.0F) == 0.0F);
-  static_assert(sum(std::span<const float>{}) == 0.0F);
-  CHECK(std::isnan(mean(std::span<const float>{})));
-  CHECK(std::isnan(variance(std::span<const float>{}, 0.0F)));
-  CHECK_THAT(inverse_std_dev(values, 2.5F, 0.0F),
-      WithinAbs(1.0 / std::sqrt(1.25), 1e-6));
-  CHECK(std::isinf(inverse_std_dev(flat, 5.0F, 0.0F)));
-  CHECK_THAT(inverse_std_dev(flat, 5.0F, 0.25F), WithinAbs(2.0, 1e-6));
-}
-
-TEST_CASE("Elementwise steps", "[Gpt2ForwardTest]") {
-  static_assert(standardize(4.0F, 2.5F, 2.0F) == 3.0F);
-  static_assert(standardize(2.5F, 2.5F, 2.0F) == 0.0F);
-  static_assert(scale_shift(3.0F, 2.0F, 0.5F) == 6.5F);
-}
-
-TEST_CASE("Add scaled", "[Gpt2ForwardTest]") {
-  std::array acc{1.0F, 2.0F, 3.0F};
-  constexpr std::array values{10.0F, 20.0F, 30.0F};
-  add_scaled(acc, 0.5F, values);
-  CHECK(acc == std::array{6.0F, 12.0F, 18.0F});
-}
-
-TEST_CASE("Linear on hand-computed rows", "[Gpt2ForwardTest]") {
-  // Two rows of three features through a three-by-two weight: the first
-  // output column sums features 0 and 2, the second sums features 1 and 2,
-  // and each gets its bias.
-  const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F};
-  const std::vector<float> weight_storage{1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F};
-  constexpr std::array bias{10.0F, 20.0F};
-  const const_float_matrix_view in(in_storage,
-      {.row_count = 2, .col_count = 3});
-  const const_float_matrix_view weight(weight_storage,
-      {.row_count = 3, .col_count = 2});
-
-  // The output lands in the middle two columns of a wider buffer, the way a
-  // projection fills one block of columns and leaves the rest alone.
-  std::vector<float> out_storage(2UZ * 4, -1.0F);
-  const auto out =
-      float_matrix_view(out_storage, {.row_count = 2, .col_count = 4})
-          .subview({row_ndx{0}, col_ndx{1}}, {.row_count = 2, .col_count = 2});
-
-  linear(out, in, weight, bias);
-
-  CHECK(out_storage ==
-        std::vector<float>{-1.0F, 14.0F, 25.0F, -1.0F, -1.0F, 20.0F, 31.0F,
-            -1.0F});
-}
-
-TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
+TEST_CASE("Layer norm on hand-computed rows", "[LlmOpsTest]") {
   // Row 0 has mean 2.5 and biased variance 1.25. Row 1 is constant, so it
   // normalizes to zero and the output is the bias alone.
   const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 5.0F, 5.0F,
@@ -221,7 +66,7 @@ TEST_CASE("Layer norm on hand-computed rows", "[Gpt2ForwardTest]") {
   CHECK_THAT(second[col_ndx{3}], WithinAbs(0.5, tolerance));
 }
 
-TEST_CASE("Row ops match layer norm step by step", "[Gpt2ForwardTest]") {
+TEST_CASE("Row ops match layer norm step by step", "[LlmOpsTest]") {
   // Standardize into a fresh row, then scale and shift it in place, and
   // expect the same output as the fused op.
   const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F};
@@ -248,7 +93,7 @@ TEST_CASE("Row ops match layer norm step by step", "[Gpt2ForwardTest]") {
   CHECK(out_storage == expected);
 }
 
-TEST_CASE("Layer norm in place", "[Gpt2ForwardTest]") {
+TEST_CASE("Layer norm in place", "[LlmOpsTest]") {
   std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
   std::vector<float> expected(storage.size());
   const float_matrix_view m(storage, {.row_count = 1, .col_count = 4});
@@ -262,7 +107,7 @@ TEST_CASE("Layer norm in place", "[Gpt2ForwardTest]") {
   CHECK(storage == expected);
 }
 
-TEST_CASE("Layer norm honors the stride of both views", "[Gpt2ForwardTest]") {
+TEST_CASE("Layer norm honors the stride of both views", "[LlmOpsTest]") {
   // The row lives in the first two columns of a three-column buffer, and
   // writes land in the last two columns of another, leaving the rest alone.
   const std::vector<float> in_storage{2.0F, 4.0F, -1.0F};
@@ -284,7 +129,7 @@ TEST_CASE("Layer norm honors the stride of both views", "[Gpt2ForwardTest]") {
   CHECK_THAT(out_storage[2], WithinAbs(1.0, tolerance));
 }
 
-TEST_CASE("GELU on hand-computed values", "[Gpt2ForwardTest]") {
+TEST_CASE("GELU on hand-computed values", "[LlmOpsTest]") {
   // Reference values from torch's gelu with approximate="tanh". Zero maps to
   // zero, the far tails pass through or vanish, and the negative side dips
   // below zero before it does.
@@ -298,7 +143,7 @@ TEST_CASE("GELU on hand-computed values", "[Gpt2ForwardTest]") {
   CHECK_THAT(gelu_new(-10.0F), WithinAbs(0.0, tolerance));
 }
 
-TEST_CASE("GELU honors the stride of both views", "[Gpt2ForwardTest]") {
+TEST_CASE("GELU honors the stride of both views", "[LlmOpsTest]") {
   // Two rows of two features inside three-column buffers: the input's rows
   // occupy the first two columns and the output's the last two, so the
   // untouched column of each output row proves the stride is honored.
@@ -322,7 +167,7 @@ TEST_CASE("GELU honors the stride of both views", "[Gpt2ForwardTest]") {
   CHECK(out_storage[5] == 0.0F);
 }
 
-TEST_CASE("GELU in place", "[Gpt2ForwardTest]") {
+TEST_CASE("GELU in place", "[LlmOpsTest]") {
   std::vector<float> storage{1.0F, -1.0F, 2.0F, 0.5F};
   std::vector<float> expected(storage.size());
   const float_matrix_view m(storage, {.row_count = 2, .col_count = 2});
@@ -334,38 +179,7 @@ TEST_CASE("GELU in place", "[Gpt2ForwardTest]") {
   CHECK(storage == expected);
 }
 
-TEST_CASE("Dot product", "[Gpt2ForwardTest]") {
-  constexpr std::array a{1.0F, 2.0F, 3.0F};
-  constexpr std::array b{4.0F, 5.0F, 6.0F};
-  static_assert(dot(a, b) == 32.0F);
-  static_assert(
-      dot(std::span<const float>{}, std::span<const float>{}) == 0.0F);
-}
-
-TEST_CASE("Softmax row", "[Gpt2ForwardTest]") {
-  constexpr auto tolerance = 1e-5;
-
-  // Scores 0 and 0.707 differ by 0.707, so the second gets twice the weight:
-  // exp(0.707) is 2.028 times exp(0).
-  std::array scores{0.0F, 0.707F};
-  softmax_row(scores, scores);
-  CHECK_THAT(scores[0], WithinAbs(0.330262, tolerance));
-  CHECK_THAT(scores[1], WithinAbs(0.669738, tolerance));
-
-  // Equal scores share equally, even when exp of the raw score would
-  // overflow a float.
-  std::array huge{1000.0F, 1000.0F, 1000.0F, 1000.0F};
-  std::array weights{0.0F, 0.0F, 0.0F, 0.0F};
-  softmax_row(weights, huge);
-  CHECK(weights == std::array{0.25F, 0.25F, 0.25F, 0.25F});
-
-  // A single score gets all the weight.
-  std::array one{-3.0F};
-  softmax_row(one, one);
-  CHECK(one[0] == 1.0F);
-}
-
-TEST_CASE("Attention on three tokens of width two", "[Gpt2ForwardTest]") {
+TEST_CASE("Attention on three tokens of width two", "[LlmOpsTest]") {
   // The napkin example: three tokens with features [1, 0], [0, 1], [1, 1].
   // The `c_attn` weight copies the features into the query and key columns
   // and swaps them into the value columns, with no bias, so q and k equal
@@ -381,7 +195,7 @@ TEST_CASE("Attention on three tokens of width two", "[Gpt2ForwardTest]") {
 
   std::vector<float> qkv_storage(3UZ * 6);
   const float_matrix_view qkv(qkv_storage, {.row_count = 3, .col_count = 6});
-  linear(qkv, in, c_attn, no_bias);
+  linear_projection(qkv, in, c_attn, no_bias);
   CHECK(qkv_storage ==
         std::vector<float>{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F,
             0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F});
@@ -420,32 +234,7 @@ TEST_CASE("Attention on three tokens of width two", "[Gpt2ForwardTest]") {
   }
 }
 
-TEST_CASE("Add on hand-computed rows", "[Gpt2ForwardTest]") {
-  std::vector<float> a_storage{1.0F, 2.0F, 3.0F, 4.0F};
-  std::vector<float> b_storage{10.0F, 20.0F, 30.0F, 40.0F};
-  const float_matrix_view a(a_storage, {.row_count = 2, .col_count = 2});
-  const float_matrix_view b(b_storage, {.row_count = 2, .col_count = 2});
-  const std::vector<float> expected{11.0F, 22.0F, 33.0F, 44.0F};
-
-  SECTION("into a separate matrix") {
-    std::vector<float> storage(a.size());
-    const float_matrix_view out(storage, a.extent());
-    add(out, a, b);
-    CHECK(storage == expected);
-  }
-
-  SECTION("in place on the left") {
-    add(a, a, b);
-    CHECK(a_storage == expected);
-  }
-
-  SECTION("in place on the right") {
-    add(b, a, b);
-    CHECK(b_storage == expected);
-  }
-}
-
-TEST_CASE("Embed on hand-computed rows", "[Gpt2ForwardTest]") {
+TEST_CASE("Embed on hand-computed rows", "[LlmOpsTest]") {
   // Three tokens in the vocabulary, two positions, width two.
   const std::vector<float> wte_storage{1.0F, 2.0F, 10.0F, 20.0F, 100.0F,
       200.0F};
@@ -463,7 +252,7 @@ TEST_CASE("Embed on hand-computed rows", "[Gpt2ForwardTest]") {
   CHECK(storage == std::vector<float>{100.5F, 200.25F, 1.125F, 2.0625F});
 }
 
-TEST_CASE("Logits on hand-computed rows", "[Gpt2ForwardTest]") {
+TEST_CASE("Logits on hand-computed rows", "[LlmOpsTest]") {
   // Two tokens of width two against a three-entry vocabulary.
   const std::vector<float> wte_storage{1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F};
   const const_float_matrix_view wte(wte_storage,
@@ -479,14 +268,14 @@ TEST_CASE("Logits on hand-computed rows", "[Gpt2ForwardTest]") {
   CHECK(storage == std::vector<float>{2.0F, 3.0F, 5.0F, -1.0F, 0.5F, -0.5F});
 }
 
-TEST_CASE("Greedy picks the largest logit", "[Gpt2ForwardTest]") {
+TEST_CASE("Greedy picks the largest logit", "[LlmOpsTest]") {
   const std::vector<float> rising{-1.0F, 3.0F, 2.0F};
   CHECK(greedy(rising) == token_id{1});
   const std::vector<float> tied{2.0F, 2.0F, 1.0F};
   CHECK(greedy(tied) == token_id{0});
 }
 
-TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
+TEST_CASE("Layer norm matches the oracle", "[LlmOpsTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
 
@@ -521,7 +310,7 @@ TEST_CASE("Layer norm matches the oracle", "[Gpt2ForwardTest][oracle]") {
   }
 }
 
-TEST_CASE("MLP path matches the oracle", "[Gpt2ForwardTest][oracle]") {
+TEST_CASE("MLP path matches the oracle", "[LlmOpsTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
 
@@ -553,16 +342,16 @@ TEST_CASE("MLP path matches the oracle", "[Gpt2ForwardTest][oracle]") {
       std::vector<float> out_storage(in.size());
       const float_matrix_view out(out_storage, in.extent());
 
-      linear(hidden, in, fc_weight, fc_bias);
+      linear_projection(hidden, in, fc_weight, fc_bias);
       gelu_new(hidden, hidden);
-      linear(out, hidden, proj_weight, proj_bias);
+      linear_projection(out, hidden, proj_weight, proj_bias);
 
       check_close(out, expected, 1e-4F, 1e-4F);
     }
   }
 }
 
-TEST_CASE("Attention path matches the oracle", "[Gpt2ForwardTest][oracle]") {
+TEST_CASE("Attention path matches the oracle", "[LlmOpsTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
 
@@ -597,16 +386,16 @@ TEST_CASE("Attention path matches the oracle", "[Gpt2ForwardTest][oracle]") {
       std::vector<float> out_storage(in.size());
       const float_matrix_view out(out_storage, in.extent());
 
-      linear(qkv, in, attn_weight, attn_bias);
+      linear_projection(qkv, in, attn_weight, attn_bias);
       attention(heads_out, qkv, n_head, scores);
-      linear(out, heads_out, proj_weight, proj_bias);
+      linear_projection(out, heads_out, proj_weight, proj_bias);
 
       check_close(out, expected, 1e-4F, 1e-4F);
     }
   }
 }
 
-TEST_CASE("Residual adds match the oracle", "[Gpt2ForwardTest][oracle]") {
+TEST_CASE("Residual adds match the oracle", "[LlmOpsTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
 
@@ -646,7 +435,7 @@ TEST_CASE("Residual adds match the oracle", "[Gpt2ForwardTest][oracle]") {
   }
 }
 
-TEST_CASE("Embed matches the oracle", "[Gpt2ForwardTest][oracle]") {
+TEST_CASE("Embed matches the oracle", "[LlmOpsTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
 
@@ -669,89 +458,7 @@ TEST_CASE("Embed matches the oracle", "[Gpt2ForwardTest][oracle]") {
   check_close(out, expected, 0.0F, 0.0F);
 }
 
-TEST_CASE("Block matches the oracle", "[Gpt2ForwardTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
-
-  // Every block, fed its own dumped residual. The residual that leaves it is
-  // the next block's `ln_1/in` or, for the last block, `ln_f/in`, and the
-  // four activations the oracle also dumped are checked on the way. The
-  // gate is the attention and MLP paths' 1e-4, except `ln_1/out`, which
-  // reads the dumped input directly and so gets the layer norm's 1e-5.
-  for (auto n = 0UZ; n < n_layer; ++n) {
-    DYNAMIC_SECTION("block_" << n) {
-      const auto dump = std::format("block_{}", n);
-      const auto in = matrix_of(oracle.activations, dump + "/ln_1/in", n_embd);
-      const auto exit =
-          (n + 1 < n_layer)
-              ? std::format("block_{}/ln_1/in", n + 1)
-              : std::string{"ln_f/in"};
-      const auto expected = matrix_of(oracle.activations, exit, n_embd);
-      const auto params = block_params_of(oracle, n);
-      const auto token_count = in.row_extent();
-      REQUIRE(token_count == 14);
-
-      std::vector<float> out_storage(in.size());
-      const float_matrix_view out(out_storage, in.extent());
-      owned_block_activations owned(token_count);
-      const auto acts = owned.views();
-      block(out, in, params, acts, n_head);
-
-      check_close(out, expected, 1e-4F, 1e-4F);
-      struct dumped {
-        const char* name;
-        const_float_matrix_view actual;
-        float tolerance;
-      };
-      for (const auto& [name, actual, tolerance] :
-          {dumped{"ln_1/out", acts.ln_1_out, 1e-5F},
-              dumped{"attn/out", acts.attn_out, 1e-4F},
-              dumped{"ln_2/in", acts.ln_2_in, 1e-4F},
-              dumped{"ln_2/out", acts.ln_2_out, 1e-4F},
-              dumped{"mlp/out", acts.mlp_out, 1e-4F}})
-      {
-        INFO(name);
-        check_close(actual,
-            matrix_of(oracle.activations, dump + "/" + name, n_embd),
-            tolerance, tolerance);
-      }
-
-      // In place, with `ln_2_in` aliased to the residual too, is the same
-      // arithmetic in the same order, so it matches bit for bit.
-      std::vector<float> residual_storage(in.as_span().begin(),
-          in.as_span().end());
-      const float_matrix_view residual(residual_storage, in.extent());
-      auto in_place = acts;
-      in_place.ln_2_in = residual;
-      block(residual, residual, params, in_place, n_head);
-      CHECK(residual_storage == out_storage);
-    }
-  }
-}
-
-TEST_CASE("Forward pass matches the oracle", "[Gpt2ForwardTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
-
-  // The bisect prompt from its IDs through every block to `ln_f/out`, the
-  // last dump before the head. Nothing here is fed a dumped intermediate, so
-  // this is the first check that the ops chain, and the gate is the block's.
-  const auto ids =
-      ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
-  const auto token_count = ids.size();
-  REQUIRE(token_count == 14);
-  const oracle_params model(oracle);
-  const auto expected = matrix_of(oracle.activations, "ln_f/out", n_embd);
-
-  std::vector<float> out_storage(token_count * n_embd);
-  const float_matrix_view out(out_storage, expected.extent());
-  owned_block_activations owned(token_count);
-  forward(out, ids, model.params, owned.views(), n_head);
-
-  check_close(out, expected, 1e-4F, 1e-4F);
-}
-
-TEST_CASE("Logits match the oracle", "[Gpt2ForwardTest][oracle]") {
+TEST_CASE("Logits match the oracle", "[LlmOpsTest][oracle]") {
   oracle_dumps oracle;
   oracle.load();
 
@@ -767,94 +474,6 @@ TEST_CASE("Logits match the oracle", "[Gpt2ForwardTest][oracle]") {
   logits(out, in, wte);
 
   check_close(out, expected, 1e-4F, 1e-4F);
-}
-
-TEST_CASE("Model matches the oracle on every prompt",
-    "[Gpt2ForwardTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
-
-  // The whole model, IDs to logits, on each of the manifest's prompts. The
-  // logits dump holds all five; only the bisect prompt has activations.
-  const oracle_params model(oracle);
-  for (auto n = 0UZ; n < 5; ++n) {
-    DYNAMIC_SECTION("prompt_" << n) {
-      const auto prefix = std::format("prompt_{}", n);
-      const auto ids = ids_of(oracle.logits, prefix + "/input_ids");
-      const auto expected =
-          matrix_of(oracle.logits, prefix + "/logits", n_vocab);
-      const auto token_count = ids.size();
-      REQUIRE(expected.row_extent() == token_count);
-
-      std::vector<float> trunk_storage(token_count * n_embd);
-      const float_matrix_view trunk(trunk_storage,
-          {.row_count = token_count, .col_count = n_embd});
-      owned_block_activations owned(token_count);
-      forward(trunk, ids, model.params, owned.views(), n_head);
-
-      std::vector<float> storage(expected.size());
-      const float_matrix_view out(storage, expected.extent());
-      logits(out, trunk, model.params.wte);
-
-      check_close(out, expected, 1e-4F, 1e-4F);
-    }
-  }
-}
-
-TEST_CASE("Greedy decoding reproduces the manifest",
-    "[Gpt2ForwardTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
-
-  // The manifest records the oracle's greedy continuation of one prompt: the
-  // twenty IDs it appended, and their text. Each step here runs the whole
-  // model over the IDs so far and appends the most likely next token, so
-  // one wrong pick would derail every later one.
-  const auto manifest_text = read_file(fixture_path("manifest.json"));
-  json_value_view root;
-  REQUIRE(parse_json(manifest_text, root));
-  const auto spec = root.as_object().get_object("greedy");
-  const auto prompt = spec.get_number<size_t>("prompt");
-  REQUIRE(prompt);
-  std::vector<token_id> expected_ids;
-  for (const auto item : spec.get_array("tokens")) {
-    const auto id = item.as_number<uint32_t>();
-    REQUIRE(id);
-    expected_ids.push_back(token_id{*id});
-  }
-  REQUIRE(expected_ids.size() == 20);
-  std::string expected_text;
-  REQUIRE(spec.get_string("text", expected_text));
-
-  const oracle_params model(oracle);
-  auto ids =
-      ids_of(oracle.logits, std::format("prompt_{}/input_ids", *prompt));
-  const auto prompt_count = ids.size();
-  std::vector<float> logits_storage(n_vocab);
-  const float_row_span next_logits(logits_storage);
-  for (auto step = 0UZ; step < expected_ids.size(); ++step) {
-    const auto token_count = ids.size();
-    std::vector<float> trunk_storage(token_count * n_embd);
-    const float_matrix_view trunk(trunk_storage,
-        {.row_count = token_count, .col_count = n_embd});
-    owned_block_activations owned(token_count);
-    forward(trunk, ids, model.params, owned.views(), n_head);
-    token_logits(next_logits, trunk[row_ndx{token_count - 1}],
-        model.params.wte);
-    ids.push_back(greedy(next_logits));
-  }
-  const auto appended = std::span{ids}.subspan(prompt_count);
-  const std::vector<token_id> generated(appended.begin(), appended.end());
-  CHECK(generated == expected_ids);
-
-  // And as text, through the tokenizer.
-  gpt2_tokenizer tok;
-  const auto merges = read_file(fixture_path("merges.txt"));
-  const auto merges_span = as_byte_span<char8_t>(merges);
-  REQUIRE(tok.load({merges_span.data(), merges_span.size()}));
-  std::u8string bytes;
-  REQUIRE(tok.decode(bytes, generated));
-  CHECK(std::string(bytes.begin(), bytes.end()) == expected_text);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

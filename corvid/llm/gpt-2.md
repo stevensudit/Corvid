@@ -2,9 +2,10 @@
 
 The steps of one forward pass through GPT-2 (the 124M-parameter "gpt2"
 checkpoint), with the shape of every input and output and the name of every
-tensor read from the weights file. It is a lookup table for reading and
-writing the ops in "gpt2_forward.h", not a tutorial; the roadmap has the
-plan and the status, and the doc blocks in the header have the formulas.
+tensor read from the weights file. It is a lookup table for reading and writing
+the ops in "linear_algebra.h", "llm_ops.h", and "gpt2.h", not a tutorial; the
+roadmap has the plan and the status, and the doc blocks in the header have the
+formulas.
 
 ## Notation and constants
 
@@ -23,8 +24,26 @@ plan and the status, and the doc blocks in the header have the formulas.
 Activations are matrices with one row per token and one column per feature,
 so a stream is [T, C]. Weights are stored the way the original code's Conv1D
 layer keeps them: one row per input feature and one column per output
-feature, so `out = in * weight + bias`. The word "residual" below means the
-stream itself, the [T, C] matrix that every block reads and adds to.
+feature, so `out = in * weight + bias`, which is the layout
+`linear_projection` takes as is. It is the transpose of what PyTorch's
+`nn.Linear` stores, one row per output feature, so a checkpoint from that
+family will need the transpose flag when it arrives. The word "residual"
+below means the stream itself, the [T, C] matrix that every block reads and
+adds to.
+
+A way to read every projection: each column of a weight is a direction in
+the input's feature space, and the output feature it produces is the dot
+product of the token's features with that direction, plus a bias. When the
+two point the same way the value is large and positive, so each output
+feature answers one question, how much this token resembles learned pattern
+`j`. The widths, with i input and j output features per token:
+
+| projection | i | j | factor |
+|---|---|---|---|
+| `c_attn` | 768 | 2304 | 3 |
+| attn `c_proj` | 768 | 768 | 1 |
+| `c_fc` | 768 | 3072 | 4 |
+| mlp `c_proj` | 3072 | 768 | 1/4 |
 
 Acronyms, once: `wte` word token embeddings, `wpe` word position embeddings,
 `ln` layer norm (`ln_f` the final one), `attn` attention, `c_attn` and
@@ -86,7 +105,7 @@ so each can be read back after the call.
 | heads | q, k, v [T, C] | | per head h: q_h, k_h, v_h each [T, D], columns h*D..h*D+D-1 | `subview` |
 | scores | q_h [T, D], k_h [T, D] | | s [T, T], s[i][j] = (q_h[i] . k_h[j]) / sqrt(D) = (q_h[i] . k_h[j]) / 8 | `attention_head`, via `dot` |
 | mask | s [T, T] | | s with j > i excluded | `attention_head`, as the loop bound |
-| softmax | s row i over j <= i | | w [T, T], each row sums to 1, zero where j > i | `softmax_row` |
+| softmax | s row i over j <= i | | w [T, T], each row sums to 1, zero where j > i | `softmax` |
 | weighted sum | w [T, T], v_h [T, D] | | head_out_h [T, D], row i = sum over j <= i of w[i][j] * v_h[j] | `attention_head`, via `add_scaled` |
 | concat | H of head_out_h [T, D] | | heads_out [T, C], head h in columns h*D..h*D+D-1 | `attention` writes each head's slice in place |
 | c_proj | heads_out [T, C] | `h.N.attn.c_proj.weight` [C, C], `.bias` [C] | attn/out [T, C] | `linear` |

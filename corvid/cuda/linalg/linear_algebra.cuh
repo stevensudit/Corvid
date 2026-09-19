@@ -22,21 +22,18 @@
 #include <cuda_runtime.h>
 
 #include "../../containers/utils/matrix_view.h"
+#include "../cuda_buffer.cuh"
 #include "../cuda_cublas.cuh"
 #include "../cuda_kernel.cuh"
-#include "../cuda_buffer.cuh"
 #include "../cuda_status.cuh"
-#include "gpt2_forward.h"
 
-// The GPT-2 forward pass on the device, in fp32, one free function per op.
+// Row and matrix arithmetic on the device, one free function per op.
 //
-// Every op writes into a caller-owned `cuda_matrix`. Activations are
-// matrices of features in device memory, one row per token, and parameters
-// are the same weights uploaded once. Shape mismatches are contract
-// violations. An op launches on the default stream and returns whether its
-// launches were accepted, so a fault inside a kernel surfaces at the next
-// synchronizing call, such as a `store`.
-namespace corvid::cuda::llm {
+// Every op writes into a caller-owned `cuda_matrix`, launches on the default
+// stream, and returns whether its launches were accepted, so a fault inside a
+// kernel surfaces at the next synchronizing call, such as a `store`. Shape
+// mismatches are contract violations.
+namespace corvid::cuda::linalg {
 
 using matrix_types::matrix_extent;
 
@@ -137,7 +134,7 @@ inline constexpr auto threads_per_block = 256U;
 }
 
 #pragma endregion
-#pragma region linear
+#pragma region linear_projection
 
 namespace details {
 
@@ -152,26 +149,19 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
 
 // Project each row of `in` through `weight` and add `bias`, into `out`.
 //
-// The contract is that of the CPU `corvid::llm::linear`, which also holds the
-// worked explanation: `out` has a row per row of `in` and a column per column
-// of `weight`, `weight` has a row per column of `in`, and `bias` has an
-// element per column of `weight`. `out` must not be `in` or `weight`. The
-// call sites are the same four projections, with the same shapes:
-//
-// call         |  in features (i)  |  out features (j)  |  factor
-// -------------+-------------------+--------------------+---------
-// c_attn       |       768         |      2304          |    3
-// attn c_proj  |       768         |       768          |    1
-// c_fc         |       768         |      3072          |    4
-// mlp c_proj   |       3072        |       768          |    1/4
+// The contract is that of the CPU `corvid::linalg::linear_projection`, which
+// also holds the worked explanation: `out` has a row per row of `in` and a
+// column per column of `weight`, `weight` has a row per column of `in`, and
+// `bias` has an element per column of `weight`. `out` must not be `in` or
+// `weight`.
 //
 // Note: Before this is moved out of LLM-specific and into general CUDA, it not
 // only has to be templated so it's not just `float`, but it also has to handle
 // non-packed inputs.
 //
 // Returns false when a launch is refused, leaving `out` unspecified.
-[[nodiscard]] inline bool linear(const cublas_handle& blas, cuda_matrix& out,
-    const cuda_matrix& in, const cuda_matrix& weight,
+[[nodiscard]] inline bool linear_projection(const cublas_handle& blas,
+    cuda_matrix& out, const cuda_matrix& in, const cuda_matrix& weight,
     const cuda_buffer<float>& bias) {
   assert(weight.row_extent() == in.col_extent());
   assert((out.row_extent() == in.row_extent()) &&
@@ -186,49 +176,19 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
       out.size(), bias.get(), out.col_extent());
   if (!cuda_last_status{}) return false;
 
-  // cuBLAS reads each row-major matrix as its column-major transpose, and
-  // transposing `out = in * weight` gives `out^T = weight^T * in^T`, so the
-  // buffers multiply as stored with no transpose flags. In cuBLAS terms, `A`
-  // is `weight^T` (`m` by `k`), `B` is `in^T` (`k` by `n`), and `C` is
-  // `out^T` (`m` by `n`), where `m` is the output features, `n` the tokens,
-  // and `k` the input features. Each leading dimension is the row-major row
-  // length, which is the column count of the transpose. The handle's stream
-  // is the default one, the same the fill ran on, so the order holds.
-  const auto m = static_cast<int>(out.col_extent());
-  const auto n = static_cast<int>(out.row_extent());
+  // `out = in * weight` in row-major terms: `m` rows, `n` output features,
+  // `k` input features, each leading dimension a packed row length. The
+  // handle's stream is the default one, the same the fill ran on, so the
+  // order holds.
+  const auto m = static_cast<int>(out.row_extent());
+  const auto n = static_cast<int>(out.col_extent());
   const auto k = static_cast<int>(in.col_extent());
   return blas
-      .multiply(m, n, k, 1.0F, weight.buffer(), m, in.buffer(), k, 1.0F,
-          out.buffer(), m)
+      .multiply_row_major(m, n, k, 1.0F, in.buffer(), k, weight.buffer(), n,
+          1.0F, out.buffer(), n)
       .ok();
 }
 
 #pragma endregion
-#pragma region gelu_new
 
-namespace details {
-
-// Apply the scalar `gelu_new` to `size` elements, one thread per element.
-__global__ void apply_gelu_new(float* out, const float* in, size_t size) {
-  const auto i = cuda_kernel::x_index<size_t>();
-  if (i < size) out[i] = corvid::llm::gelu_new(in[i]);
-}
-
-} // namespace details
-
-// Apply `gelu_new` to every element of `in`, into `out`.
-//
-// `out` and `in` must have the same extent. `out` can be `in`, applying it in
-// place. Returns false when the launch is refused, leaving `out` unspecified.
-[[nodiscard]] inline bool gelu_new(cuda_matrix& out, const cuda_matrix& in) {
-  assert((out.row_extent() == in.row_extent()) &&
-         (out.col_extent() == in.col_extent()));
-
-  details::apply_gelu_new<<<blocks_for(out.size()), threads_per_block>>>(
-      out.get(), in.get(), out.size());
-  return cuda_last_status{}.ok();
-}
-
-#pragma endregion
-
-} // namespace corvid::cuda::llm
+} // namespace corvid::cuda::linalg

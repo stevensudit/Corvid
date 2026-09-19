@@ -270,4 +270,31 @@ TEST_CASE("Rows as a range", "[MatrixViewTest]") {
   }
 }
 
+TEST_CASE("Matrix view arithmetic in place", "[MatrixViewTest]") {
+  std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
+  std::vector<float> other_storage{10.0F, 20.0F, 30.0F, 40.0F};
+  const view_t m(storage, {.row_count = 2, .col_count = 2});
+  const matrix_view<const float> other(other_storage,
+      {.row_count = 2, .col_count = 2});
+
+  m += other;
+  CHECK(storage == std::vector<float>{11.0F, 22.0F, 33.0F, 44.0F});
+  m -= other;
+  CHECK(storage == std::vector<float>{1.0F, 2.0F, 3.0F, 4.0F});
+
+  // The named forms are the same operations, and a writable view converts
+  // to the read-only operand.
+  m.add(m);
+  CHECK(storage == std::vector<float>{2.0F, 4.0F, 6.0F, 8.0F});
+  m.subtract(m);
+  CHECK(storage == std::vector<float>{0.0F, 0.0F, 0.0F, 0.0F});
+
+  // A strided operand is walked by rows.
+  std::vector<float> wide_storage{1.0F, -1.0F, 2.0F, -1.0F};
+  const view_t wide(wide_storage, {.row_count = 2, .col_count = 1}, 2);
+  const view_t narrow(storage, {.row_count = 2, .col_count = 1}, 2);
+  narrow += wide;
+  CHECK(storage == std::vector<float>{1.0F, 0.0F, 2.0F, 0.0F});
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -26,8 +26,10 @@ L2  enums             corvid/enums/                  scoped/sequence/bitmask/boo
 L3  filesys           corvid/filesys/                os_file, os_event, epoll glue.
     concurrency       corvid/concurrency/            locks, timers, dispatch, atomics.
     containers/utils  corvid/containers/utils/       Enum/string-aware containers.
+    linalg            corvid/linalg/                 Row/matrix arithmetic over matrix_view; rests on containers/utils.
 L4  ecs, proto, lang  corvid/{ecs,proto,lang}/       Apex consumers.
 L5  sim               corvid/sim/                    Apex consumer.
+    llm               corvid/llm/                    Apex consumer: transformer ops, GPT-2, tokenizer, weight reader.
     cuda              corvid/cuda/                   Apex consumer (see below).
 ```
 
@@ -35,15 +37,20 @@ The `L3` row is not flat: `filesys` rests on `enums` and `strings`;
 `concurrency` rests on `filesys`; `containers/utils` rests on `concurrency`. The
 allow-list below captures that order precisely.
 
-The apex bands (`ecs`, `proto`, `lang`, `sim`, `cuda`) may depend on any lower
-band.
+The apex bands (`ecs`, `proto`, `lang`, `sim`, `llm`, `cuda`) may depend on
+any lower band.
+
+`llm` is the CPU side of the transformer work: the ops, the GPT-2 model, the
+tokenizer, and the safetensors reader. It sits at the top so that reader may
+reach `filesys` (file mapping) and `proto` (the JSON parser). `linalg` is the
+arithmetic those ops rest on, which needs only `matrix_view`, so it is a
+proper mid band rather than an apex one.
 
 `cuda` is a band only for the plain `.h` headers under `corvid/cuda/` (the
-CPU-only parts of `corvid/cuda/llm/`: tokenizer, weight reader, CPU forward
-pass). The `.cuh` headers are outside the lint entirely, since it scans only
-`*.h`; they need a CUDA toolchain to compile and are checked by the compiler
-alone. The band sits at the top so the LLM code may reach `filesys` (file
-mapping) and `proto` (the JSON parser).
+Windows viewer glue). The `.cuh` headers are outside the lint entirely, since
+it scans only `*.h`; they need a CUDA toolchain to compile and are checked by
+the compiler alone. The device counterparts of `linalg` and `llm` are `.cuh`
+files under `corvid/cuda/linalg/` and `corvid/cuda/llm/`.
 
 `math` sits alongside `meta` at the foundation and is universally dependable
 in the same way: any band may depend on it. It is not quite as low, though,
@@ -127,7 +134,10 @@ proto            -> meta, infra, filesys, concurrency, strings, enums,
 lang             -> enums, containers/core, corvid/strings.h (umbrella)
 sim              -> strings, enums, containers/core, proto,
                     corvid/ecs.h + corvid/proto.h (umbrellas)
-cuda             -> (no .h headers yet; .cuh files are not scanned)
+linalg           -> meta, containers/utils
+llm              -> meta, math, strings, enums, filesys, containers/core,
+                    linalg, proto
+cuda             -> meta, enums, sdl (.cuh files are not scanned)
 ```
 
 The spine, with transitively-implied edges omitted for readability:
@@ -143,7 +153,8 @@ graph TD
     filesys[filesys]
     concurrency[concurrency]
     containers_utils["containers/utils"]
-    apex["ecs, proto, lang, sim, cuda<br/>(apex: any lower band)"]
+    linalg[linalg]
+    apex["ecs, proto, lang, sim, llm, cuda<br/>(apex: any lower band)"]
 
     math --> meta
     infra --> meta
@@ -159,6 +170,8 @@ graph TD
     containers_utils --> strings
     containers_utils --> enums
     containers_utils --> concurrency
+    linalg --> containers_utils
+    apex --> linalg
     apex --> containers_utils
     apex --> concurrency
 ```
