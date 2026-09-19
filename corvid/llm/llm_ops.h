@@ -38,13 +38,7 @@ namespace corvid::llm {
 
 using namespace corvid::linalg;
 
-// The loop idiom of this file.
-using std::views::zip;
-
 #pragma region layer_norm
-
-// The epsilon GPT-2 adds to the variance before the square root.
-inline constexpr float layer_norm_eps = 1e-5F;
 
 // Normalize `row_in` to a mean of 0 and a variance of 1, into `row_out`.
 //
@@ -87,10 +81,11 @@ constexpr void scale_shift_row(float_row_span row_out,
 //
 // `out` and `in` must have the same extent, and its width must be the size of
 // `weight` and `bias`. `out` can be the same view as `in`, normalizing in
-// place, but must not otherwise overlap it.
+// place, but must not otherwise overlap it. `eps` is added to each row's
+// variance inside the square root.
 inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
     const_float_row_span weight, const_float_row_span bias,
-    float eps = layer_norm_eps) noexcept {
+    float eps) noexcept {
   [[maybe_unused]] const auto width = in.col_extent();
   assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
   assert((weight.size() == width) && (bias.size() == width));
@@ -115,8 +110,8 @@ inline constexpr float gelu_tanh_scale =
 // paper's fit of the tanh form to the exact one.
 inline constexpr float gelu_cubic_coeff = 0.044715F;
 
-// The GELU (Gaussian Error Linear Unit) of `x`, in the tanh form that GPT-2
-// was trained with.
+// The GELU (Gaussian Error Linear Unit) of `x`, in the tanh approximation
+// form.
 //
 // GELU is `x` times the probability that a standard normal draw is below `x`.
 // So it passes large positive inputs through unchanged, squashes large
@@ -136,13 +131,13 @@ inline constexpr float gelu_cubic_coeff = 0.044715F;
 
 // Apply `gelu_new` to every element of `in`, into `out`.
 //
-// GPT-2 applies it once per block, to the 3072-wide rows that `c_fc`
-// produces, before `mlp c_proj` projects them back down to 768. It is the
-// only nonlinearity in the MLP, and without it the two projections would
-// collapse into one.
+// This is typically applied to the hidden states of the model to weed out
+// negative values. It also provides nonlinearity, ensuring that the model can
+// learn complex functions of its inputs instead of collapsing into a linear
+// map.
 //
-// `out` and `in` must have the same extent. `out` can be the same view as
-// `in`, applying it in place, but must not otherwise overlap it.
+// `out` and `in` must have the same extent. `out` can be the same view
+// as `in`, applying it in place, but must not otherwise overlap it.
 inline void
 gelu_new(float_matrix_view out, const_float_matrix_view in) noexcept {
   assert((out.row_extent() == in.row_extent()) &&
@@ -165,12 +160,11 @@ gelu_new(float_matrix_view out, const_float_matrix_view in) noexcept {
 //   out       [T, D]   a row per token, written
 //   scores    [T]      scratch for one row of weights, at least T long
 //
-// In GPT-2, D is 64 and the views are column slices of the `attn.c_attn`
-// output. For each token `i`, we compute the dot product of its query,
-// `q[i]`, against the keys of all non-subsequent tokens, `k[j]`, where `j`
-// ranges from 0 to `i`, inclusive. This is a measure of how relevant that
-// non-subsequent token is to the current token. Tokens after `i` get no weight
-// at all, which is the causal rule.
+// For each token `i`, we compute the dot product of its query, `q[i]`, against
+// the keys of all non-subsequent tokens, `k[j]`, where `j` ranges from 0 to
+// `i`, inclusive. This is a measure of how relevant that non-subsequent token
+// is to the current token. Tokens after `i` get no weight at all, which is the
+// causal rule.
 //
 // We scale the dot product by `1/sqrt(D)` to prevent the scores from growing
 // too large with the width, and then apply the softmax to convert the scores
@@ -221,40 +215,28 @@ inline void attention_head(float_matrix_view out, const_float_matrix_view q,
 }
 
 // Let each token read from the tokens at or before it, across all
-// attention heads. Takes `qkv`, which is the output of the `attn.c_attn`
+// attention heads. Takes `qkv`, which is the output of the attention
 // projection, and writes the weighted sum to `out`.
 //
 // The `qkv` matrix has one row per token, which contains its queries, then
-// its keys, then its values, each as wide as `out` (which is 768 for GPT-2).
+// its keys, then its values, each as wide as `out`.
 //
-// token_row: 768 * q, 768 * k, 768 * v
-//
-// This matrix is cut up into `q`, `k`, and `v` matrices, each of which is [T,
-// 768]. Then each attention head is passed a slice of these columns. In other
-// words, the first head gets the first 64 columns of `q`, `k`, and `v`,
-// respectively; and so on.
+// This matrix is cut up into `q`, `k`, and `v` matrices, each of which is
+// sized to `[T, F]` (where `T` is tokens, and `F` is features). Then each
+// attention head is passed a slice of these columns. In other words, the first
+// head gets the first `D` columns of `q`, `k`, and `v`, respectively; and so
+// on.
 //
 // This means that a given head cannot query using the key features from
-// another head. However, as each head's inputs were computed by `attn.c_attn`
-// from all input features, they still capture information from all of them.
-// The heads partition the projection, not the input, and `attn.c_proj`
-// afterward mixes their outputs back together.
+// another head. However, as each head's inputs were computed by the attention
+// projection from all input features, they still capture information from all
+// of them. The heads partition the projection, not the input, and the
+// narrowing projection afterward mixes their outputs back together.
 //
 // Each head operates independently on its slice of the queries, keys, and
 // values. It writes to the portion of `out` corresponding to its input. In
-// other words, the first head writes to the first 64 columns of `out`, and so
+// other words, the first head writes to the first `D` columns of `out`, and so
 // on.
-//
-// For GPT-2 with T tokens:
-//
-// step             |  reads                 |  produces
-// -----------------+------------------------+----------------------------
-// split            |  qkv [T, 2304]         |  q, k, v each [T, 768]
-// heads            |  q, k, v [T, 768]      |  12 slices each of [T, 64]
-// attention_head   |  [T, 64] q/k/v slices  |  one [T, 64] slice of out
-// (all heads)      |                        |  out [T, 768]
-//
-// where 2304 = 3 x 768 and 64 = 768 / 12.
 //
 // `scores` is scratch for one row of weights, and must hold at least one
 // element per token. `qkv` must be three times as wide as `out`, whose
@@ -292,43 +274,28 @@ inline void attention(float_matrix_view out, const_float_matrix_view qkv,
 #pragma endregion
 #pragma region embed
 
-// Look up each token's embedding, into `out`.
+// Look up each ID's row of `table`, into `out`.
 //
-// The residual stream starts here. Row `t` of `out` is the row of `wte`
-// indexed by `ids[t]`, the token embedding, plus row `t` of `wpe`, the
-// position embedding. Nothing after this step reads the IDs. For GPT-2 with
-// T tokens:
+// The residual stream starts here, and nothing after this step reads the
+// IDs. With T tokens, V vocabulary entries, and width C:
 //
-// step   |  reads    |  looks up                           |  produces
-// -------+-----------+-------------------------------------+---------------
-// embed  |  ids [T]  |  wte [50257, 768], wpe [1024, 768]  |  out [T, 768]
+//   ids    [T]     one token ID per row of `out`
+//   table  [V, C]  a row per vocabulary entry
+//   out    [T, C]  a row per ID, written
 //
-// where 50257 is the vocabulary size and 1024 the context length.
-//
-// `out` must have one row per ID and the width of both tables, every ID must
-// index a row of `wte`, and there must be no more IDs than rows of `wpe`.
-// `out` must not overlap either table.
-inline void embed(float_matrix_view out, std::span<const token_id> ids,
-    const_float_matrix_view wte, const_float_matrix_view wpe) noexcept {
+// `out` must have one row per ID and the width of `table`, every ID must
+// index a row of `table`, and `out` must not overlap `table`.
+inline void embed_tokens(float_matrix_view out, std::span<const token_id> ids,
+    const_float_matrix_view table) noexcept {
   using row_ndx = float_matrix_view::row_ndx;
 
-  [[maybe_unused]] const auto width = out.col_extent();
   assert(out.row_extent() == ids.size());
-  assert((wte.col_extent() == width) && (wpe.col_extent() == width));
-  assert(ids.size() <= wpe.row_extent());
-  assert(is_disjoint(out.as_span(), wte.as_span()) &&
-         is_disjoint(out.as_span(), wpe.as_span()));
+  assert(out.col_extent() == table.col_extent());
+  assert(is_disjoint(out.as_span(), table.as_span()));
 
-  // Loop over token IDs.
-  for (const auto [id, out_row, position_row] :
-      zip(ids, out.rows(), wpe.rows()))
-  {
-    assert(*id < wte.row_extent());
-    const auto token_row = wte[row_ndx{*id}];
-    // Loop over features for each token.
-    for (auto [out_value, token_value, position_value] :
-        zip(out_row, token_row, position_row))
-      out_value = token_value + position_value;
+  for (const auto [id, out_row] : zip(ids, out.rows())) {
+    assert(*id < table.row_extent());
+    std::ranges::copy(table[row_ndx{*id}], out_row.begin());
   }
 }
 
@@ -338,55 +305,55 @@ inline void embed(float_matrix_view out, std::span<const token_id> ids,
 // Score every vocabulary entry as the next token after `features`, into
 // `out`.
 //
-// `features` is one token's row of the final layer norm's output, and each
-// score is its dot product with that vocabulary entry's row of `wte`, the
-// same table that embedded the input. There is no bias. For GPT-2:
+// Each score is the dot product of `features` with that entry's row of
+// `vocab`. There is no bias. With V vocabulary entries and width C:
 //
-//   features  [768]         one row of `ln_f/out`
-//   wte       [50257, 768]  the token embedding, read row by row
-//   out       [50257]       one logit per vocabulary entry, written
+//   features  [C]     one token's row of the final layer norm's output
+//   vocab     [V, C]  a row per vocabulary entry
+//   out       [V]     one logit per vocabulary entry, written
 //
-// `out` must have one element per row of `wte`, `features` must be as wide
-// as `wte`, and `out` must not overlap either.
+// `out` must have one element per row of `vocab`, `features` must be as wide
+// as `vocab`, and `out` must not overlap either.
 inline void token_logits(float_row_span out, const_float_row_span features,
-    const_float_matrix_view wte) noexcept {
-  assert(out.size() == wte.row_extent());
-  assert(features.size() == wte.col_extent());
-  assert(is_disjoint(out, features) && is_disjoint(out, wte.as_span()));
+    const_float_matrix_view vocab) noexcept {
+  assert(out.size() == vocab.row_extent());
+  assert(features.size() == vocab.col_extent());
+  assert(is_disjoint(out, features) && is_disjoint(out, vocab.as_span()));
 
-  for (auto [logit, embedding] : zip(out, wte.rows()))
-    logit = dot_product(features, embedding);
+  for (auto [logit, entry] : zip(out, vocab.rows()))
+    logit = dot_product(features, entry);
 }
 
 // Score every vocabulary entry after every token of `in`, into `out`.
 //
 // Row `t` of `out` is `token_logits` of row `t` of `in`. Generation only
 // needs the last row, and calls `token_logits` on it directly; every row is
-// what the oracle dumps. For GPT-2 with T tokens:
+// what the oracle dumps. With T tokens, V vocabulary entries, and width C:
 //
-// step          |  reads              |  produces
-// --------------+---------------------+------------------
-// token_logits  |  one row of `in`    |  one row of out
-// (all rows)    |  in [T, 768]        |  out [T, 50257]
+// step          |  reads            |  produces
+// --------------+-------------------+------------------
+// token_logits  |  one row of `in`  |  one row of out
+// (all rows)    |  in [T, C]        |  out [T, V]
 //
 // `out` and `in` must have the same row count, and the shapes of each row
 // are as `token_logits` requires.
 inline void logits(float_matrix_view out, const_float_matrix_view in,
-    const_float_matrix_view wte) noexcept {
+    const_float_matrix_view vocab) noexcept {
   assert(out.row_extent() == in.row_extent());
 
   for (const auto [out_row, in_row] : zip(out.rows(), in.rows()))
-    token_logits(out_row, in_row, wte);
+    token_logits(out_row, in_row, vocab);
 }
 
 #pragma endregion
-#pragma region greedy
+#pragma region pick_greedy
 
-// The vocabulary entry with the largest logit, the first on a tie.
+// Pick the vocabulary entry with the largest logit, the first on a tie.
 //
 // This is greedy decoding: the next token is the single most likely one,
 // with no sampling. `logits` must not be empty.
-[[nodiscard]] inline token_id greedy(const_float_row_span logits) noexcept {
+[[nodiscard]] inline token_id pick_greedy(
+    const_float_row_span logits) noexcept {
   assert(!logits.empty());
 
   const auto largest = std::ranges::max_element(logits);

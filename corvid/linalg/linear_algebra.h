@@ -29,9 +29,7 @@
 
 // Arithmetic over rows and matrices, one free function per op.
 //
-// The row ops take spans. These are reductions, elementwise steps, and
-// softmax. The matrix ops take `matrix_view`. These are `linear_projection`
-// and elementwise addition and subtraction.
+// The row ops take spans, while the matrix ops take `matrix_view`.
 //
 // Every op writes into a caller-owned span or view and honors the stride of
 // every view it is given. Shape mismatches are contract violations. The set
@@ -146,7 +144,7 @@ scale_shift(float x, float weight, float bias) noexcept {
 // Add `scale` times each of `values` to the matching element of `acc`.
 // Conceptually: `acc += scale * values`
 //
-// BLAS calls this operation BLAS axpy, because it's "a times x plus y".
+// BLAS calls this operation "axpy", because it's "a times x plus y".
 constexpr void
 add_scaled(float_span acc, float scale, const_float_span values) noexcept {
   assert(acc.size() == values.size());
@@ -161,8 +159,8 @@ add_scaled(float_span acc, float scale, const_float_span values) noexcept {
 //
 // This is an affine map applied row by row: `out = in * weight + bias` with
 // `bias` added to every row, so the output width is `weight`'s column count
-// and need not match the input width. `weight` has a row per input feature
-// and a column per output feature:
+// and need not match the input width. `weight` has a row per input value
+// and a column per output value:
 //
 //   out[r][j] = bias[j] + sum over i of in[r][i] * weight[i][j]
 //
@@ -203,8 +201,8 @@ inline void linear_projection(float_matrix_view out,
 #pragma endregion
 #pragma region softmax
 
-// Turn the scores in `span_in` into weights that sum to 1, written to
-// `span_out`.
+// Turn the full-range values in `span_in` into weights that sum to 1, written
+// to `span_out`.
 //
 // Each weight is the exponential of its score divided by the sum of all the
 // exponentials, so a larger score gets a larger share and the gaps between
@@ -217,7 +215,7 @@ inline void softmax(float_span span_out, const_float_span span_in) noexcept {
   assert(is_same_or_disjoint(span_out, span_in));
   assert(!span_in.empty());
 
-  // Shifting every score by the same amount leaves the weights unchanged, and
+  // Shifting every value by the same amount leaves the weights unchanged, and
   // shifting by the maximum keeps `exp` at or below 1.
   const auto peak = std::ranges::max(span_in);
   float total{};

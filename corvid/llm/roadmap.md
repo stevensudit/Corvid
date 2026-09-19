@@ -64,11 +64,12 @@ manager. So the division of labor is fixed up front:
     matrix arithmetic over `matrix_view` that knows nothing about models:
     reductions, elementwise steps, `linear`, softmax, `add`. Its device
     counterpart is `corvid/cuda/linalg/linear_algebra.cuh`
-    (`corvid::cuda::linalg`): `cuda_matrix`, launch geometry, and the same
-    ops over device memory.
+    (`corvid::cuda::linalg`): launch geometry and the same ops over device
+    memory, on `cuda_matrix` from `corvid/cuda/cuda_matrix.cuh`.
   - `corvid/llm/llm_ops.h` (`corvid::llm`): the transformer ops shared by
-    every model, `layer_norm`, `gelu_new`, `attention`, `embed`, `logits`,
-    `greedy`, plus `token_id.h`, the tokenizer, and the safetensors reader.
+    every model, `layer_norm`, `gelu_new`, `attention`, `embed_tokens`,
+    `logits`, `pick_greedy`, plus `token_id.h`, the tokenizer, and the
+    safetensors reader.
     Device counterpart `corvid/cuda/llm/llm_ops.cuh` (`corvid::cuda::llm`).
   - `corvid/llm/gpt2.h`: the GPT-2 architecture, `block` and `forward` with
     their parameter and activation bundles. A later model gets its own file
@@ -748,6 +749,22 @@ which now runs all three ops on the device with no host round trip. The
 owns a sized allocation and is no pointer; `count()` became `size()`, the
 span and array transfer overloads assert the host side fits, and the LLM's
 `device_matrix` became `cuda_matrix` to match the band's `cuda_` prefix.
+
+Status (2026-09-19, review pass on the split): `inverse_std_dev` is the
+reciprocal of a new `std_dev`, and `softmax_row` became `softmax` over
+`span_in` and `span_out`, since it takes plain spans. `layer_norm` lost its
+default epsilon; `layer_norm_eps` lives in "gpt2.h", where `block` and
+`forward` pass it. `embed` split into the generic `embed_tokens`, a row
+lookup by ID, with `forward` adding the first T rows of `wpe` through `add`.
+`token_logits` and `logits` take `vocab` in place of `wte`, and `greedy`
+became `pick_greedy`. `cuda_matrix` moved out of the device linalg header
+into "corvid/cuda/cuda_matrix.cuh" beside `cuda_buffer`, ahead of the
+strided view of checkpoint 3. The `multiply` doc in "cuda_cublas.cuh"
+describes column-major GEMM only; the row-major reading is
+`multiply_row_major`'s. Rulings: `token_id` stays 32-bit until a vocabulary
+needs more, and the element-type dispatch of checkpoint 2 is an overload
+set, one per cuBLAS routine, with a traits class deferred until bf16 needs
+`cublasGemmEx`.
 
 ### 5. Backward pass and LoRA
 

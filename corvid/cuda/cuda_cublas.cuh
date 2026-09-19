@@ -127,10 +127,9 @@ public:
 
   // General Matrix Multiply (GEMM), `C = alpha * op(A) * op(B) + beta * C`.
   //
-  // cuBLAS reads every matrix as column-major, so a row-major matrix passed
-  // here is seen as its transpose. `op(X)` is `X` as stored or its transpose,
-  // per `opA` and `opB`, and the shapes below are those of `op(A)` and
-  // `op(B)`, after any transpose:
+  // Every matrix is column-major, which is how cuBLAS defines matrices.
+  // `op(X)` is `X` as stored or its transpose, per `opA` and `opB`, and the
+  // shapes below are those of `op(A)` and `op(B)`, after any transpose:
   //
   //   m      rows of `op(A)` and of `C`
   //   n      columns of `op(B)` and of `C`

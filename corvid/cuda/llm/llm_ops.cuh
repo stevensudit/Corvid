@@ -23,6 +23,7 @@
 
 #include "../../llm/llm_ops.h"
 #include "../cuda_kernel.cuh"
+#include "../cuda_matrix.cuh"
 #include "../cuda_status.cuh"
 #include "../linalg/linear_algebra.cuh"
 

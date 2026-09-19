@@ -35,6 +35,10 @@ using Catch::Matchers::WithinAbs;
 using row_ndx = float_matrix_view::row_ndx;
 using col_ndx = float_matrix_view::col_ndx;
 
+// The epsilon every layer norm test passes, GPT-2's own so the oracle case
+// matches.
+constexpr auto eps = 1e-5F;
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 TEST_CASE("Layer norm on hand-computed rows", "[LlmOpsTest]") {
@@ -49,10 +53,10 @@ TEST_CASE("Layer norm on hand-computed rows", "[LlmOpsTest]") {
   constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
   constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
 
-  layer_norm(out, in, weight, bias);
+  layer_norm(out, in, weight, bias, eps);
 
   constexpr auto tolerance = 1e-5;
-  const auto inv_std = 1.0F / std::sqrt(1.25F + layer_norm_eps);
+  const auto inv_std = 1.0F / std::sqrt(1.25F + eps);
   const auto first = out[row_ndx{0}];
   CHECK_THAT(first[col_ndx{0}], WithinAbs(-1.5F * inv_std, tolerance));
   CHECK_THAT(first[col_ndx{1}], WithinAbs(-0.5F * inv_std * 2.0F, tolerance));
@@ -80,15 +84,15 @@ TEST_CASE("Row ops match layer norm step by step", "[LlmOpsTest]") {
   constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
 
   const auto out_row = out[row_ndx{0}];
-  standardize_row(out_row, in[row_ndx{0}], layer_norm_eps);
+  standardize_row(out_row, in[row_ndx{0}], eps);
 
   constexpr auto tolerance = 1e-5;
-  const auto inv_std = 1.0F / std::sqrt(1.25F + layer_norm_eps);
+  const auto inv_std = 1.0F / std::sqrt(1.25F + eps);
   CHECK_THAT(out_row[col_ndx{0}], WithinAbs(-1.5F * inv_std, tolerance));
   CHECK_THAT(out_row[col_ndx{3}], WithinAbs(1.5F * inv_std, tolerance));
 
   scale_shift_row(out_row, out_row, weight, bias);
-  layer_norm(fused, in, weight, bias);
+  layer_norm(fused, in, weight, bias, eps);
 
   CHECK(out_storage == expected);
 }
@@ -101,8 +105,8 @@ TEST_CASE("Layer norm in place", "[LlmOpsTest]") {
   constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
   constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
 
-  layer_norm(out, m, weight, bias);
-  layer_norm(m, m, weight, bias);
+  layer_norm(out, m, weight, bias, eps);
+  layer_norm(m, m, weight, bias, eps);
 
   CHECK(storage == expected);
 }
@@ -121,7 +125,7 @@ TEST_CASE("Layer norm honors the stride of both views", "[LlmOpsTest]") {
   constexpr std::array weight{1.0F, 1.0F};
   constexpr std::array bias{0.0F, 0.0F};
 
-  layer_norm(out, in, weight, bias);
+  layer_norm(out, in, weight, bias, eps);
 
   constexpr auto tolerance = 1e-5;
   CHECK(out_storage[0] == -1.0F);
@@ -234,22 +238,19 @@ TEST_CASE("Attention on three tokens of width two", "[LlmOpsTest]") {
   }
 }
 
-TEST_CASE("Embed on hand-computed rows", "[LlmOpsTest]") {
-  // Three tokens in the vocabulary, two positions, width two.
-  const std::vector<float> wte_storage{1.0F, 2.0F, 10.0F, 20.0F, 100.0F,
+TEST_CASE("Embed tokens on hand-computed rows", "[LlmOpsTest]") {
+  // Three tokens in the vocabulary, width two.
+  const std::vector<float> table_storage{1.0F, 2.0F, 10.0F, 20.0F, 100.0F,
       200.0F};
-  const std::vector<float> wpe_storage{0.5F, 0.25F, 0.125F, 0.0625F};
-  const const_float_matrix_view wte(wte_storage,
+  const const_float_matrix_view table(table_storage,
       {.row_count = 3, .col_count = 2});
-  const const_float_matrix_view wpe(wpe_storage,
-      {.row_count = 2, .col_count = 2});
   const std::vector<token_id> ids{token_id{2}, token_id{0}};
 
   std::vector<float> storage(ids.size() * 2);
   const float_matrix_view out(storage, {.row_count = 2, .col_count = 2});
-  embed(out, ids, wte, wpe);
+  embed_tokens(out, ids, table);
 
-  CHECK(storage == std::vector<float>{100.5F, 200.25F, 1.125F, 2.0625F});
+  CHECK(storage == std::vector<float>{100.0F, 200.0F, 1.0F, 2.0F});
 }
 
 TEST_CASE("Logits on hand-computed rows", "[LlmOpsTest]") {
@@ -270,9 +271,9 @@ TEST_CASE("Logits on hand-computed rows", "[LlmOpsTest]") {
 
 TEST_CASE("Greedy picks the largest logit", "[LlmOpsTest]") {
   const std::vector<float> rising{-1.0F, 3.0F, 2.0F};
-  CHECK(greedy(rising) == token_id{1});
+  CHECK(pick_greedy(rising) == token_id{1});
   const std::vector<float> tied{2.0F, 2.0F, 1.0F};
-  CHECK(greedy(tied) == token_id{0});
+  CHECK(pick_greedy(tied) == token_id{0});
 }
 
 TEST_CASE("Layer norm matches the oracle", "[LlmOpsTest][oracle]") {
@@ -303,7 +304,7 @@ TEST_CASE("Layer norm matches the oracle", "[LlmOpsTest][oracle]") {
 
       std::vector<float> storage(in.size());
       const float_matrix_view out(storage, in.extent());
-      layer_norm(out, in, weight, bias);
+      layer_norm(out, in, weight, bias, eps);
 
       check_close(out, expected, 1e-5F, 1e-5F);
     }
@@ -453,7 +454,9 @@ TEST_CASE("Embed matches the oracle", "[LlmOpsTest][oracle]") {
 
   std::vector<float> storage(ids.size() * n_embd);
   const float_matrix_view out(storage, expected.extent());
-  embed(out, ids, wte, wpe);
+  embed_tokens(out, ids, wte);
+  out += wpe.subview({row_ndx{0}, col_ndx{0}},
+      {.row_count = ids.size(), .col_count = n_embd});
 
   check_close(out, expected, 0.0F, 0.0F);
 }

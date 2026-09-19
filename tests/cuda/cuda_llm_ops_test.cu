@@ -30,7 +30,7 @@ using namespace corvid::tests::gpt2;
 using Catch::Matchers::WithinAbs;
 using corvid::cuda::cublas_handle;
 using corvid::cuda::cuda_buffer;
-using corvid::cuda::linalg::cuda_matrix;
+using corvid::cuda::cuda_matrix;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 

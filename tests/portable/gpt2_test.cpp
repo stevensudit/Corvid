@@ -283,7 +283,7 @@ TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
     forward(trunk, ids, model.params, owned.views(), n_head);
     token_logits(next_logits, trunk[row_ndx{token_count - 1}],
         model.params.wte);
-    ids.push_back(greedy(next_logits));
+    ids.push_back(pick_greedy(next_logits));
   }
   const auto appended = std::span{ids}.subspan(prompt_count);
   const std::vector<token_id> generated(appended.begin(), appended.end());
