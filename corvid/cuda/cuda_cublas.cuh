@@ -125,20 +125,48 @@ public:
 #pragma endregion
 #pragma region Multiply
 
-  // General Matrix Multiply (GEMM) wrapper.
+  // General Matrix Multiply (GEMM), `C = alpha * op(A) * op(B) + beta * C`.
   //
-  // C = alpha * op(A) * op(B) + beta * C
+  // cuBLAS reads every matrix as column-major, so a row-major matrix passed
+  // here is seen as its transpose. `op(X)` is `X` as stored or its transpose,
+  // per `opA` and `opB`, and the shapes below are those of `op(A)` and
+  // `op(B)`, after any transpose:
   //
-  // Where op(X) is X or its transpose. C, A, and B are column-major (cuBLAS
-  // default) and every leading dimension is `n`.
+  //   m      rows of `op(A)` and of `C`
+  //   n      columns of `op(B)` and of `C`
+  //   k      columns of `op(A)` and rows of `op(B)`, the summed dimension
+  //   alpha  scale applied to the product
+  //   A      device matrix, `m` by `k` after `opA`
+  //   lda    leading dimension of `A` as stored
+  //   B      device matrix, `k` by `n` after `opB`
+  //   ldb    leading dimension of `B` as stored
+  //   beta   scale applied to the existing `C` before the product is added;
+  //          zero ignores its contents, one accumulates onto them
+  //   C      device matrix, `m` by `n`, read when `beta` is nonzero, written
+  //   ldc    leading dimension of `C`
+  //   opA    whether `A` is used as stored or transposed
+  //   opB    likewise for `B`
+  //
+  // A leading dimension is the element distance between the starts of
+  // consecutive columns of the matrix as stored, before any transpose. For a
+  // packed matrix, that is its stored row count: `lda` is `m` when `opA` is
+  // `none` and `k` when it is `transpose`, `ldb` is `k` or `n` likewise, and
+  // `ldc` is `m`. A larger value addresses a column block of a wider matrix.
+  [[nodiscard]] cublas_last_status multiply(int m, int n, int k, float alpha,
+      const cuda_ptr<float>& A, int lda, const cuda_ptr<float>& B, int ldb,
+      float beta, cuda_ptr<float>& C, int ldc,
+      cublas_operation opA = cublas_operation::none,
+      cublas_operation opB = cublas_operation::none) const {
+    return cublasSgemm(handle_, as_raw(opA), as_raw(opB), m, n, k, &alpha, A,
+        lda, B, ldb, &beta, C, ldc);
+  }
 
-  // Simple square multiply.
+  // Square multiply, where every dimension and leading dimension is `n`.
   [[nodiscard]] cublas_last_status multiply(int n, float alpha,
       const cuda_ptr<float>& A, const cuda_ptr<float>& B, float beta,
       cuda_ptr<float>& C, cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
-    return cublasSgemm(handle_, as_raw(opA), as_raw(opB), n, n, n, &alpha, A,
-        n, B, n, &beta, C, n);
+    return multiply(n, n, n, alpha, A, n, B, n, beta, C, n, opA, opB);
   }
 
 #pragma endregion

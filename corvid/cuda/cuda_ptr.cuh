@@ -77,7 +77,7 @@ class cuda_ptr: public cuda_handle<T*, cudaFree> {
 public:
 #pragma region Construction
 
-  explicit cuda_ptr(std::nullptr_t) noexcept : base{nullptr} {}
+  explicit cuda_ptr(std::nullptr_t) noexcept : base{nullptr}, count_{} {}
 
   // Allocate, but do not initialize, device memory for `count` objects of
   // type `T`, or throw.
@@ -90,6 +90,12 @@ public:
   [[nodiscard]] static cuda_ptr try_create(size_t count = 1UZ) {
     return cuda_ptr{make(count, on_failure::ignore), count};
   }
+
+#pragma endregion
+#pragma region Accessors
+
+  // The number of objects allocated.
+  [[nodiscard]] size_t count() const noexcept { return count_; }
 
 #pragma endregion
 #pragma region Transfer

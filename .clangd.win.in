@@ -58,6 +58,18 @@ CompileFlags:
   Add: [-Wno-unused-const-variable]
 
 ---
+# Test headers (tests/*.h). They sit beside no source file, so the proxy TU
+# clangd picks for them is imgui.cpp again, whose command has none of the
+# test include paths: the project root for "corvid/...", tests/ for
+# "catch2_main.h", and the two Catch2 directories (its sources and the
+# generated user config). Add them, and drop imgui's `-w` as above.
+If:
+  PathMatch: [tests/.*\.h]
+CompileFlags:
+  Remove: [-w]
+  Add: [-I@PROJECT_ROOT_DIR@, -I@CMAKE_SOURCE_DIR@, -I@catch2_SOURCE_DIR@/src, -I@catch2_BINARY_DIR@/generated-includes]
+
+---
 Diagnostics:
   UnusedIncludes: None
   MissingIncludes: None
