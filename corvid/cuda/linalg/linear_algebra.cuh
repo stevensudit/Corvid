@@ -65,6 +65,11 @@ using const_view_t = cuda_matrix_view<const T>;
 template<DeviceMatrixLike Out>
 using input_view_t = const_view_t<device_element_t<Out>>;
 
+// The buffer an op with the output `Out` takes as a per-column input, such as
+// a bias.
+template<DeviceMatrixLike Out>
+using input_buffer_t = cuda_buffer<device_element_t<Out>>;
+
 #pragma endregion
 #pragma region gemm
 
@@ -178,9 +183,8 @@ gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
 // launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
 requires GemmElement<device_element_t<Out>>
-[[nodiscard]] bool
-gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
-    input_view_t<Out> b, const cuda_buffer<device_element_t<Out>>& bias,
+[[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out,
+    input_view_t<Out> a, input_view_t<Out> b, const input_buffer_t<Out>& bias,
     gemm_options<device_element_t<Out>> options = {}) {
   const auto& out_view = out.as_view();
   assert(bias);
@@ -216,7 +220,7 @@ template<DeviceMatrixLike Out>
 requires GemmElement<device_element_t<Out>>
 [[nodiscard]] bool
 linear_projection(const cublas_handle& blas, Out&& out, input_view_t<Out> in,
-    input_view_t<Out> weight, const cuda_buffer<device_element_t<Out>>& bias) {
+    input_view_t<Out> weight, const input_buffer_t<Out>& bias) {
   return gemm(blas, out, in, weight, bias);
 }
 
