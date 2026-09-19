@@ -95,6 +95,13 @@ struct gemm_options {
 //
 // Another matrix must have the extent of `out`.
 //
+// The distinction between `addend` and `out` is this layer's. Down in
+// `cublas_handle::multiply_row_major` and below, `C` is one in-out matrix that
+// is read scaled by `beta` and overwritten with the result. So `out` is always
+// `C`, another matrix is copied into `out` before the call, and an empty
+// addend or a zero `addend_scale` passes `beta` as zero, under which cuBLAS
+// never reads `out`.
+//
 // `out` must not be `a` or `b`. Returns false when a launch or copy is
 // refused, leaving `out` unspecified.
 //
@@ -117,23 +124,19 @@ template<GemmElement T>
   assert(op_a_extent.col_count == op_b_extent.row_count);
   assert((&out != &a) && (&out != &b));
 
-  // cuBLAS writes the result into the same `C` it reads the addend from, so
-  // `C` must be `out`: passing `addend` as `C` would overwrite the addend and
-  // leave `out` untouched. An addend that is another matrix is therefore
-  // copied into `out` first, and `beta` scales it there. An empty addend, or
-  // a scale of zero, makes `beta` zero, so `out` is never read and nothing is
-  // copied.
+  // To create the `out`/`addend` distinction, we need to initialize `C` with a
+  // copy of the `addend`, if there's anything there for us.
   const auto has_addend = addend.buffer().ok() && (options.addend_scale != 0);
   if (has_addend && (&addend != &out)) {
     assert((addend.row_extent() == out.row_extent()) &&
            (addend.col_extent() == out.col_extent()));
+    // Copy `addend` into `out`, as part of the same default stream as `blas`.
     if (!out.buffer().load(addend.buffer())) return false;
   }
   const auto beta = has_addend ? options.addend_scale : T{};
 
   // Every matrix is packed, so each leading dimension is its stored row
-  // length. The handle's stream is the default one, the same the copy ran on,
-  // so the order holds.
+  // length.
   const auto m = static_cast<int>(out.row_extent());
   const auto n = static_cast<int>(out.col_extent());
   const auto k = static_cast<int>(op_a_extent.col_count);
@@ -161,10 +164,12 @@ gemm(const cublas_handle& blas, cuda_matrix<T>& out, const cuda_matrix<T>& a,
   assert(bias);
   assert(bias.size() == out.col_extent());
 
-  // The bias is broadcast into `out` before the GEMM, making `out` its own
-  // addend, so `addend_scale` reaches the bias as `beta`. That costs one write
-  // of `out`, where a product followed by a separate bias add would read and
-  // write `out` again.
+  // We can't directly add `bias` as part of the GEMM operation because `bias`
+  // is a row vector and GEMM expects a matrix for `addend`. In principle, we
+  // could pass an `addend_scale` of 0 and then do the `bias` add in a separate
+  // kernel, but we can get the same effect cheaper by broadcasting `bias` into
+  // `out`, turning it into a matrix that we then use as the `addend`.
+  // Essentially: Ctrl+C, Ctrl+V FTW.
   details::fill_rows<T><<<blocks_for(out.size()), threads_per_block>>>(
       out.get(), out.size(), bias.get(), out.col_extent());
   if (!cuda_last_status{}) return false;
