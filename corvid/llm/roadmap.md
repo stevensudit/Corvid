@@ -933,6 +933,22 @@ converts. Gated on the CPU test's hand-computed rows in float and double, in
 place, and on the same 25-site oracle gate at 1e-5. The reductions have their
 own unit tests, one warp and eight warps, two sums in a row.
 
+Status (2026-09-19, review round on add and layer_norm): the reductions moved
+out of the primitive wrappers into "cuda_reduce.cuh", as
+`cuda_reduce::warp_sum` and `cuda_reduce::block_sum`, so `cuda_warp` and
+`cuda_block` stay wrappers over intrinsics. `cuda_block` is now the home of
+`sync()` over `__syncthreads`, and `cuda_warp` gained `warps_in_block()` and
+`max_warps_per_block` beside `warp_id()`. The block sum's doc no longer
+states the 1024-thread limit, which is CUDA's own and now lives with the
+constant it explains. `subtract` arrived on the device beside `add`, both as
+two-line wrappers over one `combine_elements` kernel templated on the
+operator, which is passed as `std::plus<>` or `std::minus<>`; clang treats
+constexpr functions as callable from device code, so the standard functors
+work in a kernel without a device-marked copy. The kernel's doc now says how
+threads map to elements (thread `i` takes element `i` in row-major order, so
+a warp reads 32 consecutive columns), and the layer norm's says that a thread
+past the last column still joins both block sums.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

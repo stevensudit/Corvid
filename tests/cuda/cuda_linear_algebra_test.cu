@@ -277,5 +277,43 @@ TEMPLATE_TEST_CASE("Device add on hand-computed rows",
 }
 
 #pragma endregion
+#pragma region subtract
+
+TEMPLATE_TEST_CASE("Device subtract on hand-computed rows",
+    "[LinearAlgebraTest][cuda]", float, double) {
+  using T = TestType;
+  const std::vector<T> a_storage{T{11}, T{22}, T{33}, T{44}};
+  const std::vector<T> b_storage{T{1}, T{2}, T{3}, T{4}};
+  const matrix_view<const T> a_view(a_storage,
+      {.row_count = 2, .col_count = 2});
+  const matrix_view<const T> b_view(b_storage,
+      {.row_count = 2, .col_count = 2});
+  const std::vector<T> expected{T{10}, T{20}, T{30}, T{40}};
+  cuda_matrix<T> a(a_view);
+  cuda_matrix<T> b(b_view);
+  std::vector<T> storage(a.size());
+  const matrix_view<T> out_view(storage, a.extent());
+
+  SECTION("into a separate matrix") {
+    cuda_matrix<T> out(a.extent());
+    REQUIRE(cuda::linalg::subtract(out, a, b));
+    REQUIRE(out.view().store(out_view));
+    CHECK(storage == expected);
+  }
+
+  SECTION("in place on the left") {
+    REQUIRE(cuda::linalg::subtract(a, a, b));
+    REQUIRE(a.view().store(out_view));
+    CHECK(storage == expected);
+  }
+
+  SECTION("in place on the right") {
+    REQUIRE(cuda::linalg::subtract(b, a, b));
+    REQUIRE(b.view().store(out_view));
+    CHECK(storage == expected);
+  }
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
