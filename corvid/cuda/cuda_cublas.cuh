@@ -151,6 +151,11 @@ public:
   //   opA    whether `A` is used as stored or transposed
   //   opB    likewise for `B`
   //
+  // Note that `C` is both the addend and the result. cuBLAS scales what it
+  // holds by `beta`, adds the product, and writes the sum back over it, so
+  // there is no separate output. With `beta` at zero, `C` is not read at all;
+  // it is effectively zeroed out.
+  //
   // Every matrix is column-major, as cuBLAS defines it. `op(X)` is `X` as
   // stored when its flag is `none`, and the transpose of `X` as stored when
   // it is `transpose`. The dimensions describe the operands of the product:
@@ -182,7 +187,8 @@ public:
   // The same letters as `multiply`, read row-major: `op(A)` is `m` by `k`,
   // `op(B)` is `k` by `n`, `C` is `m` by `n`, and a leading dimension is the
   // element distance between the starts of consecutive rows of a buffer as
-  // stored, which for a packed buffer is its column count.
+  // stored, which for a packed buffer is its column count. `C` is in-out here
+  // too, read scaled by `beta` and then overwritten with the result.
   //
   // cuBLAS reads a row-major buffer as the transpose of the matrix it holds.
   // Transposing both sides of the product gives `C^T = (op(A) * op(B))^T`,
