@@ -10,7 +10,7 @@
 
 #include "corvid/cuda/raycast.cuh"
 #include "corvid/cuda/vec.cuh"
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "catch2_main.h"
 
@@ -69,7 +69,7 @@ __global__ void to_byte_kernel(unsigned char* out) {
 
 TEST_CASE("surface_normal points outward from the sphere", "[cuda][raycast]") {
   vec3 normal{};
-  if (cuda_ptr<vec3> d_out; true) {
+  if (cuda_buffer<vec3> d_out; true) {
     REQUIRE(d_out.ok());
     normal_kernel<<<1, 1>>>(d_out.get());
     REQUIRE(d_out.store(normal));
@@ -85,7 +85,7 @@ TEST_CASE("surface_normal points outward from the sphere", "[cuda][raycast]") {
 
 TEST_CASE("soft_shadow blocks light through the sphere", "[cuda][raycast]") {
   float shadow[2]{-1.0F, -1.0F};
-  if (cuda_ptr<float> d_out{2}; true) {
+  if (cuda_buffer<float> d_out{2}; true) {
     REQUIRE(d_out.ok());
     shadow_kernel<<<1, 1>>>(d_out.get());
     REQUIRE(d_out.store(shadow));
@@ -100,7 +100,7 @@ TEST_CASE("soft_shadow blocks light through the sphere", "[cuda][raycast]") {
 
 TEST_CASE("ambient_occlusion is open on a convex surface", "[cuda][raycast]") {
   float ao = -1.0F;
-  if (cuda_ptr<float> d_out; true) {
+  if (cuda_buffer<float> d_out; true) {
     REQUIRE(d_out.ok());
     ao_kernel<<<1, 1>>>(d_out.get());
     REQUIRE(d_out.store(ao));
@@ -116,7 +116,7 @@ TEST_CASE("ambient_occlusion is open on a convex surface", "[cuda][raycast]") {
 TEST_CASE("shade_ray shades a hit and returns sky on a miss",
     "[cuda][raycast]") {
   vec3 color[2]{};
-  if (cuda_ptr<vec3> d_out{2}; true) {
+  if (cuda_buffer<vec3> d_out{2}; true) {
     REQUIRE(d_out.ok());
     shade_kernel<<<1, 1>>>(d_out.get());
     REQUIRE(d_out.store(color));
@@ -139,7 +139,7 @@ TEST_CASE("shade_ray shades a hit and returns sky on a miss",
 
 TEST_CASE("to_byte gamma-encodes and clamps", "[cuda][raycast]") {
   unsigned char bytes[5]{};
-  if (cuda_ptr<unsigned char> d_out{5}; true) {
+  if (cuda_buffer<unsigned char> d_out{5}; true) {
     REQUIRE(d_out.ok());
     to_byte_kernel<<<1, 1>>>(d_out.get());
     REQUIRE(d_out.store(bytes));

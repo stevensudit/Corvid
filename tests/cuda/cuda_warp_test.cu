@@ -5,7 +5,7 @@
 
 #include <cuda_runtime.h>
 
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_warp.cuh"
 #include "catch2_main.h"
@@ -54,7 +54,7 @@ __global__ void warp_kernel(lane_record* out) {
 #pragma region cuda_warp
 
 TEST_CASE("cuda_warp lane queries and shuffles", "[cuda]") {
-  cuda_ptr<lane_record> d_out{lanes};
+  cuda_buffer<lane_record> d_out{lanes};
   REQUIRE(d_out.ok());
   warp_kernel<<<1, lanes>>>(d_out.get());
   lane_record out[lanes]{};

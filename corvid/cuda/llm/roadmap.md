@@ -59,7 +59,7 @@ manager. So the division of labor is fixed up front:
 
 - `corvid/cuda/llm/`: model code. CPU-only pieces (tokenizer, safetensors
   reader, CPU forward) are plain `.h` in `corvid::llm`; anything that touches
-  the device is `.cuh` in `corvid::cuda::llm`, resting on `cuda_ptr`,
+  the device is `.cuh` in `corvid::cuda::llm`, resting on `cuda_buffer`,
   `cuda_cublas`, `cuda_event`, and friends.
 - **A new `cuda` band** in `deps.md`, high in the stack so it may depend on
   `filesys` and `proto`. This puts the CPU-only `.h` files under the layering
@@ -682,8 +682,8 @@ tokens per second on the same model and precision goes in the same table,
 so the gap is a number rather than an impression.
 
 Status (2026-09-18, device linear): the first device op is `linear` in
-"gpt2_forward.cuh", namespace `corvid::cuda::llm`, over a new `device_matrix`
-(a `cuda_ptr<float>` plus a `matrix_extent`, packed, uploaded from and
+"gpt2_forward.cuh", namespace `corvid::cuda::llm`, over a new `cuda_matrix`
+(a `cuda_buffer<float>` plus a `matrix_extent`, packed, uploaded from and
 downloaded to a packed `matrix_view`) and the general GEMM overload of
 `cublas_handle::multiply`, which the square one now delegates to. The
 row-major lesson, recorded in the op's body: cuBLAS reads each row-major

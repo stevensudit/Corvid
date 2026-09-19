@@ -5,7 +5,7 @@
 #include <cuda_runtime.h>
 
 #include "corvid/cuda/cuda_device.cuh"
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_event.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
@@ -46,9 +46,9 @@ int main() {
   }
 
   // --- Device memory ---
-  cuda_ptr<float> d_A(n);
-  cuda_ptr<float> d_B(n);
-  cuda_ptr<float> d_C(n);
+  cuda_buffer<float> d_A(n);
+  cuda_buffer<float> d_B(n);
+  cuda_buffer<float> d_C(n);
   *d_A;
   *d_B;
   *d_C;

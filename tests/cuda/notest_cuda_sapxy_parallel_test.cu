@@ -11,7 +11,7 @@
 
 #include <cuda_runtime.h>
 
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_event.cuh"
 #include "corvid/math.h"
@@ -55,8 +55,8 @@ int main() {
   std::vector<float> host_y(N, 2.0F);
 
   // --- Device memory ---
-  cuda_ptr<float> device_x(N);
-  cuda_ptr<float> device_y(N);
+  cuda_buffer<float> device_x(N);
+  cuda_buffer<float> device_y(N);
   *device_x;
   *device_y;
 
