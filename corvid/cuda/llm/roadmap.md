@@ -65,11 +65,13 @@ manager. So the division of labor is fixed up front:
   `filesys` and `proto`. This puts the CPU-only `.h` files under the layering
   lint, which skips `.cuh` today.
 - `tests/portable/`: `.cpp` tests for the CPU pieces (clang, libc++).
-- `tests/cuda/`: `.cu` tests for the device pieces. Linux under nvcc +
-  g++-15 is the target; the code stays Windows-clean in principle (no
-  Linux-only headers in device code, no assumptions clang's CUDA frontend
-  would reject) but the Windows leg is not built or run until the staircase
-  is done.
+- `tests/cuda/`: `.cu` tests for the device pieces. Since 2026-09-18 the
+  Windows leg (clang++ as the CUDA compiler, see crossplatform.md) is where
+  stage 4 is built and measured, because it is the more convenient box and
+  the more direct route to CUDA. The code stays cross-platform: no
+  Windows-only or Linux-only headers in device code, and nothing nvcc or
+  clang's CUDA frontend would reject, so the Linux leg (nvcc + g++-15)
+  keeps building it.
 - `tests/data/llm/`: small committed fixtures, on the order of a megabyte
   in total: the tokenizer tables, the tokenizer corpus and its expected
   encoding, and the oracle manifest. Never a model.
@@ -679,6 +681,34 @@ beat later. llama.cpp, already on this machine, is the yardstick: its
 tokens per second on the same model and precision goes in the same table,
 so the gap is a number rather than an impression.
 
+Status (2026-09-18, device linear): the first device op is `linear` in
+"gpt2_forward.cuh", namespace `corvid::cuda::llm`, over a new `device_matrix`
+(a `cuda_ptr<float>` plus a `matrix_extent`, packed, uploaded from and
+downloaded to a packed `matrix_view`) and the general GEMM overload of
+`cublas_handle::multiply`, which the square one now delegates to. The
+row-major lesson, recorded in the op's body: cuBLAS reads each row-major
+buffer as its column-major transpose, and transposing `out = in * weight`
+gives `out^T = weight^T * in^T`, so the buffers multiply as stored with no
+transpose flags, `m` the output features, `n` the tokens, `k` the input
+features, and each leading dimension the row-major row length. The bias is a
+small kernel that writes it across every output row, and the GEMM accumulates
+onto it with `beta = 1`, the same shape as the CPU op's copy then
+`add_scaled`; a rank-1 update or a `k = 1` GEMM against a ones vector would
+do the same and were not chosen because the fill is the shape every later
+kernel takes. The op returns a `bool`, consuming a refused launch's error;
+cuBLAS has no last-error channel, so a richer status waits for a second
+consumer. The gate is the CPU test's MLP path with both projections on the
+device and `gelu_new` on the host between them, since no dump sits between
+`c_fc` and `c_proj`; every block matches `mlp/out` at 1e-4, and a
+hand-computed two-by-three case pins the exact values. The shared oracle
+helpers (paths, tensor views, allclose, dimensions) moved from the CPU test
+into "tests/gpt2_oracle.h" so both tests read them. Test executables are named
+by file stem, so the device test is "cuda_gpt2_forward_test.cu", matching
+"cuda_saxpy_test.cu". Timing: the two cases take 0.32 s in-process (8 to 11
+ms per block, dominated by the weight uploads), 1.7 s under ctest with CUDA
+context and cuBLAS initialization. `cublasSgemm` under the default math mode
+is full fp32, not TF32, so the tolerance is the CPU one.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
@@ -746,7 +776,7 @@ Not planned, recorded so they are not re-litigated as scope:
   is mostly implementing the dequantization of each block format, which is
   a self-contained study of its own. If a GGUF-only model is ever needed
   sooner, the oracle script can unpack it to bf16 safetensors instead;
-- a cross-platform mapped-file abstraction, and the Windows CUDA leg;
+- a cross-platform mapped-file abstraction;
 - kernel-level performance work beyond what stage 4 measures;
 - the consolidator, auditor, and narrative layers of the memory design.
   They are prompting over text and need nothing built here.
@@ -767,7 +797,8 @@ Settled 2026-09-05, recorded so they are not reopened:
   activation dumps live in `tests/.local/`.
 - `huggingface.co` and its download hosts are in the firewall allowlist.
 - Linux CUDA is the target; the code stays Windows-clean without being
-  built there.
+  built there. Superseded 2026-09-18: stage 4 is built and measured on the
+  Windows leg, and the code is cross-platform with CUDA required on both.
 - GPT-2 124M stays as the stage 1 to 5 model: fp32 weights, no quantization,
   small enough that the naive CPU pass runs in seconds. Its tokenizer
   needs the same UTF-8 classes every newer tokenizer needs, so a newer
