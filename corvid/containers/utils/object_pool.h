@@ -441,8 +441,7 @@ public:
 #pragma endregion
 #pragma region Borrowing
 
-  // Borrows a slot; returns empty if the pool is full or has been shut
-  // down.
+  // Borrows a slot; returns empty if the pool is full or has been shut down.
   [[nodiscard]] borrowed borrow() {
     // We do not increment the generation until the slot is released, but we do
     // set the borrow bit (when versioned).
@@ -469,8 +468,7 @@ public:
   // Detach item from handle without returning it to the pool. Sometimes
   // necessary, as when it must be `void*`. Once you call this, you become
   // fully responsible for using `reattach` to return the item to the pool.
-  // Otherwise, it will leak, eventually leading to a lack of available
-  // slots.
+  // Otherwise, it will leak, eventually leading to a lack of available slots.
   //
   // The returned pointer must be the slot's only outstanding reference: it
   // takes the role that a `token` would otherwise play, not a supplement to
@@ -737,11 +735,10 @@ enum class slot_retention : uint8_t {
 #pragma endregion
 
 // Implementation note: It is possible in principle to replace the `index_t`
-// values with `std::atomic_index_t` and do lock-free stack push and pop on
-// the free list. However, contention is extremely unlikely, and the lock is
-// held for a short, fixed period. Moreover, lock-free doesn't guarantee
-// speed. Therefore, we would need benchmarks to justify the added
-// complexity.
+// values with `std::atomic_index_t` and do lock-free stack push and pop on the
+// free list. However, contention is extremely unlikely, and the lock is held
+// for a short, fixed period. Moreover, lock-free doesn't guarantee speed.
+// Therefore, we would need benchmarks to justify the added complexity.
 //
 // The other possible optimization would be to use a
 // `std::vector<std::pair<index_t, T>>` for an intrusive free list, instead

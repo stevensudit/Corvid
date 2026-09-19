@@ -1175,8 +1175,7 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   fixed_function<int(), 64> back{std::move(roomy)};
   CHECK(back() == 42);
 
-  // A payload too large for the destination throws, leaving the source
-  // whole.
+  // A payload too large for the destination throws, leaving the source whole.
   fixed_function<int(), 96> fat{[pad = std::array<std::byte, 64>{}] {
     return static_cast<int>(pad.size());
   }};

@@ -56,6 +56,9 @@ public:
 
 #pragma region Construction
 
+  explicit cuda_matrix(std::nullptr_t) noexcept
+      : buffer_{nullptr}, extent_{.row_count = 0, .col_count = 0} {}
+
   // Allocate `extent` elements, uninitialized, or throw.
   explicit cuda_matrix(extent_t extent)
       : buffer_(extent.row_count * extent.col_count), extent_{extent} {}

@@ -189,8 +189,7 @@ public:
 #pragma endregion
 #pragma region Capacity
 
-  // Size accessors. Note that capacity is full size of the underlying
-  // range.
+  // Size accessors. Note that capacity is full size of the underlying range.
   [[nodiscard]] size_type capacity() const noexcept { return range_.size(); }
   [[nodiscard]] size_type size() const noexcept { return size_; }
   [[nodiscard]] bool empty() const noexcept { return !size_; }

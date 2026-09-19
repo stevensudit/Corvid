@@ -707,8 +707,7 @@ private:
   // When receiving, token of callback. Can be used for cancelation.
   completion_token recv_token_;
 
-  // Send state: one SQE in flight at a time; queue holds strings and
-  // buffers.
+  // Send state: one SQE in flight at a time; queue holds strings and buffers.
   // TODO: This should probably be a circular buffer. Perhaps keep the deque
   // around for overflow.
   std::deque<std::variant<std::string, buffer>> send_queue_;

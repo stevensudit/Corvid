@@ -601,9 +601,8 @@ substitutes_into_arguments(std::meta::info m, std::meta::info cls) {
 // an interface object of type `self`.
 //
 // It returns `m` itself for a function. For a member function template, it
-// returns the specialization that deduction would choose for that object.
-// And it returns null reflection for a template that does not deduce for
-// it.
+// returns the specialization that deduction would choose for that object. And
+// it returns null reflection for a template that does not deduce for it.
 //
 // An interface's members are declarations with no bodies, and there is no
 // call to deduce from, so deduction is reconstructed by `substitute` in two

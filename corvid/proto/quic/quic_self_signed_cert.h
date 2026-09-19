@@ -30,12 +30,11 @@ using namespace std::chrono_literals;
 
 #pragma region self_signed_cert
 
-// Self-signed certificate generator. Builds an RSA-2048 key plus an
-// X509v3 cert with CN="localhost", valid for `valid_for` starting now.
-// The primary consumer is the TLS-handshake tests, which need a server
-// cert without going through a real CA; the same helper is also useful
-// for development servers and any other path that needs a throwaway
-// identity.
+// Self-signed certificate generator. Builds an RSA-2048 key plus an X509v3
+// cert with CN="localhost", valid for `valid_for` starting now. The primary
+// consumer is the TLS-handshake tests, which need a server cert without going
+// through a real CA; the same helper is also useful for development servers
+// and any other path that needs a throwaway identity.
 //
 // Derived from `ssl_identity`, so the resulting `cert` and `key` members
 // are publicly accessible and the type plugs directly into any API that

@@ -893,8 +893,7 @@ public:
   void advance(int n) noexcept { ::io_uring_buf_ring_advance(buf_ring_, n); }
 
   // Tell this `iou_buf_ring` that its associated `iou_ring` is about to be
-  // destroyed, so the destructor must not call `io_uring_free_buf_ring` on
-  // it.
+  // destroyed, so the destructor must not call `io_uring_free_buf_ring` on it.
   //
   // `io_uring_queue_exit` releases the kernel-side buf-ring registration as
   // part of its teardown, so the explicit unregister is unnecessary in that

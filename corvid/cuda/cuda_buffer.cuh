@@ -144,15 +144,20 @@ public:
   [[nodiscard]] cuda_last_status load(const T& host_ref) {
     return load(&host_ref, 1);
   }
-  // Load every element of `host_array`, which must not exceed the
-  // allocation.
+  // Load every element of `host_array`, which must not exceed the allocation.
   template<size_t N>
   [[nodiscard]] cuda_last_status load(const T (&host_array)[N]) {
     assert(N <= size_);
     return load(host_array, N);
   }
 
-  // TODO: Add overloads that take a `cuda_buffer` to do device-to-device.
+  // Load every element of `device`, another buffer, which must not exceed the
+  // allocation.
+  [[nodiscard]] cuda_last_status load(const cuda_buffer& device) {
+    assert(device.size() <= size_);
+    return copy(this->get(), device.get(), device.size(),
+        memcpy_kind::device_to_device);
+  }
 
 #pragma endregion
 #pragma region Helpers

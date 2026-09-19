@@ -420,9 +420,8 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
   CHECK(parse_err(rt, std::string(max_depth + 1, '-') + "x").message ==
         "nesting too deep");
 
-  // Nesting budgets compound across layers: neither 100 parens nor a
-  // 100-deep Hall escape alone approaches the cap, but stacked they exceed
-  // it.
+  // Nesting budgets compound across layers: neither 100 parens nor a 100-deep
+  // Hall escape alone approaches the cap, but stacked they exceed it.
   CHECK(parse_dump(rt, std::string(100, '(') + "x" + std::string(100, ')')) ==
         "x");
   const std::string stacked =
@@ -600,9 +599,8 @@ TEST_CASE("Monty statement parser errors", "[coreb]") {
   CHECK(stmt_err(rt, "fun f():\n  x = ").message == "expected an expression");
   CHECK(stmt_err(rt, "x, y").message == "expected end of line");
 
-  // The statement parser's block depth seeds the expression parser: ten
-  // block levels plus an expression fine on its own exceed the shared
-  // budget.
+  // The statement parser's block depth seeds the expression parser: ten block
+  // levels plus an expression fine on its own exceed the shared budget.
   std::string stacked;
   for (size_t ndx = 0; ndx < 10; ++ndx)
     stacked += std::string(2 * ndx, ' ') + "if c:\n";
@@ -831,8 +829,7 @@ TEST_CASE("Monty unparser round trip", "[coreb]") {
   };
   for (const auto src : sources) check_roundtrip(rt, src);
 
-  // Monty -> Hall -> Monty is textually the fixed point for canonical
-  // source.
+  // Monty -> Hall -> Monty is textually the fixed point for canonical source.
   constexpr std::string_view canonical[]{
       "x = 5",
       "fun inc(n):\n  n + 1",

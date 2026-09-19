@@ -1831,8 +1831,7 @@ public:
   iou_basic_loop_runner(iou_basic_loop_runner&&) = delete;
   iou_basic_loop_runner& operator=(iou_basic_loop_runner&&) = delete;
 
-  // Signal the loop thread to exit. Idempotent. Also called by the
-  // destructor.
+  // Signal the loop thread to exit. Idempotent. Also called by the destructor.
   void stop() { thread_.request_stop(); }
 
   [[nodiscard]] const std::shared_ptr<loop_t>& loop() noexcept {

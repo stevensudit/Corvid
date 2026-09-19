@@ -949,8 +949,7 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
     const std::string_view to_sv{to};
     const std::string_view sv{s};
     const auto from_size = from_sv.size();
-    // Pythonic insertion for an empty `from`: `to` goes around each
-    // character.
+    // Pythonic insertion for an empty `from`: `to` goes around each character.
     if (from_size == 0) {
       if (pos > sv.size()) return cnt;
       std::string result;

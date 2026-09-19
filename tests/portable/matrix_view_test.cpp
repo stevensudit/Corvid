@@ -297,4 +297,11 @@ TEST_CASE("Matrix view arithmetic in place", "[MatrixViewTest]") {
   CHECK(storage == std::vector<float>{1.0F, 0.0F, 2.0F, 0.0F});
 }
 
+TEST_CASE("Extent transposes", "[MatrixViewTest]") {
+  constexpr extent wide{.row_count = 2, .col_count = 3};
+  constexpr auto tall = wide.transposed();
+  STATIC_CHECK(tall.row_count == 3);
+  STATIC_CHECK(tall.col_count == 2);
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)

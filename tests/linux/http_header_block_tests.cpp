@@ -236,9 +236,9 @@ TEST_CASE("AbsoluteForm", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region HeaderLookupCanonical
 
-// Verify that `http_headers::get` requires the canonical key form.
-// `add` folds to canonical form before indexing; lookups with
-// non-canonical names return `nullopt`.
+// Verify that `http_headers::get` requires the canonical key form. `add` folds
+// to canonical form before indexing; lookups with non-canonical names return
+// `nullopt`.
 TEST_CASE("HeaderLookupCanonical", "[HttpHeaderBlock]") {
   http_headers h;
   // Add with mixed-case input; stored under "Content-Type".
@@ -375,8 +375,8 @@ TEST_CASE("ResponseSerialize", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region ExtractLeadingCrlf
 
-// Verify that `request_head::parse` skips leading CRLF lines
-// (RFC 9112 section 2.2) and that a request that is only leading CRLFs fails.
+// Verify that `request_head::parse` skips leading CRLF lines (RFC 9112 section
+// 2.2) and that a request that is only leading CRLFs fails.
 TEST_CASE("ExtractLeadingCrlf", "[HttpHeaderBlock]") {
   {
     request_head req;
@@ -482,8 +482,7 @@ TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region ResponseExtract
 
-// Verify that a well-formed HTTP response is parsed by
-// `response_head::parse`.
+// Verify that a well-formed HTTP response is parsed by `response_head::parse`.
 TEST_CASE("ResponseExtract", "[HttpHeaderBlock]") {
   {
     // HTTP/1.1 200 with headers.
@@ -551,8 +550,7 @@ TEST_CASE("ResponseExtract", "[HttpHeaderBlock]") {
 TEST_CASE("NormalizeCasing", "[HttpHeaderBlock]") {
   const std::vector<std::pair<std::string, std::string>> test_cases = {
       // --- 1. Standard Normalization (Train-Case) ---
-      // Basic alphabetical case-insensitivity and hyphen-based
-      // capitalization.
+      // Basic alphabetical case-insensitivity and hyphen-based capitalization.
       {"content-type", "Content-Type"}, {"CONTENT-TYPE", "Content-Type"},
       {"CoNtEnT-tYpE", "Content-Type"}, {"User-Agent", "User-Agent"},
       {"x-request-id", "X-Request-Id"},

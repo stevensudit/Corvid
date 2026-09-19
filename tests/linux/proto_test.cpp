@@ -561,8 +561,7 @@ TEST_CASE("Construction", "[NetEndpoint]") {
     CHECK(ep.as_sockaddr_view().is_ans());
     CHECK_FALSE(ep.as_sockaddr_view().is_v4());
     CHECK_FALSE(ep.as_sockaddr_view().is_v6());
-    // `uds_path` skips the leading '\0' and returns the length-delimited
-    // name.
+    // `uds_path` skips the leading '\0' and returns the length-delimited name.
     CHECK(ep.as_sockaddr_view().uds_path() == "myservice");
   }
 
@@ -2956,8 +2955,7 @@ TEST_CASE("Sha1_KnownVectors", "[Sha1]") {
 
 #pragma endregion
 
-// bytes() serializes the digest words big-endian, most significant byte
-// first.
+// bytes() serializes the digest words big-endian, most significant byte first.
 #pragma region Sha1_Bytes
 
 TEST_CASE("Sha1_Bytes", "[Sha1]") {

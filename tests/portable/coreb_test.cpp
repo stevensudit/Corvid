@@ -632,8 +632,7 @@ TEST_CASE("CoreB eval comparisons", "[coreb]") {
   runtime rt;
   evaluator ev(rt);
 
-  // Comparisons chain across adjacent pairs, so (< a b c) is a < b and
-  // b < c.
+  // Comparisons chain across adjacent pairs, so (< a b c) is a < b and b < c.
   CHECK(run(rt, ev, "(< 1 2 3)") == "true");
   CHECK(run(rt, ev, "(< 1 3 2)") == "false");
   CHECK(run(rt, ev, "(<= 1 1 2)") == "true");

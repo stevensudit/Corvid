@@ -466,8 +466,8 @@ TEST_CASE("Fifo", "[EntityRegistry]") {
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
 
-  // Freed IDs are reused in FIFO order (oldest first).
-  // Detailed FIFO behavior is tested in FifoAdvanced.
+  // Freed IDs are reused in FIFO order (oldest first). Detailed FIFO behavior
+  // is tested in FifoAdvanced.
   if (true) {
     reg_t r;
     auto id0 = r.create_id({}, 10);
@@ -566,8 +566,8 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
     CHECK(r.create_id({}, 20) == id_t{1});
   }
 
-  // shrink_to_fit trims trailing dead records.
-  // Detailed shrink behavior is tested in EdgeCases.
+  // shrink_to_fit trims trailing dead records. Detailed shrink behavior is
+  // tested in EdgeCases.
   if (true) {
     reg_t r;
     (void)r.create_id({}, 10); // id 0
@@ -588,8 +588,8 @@ TEST_CASE("IdLimit", "[EntityRegistry]") {
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
 
-  // Constructor with limit and overflow.
-  // Detailed id_limit behavior is tested in IdLimitAdvanced.
+  // Constructor with limit and overflow. Detailed id_limit behavior is tested
+  // in IdLimitAdvanced.
   if (true) {
     reg_t r{id_t{3}};
     CHECK(r.id_limit() == id_t{3});

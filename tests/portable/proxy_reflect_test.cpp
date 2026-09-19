@@ -23,9 +23,8 @@
 #include "catch2_main.h"
 
 // Gated like the header, so that a compiler without P2996 (clang, cl, and
-// clangd when it indexes this file) sees none of the reflection operators.
-// The one case outside the gate, at the end, reports which mode the run is
-// in.
+// clangd when it indexes this file) sees none of the reflection operators. The
+// one case outside the gate, at the end, reports which mode the run is in.
 #if __cpp_impl_reflection >= 202506L
 
 using namespace std::literals;
@@ -193,11 +192,10 @@ consteval auto corvid_proxy_spec(tally*, slug*) {
 
 // `any_doubler` offers `double_it` only as a member function template.
 //
-// The candidate is the template itself, and the call splice deduces `T`
-// from the argument, as `t.double_it(1)` would. Its body compiles only for
-// arithmetic `T`, which guards against speculative instantiation; the
-// declared return type is what lets a probe type the call without the
-// body.
+// The candidate is the template itself, and the call splice deduces `T` from
+// the argument, as `t.double_it(1)` would. Its body compiles only for
+// arithmetic `T`, which guards against speculative instantiation; the declared
+// return type is what lets a probe type the call without the body.
 struct doubler_api {
   int double_it(int i);
 };
@@ -1335,8 +1333,7 @@ TEST_CASE("Templates and functions rank together", "[proxy_reflect]") {
   mitrailleuse m;
   proxy_view<gatling> pg{m};
 
-  // An `int` deduces the template exactly, beating the conversion to
-  // `long`.
+  // An `int` deduces the template exactly, beating the conversion to `long`.
   CHECK(pg.call<"fire">(3) == 6);
   // A `long` is exact both ways; the non-template wins the tie.
   CHECK(pg.call<"fire">(3L) == 103);

@@ -3650,8 +3650,8 @@ TEST_CASE("MixedStorages", "[ArchetypeScene]") {
     CHECK(s.storage<scene_sid_t{3}>()[id].x == 7.F);
   }
 
-  // Migrate chunked_h (Health) -> comp_pos (Position).
-  // No components overlap; Position is default-constructed.
+  // Migrate chunked_h (Health) -> comp_pos (Position). No components overlap;
+  // Position is default-constructed.
   if (true) {
     mixed_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{2}>({}, Health{99});
@@ -6025,8 +6025,8 @@ TEST_CASE("TryGetComponents", "[ArchetypeScene]") {
 TEST_CASE("MegaTuple", "[ArchetypeScene]") {
   // `component_union_t` is the deduplicated union of all archetype component
   // types. For `two_storage_scene_t` (arch_pv_t: {Position, Velocity} and
-  // arch_pvh_t: {Position, Velocity, Health}), the union is
-  // {Position, Velocity, Health}.
+  // arch_pvh_t: {Position, Velocity, Health}), the union is {Position,
+  // Velocity, Health}.
   if (true) {
     using cu = two_storage_scene_t::component_union_t;
     static_assert(std::is_same_v<cu, std::tuple<Position, Velocity, Health>>);

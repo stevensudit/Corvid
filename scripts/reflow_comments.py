@@ -22,6 +22,7 @@
 #  - paragraphs containing runs of multiple spaces (quoted examples where
 #    whitespace is significant, e.g. dedent/fill examples in textwrap.h);
 #  - indented continuations, bullets (-, *), numbered list items (1. );
+#  - banner lines made only of punctuation (// ==========);
 #  - NOLINT and clang-format directive lines;
 #  - TODO/FIXME lines (they start their own paragraph);
 #  - heading lines ending with ':' (e.g. "Overview:") stand alone, and a
@@ -55,16 +56,24 @@ RAGGED_BELOW = 65
 # Known-bad paragraphs, keyed by forward-slash path and first line number.
 SKIP = {
     "corvid/lang/ast_pred.h:510",  # colon-less heading "Distribute OR over AND"
+    "tests/linux/iou_loop_test.cpp:1408",  # next line documents the member
+    "tests/portable/ecs_test.cpp:2371",  # colon-less heading line
+    "tests/portable/ecs_test.cpp:6797",  # colon-less heading line
+    "tests/portable/lang_test.cpp:219",  # formula broken before its RHS
+    "tests/portable/lang_test.cpp:229",  # formula broken before its RHS
+    "tests/portable/pid_controller_test.cpp:150",  # two label lines
 }
 
 pat = re.compile(r"^(\s*)// (.*\S)\s*$")
 item = re.compile(r"\d+\. ")
+banner = re.compile(r"[=\-*#_~]{4,}$")
 label = re.compile(r"\S[^:]{0,29}: ")
 
 
 def breaks_para(c):
     return (c.startswith(("```", " ", "-", "* ", "clang-format", "TODO",
-                          "FIXME")) or "NOLINT" in c or item.match(c))
+                          "FIXME")) or "NOLINT" in c or item.match(c)
+            or banner.match(c))
 
 
 def paragraphs(lines):

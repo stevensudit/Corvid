@@ -247,8 +247,7 @@ struct constant_fn {
 // It is what a bare pointer target is, made explicit: stored as the pointer
 // and called through it, with the object as the first argument for a member
 // pointer. It may be null; an owner treats a null one as no callable, and
-// calling a null one is the same undefined behavior as calling a null
-// pointer.
+// calling a null one is the same undefined behavior as calling a null pointer.
 template<class Ptr>
 requires(
     (std::is_pointer_v<Ptr> &&

@@ -268,8 +268,7 @@ public:
 #pragma endregion
 #pragma region Recv
 
-  // Read up to `data.size() - offset` bytes into `data` starting at
-  // `offset`.
+  // Read up to `data.size() - offset` bytes into `data` starting at `offset`.
   //
   // On success, trims `data` to `offset + bytes_read` and returns true. On
   // EOF, leaves `data` unchanged and returns false. On soft error (EAGAIN),

@@ -101,9 +101,8 @@ protected:
 //
 // An instance must be created on the thread it will run in and destructed in
 // that same thread, unless it has been retired first (see `retire`), which
-// makes destruction safe from any thread. Only one such instance can live on
-// a thread, and the post queue must be consumed only from within that
-// thread.
+// makes destruction safe from any thread. Only one such instance can live on a
+// thread, and the post queue must be consumed only from within that thread.
 //
 // When lambdas are passed to `execute_or_post`, they are only executed
 // immediately if already on the loop thread. Otherwise, they are posted to the

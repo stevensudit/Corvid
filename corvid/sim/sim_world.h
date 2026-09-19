@@ -238,8 +238,7 @@ struct SegmentedPath: private SimWorldBounds {
         lerp(seg.front.y, seg.back.y, t)};
   }
 
-  // Return the direction angle (radians) of the segment containing
-  // `progress`.
+  // Return the direction angle (radians) of the segment containing `progress`.
   [[nodiscard]] float angleAtProgress(float progress) const {
     assert(segments.size());
     return segmentAtProgress(progress).angle;
@@ -578,8 +577,7 @@ public:
   }
 
   // Return a tuple of pointers to components `Cs...` for entity `id`, or a
-  // tuple of `nullptr`s if the entity does not carry all of those
-  // components.
+  // tuple of `nullptr`s if the entity does not carry all of those components.
   template<typename... Cs>
   [[nodiscard]] auto try_get_components(EntityId id) noexcept {
     return scene_.try_get_components<Cs...>(id);

@@ -255,8 +255,7 @@ public:
         // Alternatives 11 and 12, a whitespace run with the lookahead.
         skip_white_space_chunk(rest, chunk);
       } else {
-        // Alternatives 8 to 10 without the leading space, a run of one
-        // class.
+        // Alternatives 8 to 10 without the leading space, a run of one class.
         skip_run(rest, cls);
       }
       chunks.push_back(chunk.substr(0, chunk.size() - rest.size()));
@@ -396,8 +395,7 @@ public:
 
   // Decode `ids`, appending their bytes to `out`.
   //
-  // On failure (an ID with no piece), returns false, leaving `out`
-  // untouched.
+  // On failure (an ID with no piece), returns false, leaving `out` untouched.
   [[nodiscard]] bool
   decode(std::u8string& out, std::span<const token_id> ids) const {
     strings::truncate_guard guard(out);
@@ -501,8 +499,7 @@ private:
     return rounds;
   }
 
-  // Find the lowest-ranked adjacent pair in `word` that is in the merge
-  // table.
+  // Find the lowest-ranked adjacent pair in `word` that is in the merge table.
   //
   // On success, returns true and sets `key` to the pair and `result` to
   // the ID it merges into. On failure (no adjacent pair is in the table),

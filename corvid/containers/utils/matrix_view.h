@@ -95,6 +95,11 @@ struct matrix_extent {
 
   static constexpr size_t dynamic_extent = std::numeric_limits<size_t>::max();
 
+  // The extent of the transposed matrix, with the counts swapped.
+  [[nodiscard]] constexpr matrix_extent transposed() const noexcept {
+    return {.row_count = col_count, .col_count = row_count};
+  }
+
   static const matrix_extent npos;
   static const matrix_extent dynamic;
 };
@@ -287,8 +292,7 @@ public:
 
   // Add `other` to every element, in place. Prefer `operator+=`.
   //
-  // The extents must match, and `other` must be this view or disjoint from
-  // it.
+  // The extents must match, and `other` must be this view or disjoint from it.
   constexpr const matrix_view&
   add(matrix_view<const element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
@@ -311,8 +315,7 @@ public:
 
   // Subtract `other` from every element, in place. Prefer `operator-=`.
   //
-  // The extents must match, and `other` must be this view or disjoint from
-  // it.
+  // The extents must match, and `other` must be this view or disjoint from it.
   constexpr const matrix_view&
   subtract(matrix_view<const element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)

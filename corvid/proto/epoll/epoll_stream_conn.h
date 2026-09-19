@@ -126,13 +126,12 @@ struct epoll_stream_conn_handlers {
 //    of the listener's handlers. `send` and other data-path operations are
 //    disabled on a listening `epoll_stream_conn`.
 //
-// Thread safety: `send`, `close`, `hangup`, and the destructor are safe
-// to call from any thread. They route work to the command queue via
-// `epoll_loop::post`, holding the loop through `weak_loop_` for the
-// duration; once the loop has been destroyed they return false, and the
-// socket is closed by RAII when the last connection reference is released.
-// All actual I/O and epoll-mask mutations run exclusively on the loop
-// thread.
+// Thread safety: `send`, `close`, `hangup`, and the destructor are safe to
+// call from any thread. They route work to the command queue via
+// `epoll_loop::post`, holding the loop through `weak_loop_` for the duration;
+// once the loop has been destroyed they return false, and the socket is closed
+// by RAII when the last connection reference is released. All actual I/O and
+// epoll-mask mutations run exclusively on the loop thread.
 //
 // Send path: `send(std::string&&)` and its variants take ownership of the
 // caller's string(s). An immediate `::sendmsg` gather is attempted. Strings
@@ -444,8 +443,7 @@ private:
   // the parser consumes bytes from `begin`.
   epoll_recv_buffer recv_buf_;
 
-  // Cleared atomically by `do_close_now`. Read from any thread via
-  // `is_open`.
+  // Cleared atomically by `do_close_now`. Read from any thread via `is_open`.
   relaxed_atomic_bool open_;
 
   // Set by `close` to prevent the destructor of `epoll_stream_conn_ptr_with`
@@ -480,8 +478,7 @@ private:
   // flush.
   bool close_requested_{};
 
-  // Set by `notify_close_once` to ensure `on_close` is delivered at most
-  // once.
+  // Set by `notify_close_once` to ensure `on_close` is delivered at most once.
   bool close_notified_{};
 
   // Set by `handle_read_eof` when EOF arrives while `view_active` is true.

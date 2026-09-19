@@ -381,8 +381,7 @@ public:
     return npos;
   }
 
-  // Access the field at `ndx`. Returns a const reference on a const
-  // instance.
+  // Access the field at `ndx`. Returns a const reference on a const instance.
   [[nodiscard]] auto& operator[](this auto& self, size_t ndx) noexcept {
     return self.fields_[ndx];
   }

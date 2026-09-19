@@ -64,8 +64,7 @@ using send_queue_t = iov_queue<std::vector<uint8_t>, write_stream_flags>;
 // loop the echo plugin uses.
 //
 // `inject` is the test API: queue bytes (and optionally `fin`) on a stream.
-// Loop-thread only; the caller wraps in `post_and_wait` from the test
-// thread.
+// Loop-thread only; the caller wraps in `post_and_wait` from the test thread.
 struct echo_client_plugin: quic_conn_handlers {
   explicit echo_client_plugin(quic_session_io& s) noexcept : io_{s} {}
 

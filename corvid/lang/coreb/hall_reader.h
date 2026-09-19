@@ -311,8 +311,7 @@ private:
       if (token == "true") return value{true};
       if (token == "false") return value{false};
       if (looks_numeric(token)) {
-        // `from_chars` (under `parse_num`) rejects a leading '+', so strip
-        // it.
+        // `from_chars` (under `parse_num`) rejects a leading '+', so strip it.
         const auto digits = (token.front() == '+') ? token.substr(1) : token;
         if (const auto n = strings::parse_num<int64_t>(digits))
           return value{*n};
