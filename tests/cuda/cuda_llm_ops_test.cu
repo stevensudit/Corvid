@@ -14,14 +14,18 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <format>
+#include <string>
 #include <vector>
 
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/llm/llm_ops.cuh"
 #include "catch2_main.h"
+#include "catch2/catch_template_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 #include "gpt2_oracle.h"
 
@@ -32,8 +36,152 @@ using corvid::cuda::cublas_handle;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 
+// The epsilon every layer norm test passes, GPT-2's own so the oracle case
+// matches.
+constexpr auto eps = 1e-5F;
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region layer_norm
+
+TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
+    "[LlmOpsTest][cuda]", float, double) {
+  using T = TestType;
+  // Row 0 has mean 2.5 and biased variance 1.25. Row 1 is constant, so it
+  // normalizes to zero and the output is the bias alone.
+  const std::vector<T> in_storage{T{1}, T{2}, T{3}, T{4}, T{5}, T{5}, T{5},
+      T{5}};
+  const matrix_view<const T> in_view(in_storage,
+      {.row_count = 2, .col_count = 4});
+  constexpr std::array weight_storage{T{1}, T{2}, T{1}, T{2}};
+  constexpr std::array bias_storage{T{0}, T{0}, T{0.5}, T{0.5}};
+
+  const cuda_matrix<T> in(in_view);
+  cuda_buffer<T> weight(weight_storage.size());
+  REQUIRE(weight.load(weight_storage));
+  cuda_buffer<T> bias(bias_storage.size());
+  REQUIRE(bias.load(bias_storage));
+  cuda_matrix<T> out(in.extent());
+
+  REQUIRE(cuda::llm::layer_norm(out, in, weight, bias, eps));
+
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.view().store(matrix_view<T>(out_storage, out.extent())));
+  constexpr auto tolerance = 1e-5;
+  const auto inv_std = T{1} / std::sqrt(T{1.25} + T{eps});
+  CHECK_THAT(out_storage[0], WithinAbs(T{-1.5} * inv_std, tolerance));
+  CHECK_THAT(out_storage[1], WithinAbs(T{-0.5} * inv_std * T{2}, tolerance));
+  CHECK_THAT(out_storage[2],
+      WithinAbs((T{0.5} * inv_std) + T{0.5}, tolerance));
+  CHECK_THAT(out_storage[3],
+      WithinAbs((T{1.5} * inv_std * T{2}) + T{0.5}, tolerance));
+  CHECK_THAT(out_storage[4], WithinAbs(0.0, tolerance));
+  CHECK_THAT(out_storage[5], WithinAbs(0.0, tolerance));
+  CHECK_THAT(out_storage[6], WithinAbs(0.5, tolerance));
+  CHECK_THAT(out_storage[7], WithinAbs(0.5, tolerance));
+
+  // In place gives the same values.
+  cuda_matrix<T> same(in_view);
+  REQUIRE(cuda::llm::layer_norm(same, same, weight, bias, eps));
+  std::vector<T> same_storage(same.size());
+  REQUIRE(same.view().store(matrix_view<T>(same_storage, same.extent())));
+  CHECK(same_storage == out_storage);
+}
+
+TEST_CASE("Device layer norm matches the oracle",
+    "[LlmOpsTest][oracle][cuda]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // Every layer norm in the model, both per block and the final one, each fed
+  // its own dumped input and compared against its dumped output, as the CPU
+  // test does.
+  struct site {
+    std::string dump;
+    std::string param;
+  };
+  std::vector<site> sites;
+  for (auto n = 0UZ; n < n_layer; ++n)
+    for (const auto* ln : {"ln_1", "ln_2"})
+      sites.push_back(
+          {std::format("block_{}/{}", n, ln), std::format("h.{}.{}", n, ln)});
+  sites.push_back({"ln_f", "ln_f"});
+
+  for (const auto& [dump, param] : sites) {
+    DYNAMIC_SECTION(dump) {
+      const auto in_view = matrix_of(oracle.activations, dump + "/in", n_embd);
+      const auto expected =
+          matrix_of(oracle.activations, dump + "/out", n_embd);
+      REQUIRE(in_view.row_extent() == 14);
+
+      const cuda_matrix<float> in(in_view);
+      cuda_buffer<float> weight(n_embd);
+      REQUIRE(
+          weight.load(vector_of(oracle.weights, param + ".weight", n_embd)));
+      cuda_buffer<float> bias(n_embd);
+      REQUIRE(bias.load(vector_of(oracle.weights, param + ".bias", n_embd)));
+      cuda_matrix<float> out(in_view.extent());
+      std::vector<float> out_storage(out.size());
+      const float_matrix_view out_view(out_storage, out.extent());
+
+      REQUIRE(cuda::llm::layer_norm(out, in, weight, bias, eps));
+      REQUIRE(out.view().store(out_view));
+
+      check_close(out_view, expected, 1e-5F, 1e-5F);
+    }
+  }
+}
+
+#pragma endregion
+#pragma region add
+
+TEST_CASE("Device residual adds match the oracle",
+    "[LlmOpsTest][oracle][cuda]") {
+  oracle_dumps oracle;
+  oracle.load();
+
+  // Both adds of every block, each fed its own dumped operands. Adding two
+  // fp32 values is the same IEEE operation on the device and in the oracle,
+  // so the match is exact, with no tolerance at all.
+  struct site {
+    std::string residual;
+    std::string correction;
+    std::string sum;
+  };
+  std::vector<site> sites;
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    const auto block = std::format("block_{}", n);
+    const auto after_mlp =
+        (n + 1 < n_layer)
+            ? std::format("block_{}/ln_1/in", n + 1)
+            : std::string{"ln_f/in"};
+    sites.push_back(
+        {block + "/ln_1/in", block + "/attn/out", block + "/ln_2/in"});
+    sites.push_back({block + "/ln_2/in", block + "/mlp/out", after_mlp});
+  }
+
+  for (const auto& [residual, correction, sum] : sites) {
+    DYNAMIC_SECTION(sum) {
+      const auto a_view = matrix_of(oracle.activations, residual, n_embd);
+      const auto b_view = matrix_of(oracle.activations, correction, n_embd);
+      const auto expected = matrix_of(oracle.activations, sum, n_embd);
+      REQUIRE(a_view.row_extent() == 14);
+
+      const cuda_matrix<float> a(a_view);
+      const cuda_matrix<float> b(b_view);
+      cuda_matrix<float> out(a_view.extent());
+      std::vector<float> out_storage(out.size());
+      const float_matrix_view out_view(out_storage, out.extent());
+
+      REQUIRE(cuda::linalg::add(out, a, b));
+      REQUIRE(out.view().store(out_view));
+
+      check_close(out_view, expected, 0.0F, 0.0F);
+    }
+  }
+}
+
+#pragma endregion
 #pragma region gelu_new
 
 TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
