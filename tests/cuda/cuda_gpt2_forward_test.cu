@@ -22,12 +22,13 @@
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/llm/gpt2_forward.cuh"
-#include "corvid/cuda/llm/gpt2_forward.h"
 #include "catch2_main.h"
+#include "catch2/matchers/catch_matchers_floating_point.hpp"
 #include "gpt2_oracle.h"
 
 using namespace corvid;
 using namespace corvid::tests::gpt2;
+using Catch::Matchers::WithinAbs;
 using corvid::cuda::cublas_handle;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::llm::cuda_matrix;
@@ -60,6 +61,43 @@ TEST_CASE("Device linear on hand-computed rows", "[Gpt2ForwardTest][cuda]") {
   CHECK(out_storage == std::vector<float>{14.0F, 25.0F, 20.0F, 31.0F});
 }
 
+#pragma endregion
+#pragma region gelu_new
+
+TEST_CASE("Device GELU on hand-computed values", "[Gpt2ForwardTest][cuda]") {
+  // The same reference values as the CPU test, from torch's gelu with
+  // approximate="tanh".
+  const std::vector<float> in_storage{0.0F, 1.0F, -1.0F, 2.0F, -2.0F, 10.0F,
+      -10.0F};
+  const const_float_matrix_view in_view(in_storage,
+      {.row_count = 1, .col_count = in_storage.size()});
+  const cuda_matrix in(in_view);
+  cuda_matrix out(in.extent());
+
+  REQUIRE(cuda::llm::gelu_new(out, in));
+
+  std::vector<float> out_storage(out.size());
+  REQUIRE(out.store(float_matrix_view(out_storage, out.extent())));
+  constexpr auto tolerance = 1e-6;
+  CHECK(out_storage[0] == 0.0F);
+  CHECK_THAT(out_storage[1], WithinAbs(0.841192, tolerance));
+  CHECK_THAT(out_storage[2], WithinAbs(-0.158808, tolerance));
+  CHECK_THAT(out_storage[3], WithinAbs(1.954598, tolerance));
+  CHECK_THAT(out_storage[4], WithinAbs(-0.045402, tolerance));
+  CHECK_THAT(out_storage[5], WithinAbs(10.0, tolerance));
+  CHECK_THAT(out_storage[6], WithinAbs(0.0, tolerance));
+
+  // In place gives the same values.
+  cuda_matrix same(in_view);
+  REQUIRE(cuda::llm::gelu_new(same, same));
+  std::vector<float> same_storage(same.size());
+  REQUIRE(same.store(float_matrix_view(same_storage, same.extent())));
+  CHECK(same_storage == out_storage);
+}
+
+#pragma endregion
+#pragma region MLP
+
 TEST_CASE("Device MLP path matches the oracle",
     "[Gpt2ForwardTest][oracle][cuda]") {
   oracle_dumps oracle;
@@ -67,9 +105,7 @@ TEST_CASE("Device MLP path matches the oracle",
   const cublas_handle blas;
 
   // Every block's MLP, fed its own dumped `ln_2/out` and compared against its
-  // dumped `mlp/out`, as the CPU test does. Both projections run on the
-  // device; `gelu_new` runs on the host, so the hidden matrix round-trips
-  // between them.
+  // dumped `mlp/out`, as the CPU test does, with all three ops on the device.
   for (auto n = 0UZ; n < n_layer; ++n) {
     DYNAMIC_SECTION("block_" << n) {
       const auto dump = std::format("block_{}", n);
@@ -95,15 +131,11 @@ TEST_CASE("Device MLP path matches the oracle",
       cuda_matrix hidden(
           {.row_count = in_view.row_extent(), .col_count = n_hidden});
       cuda_matrix out(in_view.extent());
-      std::vector<float> hidden_storage(hidden.size());
-      const float_matrix_view hidden_view(hidden_storage, hidden.extent());
       std::vector<float> out_storage(out.size());
       const float_matrix_view out_view(out_storage, out.extent());
 
       REQUIRE(cuda::llm::linear(blas, hidden, in, fc_weight, fc_bias));
-      REQUIRE(hidden.store(hidden_view));
-      llm::gelu_new(hidden_view, hidden_view);
-      REQUIRE(hidden.load(hidden_view));
+      REQUIRE(cuda::llm::gelu_new(hidden, hidden));
       REQUIRE(cuda::llm::linear(blas, out, hidden, proj_weight, proj_bias));
       REQUIRE(out.store(out_view));
 

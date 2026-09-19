@@ -709,6 +709,21 @@ ms per block, dominated by the weight uploads), 1.7 s under ctest with CUDA
 context and cuBLAS initialization. `cublasSgemm` under the default math mode
 is full fp32, not TF32, so the tolerance is the CPU one.
 
+Status (2026-09-18, device gelu_new): the first hand-written kernel. The
+scalar `gelu_new(float)` in "gpt2_forward.h" is shared rather than copied:
+it carries `CUDA_HOST_DEVICE`, a new macro in "crossplatform.h" that expands
+to `__host__ __device__` under a CUDA compiler and to nothing elsewhere, so
+the CPU header is the one definition of the formula and the kernel calls it.
+The kernel is one thread per element, and the launch geometry (256 threads
+per block, `blocks_for(size)`) moved into its own region since `linear`'s
+bias fill uses the same shape. In-place is allowed, as on the CPU. Gated on
+the CPU test's seven reference values, an in-place check, and the MLP path,
+which now runs all three ops on the device with no host round trip. The
+`cuda_ptr` review that preceded this op renamed it `cuda_buffer`, since it
+owns a sized allocation and is no pointer; `count()` became `size()`, the
+span and array transfer overloads assert the host side fits, and the LLM's
+`device_matrix` became `cuda_matrix` to match the band's `cuda_` prefix.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

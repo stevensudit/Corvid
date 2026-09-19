@@ -92,6 +92,15 @@ namespace corvid { inline namespace meta { inline namespace crossplatform {
 
 #pragma region Attributes
 
+// Mark a function callable from device code as well as host code when a CUDA
+// compiler is reading it, so a plain header can share a scalar formula with a
+// kernel. Under a host-only compiler it expands to nothing.
+#ifdef __CUDACC__
+#define CUDA_HOST_DEVICE __host__ __device__
+#else
+#define CUDA_HOST_DEVICE
+#endif
+
 // `[[no_unique_address]]` is silently ignored under the MSVC ABI, which spells
 // the attribute `[[msvc::no_unique_address]]` instead. clang-cl and cl both
 // target that ABI and define `_MSC_VER`; every other toolchain takes the

@@ -26,6 +26,7 @@
 #include "../cuda_kernel.cuh"
 #include "../cuda_buffer.cuh"
 #include "../cuda_status.cuh"
+#include "gpt2_forward.h"
 
 // The GPT-2 forward pass on the device, in fp32, one free function per op.
 //
@@ -123,6 +124,19 @@ private:
 };
 
 #pragma endregion
+#pragma region Launch geometry
+
+// One-thread-per-element kernels launch this many threads per block, in
+// enough blocks to cover every element.
+inline constexpr auto threads_per_block = 256U;
+
+// The block count that covers `size` elements.
+[[nodiscard]] inline unsigned blocks_for(size_t size) noexcept {
+  return cuda_kernel::blocks_for_threads(static_cast<unsigned>(size),
+      threads_per_block);
+}
+
+#pragma endregion
 #pragma region linear
 
 namespace details {
@@ -168,11 +182,8 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
   // The bias is the starting value of every output row, and the product then
   // accumulates onto it through `beta`, which is the shape of the CPU op's
   // copy followed by `add_scaled`.
-  constexpr auto threads_per_block = 256U;
-  const auto size = static_cast<unsigned>(out.size());
-  const auto blocks = cuda_kernel::blocks_for_threads(size, threads_per_block);
-  details::fill_rows<<<blocks, threads_per_block>>>(out.get(), size,
-      bias.get(), out.col_extent());
+  details::fill_rows<<<blocks_for(out.size()), threads_per_block>>>(out.get(),
+      out.size(), bias.get(), out.col_extent());
   if (!cuda_last_status{}) return false;
 
   // cuBLAS reads each row-major matrix as its column-major transpose, and
@@ -190,6 +201,32 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
       .multiply(m, n, k, 1.0F, weight.buffer(), m, in.buffer(), k, 1.0F,
           out.buffer(), m)
       .ok();
+}
+
+#pragma endregion
+#pragma region gelu_new
+
+namespace details {
+
+// Apply the scalar `gelu_new` to `size` elements, one thread per element.
+__global__ void apply_gelu_new(float* out, const float* in, size_t size) {
+  const auto i = cuda_kernel::x_index<size_t>();
+  if (i < size) out[i] = corvid::llm::gelu_new(in[i]);
+}
+
+} // namespace details
+
+// Apply `gelu_new` to every element of `in`, into `out`.
+//
+// `out` and `in` must have the same extent. `out` can be `in`, applying it in
+// place. Returns false when the launch is refused, leaving `out` unspecified.
+[[nodiscard]] inline bool gelu_new(cuda_matrix& out, const cuda_matrix& in) {
+  assert((out.row_extent() == in.row_extent()) &&
+         (out.col_extent() == in.col_extent()));
+
+  details::apply_gelu_new<<<blocks_for(out.size()), threads_per_block>>>(
+      out.get(), in.get(), out.size());
+  return cuda_last_status{}.ok();
 }
 
 #pragma endregion
