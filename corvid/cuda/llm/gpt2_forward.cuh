@@ -47,6 +47,9 @@ using matrix_types::matrix_extent;
 // It owns its allocation and carries its extent, so an op can check shapes on
 // the host before launching. Rows are the first index, as in `matrix_view`,
 // and a packed host view is the shape data moves in and out through.
+//
+// Note: Before this is moved out of LLM-specific and into general CUDA, it has
+// to be templated so it's not just `float`.
 class cuda_matrix {
 public:
   using extent_t = matrix_extent;
