@@ -23,7 +23,7 @@
 #include "../../camera.cuh"
 #include "../../cuda_event.cuh"
 #include "../../cuda_kernel.cuh"
-#include "../../cuda_ptr.cuh"
+#include "../../cuda_buffer.cuh"
 #include "../../cuda_status.cuh"
 #include "../../cuda_surface.cuh"
 #include "../../cuda_volume.cuh"
@@ -112,20 +112,20 @@ namespace corvid::cuda {
 
   // The adaptive-AA prepass buffer, one `aa_texel` per pixel (see
   // `render_scene`).
-  cuda_ptr<aa_texel> gbuf{
+  cuda_buffer<aa_texel> gbuf{
       static_cast<size_t>(width) * static_cast<size_t>(height)};
 
   // The post-process buffers: the full-res linear HDR target the render
   // writes, and the two half-res bloom ping-pong buffers the post pass blooms
   // through before tone mapping into `surf`. Timing covers render plus post,
   // the whole frame's GPU cost.
-  cuda_ptr<float4> hdr{
+  cuda_buffer<float4> hdr{
       static_cast<size_t>(width) * static_cast<size_t>(height)};
   const auto half_count =
       static_cast<size_t>(bloom_dim(width)) *
       static_cast<size_t>(bloom_dim(height));
-  cuda_ptr<float4> bloom_a{half_count};
-  cuda_ptr<float4> bloom_b{half_count};
+  cuda_buffer<float4> bloom_a{half_count};
+  cuda_buffer<float4> bloom_b{half_count};
 
   const dim3 block{16, 16};
   const dim3 grid{cuda_kernel::ceil_div(width, block.x),

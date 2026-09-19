@@ -24,12 +24,12 @@
 #include "../../containers/utils/matrix_view.h"
 #include "../cuda_cublas.cuh"
 #include "../cuda_kernel.cuh"
-#include "../cuda_ptr.cuh"
+#include "../cuda_buffer.cuh"
 #include "../cuda_status.cuh"
 
 // The GPT-2 forward pass on the device, in fp32, one free function per op.
 //
-// Every op writes into a caller-owned `device_matrix`. Activations are
+// Every op writes into a caller-owned `cuda_matrix`. Activations are
 // matrices of features in device memory, one row per token, and parameters
 // are the same weights uploaded once. Shape mismatches are contract
 // violations. An op launches on the default stream and returns whether its
@@ -39,7 +39,7 @@ namespace corvid::cuda::llm {
 
 using matrix_types::matrix_extent;
 
-#pragma region device_matrix
+#pragma region cuda_matrix
 
 // A row-major matrix of `float` in device memory, packed with no gap between
 // rows.
@@ -47,19 +47,19 @@ using matrix_types::matrix_extent;
 // It owns its allocation and carries its extent, so an op can check shapes on
 // the host before launching. Rows are the first index, as in `matrix_view`,
 // and a packed host view is the shape data moves in and out through.
-class device_matrix {
+class cuda_matrix {
 public:
   using extent_t = matrix_extent;
 
 #pragma region Construction
 
   // Allocate `extent` elements, uninitialized, or throw.
-  explicit device_matrix(extent_t extent)
-      : data_(extent.row_count * extent.col_count), extent_{extent} {}
+  explicit cuda_matrix(extent_t extent)
+      : buffer_(extent.row_count * extent.col_count), extent_{extent} {}
 
   // Allocate and upload `host`, which must be packed, or throw.
-  explicit device_matrix(const_float_matrix_view host)
-      : device_matrix{host.extent()} {
+  explicit cuda_matrix(const_float_matrix_view host)
+      : cuda_matrix{host.extent()} {
     assert(host.stride() == host.col_extent());
     load(host).or_throw();
   }
@@ -67,11 +67,13 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] float* get() noexcept { return data_.get(); }
-  [[nodiscard]] const float* get() const noexcept { return data_.get(); }
+  [[nodiscard]] float* get() noexcept { return buffer_.get(); }
+  [[nodiscard]] const float* get() const noexcept { return buffer_.get(); }
 
-  [[nodiscard]] cuda_ptr<float>& data() noexcept { return data_; }
-  [[nodiscard]] const cuda_ptr<float>& data() const noexcept { return data_; }
+  [[nodiscard]] cuda_buffer<float>& buffer() noexcept { return buffer_; }
+  [[nodiscard]] const cuda_buffer<float>& buffer() const noexcept {
+    return buffer_;
+  }
 
   [[nodiscard]] extent_t extent() const noexcept { return extent_; }
   [[nodiscard]] size_t row_extent() const noexcept {
@@ -90,13 +92,13 @@ public:
   // Upload `host`, which must be packed and of the same extent.
   [[nodiscard]] cuda_last_status load(const_float_matrix_view host) {
     assert(is_packed_match(host));
-    return data_.load(host.as_span());
+    return buffer_.load(host.as_span());
   }
 
   // Download into `host`, which must be packed and of the same extent.
   [[nodiscard]] cuda_last_status store(float_matrix_view host) const {
     assert(is_packed_match(host));
-    return data_.store(host.as_span());
+    return buffer_.store(host.as_span());
   }
 
 #pragma endregion
@@ -111,7 +113,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  cuda_ptr<float> data_;
+  cuda_buffer<float> buffer_;
   extent_t extent_;
 
 #pragma endregion
@@ -147,13 +149,13 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
 // mlp c_proj   |       3072        |       768          |    1/4
 //
 // Returns false when a launch is refused, leaving `out` unspecified.
-[[nodiscard]] inline bool linear(const cublas_handle& blas, device_matrix& out,
-    const device_matrix& in, const device_matrix& weight,
-    const cuda_ptr<float>& bias) {
+[[nodiscard]] inline bool linear(const cublas_handle& blas, cuda_matrix& out,
+    const cuda_matrix& in, const cuda_matrix& weight,
+    const cuda_buffer<float>& bias) {
   assert(weight.row_extent() == in.col_extent());
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == weight.col_extent()));
-  assert(bias.count() == weight.col_extent());
+  assert(bias.size() == weight.col_extent());
   assert((&out != &in) && (&out != &weight));
 
   // The bias is the starting value of every output row, and the product then
@@ -178,8 +180,8 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
   const auto n = static_cast<int>(out.row_extent());
   const auto k = static_cast<int>(in.col_extent());
   return blas
-      .multiply(m, n, k, 1.0F, weight.data(), m, in.data(), k, 1.0F,
-          out.data(), m)
+      .multiply(m, n, k, 1.0F, weight.buffer(), m, in.buffer(), k, 1.0F,
+          out.buffer(), m)
       .ok();
 }
 

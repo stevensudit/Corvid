@@ -115,7 +115,7 @@ as you climb:
 | Grid / device      | global, constant, texture  | DRAM, cached in L2                | slow     | the allocation |
 
 Global memory is the only level the host can touch (through `cudaMemcpy` /
-`cuda_ptr`), and it is the one your bandwidth numbers are about. Constant and
+`cuda_buffer`), and it is the one your bandwidth numbers are about. Constant and
 texture memory are read-only views of DRAM with their own caches.
 
 ## The three hierarchies, aligned

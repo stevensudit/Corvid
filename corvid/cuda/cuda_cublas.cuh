@@ -24,7 +24,7 @@
 
 #include "../strings/cstring_view.h"
 #include "./cuda_handle.cuh"
-#include "./cuda_ptr.cuh"
+#include "./cuda_buffer.cuh"
 #include "./cuda_status.cuh"
 
 // Wrappers for cuBLAS, the CUDA Basic Linear Algebra Subprograms library.
@@ -153,8 +153,8 @@ public:
   // `none` and `k` when it is `transpose`, `ldb` is `k` or `n` likewise, and
   // `ldc` is `m`. A larger value addresses a column block of a wider matrix.
   [[nodiscard]] cublas_last_status multiply(int m, int n, int k, float alpha,
-      const cuda_ptr<float>& A, int lda, const cuda_ptr<float>& B, int ldb,
-      float beta, cuda_ptr<float>& C, int ldc,
+      const cuda_buffer<float>& A, int lda, const cuda_buffer<float>& B,
+      int ldb, float beta, cuda_buffer<float>& C, int ldc,
       cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
     return cublasSgemm(handle_, as_raw(opA), as_raw(opB), m, n, k, &alpha, A,
@@ -163,8 +163,8 @@ public:
 
   // Square multiply, where every dimension and leading dimension is `n`.
   [[nodiscard]] cublas_last_status multiply(int n, float alpha,
-      const cuda_ptr<float>& A, const cuda_ptr<float>& B, float beta,
-      cuda_ptr<float>& C, cublas_operation opA = cublas_operation::none,
+      const cuda_buffer<float>& A, const cuda_buffer<float>& B, float beta,
+      cuda_buffer<float>& C, cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
     return multiply(n, n, n, alpha, A, n, B, n, beta, C, n, opA, opB);
   }

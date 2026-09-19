@@ -1,4 +1,4 @@
-// Tests for cuda_ptr: allocation, the host transfer overloads, and the
+// Tests for cuda_buffer: allocation, the host transfer overloads, and the
 // count clamp that keeps a short or empty host buffer from being overrun.
 
 #include <array>
@@ -8,7 +8,7 @@
 
 #include <cuda_runtime.h>
 
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "catch2_main.h"
 
@@ -27,12 +27,12 @@ void fill(std::span<int> host, int value) {
 
 #pragma region Allocation
 
-TEST_CASE("cuda_ptr allocates and moves", "[cuda]") {
-  cuda_ptr<int> a{4};
+TEST_CASE("cuda_buffer allocates and moves", "[cuda]") {
+  cuda_buffer<int> a{4};
   REQUIRE(a.ok());
   const auto* raw = a.get();
 
-  cuda_ptr<int> b = std::move(a);
+  cuda_buffer<int> b = std::move(a);
   CHECK(b.get() == raw);
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK_FALSE(a.ok()); // moved-from is null
@@ -43,7 +43,7 @@ TEST_CASE("cuda_ptr allocates and moves", "[cuda]") {
   CHECK_FALSE(b.ok()); // moved-from is null
 }
 
-TEST_CASE("cuda_ptr construction failure policy", "[cuda]") {
+TEST_CASE("cuda_buffer construction failure policy", "[cuda]") {
   // Far beyond any device's memory, so the allocation itself fails (the
   // byte count does not overflow, so this exercises the CUDA path).
   constexpr auto absurd = size_t{1} << 60;
@@ -51,28 +51,28 @@ TEST_CASE("cuda_ptr construction failure policy", "[cuda]") {
   constexpr auto overflow = std::numeric_limits<size_t>::max();
 
   SECTION("the constructor throws and consumes the error") {
-    CHECK_THROWS_AS(cuda_ptr<int>{absurd}, std::runtime_error);
+    CHECK_THROWS_AS(cuda_buffer<int>{absurd}, std::runtime_error);
     CHECK(cuda_last_status{}.ok());
-    CHECK_THROWS_AS(cuda_ptr<int>{overflow}, std::runtime_error);
+    CHECK_THROWS_AS(cuda_buffer<int>{overflow}, std::runtime_error);
     CHECK(cuda_last_status{}.ok());
   }
 
   SECTION("try_create returns null and leaves the error to read") {
-    CHECK_FALSE(cuda_ptr<int>::try_create(absurd).ok());
+    CHECK_FALSE(cuda_buffer<int>::try_create(absurd).ok());
     CHECK(cuda_last_status{}.value() == cuda_status::memory_allocation);
     CHECK(cuda_last_status{}.ok()); // consumed by the read above
     // The overflow guard fails before any CUDA call, so nothing is recorded.
-    CHECK_FALSE(cuda_ptr<int>::try_create(overflow).ok());
+    CHECK_FALSE(cuda_buffer<int>::try_create(overflow).ok());
     CHECK(cuda_last_status{}.ok());
-    CHECK(cuda_ptr<int>::try_create(4).ok());
+    CHECK(cuda_buffer<int>::try_create(4).ok());
   }
 }
 
 #pragma endregion
 #pragma region Transfer
 
-TEST_CASE("cuda_ptr transfer overloads round-trip", "[cuda]") {
-  cuda_ptr<int> d{4};
+TEST_CASE("cuda_buffer transfer overloads round-trip", "[cuda]") {
+  cuda_buffer<int> d{4};
   REQUIRE(d.ok());
 
   SECTION("pointer and count") {
@@ -115,8 +115,8 @@ TEST_CASE("cuda_ptr transfer overloads round-trip", "[cuda]") {
   }
 }
 
-TEST_CASE("cuda_ptr clamps the count to the host buffer", "[cuda]") {
-  cuda_ptr<int> d{4};
+TEST_CASE("cuda_buffer clamps the count to the host buffer", "[cuda]") {
+  cuda_buffer<int> d{4};
   REQUIRE(d.ok());
   const int in[]{1, 2, 3, 4};
   REQUIRE(d.load(in));

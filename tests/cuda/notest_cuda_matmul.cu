@@ -1,6 +1,6 @@
 // Benchmarks a naive SGEMM kernel against cuBLAS on a square matrix, then
 // cross-checks the two results. Uses the corvid/cuda/ wrappers throughout:
-// cuda_ptr, cuda_timer, cuda_last_status, and cublas_handle.
+// cuda_buffer, cuda_timer, cuda_last_status, and cublas_handle.
 
 #include <cmath>
 #include <print>
@@ -8,7 +8,7 @@
 
 #include <cuda_runtime.h>
 
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_event.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
@@ -54,9 +54,9 @@ int main() {
   }
 
   // --- Device memory ---
-  cuda_ptr<float> d_A(count);
-  cuda_ptr<float> d_B(count);
-  cuda_ptr<float> d_C(count);
+  cuda_buffer<float> d_A(count);
+  cuda_buffer<float> d_B(count);
+  cuda_buffer<float> d_C(count);
   *d_A;
   *d_B;
   *d_C;

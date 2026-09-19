@@ -7,7 +7,7 @@
 #include <cuda_runtime.h>
 
 #include "corvid/cuda/cuda_array_3d.cuh"
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_surface.cuh"
 #include "corvid/cuda/cuda_texture.cuh"
@@ -81,8 +81,8 @@ TEST_CASE(
 
   const dim3 block{side, side, side};
   fill_float<<<1, block>>>(volume.surface());
-  cuda_ptr<float> d_out{voxels};
-  cuda_ptr<float> d_mid;
+  cuda_buffer<float> d_out{voxels};
+  cuda_buffer<float> d_mid;
   read_float<<<1, block>>>(volume.texture(), d_out.get(), d_mid.get());
   REQUIRE(cuda_last_status{}.ok());
 
@@ -128,7 +128,7 @@ TEST_CASE("material_volume round-trips exact values through its surface",
 
   const dim3 block{side, side, side};
   fill_u16<<<1, block>>>(materials.surface());
-  cuda_ptr<uint16_t> d_out{voxels};
+  cuda_buffer<uint16_t> d_out{voxels};
   read_u16<<<1, block>>>(materials.surface(), d_out.get());
   REQUIRE(cuda_last_status{}.ok());
 

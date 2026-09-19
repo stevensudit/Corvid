@@ -31,7 +31,7 @@
 #include "../../camera.cuh"
 #include "../../cuda_event.cuh"
 #include "../../cuda_kernel.cuh"
-#include "../../cuda_ptr.cuh"
+#include "../../cuda_buffer.cuh"
 #include "../../cuda_status.cuh"
 #include "../../cuda_surface.cuh"
 #include "../../cuda_volume.cuh"
@@ -874,7 +874,7 @@ private:
   void ensure_gbuffer(int w, int h) {
     const auto needed = static_cast<size_t>(w) * static_cast<size_t>(h);
     if (needed <= aa_gbuf_count_) return;
-    aa_gbuf_ = cuda_ptr<aa_texel>{needed};
+    aa_gbuf_ = cuda_buffer<aa_texel>{needed};
     if (!aa_gbuf_)
       throw std::runtime_error{"failed to allocate AA prepass buffer"};
     aa_gbuf_count_ = needed;
@@ -889,9 +889,9 @@ private:
     if (needed <= post_count_) return;
     const auto half =
         static_cast<size_t>(bloom_dim(w)) * static_cast<size_t>(bloom_dim(h));
-    hdr_ = cuda_ptr<float4>{needed};
-    bloom_a_ = cuda_ptr<float4>{half};
-    bloom_b_ = cuda_ptr<float4>{half};
+    hdr_ = cuda_buffer<float4>{needed};
+    bloom_a_ = cuda_buffer<float4>{half};
+    bloom_b_ = cuda_buffer<float4>{half};
     if (!hdr_ || !bloom_a_ || !bloom_b_)
       throw std::runtime_error{"failed to allocate post-process buffers"};
     post_count_ = needed;
@@ -1042,19 +1042,19 @@ private:
   // by pick_kernel and read by dig_kernel, so the dig never round-trips to the
   // host. The brush removes `dig_rate_` of density per second at its center,
   // falling off across a `dig_radius_` sphere.
-  cuda_ptr<dig_probe> dig_target_;
+  cuda_buffer<dig_probe> dig_target_;
 
   // A one-element device buffer for the flashlight's own aim pick down the
   // headlamp beam, so its air cone's far end can conform to the terrain it
   // lands on (`flashlight_cone`). Separate from `dig_target_` because the lamp
   // (F) and the dig tool (RMB) toggle independently.
-  cuda_ptr<dig_probe> flashlight_probe_;
+  cuda_buffer<dig_probe> flashlight_probe_;
 
   // A one-element device buffer the `fit_kernel` writes each frame the reticle
   // is up: the local terrain curvature around the aim, read back into
   // `render_config::reticle.fit` so the lensed reticle conforms to a tunnel or
   // bowl (see `apply_lensed_reticle`).
-  cuda_ptr<reticle_surface_fit> fit_target_;
+  cuda_buffer<reticle_surface_fit> fit_target_;
   const dim3 dig_block_{8, 8, 8};
   int dig_span_{};  // cube edge in voxels, set in `init`
   dim3 dig_grid_{}; // launch grid for the brush cube, set in `init`
@@ -1088,7 +1088,7 @@ private:
   // host the next frame to settle the ball onto the terrain. `ground_state_`
   // starts as no-contact (far above), so the first frame just falls;
   // `ground_primed_` gates the readback until the first probe has been issued.
-  cuda_ptr<ground_probe> ground_target_;
+  cuda_buffer<ground_probe> ground_target_;
   ground_probe ground_state_{.normal = vec3::up,
       .surface_dist = no_contact,
       .push = {},
@@ -1103,7 +1103,7 @@ private:
   // next frame into the rig's `terrain_clear`, which clamps the boom so a
   // tunnel merges the camera into the ball. `boom_primed_` gates the readback
   // until the first probe has been issued.
-  cuda_ptr<float> boom_clear_;
+  cuda_buffer<float> boom_clear_;
   bool boom_primed_{};
 
   // Auto-exposure scratch.
@@ -1113,7 +1113,7 @@ private:
   // zeroed before the render and read back the next frame, a frame late like
   // the ground probe; the metered mean is their quotient. `exposure_primed_`
   // gates the readback until the first measure has been issued.
-  cuda_ptr<float> exposure_sums_{2};
+  cuda_buffer<float> exposure_sums_{2};
   bool exposure_primed_{};
 
 #pragma endregion
@@ -1165,7 +1165,7 @@ private:
   // pixel, written by the prepass and read by the resolve pass to find the
   // silhouettes worth supersampling. Grown to the render target's size by
   // `ensure_gbuffer`; `aa_gbuf_count_` is its capacity in texels.
-  cuda_ptr<aa_texel> aa_gbuf_;
+  cuda_buffer<aa_texel> aa_gbuf_;
   size_t aa_gbuf_count_{};
 
   // The linear HDR render target (`hdr_`) the render kernels write, plus the
@@ -1173,9 +1173,9 @@ private:
   // `ensure_post_buffers`. The post pass blooms and tone maps `hdr_` into the
   // interop surface. `post_count_` is `hdr_`'s capacity in pixels; the bloom
   // buffers hold a quarter of that (half each axis).
-  cuda_ptr<float4> hdr_;
-  cuda_ptr<float4> bloom_a_;
-  cuda_ptr<float4> bloom_b_;
+  cuda_buffer<float4> hdr_;
+  cuda_buffer<float4> bloom_a_;
+  cuda_buffer<float4> bloom_b_;
   size_t post_count_{};
 
   // The GPU presentation pipeline: default-constructed with the engine (a

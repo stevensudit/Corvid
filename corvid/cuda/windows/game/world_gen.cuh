@@ -22,7 +22,7 @@
 #include <cuda_runtime.h>
 
 #include "../../cuda_kernel.cuh"
-#include "../../cuda_ptr.cuh"
+#include "../../cuda_buffer.cuh"
 #include "../../cuda_status.cuh"
 #include "../../cuda_volume.cuh"
 #include "../../density_field.cuh"
@@ -157,8 +157,8 @@ inline void generate_world(const density_field& field,
   constexpr auto repose_slope = 0.7F; // tangent, about 35 degrees
   constexpr auto erode_rate = 0.15F;
   constexpr auto erode_passes = 80;
-  cuda_ptr<float> height_a{static_cast<size_t>(height_w) * height_d};
-  cuda_ptr<float> height_b{static_cast<size_t>(height_w) * height_d};
+  cuda_buffer<float> height_a{static_cast<size_t>(height_w) * height_d};
+  cuda_buffer<float> height_b{static_cast<size_t>(height_w) * height_d};
   if (!height_a || !height_b)
     throw std::runtime_error{"failed to allocate heightfield"};
   const dim3 height_block{16, 16};

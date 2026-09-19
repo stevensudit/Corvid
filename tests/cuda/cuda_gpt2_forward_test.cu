@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "corvid/cuda/cuda_cublas.cuh"
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/llm/gpt2_forward.cuh"
 #include "corvid/cuda/llm/gpt2_forward.h"
 #include "catch2_main.h"
@@ -29,8 +29,8 @@
 using namespace corvid;
 using namespace corvid::tests::gpt2;
 using corvid::cuda::cublas_handle;
-using corvid::cuda::cuda_ptr;
-using corvid::cuda::llm::device_matrix;
+using corvid::cuda::cuda_buffer;
+using corvid::cuda::llm::cuda_matrix;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -45,13 +45,13 @@ TEST_CASE("Device linear on hand-computed rows", "[Gpt2ForwardTest][cuda]") {
   constexpr std::array bias_storage{10.0F, 20.0F};
 
   const cublas_handle blas;
-  const device_matrix in(
+  const cuda_matrix in(
       const_float_matrix_view(in_storage, {.row_count = 2, .col_count = 3}));
-  const device_matrix weight(const_float_matrix_view(weight_storage,
+  const cuda_matrix weight(const_float_matrix_view(weight_storage,
       {.row_count = 3, .col_count = 2}));
-  cuda_ptr<float> bias(bias_storage.size());
+  cuda_buffer<float> bias(bias_storage.size());
   REQUIRE(bias.load(bias_storage));
-  device_matrix out({.row_count = 2, .col_count = 2});
+  cuda_matrix out({.row_count = 2, .col_count = 2});
 
   REQUIRE(cuda::llm::linear(blas, out, in, weight, bias));
 
@@ -80,21 +80,21 @@ TEST_CASE("Device MLP path matches the oracle",
           matrix_of(oracle.activations, dump + "/mlp/out", n_embd);
       REQUIRE(in_view.row_extent() == 14);
 
-      const device_matrix in(in_view);
-      const device_matrix fc_weight(
+      const cuda_matrix in(in_view);
+      const cuda_matrix fc_weight(
           matrix_of(oracle.weights, param + ".c_fc.weight", n_hidden));
-      cuda_ptr<float> fc_bias(n_hidden);
+      cuda_buffer<float> fc_bias(n_hidden);
       REQUIRE(fc_bias.load(
           vector_of(oracle.weights, param + ".c_fc.bias", n_hidden)));
-      const device_matrix proj_weight(
+      const cuda_matrix proj_weight(
           matrix_of(oracle.weights, param + ".c_proj.weight", n_embd));
-      cuda_ptr<float> proj_bias(n_embd);
+      cuda_buffer<float> proj_bias(n_embd);
       REQUIRE(proj_bias.load(
           vector_of(oracle.weights, param + ".c_proj.bias", n_embd)));
 
-      device_matrix hidden(
+      cuda_matrix hidden(
           {.row_count = in_view.row_extent(), .col_count = n_hidden});
-      device_matrix out(in_view.extent());
+      cuda_matrix out(in_view.extent());
       std::vector<float> hidden_storage(hidden.size());
       const float_matrix_view hidden_view(hidden_storage, hidden.extent());
       std::vector<float> out_storage(out.size());
