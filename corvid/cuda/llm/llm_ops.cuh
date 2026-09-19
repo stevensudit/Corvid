@@ -35,10 +35,11 @@
 
 // The transformer ops on the device, in fp32, one free function per op.
 //
-// Every op writes into a caller-owned `cuda_matrix_view`, launches on the
-// default stream, and returns whether its launches were accepted, so a fault
-// inside a kernel surfaces at the next synchronizing call, such as a `store`.
-// The scalar formulas are the CPU ops' own, shared through `CUDA_HOST_DEVICE`.
+// Every op writes into a caller-owned output (a `cuda_matrix` or a
+// `cuda_matrix_view`), launches on the default stream, and returns whether its
+// launches were accepted, so a fault inside a kernel surfaces at the next
+// synchronizing call, such as a `store`. The scalar formulas are the CPU ops'
+// own, shared through `CUDA_HOST_DEVICE`.
 namespace corvid::cuda::llm {
 
 using namespace corvid::cuda::linalg;
@@ -110,30 +111,28 @@ __global__ void apply_layer_norm(T* out, size_t out_stride, const T* in,
 // otherwise overlap it. `eps` is added to each row's variance inside the
 // square root. Returns false when the launch is refused, leaving `out`
 // unspecified.
-template<Floating T>
-[[nodiscard]] bool layer_norm(cuda_matrix_view<T> out, const_view_t<T> in,
-    const cuda_buffer<T>& weight, const cuda_buffer<T>& bias,
-    std::type_identity_t<T> eps) {
+template<DeviceMatrixLike Out>
+requires Floating<device_element_t<Out>>
+[[nodiscard]] bool
+layer_norm(Out&& out, const_view_t<device_element_t<Out>> in,
+    const cuda_buffer<device_element_t<Out>>& weight,
+    const cuda_buffer<device_element_t<Out>>& bias,
+    device_element_t<Out> eps) {
+  using T = device_element_t<Out>;
+  const auto& out_view = out.as_view();
   [[maybe_unused]] const auto width = in.col_extent();
-  assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
+  assert((out_view.row_extent() == in.row_extent()) &&
+         (out_view.col_extent() == width));
   assert((weight.size() == width) && (bias.size() == width));
-  assert(is_same_or_disjoint(out.as_span(), in.as_span()));
-  assert(is_disjoint(out.as_span(), weight.as_span()));
-  assert(is_disjoint(out.as_span(), bias.as_span()));
+  assert(is_same_or_disjoint(out_view.as_span(), in.as_span()));
+  assert(is_disjoint(out_view.as_span(), weight.as_span()));
+  assert(is_disjoint(out_view.as_span(), bias.as_span()));
 
   details::apply_layer_norm<T>
-      <<<static_cast<unsigned>(out.row_extent()), threads_per_block>>>(
-          out.get(), out.stride(), in.get(), in.stride(), width, weight.get(),
-          bias.get(), eps);
+      <<<static_cast<unsigned>(out_view.row_extent()), threads_per_block>>>(
+          out_view.get(), out_view.stride(), in.get(), in.stride(), width,
+          weight.get(), bias.get(), eps);
   return cuda_last_status{}.ok();
-}
-
-// `layer_norm` over an owning `out`, so the call needs no `view()`.
-template<Floating T>
-[[nodiscard]] bool layer_norm(cuda_matrix<T>& out, const_view_t<T> in,
-    const cuda_buffer<T>& weight, const cuda_buffer<T>& bias,
-    std::type_identity_t<T> eps) {
-  return layer_norm(out.view(), in, weight, bias, eps);
 }
 
 #pragma endregion
@@ -160,21 +159,20 @@ __global__ void apply_gelu_new(T* out, size_t out_stride, const T* in,
 //
 // `out` and `in` must have the same extent. `out` can be `in`, applying it in
 // place. Returns false when the launch is refused, leaving `out` unspecified.
-template<Floating T>
-[[nodiscard]] bool gelu_new(cuda_matrix_view<T> out, const_view_t<T> in) {
-  assert((out.row_extent() == in.row_extent()) &&
-         (out.col_extent() == in.col_extent()));
+template<DeviceMatrixLike Out>
+requires Floating<device_element_t<Out>>
+[[nodiscard]] bool
+gelu_new(Out&& out, const_view_t<device_element_t<Out>> in) {
+  using T = device_element_t<Out>;
+  const auto& out_view = out.as_view();
+  assert((out_view.row_extent() == in.row_extent()) &&
+         (out_view.col_extent() == in.col_extent()));
 
-  details::apply_gelu_new<T><<<blocks_for(out.size()), threads_per_block>>>(
-      out.get(), out.stride(), in.get(), in.stride(), out.size(),
-      out.col_extent());
+  details::apply_gelu_new<T>
+      <<<blocks_for(out_view.size()), threads_per_block>>>(out_view.get(),
+          out_view.stride(), in.get(), in.stride(), out_view.size(),
+          out_view.col_extent());
   return cuda_last_status{}.ok();
-}
-
-// `gelu_new` over an owning `out`, so the call needs no `view()`.
-template<Floating T>
-[[nodiscard]] bool gelu_new(cuda_matrix<T>& out, const_view_t<T> in) {
-  return gelu_new(out.view(), in);
 }
 
 #pragma endregion

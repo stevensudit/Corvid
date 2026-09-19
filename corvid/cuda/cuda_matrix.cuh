@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cassert>
+#include <concepts>
 #include <cstddef>
 #include <type_traits>
 
@@ -35,7 +36,7 @@
 // matrix's stride.
 //
 //   cuda_matrix<float> qkv(host_qkv);
-//   const auto q = qkv.view().subview({row_ndx{0}, col_ndx{0}}, q_extent);
+//   const auto q = qkv.subview({row_ndx{0}, col_ndx{0}}, q_extent);
 //   ... launch over q ...
 //   q.store(host_q).or_throw();
 namespace corvid::cuda {
@@ -70,6 +71,10 @@ public:
 #pragma region Accessors
 
   [[nodiscard]] element_t* get() const noexcept { return data_.data(); }
+
+  [[nodiscard]] const cuda_matrix_view& as_view() const noexcept {
+    return *this;
+  }
 
 #pragma endregion
 #pragma region Transfer
@@ -130,8 +135,8 @@ private:
 
 // A row-major matrix of `T` in device memory, packed with no gap between rows.
 //
-// It owns its allocation and carries its extent. Transfers and ops go
-// through its `view()`, and it converts to a view where one is expected.
+// It owns its allocation and carries its extent. Transfers go through its
+// `as_view()`, and it converts to a view where one is expected.
 template<typename T>
 class cuda_matrix {
 public:
@@ -150,7 +155,7 @@ public:
   // Allocate and upload `host`, or throw.
   explicit cuda_matrix(matrix_view<const element_t> host)
       : cuda_matrix{host.extent()} {
-    view().load(host).or_throw();
+    as_view().load(host).or_throw();
   }
 
 #pragma endregion
@@ -176,21 +181,23 @@ public:
   }
 
   // The whole matrix as a packed view.
-  [[nodiscard]] view_t view() noexcept { return {buffer_.as_span(), extent_}; }
-  [[nodiscard]] const_view_t view() const noexcept {
+  [[nodiscard]] view_t as_view() noexcept {
     return {buffer_.as_span(), extent_};
   }
-  operator view_t() noexcept { return view(); }
-  operator const_view_t() const noexcept { return view(); }
+  [[nodiscard]] const_view_t as_view() const noexcept {
+    return {buffer_.as_span(), extent_};
+  }
+  operator view_t() noexcept { return as_view(); }
+  operator const_view_t() const noexcept { return as_view(); }
 
   // The view's `subview`, over the whole matrix.
   [[nodiscard]] view_t
   subview(coord from, extent_t size = extent_t::npos) noexcept {
-    return view().subview(from, size);
+    return as_view().subview(from, size);
   }
   [[nodiscard]] const_view_t
   subview(coord from, extent_t size = extent_t::npos) const noexcept {
-    return view().subview(from, size);
+    return as_view().subview(from, size);
   }
 
 #pragma endregion
@@ -200,6 +207,26 @@ private:
   extent_t extent_;
 
 #pragma endregion
+};
+
+#pragma endregion
+#pragma region Concepts
+
+// The element type of `M`, a device matrix or view, however `M` itself is
+// qualified.
+template<typename M>
+using device_element_t = std::remove_cvref_t<M>::element_t;
+
+// A device matrix, or a view of one, whose elements can be written.
+//
+// That is a `cuda_matrix<T>`, or a `cuda_matrix_view<T>` for a non-const
+// `T`.
+template<typename M>
+concept DeviceMatrixLike = requires(M& m) {
+  requires !std::is_const_v<device_element_t<M>>;
+  {
+    m.as_view()
+  } -> std::convertible_to<cuda_matrix_view<device_element_t<M>>>;
 };
 
 #pragma endregion

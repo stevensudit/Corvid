@@ -66,7 +66,7 @@ TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
   REQUIRE(cuda::llm::layer_norm(out, in, weight, bias, eps));
 
   std::vector<T> out_storage(out.size());
-  REQUIRE(out.view().store(matrix_view<T>(out_storage, out.extent())));
+  REQUIRE(out.as_view().store(matrix_view<T>(out_storage, out.extent())));
   constexpr auto tolerance = 1e-5;
   const auto inv_std = T{1} / std::sqrt(T{1.25} + T{eps});
   CHECK_THAT(out_storage[0], WithinAbs(T{-1.5} * inv_std, tolerance));
@@ -84,7 +84,7 @@ TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
   cuda_matrix<T> same(in_view);
   REQUIRE(cuda::llm::layer_norm(same, same, weight, bias, eps));
   std::vector<T> same_storage(same.size());
-  REQUIRE(same.view().store(matrix_view<T>(same_storage, same.extent())));
+  REQUIRE(same.as_view().store(matrix_view<T>(same_storage, same.extent())));
   CHECK(same_storage == out_storage);
 }
 
@@ -125,7 +125,7 @@ TEST_CASE("Device layer norm matches the oracle",
       const float_matrix_view out_view(out_storage, out.extent());
 
       REQUIRE(cuda::llm::layer_norm(out, in, weight, bias, eps));
-      REQUIRE(out.view().store(out_view));
+      REQUIRE(out.as_view().store(out_view));
 
       check_close(out_view, expected, 1e-5F, 1e-5F);
     }
@@ -174,7 +174,7 @@ TEST_CASE("Device residual adds match the oracle",
       const float_matrix_view out_view(out_storage, out.extent());
 
       REQUIRE(cuda::linalg::add(out, a, b));
-      REQUIRE(out.view().store(out_view));
+      REQUIRE(out.as_view().store(out_view));
 
       check_close(out_view, expected, 0.0F, 0.0F);
     }
@@ -197,7 +197,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   REQUIRE(cuda::llm::gelu_new(out, in));
 
   std::vector<float> out_storage(out.size());
-  REQUIRE(out.view().store(float_matrix_view(out_storage, out.extent())));
+  REQUIRE(out.as_view().store(float_matrix_view(out_storage, out.extent())));
   constexpr auto tolerance = 1e-6;
   CHECK(out_storage[0] == 0.0F);
   CHECK_THAT(out_storage[1], WithinAbs(0.841192, tolerance));
@@ -211,7 +211,8 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   cuda_matrix<float> same(in_view);
   REQUIRE(cuda::llm::gelu_new(same, same));
   std::vector<float> same_storage(same.size());
-  REQUIRE(same.view().store(float_matrix_view(same_storage, same.extent())));
+  REQUIRE(
+      same.as_view().store(float_matrix_view(same_storage, same.extent())));
   CHECK(same_storage == out_storage);
 }
 
@@ -258,7 +259,7 @@ TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
       REQUIRE(cuda::llm::gelu_new(hidden, hidden));
       REQUIRE(cuda::linalg::linear_projection(blas, out, hidden, proj_weight,
           proj_bias));
-      REQUIRE(out.view().store(out_view));
+      REQUIRE(out.as_view().store(out_view));
 
       check_close(out_view, expected, 1e-4F, 1e-4F);
     }
