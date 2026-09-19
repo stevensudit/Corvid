@@ -290,7 +290,7 @@ inline constexpr float gelu_cubic_coeff = 0.044715F;
 // The weights were fit to this curve, so this is the form that matches the
 // oracle, and the `erf` form would not. Not `constexpr` because it uses
 // `std::tanh`.
-[[nodiscard]] inline float gelu_new(float x) noexcept {
+[[nodiscard]] CUDA_HOST_DEVICE inline float gelu_new(float x) noexcept {
   const auto inner = gelu_tanh_scale * (x + (gelu_cubic_coeff * x * x * x));
   return 0.5F * x * (1.0F + std::tanh(inner));
 }
