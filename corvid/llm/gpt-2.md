@@ -103,10 +103,10 @@ so each can be read back after the call.
 | c_attn | ln_1/out [T, C] | `h.N.attn.c_attn.weight` [C, 3C], `.bias` [3C] | qkv [T, 3C] | `linear` |
 | split | qkv [T, 3C] | | q, k, v each [T, C]: columns 0..C-1, C..2C-1, 2C..3C-1 | `subview` |
 | heads | q, k, v [T, C] | | per head h: q_h, k_h, v_h each [T, D], columns h*D..h*D+D-1 | `subview` |
-| scores | q_h [T, D], k_h [T, D] | | s [T, T], s[i][j] = (q_h[i] . k_h[j]) / sqrt(D) = (q_h[i] . k_h[j]) / 8 | `attention_head`, via `dot` |
-| mask | s [T, T] | | s with j > i excluded | `attention_head`, as the loop bound |
+| scores | q_h [T, D], k_h [T, D] | | s [T, T], s[i][j] = (q_h[i] . k_h[j]) / sqrt(D) = (q_h[i] . k_h[j]) / 8 | `attend_head`, via `dot` |
+| mask | s [T, T] | | s with j > i excluded | `attend_head`, as the loop bound |
 | softmax | s row i over j <= i | | w [T, T], each row sums to 1, zero where j > i | `softmax` |
-| weighted sum | w [T, T], v_h [T, D] | | head_out_h [T, D], row i = sum over j <= i of w[i][j] * v_h[j] | `attention_head`, via `add_scaled` |
+| weighted sum | w [T, T], v_h [T, D] | | head_out_h [T, D], row i = sum over j <= i of w[i][j] * v_h[j] | `attend_head`, via `add_scaled` |
 | concat | H of head_out_h [T, D] | | heads_out [T, C], head h in columns h*D..h*D+D-1 | `attention` writes each head's slice in place |
 | c_proj | heads_out [T, C] | `h.N.attn.c_proj.weight` [C, C], `.bias` [C] | attn/out [T, C] | `linear` |
 | residual add | residual [T, C], attn/out [T, C] | | residual [T, C] | `add` |
@@ -139,7 +139,7 @@ trained against the tanh curve.
 | step | reads | looks up | produces | Corvid |
 |---|---|---|---|---|
 | ln_f | residual [T, C] | `ln_f.weight`, `ln_f.bias` | ln_f/out [T, C] | `layer_norm`, as the last step of `forward` |
-| logits | ln_f/out [T, C] | `wte.weight` [V, C], transposed, no bias | logits [T, V] | `logits`, one `token_logits` per row |
+| logits | ln_f/out [T, C] | `wte.weight` [V, C], transposed, no bias | logits [T, V] | `compute_all_logits`, one `compute_token_logits` per row |
 | greedy | logits row T - 1 | | the ID with the largest logit | `pick_greedy` |
 
 Row t of the logits scores every vocabulary entry as the token after

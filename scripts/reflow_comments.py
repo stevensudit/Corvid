@@ -12,7 +12,9 @@
 # under 65 columns AND could absorb the next line's first word within 79.
 # The 65-column slack matters: author-typed text that clang-format wrapped is
 # already near-greedy, and a strict greedy test would flag nearly every
-# committed paragraph in the repo (including the license header).
+# committed paragraph in the repo (including the license header). A paragraph
+# is also misflowed when its whole last line fits on the line before it (an
+# orphan tail such as a lone "rows."), whatever that line's width.
 #
 # What is NOT touched (each guard was earned by a bad refill in dry-run):
 #  - the license header (first 17 lines of every file);
@@ -119,11 +121,13 @@ def main():
         hits = []
         for start, end, indent, content in reversed(list(paragraphs(lines))):
             room = len(indent) + 3  # the "// " prefix
-            flagged = any(
+            ragged = any(
                 room + len(content[k]) < RAGGED_BELOW and
                 room + len(content[k]) + 1 + len(content[k + 1].split()[0])
                 <= LIMIT for k in range(len(content) - 1))
-            if not flagged:
+            orphan = (len(content) > 1 and
+                      room + len(content[-2]) + 1 + len(content[-1]) <= LIMIT)
+            if not (ragged or orphan):
                 continue
             key = f"{path.replace(os.sep, '/')}:{start + 1}"
             if any("  " in c for c in content) or key in SKIP:

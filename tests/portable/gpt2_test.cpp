@@ -237,7 +237,7 @@ TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
 
       std::vector<float> storage(expected.size());
       const float_matrix_view out(storage, expected.extent());
-      logits(out, trunk, model.params.wte);
+      compute_all_logits(out, trunk, model.params.wte);
 
       check_close(out, expected, 1e-4F, 1e-4F);
     }
@@ -281,7 +281,7 @@ TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
         {.row_count = token_count, .col_count = n_embd});
     owned_block_activations owned(token_count);
     forward(trunk, ids, model.params, owned.views(), n_head);
-    token_logits(next_logits, trunk[row_ndx{token_count - 1}],
+    compute_token_logits(next_logits, trunk[row_ndx{token_count - 1}],
         model.params.wte);
     ids.push_back(pick_greedy(next_logits));
   }

@@ -26,6 +26,7 @@
 
 using namespace corvid;
 using corvid::cuda::cublas_handle;
+using corvid::cuda::cublas_operation;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 
@@ -57,6 +58,62 @@ TEMPLATE_TEST_CASE("Device linear on hand-computed rows",
   std::vector<T> out_storage(out.size());
   REQUIRE(out.store(matrix_view<T>(out_storage, out.extent())));
   CHECK(out_storage == std::vector<T>{T{14}, T{25}, T{20}, T{31}});
+}
+
+#pragma endregion
+#pragma region GEMM
+
+TEMPLATE_TEST_CASE("Device gemm product, scale, and accumulation",
+    "[LinearAlgebraTest][cuda]", float, double) {
+  using T = TestType;
+  // The linear case's two-by-three times three-by-two without its bias:
+  // [[4, 5], [10, 11]].
+  const std::vector<T> a_storage{T{1}, T{2}, T{3}, T{4}, T{5}, T{6}};
+  const std::vector<T> b_storage{T{1}, T{0}, T{0}, T{1}, T{1}, T{1}};
+
+  const cublas_handle blas;
+  const cuda_matrix<T> a(
+      matrix_view<const T>(a_storage, {.row_count = 2, .col_count = 3}));
+  const cuda_matrix<T> b(
+      matrix_view<const T>(b_storage, {.row_count = 3, .col_count = 2}));
+  cuda_matrix<T> out({.row_count = 2, .col_count = 2});
+  std::vector<T> out_storage(out.size());
+  const matrix_view<T> out_view(out_storage, out.extent());
+
+  // A plain product, reading nothing from `out`.
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, nullptr, T{1}, T{0}));
+  REQUIRE(out.store(out_view));
+  CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
+
+  // Twice the product, accumulated onto ones.
+  const std::vector<T> ones_storage(out.size(), T{1});
+  REQUIRE(out.load(matrix_view<const T>(ones_storage, out.extent())));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, nullptr, T{2}));
+  REQUIRE(out.store(out_view));
+  CHECK(out_storage == std::vector<T>{T{9}, T{11}, T{21}, T{23}});
+}
+
+TEMPLATE_TEST_CASE("Device gemm on a transposed operand",
+    "[LinearAlgebraTest][cuda]", float, double) {
+  using T = TestType;
+  // `a` is stored three-by-two, so its transpose, [[1, 0, 1], [0, 1, 1]],
+  // times the three-by-two `b` is [[6, 8], [8, 10]].
+  const std::vector<T> a_storage{T{1}, T{0}, T{0}, T{1}, T{1}, T{1}};
+  const std::vector<T> b_storage{T{1}, T{2}, T{3}, T{4}, T{5}, T{6}};
+
+  const cublas_handle blas;
+  const cuda_matrix<T> a(
+      matrix_view<const T>(a_storage, {.row_count = 3, .col_count = 2}));
+  const cuda_matrix<T> b(
+      matrix_view<const T>(b_storage, {.row_count = 3, .col_count = 2}));
+  cuda_matrix<T> out({.row_count = 2, .col_count = 2});
+
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, nullptr, T{1}, T{0},
+      cublas_operation::transpose));
+
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.store(matrix_view<T>(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<T>{T{6}, T{8}, T{8}, T{10}});
 }
 
 #pragma endregion
