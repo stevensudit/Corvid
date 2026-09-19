@@ -98,6 +98,14 @@ public:
   // The number of objects allocated.
   [[nodiscard]] size_t size() const noexcept { return size_; }
 
+  // The allocation as a span, which the host must not dereference.
+  [[nodiscard]] std::span<T> as_span() noexcept {
+    return std::span<T>(this->get(), size_);
+  }
+  [[nodiscard]] std::span<const T> as_span() const noexcept {
+    return std::span<const T>(this->get(), size_);
+  }
+
 #pragma endregion
 #pragma region Transfer
 
