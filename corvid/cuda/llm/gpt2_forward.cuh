@@ -151,6 +151,10 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
 // c_fc         |       768         |      3072          |    4
 // mlp c_proj   |       3072        |       768          |    1/4
 //
+// Note: Before this is moved out of LLM-specific and into general CUDA, it not
+// only has to be templated so it's not just `float`, but it also has to handle
+// non-packed inputs.
+//
 // Returns false when a launch is refused, leaving `out` unspecified.
 [[nodiscard]] inline bool linear(const cublas_handle& blas, cuda_matrix& out,
     const cuda_matrix& in, const cuda_matrix& weight,
