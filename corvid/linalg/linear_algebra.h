@@ -19,19 +19,26 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <ranges>
 #include <span>
+#include <type_traits>
 
 #include "../containers/utils/matrix_view.h"
+#include "../meta/concepts.h"
 #include "../meta/containers.h"
 #include "../meta/crossplatform.h"
 
 // Arithmetic over rows and matrices, one free function per op.
 //
-// The row ops take spans, while the matrix ops take `matrix_view`.
+// The row ops take any contiguous range of numbers, while the matrix ops
+// take `matrix_view`. Every op is a template on the element type, and each
+// constrains it to what its arithmetic needs: the sums and products accept
+// any `Arithmetic` type, while the ops that divide or take a root require a
+// `Floating` one.
 //
-// Every op writes into a caller-owned span or view and honors the stride of
+// Every op writes into a caller-owned range or view and honors the stride of
 // every view it is given. Shape mismatches are contract violations. The set
 // is what the consumers need, not a statistics library, so an op arrives
 // with its first caller.
@@ -40,13 +47,24 @@ namespace corvid::linalg {
 // The loop idiom of this file.
 using std::views::zip;
 
+#pragma region Types
+
+// A read-only view of the element type an op deduced from its output.
+//
+// `std::type_identity_t` keeps it out of deduction, so a mutable view passed
+// as an input converts to it.
+template<typename T>
+using const_view_t = matrix_view<const std::type_identity_t<T>>;
+
+#pragma endregion
 #pragma region Reductions
 
 // Reductions over a row.
 
 // The sum of `values`.
-[[nodiscard]] constexpr float sum(const_float_span values) noexcept {
-  float total{};
+template<ArithmeticRange R>
+[[nodiscard]] constexpr element_of_t<R> sum(const R& values) noexcept {
+  element_of_t<R> total{};
   for (const auto x : values) total += x;
   return total;
 }
@@ -56,15 +74,18 @@ using std::views::zip;
 // cl C4723: Division by zero is intentionally allowed.
 PRAGMA_DIAG(push)
 PRAGMA_MSVC_IGNORED(4723)
-[[nodiscard]] constexpr float mean(const_float_span values) noexcept {
-  return sum(values) / static_cast<float>(values.size());
+template<FloatingRange R>
+[[nodiscard]] constexpr element_of_t<R> mean(const R& values) noexcept {
+  using T = element_of_t<R>;
+  return sum(values) / static_cast<T>(std::ranges::size(values));
 }
 PRAGMA_DIAG(pop)
 
 // The sum of the squared deviations of `values` from `center`.
-[[nodiscard]] constexpr float
-squared_deviation_sum(const_float_span values, float center) noexcept {
-  float total{};
+template<ArithmeticRange R>
+[[nodiscard]] constexpr element_of_t<R>
+squared_deviation_sum(const R& values, element_of_t<R> center) noexcept {
+  element_of_t<R> total{};
   for (const auto x : values) {
     const auto deviation = x - center;
     total += deviation * deviation;
@@ -78,9 +99,11 @@ squared_deviation_sum(const_float_span values, float center) noexcept {
 // cl C4723: as for `mean`.
 PRAGMA_DIAG(push)
 PRAGMA_MSVC_IGNORED(4723)
-[[nodiscard]] constexpr float
-population_variance(const_float_span values, float mean) noexcept {
-  const auto size = static_cast<float>(values.size());
+template<FloatingRange R>
+[[nodiscard]] constexpr element_of_t<R>
+population_variance(const R& values, element_of_t<R> mean) noexcept {
+  using T = element_of_t<R>;
+  const auto size = static_cast<T>(std::ranges::size(values));
   return squared_deviation_sum(values, mean) / size;
 }
 PRAGMA_DIAG(pop)
@@ -92,35 +115,42 @@ PRAGMA_DIAG(pop)
 // cl C4723: as for `mean`.
 PRAGMA_DIAG(push)
 PRAGMA_MSVC_IGNORED(4723)
-[[nodiscard]] constexpr float
-sample_variance(const_float_span values, float mean) noexcept {
-  const auto size = static_cast<float>(values.size());
-  return squared_deviation_sum(values, mean) / (size - 1.0F);
+template<FloatingRange R>
+[[nodiscard]] constexpr element_of_t<R>
+sample_variance(const R& values, element_of_t<R> mean) noexcept {
+  using T = element_of_t<R>;
+  const auto size = static_cast<T>(std::ranges::size(values));
+  return squared_deviation_sum(values, mean) / (size - T{1});
 }
 PRAGMA_DIAG(pop)
 
 // The population standard deviation of `values` around their `mean`, with
 // `eps` added to the variance inside the square root.
-[[nodiscard]] inline float
-std_dev(const_float_span values, float mean, float eps) noexcept {
+template<FloatingRange R>
+[[nodiscard]] element_of_t<R>
+std_dev(const R& values, element_of_t<R> mean, element_of_t<R> eps) noexcept {
   return std::sqrt(population_variance(values, mean) + eps);
 }
 
 // The reciprocal of `std_dev`.
-[[nodiscard]] inline float
-inverse_std_dev(const_float_span values, float mean, float eps) noexcept {
-  return 1.0F / std_dev(values, mean, eps);
+template<FloatingRange R>
+[[nodiscard]] element_of_t<R> inverse_std_dev(const R& values,
+    element_of_t<R> mean, element_of_t<R> eps) noexcept {
+  using T = element_of_t<R>;
+  return T{1} / std_dev(values, mean, eps);
 }
 
 // The dot product of `a` and `b`, which must be the same size.
-[[nodiscard]] constexpr float
-dot_product(const_float_span a, const_float_span b) noexcept {
+template<ArithmeticRange A, ArithmeticRange B>
+requires SameElement<A, B>
+[[nodiscard]] constexpr element_of_t<A>
+dot_product(const A& a, const B& b) noexcept {
   // In IEEE order the sum is one serial chain of fused multiply-adds, 8x
   // slower on a 768-wide row than the vectorized reduction this permits.
   PRAGMA_FP_REASSOCIATE
-  assert(a.size() == b.size());
+  assert(std::ranges::size(a) == std::ranges::size(b));
 
-  float total{};
+  element_of_t<A> total{};
   for (const auto [x, y] : zip(a, b)) total += x * y;
   return total;
 }
@@ -130,14 +160,14 @@ dot_product(const_float_span a, const_float_span b) noexcept {
 
 // The z-score of `x`, which is its distance from `mean` in units of the
 // standard deviation (which is the reciprocal of `inv_std`).
-[[nodiscard]] constexpr float
-standardize(float x, float mean, float inv_std) noexcept {
+template<Floating T>
+[[nodiscard]] constexpr T standardize(T x, T mean, T inv_std) noexcept {
   return (x - mean) * inv_std;
 }
 
 // `x` scaled by `weight`, then shifted by `bias`.
-[[nodiscard]] constexpr float
-scale_shift(float x, float weight, float bias) noexcept {
+template<Arithmetic T>
+[[nodiscard]] constexpr T scale_shift(T x, T weight, T bias) noexcept {
   return (x * weight) + bias;
 }
 
@@ -145,9 +175,11 @@ scale_shift(float x, float weight, float bias) noexcept {
 // Conceptually: `acc += scale * values`
 //
 // BLAS calls this operation "axpy", because it's "a times x plus y".
+template<ArithmeticRange A, ArithmeticRange V>
+requires MutableRange<A> && SameElement<A, V>
 constexpr void
-add_scaled(float_span acc, float scale, const_float_span values) noexcept {
-  assert(acc.size() == values.size());
+add_scaled(A& acc, element_of_t<A> scale, const V& values) noexcept {
+  assert(std::ranges::size(acc) == std::ranges::size(values));
 
   for (auto [acc_value, value] : zip(acc, values)) acc_value += scale * value;
 }
@@ -175,13 +207,14 @@ add_scaled(float_span acc, float scale, const_float_span values) noexcept {
 // which has a row per row of `in` and a column per output value.
 //
 // `out` must not overlap `in`, `weight`, or `bias`.
-inline void linear_projection(float_matrix_view out,
-    const_float_matrix_view in, const_float_matrix_view weight,
-    const_float_row_span bias) noexcept {
+template<Arithmetic T, ArithmeticRange B>
+requires std::same_as<element_of_t<B>, T>
+void linear_projection(matrix_view<T> out, const_view_t<T> in,
+    const_view_t<T> weight, const B& bias) noexcept {
   assert(weight.row_extent() == in.col_extent());
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == weight.col_extent()));
-  assert(bias.size() == weight.col_extent());
+  assert(std::ranges::size(bias) == weight.col_extent());
   assert(is_disjoint(out.as_span(), in.as_span()));
   assert(is_disjoint(out.as_span(), weight.as_span()) &&
          is_disjoint(out.as_span(), bias));
@@ -210,15 +243,17 @@ inline void linear_projection(float_matrix_view out,
 //
 // `span_out` and `span_in` must be the same size, and can refer to the same
 // memory. Both must be non-empty.
-inline void softmax(float_span span_out, const_float_span span_in) noexcept {
-  assert(span_out.size() == span_in.size());
+template<FloatingRange O, FloatingRange I>
+requires MutableRange<O> && SameElement<O, I>
+void softmax(O& span_out, const I& span_in) noexcept {
+  assert(std::ranges::size(span_out) == std::ranges::size(span_in));
   assert(is_same_or_disjoint(span_out, span_in));
-  assert(!span_in.empty());
+  assert(!std::ranges::empty(span_in));
 
   // Shifting every value by the same amount leaves the weights unchanged, and
   // shifting by the maximum keeps `exp` at or below 1.
   const auto peak = std::ranges::max(span_in);
-  float total{};
+  element_of_t<O> total{};
   for (auto [out_value, in_value] : zip(span_out, span_in)) {
     out_value = std::exp(in_value - peak);
     total += out_value;
@@ -233,8 +268,8 @@ inline void softmax(float_span span_out, const_float_span span_in) noexcept {
 //
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, adding in place, but must not otherwise overlap either.
-inline void add(float_matrix_view out, const_float_matrix_view a,
-    const_float_matrix_view b) noexcept {
+template<Arithmetic T>
+void add(matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) noexcept {
   assert((a.row_extent() == b.row_extent()) &&
          (a.col_extent() == b.col_extent()));
   assert((out.row_extent() == a.row_extent()) &&
@@ -255,8 +290,9 @@ inline void add(float_matrix_view out, const_float_matrix_view a,
 //
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, subtracting in place, but must not otherwise overlap either.
-inline void subtract(float_matrix_view out, const_float_matrix_view a,
-    const_float_matrix_view b) noexcept {
+template<Arithmetic T>
+void subtract(matrix_view<T> out, const_view_t<T> a,
+    const_view_t<T> b) noexcept {
   assert((a.row_extent() == b.row_extent()) &&
          (a.col_extent() == b.col_extent()));
   assert((out.row_extent() == a.row_extent()) &&

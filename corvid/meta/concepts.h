@@ -140,6 +140,14 @@ concept UnsignedWord =
 #endif
     std::unsigned_integral<T>;
 
+// `T` must be an arithmetic type, integral or floating point.
+template<typename T>
+concept Arithmetic = std::is_arithmetic_v<T>;
+
+// `T` must be a floating-point type.
+template<typename T>
+concept Floating = std::floating_point<T>;
+
 #pragma endregion
 #pragma region Null and characters
 
@@ -249,12 +257,29 @@ concept TriviallyCopyableRange =
     ContiguousSizedRange<T> &&
     std::is_trivially_copyable_v<std::ranges::range_value_t<T>>;
 
+// `T` must be a range whose elements can be written.
+template<typename T>
+concept MutableRange = !std::is_const_v<
+    std::remove_reference_t<std::ranges::range_reference_t<T>>>;
+
 // `T` must be a `ByteRange` whose elements can be written.
 template<typename T>
-concept MutableByteRange =
-    ByteRange<T> &&
-    !std::is_const_v<
-        std::remove_reference_t<std::ranges::range_reference_t<T>>>;
+concept MutableByteRange = ByteRange<T> && MutableRange<T>;
+
+// `T` must be a `ContiguousSizedRange` of `Arithmetic` elements, which may be
+// const.
+template<typename T>
+concept ArithmeticRange =
+    ContiguousSizedRange<T> && Arithmetic<element_of_t<T>>;
+
+// `T` must be a `ContiguousSizedRange` of `Floating` elements, which may be
+// const.
+template<typename T>
+concept FloatingRange = ContiguousSizedRange<T> && Floating<element_of_t<T>>;
+
+// `A` and `B` must be ranges of the same element type, const aside.
+template<typename A, typename B>
+concept SameElement = std::same_as<element_of_t<A>, element_of_t<B>>;
 
 // `T` must be `std::optional` or act like it.
 //
