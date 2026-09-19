@@ -46,7 +46,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   const cuda_matrix<float> in(in_view);
   cuda_matrix<float> out(in.extent());
 
-  REQUIRE(cuda::llm::gelu_new(out.view(), in));
+  REQUIRE(cuda::llm::gelu_new(out, in));
 
   std::vector<float> out_storage(out.size());
   REQUIRE(out.view().store(float_matrix_view(out_storage, out.extent())));
@@ -61,7 +61,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
 
   // In place gives the same values.
   cuda_matrix<float> same(in_view);
-  REQUIRE(cuda::llm::gelu_new(same.view(), same));
+  REQUIRE(cuda::llm::gelu_new(same, same));
   std::vector<float> same_storage(same.size());
   REQUIRE(same.view().store(float_matrix_view(same_storage, same.extent())));
   CHECK(same_storage == out_storage);
@@ -105,11 +105,11 @@ TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
       std::vector<float> out_storage(out.size());
       const float_matrix_view out_view(out_storage, out.extent());
 
-      REQUIRE(cuda::linalg::linear_projection(blas, hidden.view(), in,
-          fc_weight, fc_bias));
-      REQUIRE(cuda::llm::gelu_new(hidden.view(), hidden));
-      REQUIRE(cuda::linalg::linear_projection(blas, out.view(), hidden,
-          proj_weight, proj_bias));
+      REQUIRE(cuda::linalg::linear_projection(blas, hidden, in, fc_weight,
+          fc_bias));
+      REQUIRE(cuda::llm::gelu_new(hidden, hidden));
+      REQUIRE(cuda::linalg::linear_projection(blas, out, hidden, proj_weight,
+          proj_bias));
       REQUIRE(out.view().store(out_view));
 
       check_close(out_view, expected, 1e-4F, 1e-4F);
