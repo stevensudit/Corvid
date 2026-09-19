@@ -79,7 +79,7 @@ transposed, with no bias.
 | step | reads | looks up | produces | Corvid |
 |---|---|---|---|---|
 | tokenize | text | vocab, merges | ids [T] | `gpt2_tokenizer.h` |
-| embed | ids [T] | `wte.weight` row per ID, `wpe.weight` row per position | residual [T, C] | `embed` |
+| embed | ids [T] | `wte.weight` row per ID, `wpe.weight` row per position | residual [T, C] | `embed_tokens`, then `add` of the first T rows of `wpe.weight` |
 
 The embedding is `wte[id[t]] + wpe[t]` for each position `t`. Positions
 past n_ctx have no row, so a longer prompt is refused, not wrapped. After
@@ -140,7 +140,7 @@ trained against the tanh curve.
 |---|---|---|---|---|
 | ln_f | residual [T, C] | `ln_f.weight`, `ln_f.bias` | ln_f/out [T, C] | `layer_norm`, as the last step of `forward` |
 | logits | ln_f/out [T, C] | `wte.weight` [V, C], transposed, no bias | logits [T, V] | `logits`, one `token_logits` per row |
-| greedy | logits row T - 1 | | the ID with the largest logit | `greedy` |
+| greedy | logits row T - 1 | | the ID with the largest logit | `pick_greedy` |
 
 Row t of the logits scores every vocabulary entry as the token after
 position t, so all T rows are predictions and only the last one is used to

@@ -33,6 +33,9 @@ namespace corvid::llm {
 
 #pragma region block
 
+// The epsilon GPT-2 adds to the variance inside every layer norm.
+inline constexpr float layer_norm_eps = 1e-5F;
+
 // The parameters of one block, as views over the weight file.
 //
 // The names follow the tensor names under `h.N`, with the sublayer prefixed
@@ -127,7 +130,8 @@ inline void block(float_matrix_view out, const_float_matrix_view in,
   assert(is_disjoint(acts.ln_2_in.as_span(), acts.ln_2_out.as_span()));
   assert(is_disjoint(acts.ln_2_in.as_span(), acts.mlp_out.as_span()));
 
-  layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias);
+  layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias,
+      layer_norm_eps);
   linear_projection(acts.qkv, acts.ln_1_out, params.attn_c_attn_weight,
       params.attn_c_attn_bias);
   attention(acts.heads_out, acts.qkv, head_count, acts.scores);
@@ -135,8 +139,8 @@ inline void block(float_matrix_view out, const_float_matrix_view in,
       params.attn_c_proj_bias);
   add(acts.ln_2_in, in, acts.attn_out);
 
-  layer_norm(acts.ln_2_out, acts.ln_2_in, params.ln_2_weight,
-      params.ln_2_bias);
+  layer_norm(acts.ln_2_out, acts.ln_2_in, params.ln_2_weight, params.ln_2_bias,
+      layer_norm_eps);
   linear_projection(acts.hidden, acts.ln_2_out, params.mlp_c_fc_weight,
       params.mlp_c_fc_bias);
   gelu_new(acts.hidden, acts.hidden);
@@ -168,14 +172,19 @@ struct gpt2_params {
 // Run the model over `ids`, writing the final layer norm's output to `out`.
 //
 // This is everything before the head: the residual stream starts as the
-// embedding, every block adds to it in place, and `ln_f` normalizes what
-// leaves the last block. For GPT-2 with T tokens:
+// token embedding plus the position embedding of each row, every block adds
+// to it in place, and `ln_f` normalizes what leaves the last block. For
+// GPT-2 with T tokens:
 //
-// step         |  reads     |  produces
-// -------------+------------+-------------------
-// embed        |  ids [T]   |  out [T, 768]
-// block, x 12  |  out       |  out, in place
-// ln_f         |  out       |  out, in place
+// step          |  reads          |  produces
+// --------------+-----------------+-------------------
+// embed_tokens  |  ids [T]        |  out [T, 768]
+// add           |  out, wpe [T:]  |  out, in place
+// block, x 12   |  out            |  out, in place
+// ln_f          |  out            |  out, in place
+//
+// where `wpe [T:]` is the first T rows of the position table, so there must
+// be no more IDs than it has rows.
 //
 // `out` doubles as the residual, so it must have one row per ID and the
 // model's width. `acts` is reused by every block, so it holds the last
@@ -184,10 +193,17 @@ struct gpt2_params {
 inline void forward(float_matrix_view out, std::span<const token_id> ids,
     const gpt2_params& params, const block_activations& acts,
     size_t head_count) noexcept {
-  embed(out, ids, params.wte, params.wpe);
+  using row_ndx = float_matrix_view::row_ndx;
+  using col_ndx = float_matrix_view::col_ndx;
+
+  assert(ids.size() <= params.wpe.row_extent());
+
+  embed_tokens(out, ids, params.wte);
+  out += params.wpe.subview({row_ndx{0}, col_ndx{0}},
+      {.row_count = ids.size(), .col_count = params.wpe.col_extent()});
   for (const auto& block_params : params.blocks)
     block(out, out, block_params, acts, head_count);
-  layer_norm(out, out, params.ln_f_weight, params.ln_f_bias);
+  layer_norm(out, out, params.ln_f_weight, params.ln_f_bias, layer_norm_eps);
 }
 
 #pragma endregion

@@ -25,6 +25,7 @@
 #include "../cuda_buffer.cuh"
 #include "../cuda_cublas.cuh"
 #include "../cuda_kernel.cuh"
+#include "../cuda_matrix.cuh"
 #include "../cuda_status.cuh"
 
 // Row and matrix arithmetic on the device, one free function per op.
@@ -35,92 +36,6 @@
 // mismatches are contract violations.
 namespace corvid::cuda::linalg {
 
-using matrix_types::matrix_extent;
-
-#pragma region cuda_matrix
-
-// A row-major matrix of `float` in device memory, packed with no gap between
-// rows.
-//
-// It owns its allocation and carries its extent, so an op can check shapes on
-// the host before launching. Rows are the first index, as in `matrix_view`,
-// and a packed host view is the shape data moves in and out through.
-//
-// Note: Before this is moved out of LLM-specific and into general CUDA, it has
-// to be templated so it's not just `float`.
-class cuda_matrix {
-public:
-  using extent_t = matrix_extent;
-
-#pragma region Construction
-
-  // Allocate `extent` elements, uninitialized, or throw.
-  explicit cuda_matrix(extent_t extent)
-      : buffer_(extent.row_count * extent.col_count), extent_{extent} {}
-
-  // Allocate and upload `host`, which must be packed, or throw.
-  explicit cuda_matrix(const_float_matrix_view host)
-      : cuda_matrix{host.extent()} {
-    assert(host.stride() == host.col_extent());
-    load(host).or_throw();
-  }
-
-#pragma endregion
-#pragma region Accessors
-
-  [[nodiscard]] float* get() noexcept { return buffer_.get(); }
-  [[nodiscard]] const float* get() const noexcept { return buffer_.get(); }
-
-  [[nodiscard]] cuda_buffer<float>& buffer() noexcept { return buffer_; }
-  [[nodiscard]] const cuda_buffer<float>& buffer() const noexcept {
-    return buffer_;
-  }
-
-  [[nodiscard]] extent_t extent() const noexcept { return extent_; }
-  [[nodiscard]] size_t row_extent() const noexcept {
-    return extent_.row_count;
-  }
-  [[nodiscard]] size_t col_extent() const noexcept {
-    return extent_.col_count;
-  }
-  [[nodiscard]] size_t size() const noexcept {
-    return extent_.row_count * extent_.col_count;
-  }
-
-#pragma endregion
-#pragma region Transfer
-
-  // Upload `host`, which must be packed and of the same extent.
-  [[nodiscard]] cuda_last_status load(const_float_matrix_view host) {
-    assert(is_packed_match(host));
-    return buffer_.load(host.as_span());
-  }
-
-  // Download into `host`, which must be packed and of the same extent.
-  [[nodiscard]] cuda_last_status store(float_matrix_view host) const {
-    assert(is_packed_match(host));
-    return buffer_.store(host.as_span());
-  }
-
-#pragma endregion
-#pragma region Helpers
-private:
-  [[nodiscard]] bool is_packed_match(const_float_matrix_view host) const {
-    return (host.row_extent() == extent_.row_count) &&
-           (host.col_extent() == extent_.col_count) &&
-           (host.stride() == extent_.col_count);
-  }
-
-#pragma endregion
-#pragma region Data members
-private:
-  cuda_buffer<float> buffer_;
-  extent_t extent_;
-
-#pragma endregion
-};
-
-#pragma endregion
 #pragma region Launch geometry
 
 // One-thread-per-element kernels launch this many threads per block, in
@@ -155,11 +70,10 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
 // `bias` has an element per column of `weight`. `out` must not be `in` or
 // `weight`.
 //
-// Note: Before this is moved out of LLM-specific and into general CUDA, it not
-// only has to be templated so it's not just `float`, but it also has to handle
-// non-packed inputs.
-//
 // Returns false when a launch is refused, leaving `out` unspecified.
+//
+// TODO: Template so that it's not limited to float and can handle non-packed
+// views over matrices.
 [[nodiscard]] inline bool linear_projection(const cublas_handle& blas,
     cuda_matrix& out, const cuda_matrix& in, const cuda_matrix& weight,
     const cuda_buffer<float>& bias) {
