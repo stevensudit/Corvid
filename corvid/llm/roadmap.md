@@ -859,6 +859,30 @@ scale. Supporting pieces: `matrix_extent::transposed()` in "matrix_view.h",
 `cuda_matrix(std::nullptr_t)` for the empty addend, and the device-to-device
 `cuda_buffer::load(const cuda_buffer&)` that retires the buffer's TODO.
 
+Status (2026-09-19, checkpoint 3, cuda_matrix_view): `cuda_matrix_view<T>` in
+"cuda_matrix.cuh" is the non-owning, possibly strided window the device ops
+take: a device pointer, an extent, and a stride in elements between row
+starts, with `subview(coord, extent)` cutting a window that carries the
+parent's stride, so the QKV split is three subviews of one buffer. Transfers
+live on the view (`load` from a host `matrix_view` or another device view,
+`store` to a host view) and go through `cudaMemcpy` when both sides are
+packed and `cudaMemcpy2D` otherwise, so copying through a packed view costs
+nothing extra; `cuda_matrix` lost its own `load`/`store` and gained `view()`
+plus implicit conversions to views. `gemm`, `linear_projection`, and the
+device `gelu_new` take `cuda_matrix_view<T>` for `out`, which deduces `T`,
+and `const_view_t<T>` (a read-only view behind `std::type_identity_t`) for
+inputs, so an owning matrix converts at the call; an owning `out` is spelled
+`out.view()`, since deduction cannot see through a conversion. Leading
+dimensions are the strides, closing the non-packed TODO, and the elementwise
+kernels map their flat index through `cuda_kernel::strided_offset`. The
+`cublas_handle` multiplies take device pointers now, as cuBLAS does, since a
+view has no buffer to hand over. The empty addend is a default-constructed
+view, so the one-round `cuda_matrix(std::nullptr_t)` and the buffer-level
+device copy went away. Tests: the linalg test gained a strided case (product
+into a window of a wider matrix with the neighboring column untouched, a
+bias broadcast into it, pitched store and load of the window, and a strided
+device-to-device addend).
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

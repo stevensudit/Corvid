@@ -282,11 +282,11 @@ int main() {
   const float alpha = 1.0F;
   const float beta = 0.0F;
 
-  *handle.multiply(n, alpha, d_A, d_B, beta, d_C); // warm-up
+  *handle.multiply(n, alpha, d_A.get(), d_B.get(), beta, d_C.get()); // warm-up
   *cuda_timer::synchronize();
 
   if (auto timer = cuda_timer{ms}; true) {
-    *handle.multiply(n, alpha, d_A, d_B, beta, d_C);
+    *handle.multiply(n, alpha, d_A.get(), d_B.get(), beta, d_C.get());
   }
   *d_C.store(h_C_cublas);
   std::println("cuBLAS : {:8.2f} ms   {:9.1f} GFLOP/s", ms,

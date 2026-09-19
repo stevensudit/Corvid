@@ -96,6 +96,14 @@ public:
     return x_stride<T>() * y_stride<T>() * z_stride<T>();
   }
 
+  // The offset of flat index `i` in a row-major matrix `cols` wide whose rows
+  // start `stride` elements apart, so a kernel that counts elements can
+  // address a strided view. Packed, where `stride` is `cols`, it is `i`.
+  template<typename T = int>
+  __host__ __device__ static T strided_offset(T i, T cols, T stride) {
+    return ((i / cols) * stride) + (i % cols);
+  }
+
   // Launch size. For `n` elements and `threads_per_block` threads per block,
   // how many blocks are needed (rounded up)?
   __host__ __device__ static unsigned
