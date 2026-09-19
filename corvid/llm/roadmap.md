@@ -788,6 +788,43 @@ green on clang and cl, with asserts live under the IDE debug tree. The
 device half (cuda_matrix<T>, the Sgemm/Dgemm overloads, the device
 linear_projection) is next.
 
+Status (2026-09-19, checkpoint 2, device half): `cuda_matrix<T>` in
+"cuda_matrix.cuh" takes any element type, with `element_t`, `view_t`, and
+`const_view_t` aliases and the float TODO retired. In "cuda_cublas.cuh" the
+`GemmElement` concept names the types cuBLAS has a GEMM routine for, float
+and double, and `multiply`, `multiply_row_major`, and the square `multiply`
+are templates on it that dispatch through a private `gemm` overload pair to
+`cublasSgemm` and `cublasDgemm`; `alpha` and `beta` are
+`std::type_identity_t<T>` so a float literal serves a double call. An
+integral element type is a constraint failure at the call until
+`cublasGemmEx` arrives with the quantized path. The device
+`linear_projection` and its `fill_rows` kernel are templates on
+`GemmElement` too, leaving only the non-packed-view TODO for checkpoint 3,
+and the device `gelu_new` stays `cuda_matrix<float>`. The CUDA linalg test
+is a `TEMPLATE_TEST_CASE` over float and double, so the Dgemm path runs; it,
+the CUDA llm ops test, and the notest matmul program are green. Checkpoint 2
+is complete.
+
+Status (2026-09-19, gelu_new templated): the one op that had stayed float
+follows the linalg layer. The scalar `gelu_new` is a template on `Floating
+T`, with `gelu_tanh_scale_v<T>` and `gelu_cubic_coeff_v<T>` as variable
+templates in the style of "arithmetic.h", so the CPU matrix form and the
+device kernel and op are templates for free; the scalar test runs over float
+and double. The other LLM ops and the GPT-2 layer stay float until the bf16
+stage changes the activation type.
+
+Status (2026-09-19, cuda_handle const policy): reviewing `cuda_matrix`'s
+accessors surfaced that a const `cuda_buffer` handed out a mutable device
+pointer, since `cuda_handle::get()` returned the raw handle regardless. The
+fix is a policy on the base rather than a shadow in the derived class:
+`cuda_handle<H, Destroy, const_propagation>` with `const_propagation {
+shallow, deep }` in "bool_enums.h", shallow (the default) for opaque handles
+the API takes by value, deep for a pointer to data, where a const owner
+hands out `const_handle_t`, a pointer to const. `get()`, the conversion, and
+`operator*` are mutable/const pairs; `cuda_buffer` derives with deep, and
+`cuda_matrix::get()` and `buffer()` are deducing-this on top. Pinned by
+static_asserts in the buffer test; the full suite of 86 is green.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

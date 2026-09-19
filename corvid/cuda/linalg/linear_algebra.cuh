@@ -54,8 +54,8 @@ inline constexpr auto threads_per_block = 256U;
 namespace details {
 
 // Write `bias` across every row of `out`, one thread per element.
-__global__ void
-fill_rows(float* out, size_t size, const float* bias, size_t cols) {
+template<typename T>
+__global__ void fill_rows(T* out, size_t size, const T* bias, size_t cols) {
   const auto i = cuda_kernel::x_index<size_t>();
   if (i < size) out[i] = bias[i % cols];
 }
@@ -72,11 +72,11 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
 //
 // Returns false when a launch is refused, leaving `out` unspecified.
 //
-// TODO: Template so that it's not limited to float and can handle non-packed
-// views over matrices.
-[[nodiscard]] inline bool linear_projection(const cublas_handle& blas,
-    cuda_matrix& out, const cuda_matrix& in, const cuda_matrix& weight,
-    const cuda_buffer<float>& bias) {
+// TODO: Handle non-packed views over matrices.
+template<GemmElement T>
+[[nodiscard]] bool linear_projection(const cublas_handle& blas,
+    cuda_matrix<T>& out, const cuda_matrix<T>& in,
+    const cuda_matrix<T>& weight, const cuda_buffer<T>& bias) {
   assert(weight.row_extent() == in.col_extent());
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == weight.col_extent()));
@@ -86,8 +86,8 @@ fill_rows(float* out, size_t size, const float* bias, size_t cols) {
   // The bias is the starting value of every output row, and the product then
   // accumulates onto it through `beta`, which is the shape of the CPU op's
   // copy followed by `add_scaled`.
-  details::fill_rows<<<blocks_for(out.size()), threads_per_block>>>(out.get(),
-      out.size(), bias.get(), out.col_extent());
+  details::fill_rows<T><<<blocks_for(out.size()), threads_per_block>>>(
+      out.get(), out.size(), bias.get(), out.col_extent());
   if (!cuda_last_status{}) return false;
 
   // `out = in * weight` in row-major terms: `m` rows, `n` output features,

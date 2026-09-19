@@ -42,7 +42,8 @@ using namespace corvid::cuda::linalg;
 namespace details {
 
 // Apply the scalar `gelu_new` to `size` elements, one thread per element.
-__global__ void apply_gelu_new(float* out, const float* in, size_t size) {
+template<Floating T>
+__global__ void apply_gelu_new(T* out, const T* in, size_t size) {
   const auto i = cuda_kernel::x_index<size_t>();
   if (i < size) out[i] = corvid::llm::gelu_new(in[i]);
 }
@@ -53,11 +54,12 @@ __global__ void apply_gelu_new(float* out, const float* in, size_t size) {
 //
 // `out` and `in` must have the same extent. `out` can be `in`, applying it in
 // place. Returns false when the launch is refused, leaving `out` unspecified.
-[[nodiscard]] inline bool gelu_new(cuda_matrix& out, const cuda_matrix& in) {
+template<Floating T>
+[[nodiscard]] bool gelu_new(cuda_matrix<T>& out, const cuda_matrix<T>& in) {
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == in.col_extent()));
 
-  details::apply_gelu_new<<<blocks_for(out.size()), threads_per_block>>>(
+  details::apply_gelu_new<T><<<blocks_for(out.size()), threads_per_block>>>(
       out.get(), in.get(), out.size());
   return cuda_last_status{}.ok();
 }

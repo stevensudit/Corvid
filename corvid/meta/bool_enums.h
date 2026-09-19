@@ -30,6 +30,9 @@ namespace corvid { inline namespace meta { inline namespace bool_enums {
 // Whether to access values as const or as mutable.
 enum class access_mode : bool { as_const = false, as_mutable = true };
 
+// Whether the constness of a handle instance propagates to what it references.
+enum class const_propagation : bool { shallow = false, deep = true };
+
 // Whether to enable generation counters for stale-reference detection or save
 // memory by avoiding any versioning.
 enum class generation_scheme : bool { unversioned = false, versioned = true };

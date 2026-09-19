@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
@@ -105,6 +106,10 @@ private:
 #pragma endregion
 #pragma region cublas_handle
 
+// An element type that cuBLAS has a GEMM routine for.
+template<typename T>
+concept GemmElement = std::same_as<T, float> || std::same_as<T, double>;
+
 // RAII owner of the cuBLAS library handle that every cuBLAS call takes.
 class cublas_handle: public cuda_handle<cublasHandle_t, cublasDestroy> {
 public:
@@ -127,9 +132,9 @@ public:
 
   // General Matrix Multiply (GEMM), `C = alpha * op(A) * op(B) + beta * C`.
   //
-  // Every matrix is column-major, which is how cuBLAS defines matrices.
-  // `op(X)` is `X` as stored or its transpose, per `opA` and `opB`, and the
-  // shapes below are those of `op(A)` and `op(B)`, after any transpose:
+  // Every matrix is column-major, as cuBLAS defines it. `op(X)` is `X` as
+  // stored or its transpose, per `opA` and `opB`, and the shapes below are
+  // those of `op(A)` and `op(B)`, after any transpose:
   //
   //   m      rows of `op(A)` and of `C`
   //   n      columns of `op(B)` and of `C`
@@ -151,13 +156,15 @@ public:
   // packed matrix, that is its stored row count: `lda` is `m` when `opA` is
   // `none` and `k` when it is `transpose`, `ldb` is `k` or `n` likewise, and
   // `ldc` is `m`. A larger value addresses a column block of a wider matrix.
-  [[nodiscard]] cublas_last_status multiply(int m, int n, int k, float alpha,
-      const cuda_buffer<float>& A, int lda, const cuda_buffer<float>& B,
-      int ldb, float beta, cuda_buffer<float>& C, int ldc,
+  template<GemmElement T>
+  [[nodiscard]] cublas_last_status
+  multiply(int m, int n, int k, std::type_identity_t<T> alpha,
+      const cuda_buffer<T>& A, int lda, const cuda_buffer<T>& B, int ldb,
+      std::type_identity_t<T> beta, cuda_buffer<T>& C, int ldc,
       cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
-    return cublasSgemm(handle_, as_raw(opA), as_raw(opB), m, n, k, &alpha, A,
-        lda, B, ldb, &beta, C, ldc);
+    return gemm(handle_, as_raw(opA), as_raw(opB), m, n, k, &alpha, A.get(),
+        lda, B.get(), ldb, &beta, C.get(), ldc);
   }
 
   // GEMM over row-major matrices, `C = alpha * op(A) * op(B) + beta * C`.
@@ -166,10 +173,12 @@ public:
   // `op(B)` is `k` by `n`, `C` is `m` by `n`, and each leading dimension is
   // the element distance between the starts of consecutive rows of that
   // matrix as stored, which for a packed matrix is its column count.
-  [[nodiscard]] cublas_last_status multiply_row_major(int m, int n, int k,
-      float alpha, const cuda_buffer<float>& A, int lda,
-      const cuda_buffer<float>& B, int ldb, float beta, cuda_buffer<float>& C,
-      int ldc, cublas_operation opA = cublas_operation::none,
+  template<GemmElement T>
+  [[nodiscard]] cublas_last_status
+  multiply_row_major(int m, int n, int k, std::type_identity_t<T> alpha,
+      const cuda_buffer<T>& A, int lda, const cuda_buffer<T>& B, int ldb,
+      std::type_identity_t<T> beta, cuda_buffer<T>& C, int ldc,
+      cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
     // cuBLAS reads each row-major buffer as its column-major transpose, and
     // transposing both sides gives `C^T = op(B)^T * op(A)^T`. So the operands
@@ -180,9 +189,11 @@ public:
   }
 
   // Square multiply, where every dimension and leading dimension is `n`.
-  [[nodiscard]] cublas_last_status multiply(int n, float alpha,
-      const cuda_buffer<float>& A, const cuda_buffer<float>& B, float beta,
-      cuda_buffer<float>& C, cublas_operation opA = cublas_operation::none,
+  template<GemmElement T>
+  [[nodiscard]] cublas_last_status
+  multiply(int n, std::type_identity_t<T> alpha, const cuda_buffer<T>& A,
+      const cuda_buffer<T>& B, std::type_identity_t<T> beta, cuda_buffer<T>& C,
+      cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
     return multiply(n, n, n, alpha, A, n, B, n, beta, C, n, opA, opB);
   }
@@ -195,6 +206,23 @@ private:
 
   static cublasHandle_t make(on_failure policy) {
     return create<cublasCreate, cublas_last_status>(policy);
+  }
+
+  // The GEMM routine for each `GemmElement`, so `multiply` dispatches by
+  // overload.
+  static cublasStatus_t gemm(cublasHandle_t handle, cublasOperation_t opA,
+      cublasOperation_t opB, int m, int n, int k, const float* alpha,
+      const float* A, int lda, const float* B, int ldb, const float* beta,
+      float* C, int ldc) {
+    return cublasSgemm(handle, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta,
+        C, ldc);
+  }
+  static cublasStatus_t gemm(cublasHandle_t handle, cublasOperation_t opA,
+      cublasOperation_t opB, int m, int n, int k, const double* alpha,
+      const double* A, int lda, const double* B, int ldb, const double* beta,
+      double* C, int ldc) {
+    return cublasDgemm(handle, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta,
+        C, ldc);
   }
 
   [[nodiscard]] static cublasOperation_t as_raw(cublas_operation op) {
