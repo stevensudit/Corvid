@@ -50,56 +50,26 @@ using matrix_types::matrix_extent;
 // converts to. A packed view has a stride equal to its column count. Rows
 // are the first index, as in `matrix_view`.
 template<typename T>
-class cuda_matrix_view: public matrix_view_base {
+class cuda_matrix_view: public matrix_view_base<T> {
+  using base = matrix_view_base<T>;
+  using base::extent_, base::stride_, base::data_;
+
 public:
 #pragma region Types
 
-  using element_t = T;
+  using typename base::element_t;
+  using typename base::extent_t;
   using value_t = std::remove_const_t<element_t>;
 
 #pragma endregion
 #pragma region Construction
 
-  constexpr cuda_matrix_view() = default;
-
-  // Packed view over `data`, which must hold the elements of `extent`.
-  cuda_matrix_view(element_t* data, extent_t extent) noexcept
-      : cuda_matrix_view{data, extent, extent.col_count} {}
-
-  // Strided view over `data`, whose rows start `stride` elements apart and
-  // show only their first `extent.col_count` elements.
-  //
-  // `stride` must be at least `extent.col_count`.
-  cuda_matrix_view(element_t* data, extent_t extent, size_t stride) noexcept
-      : matrix_view_base{extent, stride}, data_{data} {}
-
-  // Implicit conversion to a read-only view of a mutable view of the same
-  // element type.
-  template<typename U>
-  requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
-  cuda_matrix_view(cuda_matrix_view<U> other) noexcept
-      : matrix_view_base{other.extent(), other.stride()}, data_{other.get()} {}
+  using base::base;
 
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] element_t* get() const noexcept { return data_; }
-  // View of the rectangle of `size` at `from`, sharing this view's stride.
-  //
-  // A count of `size` at its `npos` means the rest of that dimension. The
-  // rectangle must lie within the view.
-  [[nodiscard]] cuda_matrix_view
-  subview(coord from, extent_t size = extent_t::npos) const noexcept {
-    return do_subview(from, window_size(from, size));
-  }
-
-  // View of the rectangle from `from` up to, but not including, `to`, where a
-  // member of `to` at its `npos` means the end of that dimension.
-  //
-  // The rectangle must lie within the view.
-  [[nodiscard]] cuda_matrix_view subview(coord from, coord to) const noexcept {
-    return do_subview(from, window_size(from, to));
-  }
+  [[nodiscard]] element_t* get() const noexcept { return data_.data(); }
 
 #pragma endregion
 #pragma region Transfer
@@ -109,7 +79,7 @@ public:
   requires(!std::is_const_v<element_t>)
   {
     assert(is_same_extent(host.extent()));
-    return copy(data_, stride_, host.as_span().data(), host.stride(),
+    return copy(get(), stride_, host.as_span().data(), host.stride(),
         memcpy_kind::host_to_device);
   }
 
@@ -119,26 +89,20 @@ public:
   requires(!std::is_const_v<element_t>)
   {
     assert(is_same_extent(device.extent()));
-    return copy(data_, stride_, device.get(), device.stride(),
+    return copy(get(), stride_, device.get(), device.stride(),
         memcpy_kind::device_to_device);
   }
 
   // Download into `host`, which must have the same extent.
   [[nodiscard]] cuda_last_status store(matrix_view<value_t> host) const {
     assert(is_same_extent(host.extent()));
-    return copy(host.as_span().data(), host.stride(), data_, stride_,
+    return copy(host.as_span().data(), host.stride(), get(), stride_,
         memcpy_kind::device_to_host);
   }
 
 #pragma endregion
 #pragma region Helpers
 private:
-  // View of the rectangle of `size` at `from`, both already checked.
-  [[nodiscard]] cuda_matrix_view
-  do_subview(coord from, extent_t size) const noexcept {
-    return {data_ + (*from.row * stride_) + *from.col, size, stride_};
-  }
-
   [[nodiscard]] bool is_same_extent(extent_t other) const noexcept {
     return (other.row_count == extent_.row_count) &&
            (other.col_count == extent_.col_count);
@@ -151,17 +115,12 @@ private:
       const value_t* src, size_t src_stride, memcpy_kind kind) const {
     if ((dest_stride == extent_.col_count) &&
         (src_stride == extent_.col_count))
-      return cuda_buffer<value_t>::copy(dest, src, size(), kind);
+      return cuda_buffer<value_t>::copy(dest, src, this->size(), kind);
     const auto width = extent_.col_count * sizeof(value_t);
     return cuda_last_status{cudaMemcpy2D(dest, dest_stride * sizeof(value_t),
         src, src_stride * sizeof(value_t), width, extent_.row_count,
         static_cast<cudaMemcpyKind>(*kind))};
   }
-
-#pragma endregion
-#pragma region Data members
-private:
-  element_t* data_{};
 
 #pragma endregion
 };
@@ -217,9 +176,9 @@ public:
   }
 
   // The whole matrix as a packed view.
-  [[nodiscard]] view_t view() noexcept { return {buffer_.get(), extent_}; }
+  [[nodiscard]] view_t view() noexcept { return {buffer_.as_span(), extent_}; }
   [[nodiscard]] const_view_t view() const noexcept {
-    return {buffer_.get(), extent_};
+    return {buffer_.as_span(), extent_};
   }
   operator view_t() noexcept { return view(); }
   operator const_view_t() const noexcept { return view(); }

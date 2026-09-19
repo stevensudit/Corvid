@@ -894,6 +894,17 @@ forwards to the view form, so `gemm(blas, out, a, b)` reads the same for a
 matrix and a view, and `cuda_matrix::subview` passes through to its view for
 the same reason.
 
+Status (2026-09-19, span in the view base): `matrix_view_base<T>` holds the
+storage as well, a `std::span<T>`, so the constructors, the read-only
+conversion, `as_span`, and both `subview` forms live once, and `subview`
+returns the derived type through a deducing-`this` template. `matrix_view`
+keeps only what dereferences (element access, rows, the in-place arithmetic)
+and `cuda_matrix_view` only `get` and the transfers. Each derived class
+inherits the base constructors, which is what lets the base build one. The
+device view gained the host view's bounds asserts at construction and
+slicing, since a span carries the length a bare pointer did not, and
+`cuda_matrix::view()` builds it from the new `cuda_buffer::as_span()`.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
