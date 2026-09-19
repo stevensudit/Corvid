@@ -25,7 +25,6 @@
 
 #include "../strings/cstring_view.h"
 #include "./cuda_handle.cuh"
-#include "./cuda_buffer.cuh"
 #include "./cuda_status.cuh"
 
 // Wrappers for cuBLAS, the CUDA Basic Linear Algebra Subprograms library.
@@ -173,13 +172,12 @@ public:
   // added, so zero leaves `C` unread and one accumulates onto it.
   template<GemmElement T>
   [[nodiscard]] cublas_last_status
-  multiply(int m, int n, int k, std::type_identity_t<T> alpha,
-      const cuda_buffer<T>& A, int lda, const cuda_buffer<T>& B, int ldb,
-      std::type_identity_t<T> beta, cuda_buffer<T>& C, int ldc,
-      cublas_operation opA = cublas_operation::none,
+  multiply(int m, int n, int k, std::type_identity_t<T> alpha, const T* A,
+      int lda, const T* B, int ldb, std::type_identity_t<T> beta, T* C,
+      int ldc, cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
-    return gemm(handle_, as_raw(opA), as_raw(opB), m, n, k, &alpha, A.get(),
-        lda, B.get(), ldb, &beta, C.get(), ldc);
+    return gemm(handle_, as_raw(opA), as_raw(opB), m, n, k, &alpha, A, lda, B,
+        ldb, &beta, C, ldc);
   }
 
   // GEMM over row-major matrices, `C = alpha * op(A) * op(B) + beta * C`.
@@ -198,9 +196,8 @@ public:
   template<GemmElement T>
   [[nodiscard]] cublas_last_status
   multiply_row_major(int m, int n, int k, std::type_identity_t<T> alpha,
-      const cuda_buffer<T>& A, int lda, const cuda_buffer<T>& B, int ldb,
-      std::type_identity_t<T> beta, cuda_buffer<T>& C, int ldc,
-      cublas_operation opA = cublas_operation::none,
+      const T* A, int lda, const T* B, int ldb, std::type_identity_t<T> beta,
+      T* C, int ldc, cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
     return multiply(n, m, k, alpha, B, ldb, A, lda, beta, C, ldc, opB, opA);
   }
@@ -208,8 +205,8 @@ public:
   // Square multiply, where every dimension and leading dimension is `n`.
   template<GemmElement T>
   [[nodiscard]] cublas_last_status
-  multiply(int n, std::type_identity_t<T> alpha, const cuda_buffer<T>& A,
-      const cuda_buffer<T>& B, std::type_identity_t<T> beta, cuda_buffer<T>& C,
+  multiply(int n, std::type_identity_t<T> alpha, const T* A, const T* B,
+      std::type_identity_t<T> beta, T* C,
       cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
     return multiply(n, n, n, alpha, A, n, B, n, beta, C, n, opA, opB);

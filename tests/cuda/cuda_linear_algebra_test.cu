@@ -29,6 +29,7 @@ using corvid::cuda::cublas_handle;
 using corvid::cuda::cublas_operation;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
+using corvid::cuda::cuda_matrix_view;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -53,10 +54,10 @@ TEMPLATE_TEST_CASE("Device linear on hand-computed rows",
   REQUIRE(bias.load(bias_storage));
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
 
-  REQUIRE(cuda::linalg::linear_projection(blas, out, in, weight, bias));
+  REQUIRE(cuda::linalg::linear_projection(blas, out.view(), in, weight, bias));
 
   std::vector<T> out_storage(out.size());
-  REQUIRE(out.store(matrix_view<T>(out_storage, out.extent())));
+  REQUIRE(out.view().store(matrix_view<T>(out_storage, out.extent())));
   CHECK(out_storage == std::vector<T>{T{14}, T{25}, T{20}, T{31}});
 }
 
@@ -81,38 +82,40 @@ TEMPLATE_TEST_CASE("Device gemm product, scale, and addends",
   const matrix_view<T> out_view(out_storage, out.extent());
 
   // The plain product reads nothing from `out`.
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b));
-  REQUIRE(out.store(out_view));
+  REQUIRE(cuda::linalg::gemm(blas, out.view(), a, b));
+  REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
 
   // Twice the product, accumulated onto ones.
   const std::vector<T> ones_storage(out.size(), T{1});
-  REQUIRE(out.load(matrix_view<const T>(ones_storage, out.extent())));
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {.scale = 2}, out));
-  REQUIRE(out.store(out_view));
+  REQUIRE(out.view().load(matrix_view<const T>(ones_storage, out.extent())));
+  REQUIRE(cuda::linalg::gemm(blas, out.view(), a, b, {.scale = 2}, out));
+  REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{9}, T{11}, T{21}, T{23}});
 
   // The product plus a separate addend, which is left untouched.
   const std::vector<T> addend_storage{T{100}, T{200}, T{300}, T{400}};
   const cuda_matrix<T> addend(
       matrix_view<const T>(addend_storage, out.extent()));
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {}, addend));
-  REQUIRE(out.store(out_view));
+  REQUIRE(cuda::linalg::gemm(blas, out.view(), a, b, {}, addend));
+  REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{104}, T{205}, T{310}, T{411}});
-  REQUIRE(addend.store(out_view));
+  REQUIRE(addend.view().store(out_view));
   CHECK(out_storage == addend_storage);
 
   // A zero addend scale drops the addend, copy and all.
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {.addend_scale = 0}, addend));
-  REQUIRE(out.store(out_view));
+  REQUIRE(
+      cuda::linalg::gemm(blas, out.view(), a, b, {.addend_scale = 0}, addend));
+  REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
 
   // The product plus twice a bias row.
   constexpr std::array bias_storage{T{10}, T{20}};
   cuda_buffer<T> bias(bias_storage.size());
   REQUIRE(bias.load(bias_storage));
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, bias, {.addend_scale = 2}));
-  REQUIRE(out.store(out_view));
+  REQUIRE(
+      cuda::linalg::gemm(blas, out.view(), a, b, bias, {.addend_scale = 2}));
+  REQUIRE(out.view().store(out_view));
   CHECK(out_storage == std::vector<T>{T{24}, T{45}, T{30}, T{51}});
 }
 
@@ -131,12 +134,78 @@ TEMPLATE_TEST_CASE("Device gemm on a transposed operand",
       matrix_view<const T>(b_storage, {.row_count = 3, .col_count = 2}));
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
 
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b,
+  REQUIRE(cuda::linalg::gemm(blas, out.view(), a, b,
       {.op_a = cublas_operation::transpose}));
 
   std::vector<T> out_storage(out.size());
-  REQUIRE(out.store(matrix_view<T>(out_storage, out.extent())));
+  REQUIRE(out.view().store(matrix_view<T>(out_storage, out.extent())));
   CHECK(out_storage == std::vector<T>{T{6}, T{8}, T{8}, T{10}});
+}
+
+TEMPLATE_TEST_CASE("Device gemm over strided views",
+    "[LinearAlgebraTest][cuda]", float, double) {
+  using T = TestType;
+  using view_t = cuda_matrix_view<T>;
+  using row_ndx = view_t::row_ndx;
+  using col_ndx = view_t::col_ndx;
+  // The same product as above, with each operand the leading columns of a
+  // wider matrix, and `out` the leading columns of one whose last column
+  // must survive untouched. `x` marks filler.
+  constexpr auto x = T{-1};
+  const std::vector<T> a_storage{T{1}, T{2}, T{3}, x, T{4}, T{5}, T{6}, x};
+  const std::vector<T> b_storage{T{1}, T{0}, x, T{0}, T{1}, x, T{1}, T{1}, x};
+  const std::vector<T> out_start{x, x, T{9}, x, x, T{9}};
+
+  const cublas_handle blas;
+  const cuda_matrix<T> a_wide(
+      matrix_view<const T>(a_storage, {.row_count = 2, .col_count = 4}));
+  const cuda_matrix<T> b_wide(
+      matrix_view<const T>(b_storage, {.row_count = 3, .col_count = 3}));
+  cuda_matrix<T> out_wide(
+      matrix_view<const T>(out_start, {.row_count = 2, .col_count = 3}));
+  const auto a = a_wide.view().subview({row_ndx{0}, col_ndx{0}},
+      {.row_count = 2, .col_count = 3});
+  const auto b = b_wide.view().subview({row_ndx{0}, col_ndx{0}},
+      {.row_count = 3, .col_count = 2});
+  const auto out = out_wide.view().subview({row_ndx{0}, col_ndx{0}},
+      {.row_count = 2, .col_count = 2});
+  CHECK(a.stride() == 4);
+  CHECK(!a.is_packed());
+  CHECK(out_wide.view().is_packed());
+
+  std::vector<T> wide_storage(out_wide.size());
+  const matrix_view<T> wide_view(wide_storage, out_wide.extent());
+
+  // The product lands in the window, and the column beside it keeps its 9s.
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b));
+  REQUIRE(out_wide.view().store(wide_view));
+  CHECK(wide_storage == std::vector<T>{T{4}, T{5}, T{9}, T{10}, T{11}, T{9}});
+
+  // A bias row broadcast into the strided window.
+  constexpr std::array bias_storage{T{10}, T{20}};
+  cuda_buffer<T> bias(bias_storage.size());
+  REQUIRE(bias.load(bias_storage));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, bias));
+  REQUIRE(out_wide.view().store(wide_view));
+  CHECK(
+      wide_storage == std::vector<T>{T{14}, T{25}, T{9}, T{20}, T{31}, T{9}});
+
+  // The window stores and loads on its own, through pitched copies.
+  std::vector<T> window_storage(out.size());
+  const matrix_view<T> window_view(window_storage, out.extent());
+  REQUIRE(out.store(window_view));
+  CHECK(window_storage == std::vector<T>{T{14}, T{25}, T{20}, T{31}});
+  const std::vector<T> ones_storage(out.size(), T{1});
+  REQUIRE(out.load(matrix_view<const T>(ones_storage, out.extent())));
+  REQUIRE(out_wide.view().store(wide_view));
+  CHECK(wide_storage == std::vector<T>{T{1}, T{1}, T{9}, T{1}, T{1}, T{9}});
+
+  // A strided addend, copied device to device: columns 1 and 2 of `a_wide`.
+  const auto addend =
+      a_wide.view().subview({row_ndx{0}, col_ndx{1}}, out.extent());
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {}, addend));
+  REQUIRE(out_wide.view().store(wide_view));
+  CHECK(wide_storage == std::vector<T>{T{6}, T{8}, T{9}, T{15}, T{17}, T{9}});
 }
 
 #pragma endregion

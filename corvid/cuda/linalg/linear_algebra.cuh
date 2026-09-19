@@ -31,10 +31,10 @@
 
 // Row and matrix arithmetic on the device, one free function per op.
 //
-// Every op writes into a caller-owned `cuda_matrix`, launches on the default
-// stream, and returns whether its launches were accepted, so a fault inside a
-// kernel surfaces at the next synchronizing call, such as a `store`. Shape
-// mismatches are contract violations.
+// Every op writes into a caller-owned `cuda_matrix_view`, launches on the
+// default stream, and returns whether its launches were accepted, so a fault
+// inside a kernel surfaces at the next synchronizing call, such as a `store`.
+// Shape mismatches are contract violations.
 namespace corvid::cuda::linalg {
 
 #pragma region Launch geometry
@@ -50,15 +50,27 @@ inline constexpr auto threads_per_block = 256U;
 }
 
 #pragma endregion
+#pragma region Views
+
+// A read-only device view whose element type comes from the op's output, so
+// an owning `cuda_matrix` or a mutable view converts at the call without
+// taking part in deduction.
+template<typename T>
+using const_view_t = cuda_matrix_view<const std::type_identity_t<T>>;
+
+#pragma endregion
 #pragma region gemm
 
 namespace details {
 
-// Write `bias` across every row of `out`, one thread per element.
+// Write `bias` across every row of the `size` elements of a view `cols` wide
+// whose rows start `stride` apart, one thread per element.
 template<typename T>
-__global__ void fill_rows(T* out, size_t size, const T* bias, size_t cols) {
+__global__ void
+fill_rows(T* out, size_t size, size_t cols, size_t stride, const T* bias) {
   const auto i = cuda_kernel::x_index<size_t>();
-  if (i < size) out[i] = bias[i % cols];
+  if (i < size)
+    out[cuda_kernel::strided_offset(i, cols, stride)] = bias[i % cols];
 }
 
 } // namespace details
@@ -104,15 +116,13 @@ struct gemm_options {
 //
 // `out` must not be `a` or `b`. Returns false when a launch or copy is
 // refused, leaving `out` unspecified.
-//
-// TODO: Handle non-packed views over matrices.
 template<GemmElement T>
-[[nodiscard]] bool gemm(const cublas_handle& blas, cuda_matrix<T>& out,
-    const cuda_matrix<T>& a, const cuda_matrix<T>& b,
-    gemm_options<std::type_identity_t<T>> options = {},
-    const cuda_matrix<T>& addend = cuda_matrix<T>{nullptr}) {
+[[nodiscard]] bool
+gemm(const cublas_handle& blas, cuda_matrix_view<T> out, const_view_t<T> a,
+    const_view_t<T> b, gemm_options<std::type_identity_t<T>> options = {},
+    const_view_t<T> addend = {}) {
   // The extent of `op(x)`.
-  const auto op_extent = [](const cuda_matrix<T>& x, cublas_operation op) {
+  const auto op_extent = [](const_view_t<T> x, cublas_operation op) {
     return (op == cublas_operation::none)
                ? x.extent()
                : x.extent().transposed();
@@ -122,29 +132,29 @@ template<GemmElement T>
   assert((out.row_extent() == op_a_extent.row_count) &&
          (out.col_extent() == op_b_extent.col_count));
   assert(op_a_extent.col_count == op_b_extent.row_count);
-  assert((&out != &a) && (&out != &b));
+  assert((out.get() != a.get()) && (out.get() != b.get()));
 
   // To create the `out`/`addend` distinction, we need to initialize `C` with a
   // copy of the `addend`, if there's anything there for us.
-  const auto has_addend = addend.buffer().ok() && (options.addend_scale != 0);
-  if (has_addend && (&addend != &out)) {
+  const auto has_addend = !addend.empty() && (options.addend_scale != 0);
+  if (has_addend && (addend.get() != out.get())) {
     assert((addend.row_extent() == out.row_extent()) &&
            (addend.col_extent() == out.col_extent()));
     // Copy `addend` into `out`, as part of the same default stream as `blas`.
-    if (!out.buffer().load(addend.buffer())) return false;
+    if (!out.load(addend)) return false;
   }
   const auto beta = has_addend ? options.addend_scale : T{};
 
-  // Every matrix is packed, so each leading dimension is its stored row
-  // length.
+  // Each leading dimension is its view's stride, the row length as stored.
   const auto m = static_cast<int>(out.row_extent());
   const auto n = static_cast<int>(out.col_extent());
   const auto k = static_cast<int>(op_a_extent.col_count);
+  const auto lda = static_cast<int>(a.stride());
+  const auto ldb = static_cast<int>(b.stride());
+  const auto ldc = static_cast<int>(out.stride());
   return blas
-      .multiply_row_major(m, n, k, options.scale, a.buffer(),
-          static_cast<int>(a.col_extent()), b.buffer(),
-          static_cast<int>(b.col_extent()), beta, out.buffer(), n,
-          options.op_a, options.op_b)
+      .multiply_row_major(m, n, k, options.scale, a.get(), lda, b.get(), ldb,
+          beta, out.get(), ldc, options.op_a, options.op_b)
       .ok();
 }
 
@@ -157,9 +167,8 @@ template<GemmElement T>
 // `bias` must not be empty. `out` must not be `a` or `b`. Returns false when a
 // launch is refused, leaving `out` unspecified.
 template<GemmElement T>
-[[nodiscard]] bool
-gemm(const cublas_handle& blas, cuda_matrix<T>& out, const cuda_matrix<T>& a,
-    const cuda_matrix<T>& b, const cuda_buffer<T>& bias,
+[[nodiscard]] bool gemm(const cublas_handle& blas, cuda_matrix_view<T> out,
+    const_view_t<T> a, const_view_t<T> b, const cuda_buffer<T>& bias,
     gemm_options<std::type_identity_t<T>> options = {}) {
   assert(bias);
   assert(bias.size() == out.col_extent());
@@ -171,7 +180,7 @@ gemm(const cublas_handle& blas, cuda_matrix<T>& out, const cuda_matrix<T>& a,
   // `out`, turning it into a matrix that we then use as the `addend`.
   // Essentially: Ctrl+C, Ctrl+V FTW.
   details::fill_rows<T><<<blocks_for(out.size()), threads_per_block>>>(
-      out.get(), out.size(), bias.get(), out.col_extent());
+      out.get(), out.size(), out.col_extent(), out.stride(), bias.get());
   if (!cuda_last_status{}) return false;
 
   return gemm(blas, out, a, b, options, out);
@@ -190,9 +199,9 @@ gemm(const cublas_handle& blas, cuda_matrix<T>& out, const cuda_matrix<T>& a,
 //
 // Returns false when a launch is refused, leaving `out` unspecified.
 template<GemmElement T>
-[[nodiscard]] bool linear_projection(const cublas_handle& blas,
-    cuda_matrix<T>& out, const cuda_matrix<T>& in,
-    const cuda_matrix<T>& weight, const cuda_buffer<T>& bias) {
+[[nodiscard]] bool
+linear_projection(const cublas_handle& blas, cuda_matrix_view<T> out,
+    const_view_t<T> in, const_view_t<T> weight, const cuda_buffer<T>& bias) {
   return gemm(blas, out, in, weight, bias);
 }
 

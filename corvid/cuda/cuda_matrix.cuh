@@ -18,6 +18,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <type_traits>
 
 #include <cuda_runtime.h>
 
@@ -25,48 +26,185 @@
 #include "./cuda_buffer.cuh"
 #include "./cuda_status.cuh"
 
-// A matrix in device memory.
+// Matrices in device memory.
 //
-// `cuda_matrix<T>` is a `cuda_buffer<T>` that knows its row and column
-// counts, so device ops can check shapes on the host before launching. It
-// loads and stores packed `matrix_view`s.
+// `cuda_matrix<T>` owns a packed row-major matrix, and `cuda_matrix_view<T>`
+// is a non-owning window onto one, possibly strided.
 //
-//   cuda_matrix<float> in(host_view);
-//   cuda_matrix<float> out(in.extent());
-//   ... launch over out.get() ...
-//   out.store(host_out).or_throw();
+// A view derived from a column block of a wider matrix carries the wider
+// matrix's stride.
+//
+//
+//   cuda_matrix<float> qkv(host_qkv);
+//   const auto q = qkv.view().subview({row_ndx{0}, col_ndx{0}}, q_extent);
+//   ... launch over q ...
+//   q.store(host_q).or_throw();
 namespace corvid::cuda {
-
 using matrix_types::matrix_extent;
 
+#pragma region cuda_matrix_view
+
+// A non-owning view of a row-major matrix of `T` in device memory, whose
+// rows start `stride()` elements apart.
+//
+// `cuda_matrix_view<const T>` is the read-only form, which a mutable view
+// converts to. A packed view has a stride equal to its column count. Rows
+// are the first index, as in `matrix_view`.
+template<typename T>
+class cuda_matrix_view {
+public:
+#pragma region Types
+
+  using element_t = T;
+  using value_t = std::remove_const_t<element_t>;
+  using extent_t = matrix_extent;
+  using row_ndx = matrix_types::row_ndx;
+  using col_ndx = matrix_types::col_ndx;
+  using coord = matrix_types::coord;
+
+#pragma endregion
+#pragma region Construction
+
+  constexpr cuda_matrix_view() = default;
+
+  // Packed view over `data`, which must hold the elements of `extent`.
+  cuda_matrix_view(element_t* data, extent_t extent) noexcept
+      : cuda_matrix_view{data, extent, extent.col_count} {}
+
+  // Strided view over `data`, whose rows start `stride` elements apart and
+  // show only their first `extent.col_count` elements.
+  //
+  // `stride` must be at least `extent.col_count`.
+  cuda_matrix_view(element_t* data, extent_t extent, size_t stride) noexcept
+      : data_{data}, extent_{extent}, stride_{stride} {
+    assert(stride >= extent.col_count);
+  }
+
+  // Implicit conversion to a read-only view of a mutable view of the same
+  // element type.
+  template<typename U>
+  requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
+  cuda_matrix_view(cuda_matrix_view<U> other) noexcept
+      : data_{other.get()}, extent_{other.extent()}, stride_{other.stride()} {}
+
+#pragma endregion
+#pragma region Accessors
+
+  [[nodiscard]] element_t* get() const noexcept { return data_; }
+  [[nodiscard]] extent_t extent() const noexcept { return extent_; }
+  [[nodiscard]] size_t row_extent() const noexcept {
+    return extent_.row_count;
+  }
+  [[nodiscard]] size_t col_extent() const noexcept {
+    return extent_.col_count;
+  }
+  [[nodiscard]] size_t stride() const noexcept { return stride_; }
+  [[nodiscard]] size_t size() const noexcept {
+    return extent_.row_count * extent_.col_count;
+  }
+  [[nodiscard]] bool empty() const noexcept { return (size() == 0); }
+  [[nodiscard]] bool is_packed() const noexcept {
+    return (stride_ == extent_.col_count);
+  }
+
+  // The window of `extent` elements whose first element is at `origin`,
+  // sharing this view's stride.
+  //
+  // The window must lie within the view.
+  [[nodiscard]] cuda_matrix_view
+  subview(coord origin, extent_t extent) const noexcept {
+    assert((*origin.row + extent.row_count <= extent_.row_count) &&
+           (*origin.col + extent.col_count <= extent_.col_count));
+    return {data_ + (*origin.row * stride_) + *origin.col, extent, stride_};
+  }
+
+#pragma endregion
+#pragma region Transfer
+
+  // Upload `host`, which must have the same extent.
+  [[nodiscard]] cuda_last_status load(matrix_view<const value_t> host) const
+  requires(!std::is_const_v<element_t>)
+  {
+    assert(is_same_extent(host.extent()));
+    return copy(data_, stride_, host.as_span().data(), host.stride(),
+        memcpy_kind::host_to_device);
+  }
+
+  // Copy `device`, another view, which must have the same extent.
+  [[nodiscard]] cuda_last_status
+  load(cuda_matrix_view<const value_t> device) const
+  requires(!std::is_const_v<element_t>)
+  {
+    assert(is_same_extent(device.extent()));
+    return copy(data_, stride_, device.get(), device.stride(),
+        memcpy_kind::device_to_device);
+  }
+
+  // Download into `host`, which must have the same extent.
+  [[nodiscard]] cuda_last_status store(matrix_view<value_t> host) const {
+    assert(is_same_extent(host.extent()));
+    return copy(host.as_span().data(), host.stride(), data_, stride_,
+        memcpy_kind::device_to_host);
+  }
+
+#pragma endregion
+#pragma region Helpers
+private:
+  [[nodiscard]] bool is_same_extent(extent_t other) const noexcept {
+    return (other.row_count == extent_.row_count) &&
+           (other.col_count == extent_.col_count);
+  }
+
+  // Copy this view's extent of elements from `src` to `dest`, each with its
+  // own row stride, as one plain transfer when both are packed and as a
+  // pitched transfer otherwise.
+  [[nodiscard]] cuda_last_status copy(value_t* dest, size_t dest_stride,
+      const value_t* src, size_t src_stride, memcpy_kind kind) const {
+    if ((dest_stride == extent_.col_count) &&
+        (src_stride == extent_.col_count))
+      return cuda_buffer<value_t>::copy(dest, src, size(), kind);
+    const auto width = extent_.col_count * sizeof(value_t);
+    return cuda_last_status{cudaMemcpy2D(dest, dest_stride * sizeof(value_t),
+        src, src_stride * sizeof(value_t), width, extent_.row_count,
+        static_cast<cudaMemcpyKind>(*kind))};
+  }
+
+#pragma endregion
+#pragma region Data members
+private:
+  element_t* data_{};
+  extent_t extent_{.row_count = 0, .col_count = 0};
+  size_t stride_{};
+
+#pragma endregion
+};
+
+#pragma endregion
 #pragma region cuda_matrix
 
-// A row-major matrix of `T` in device memory, packed with no gap between rows.
+// A row-major matrix of `T` in device memory, packed with no gap between
+// rows.
 //
-// It owns its allocation and carries its extent, so an op can check shapes on
-// the host before launching. Rows are the first index, as in `matrix_view`,
-// and a packed host view is the shape data moves in and out through.
+// It owns its allocation and carries its extent. Transfers and ops go
+// through its `view()`, and it converts to a view where one is expected.
 template<typename T>
 class cuda_matrix {
 public:
   using element_t = T;
   using extent_t = matrix_extent;
-  using view_t = matrix_view<element_t>;
-  using const_view_t = matrix_view<const element_t>;
+  using view_t = cuda_matrix_view<element_t>;
+  using const_view_t = cuda_matrix_view<const element_t>;
 
 #pragma region Construction
-
-  explicit cuda_matrix(std::nullptr_t) noexcept
-      : buffer_{nullptr}, extent_{.row_count = 0, .col_count = 0} {}
 
   // Allocate `extent` elements, uninitialized, or throw.
   explicit cuda_matrix(extent_t extent)
       : buffer_(extent.row_count * extent.col_count), extent_{extent} {}
 
-  // Allocate and upload `host`, which must be packed, or throw.
-  explicit cuda_matrix(const_view_t host) : cuda_matrix{host.extent()} {
-    assert(host.stride() == host.col_extent());
-    load(host).or_throw();
+  // Allocate and upload `host`, or throw.
+  explicit cuda_matrix(matrix_view<const element_t> host)
+      : cuda_matrix{host.extent()} {
+    view().load(host).or_throw();
   }
 
 #pragma endregion
@@ -91,29 +229,13 @@ public:
     return extent_.row_count * extent_.col_count;
   }
 
-#pragma endregion
-#pragma region Transfer
-
-  // Upload `host`, which must be packed and of the same extent.
-  [[nodiscard]] cuda_last_status load(const_view_t host) {
-    assert(is_packed_match(host));
-    return buffer_.load(host.as_span());
+  // The whole matrix as a packed view.
+  [[nodiscard]] view_t view() noexcept { return {buffer_.get(), extent_}; }
+  [[nodiscard]] const_view_t view() const noexcept {
+    return {buffer_.get(), extent_};
   }
-
-  // Download into `host`, which must be packed and of the same extent.
-  [[nodiscard]] cuda_last_status store(view_t host) const {
-    assert(is_packed_match(host));
-    return buffer_.store(host.as_span());
-  }
-
-#pragma endregion
-#pragma region Helpers
-private:
-  [[nodiscard]] bool is_packed_match(const_view_t host) const {
-    return (host.row_extent() == extent_.row_count) &&
-           (host.col_extent() == extent_.col_count) &&
-           (host.stride() == extent_.col_count);
-  }
+  operator view_t() noexcept { return view(); }
+  operator const_view_t() const noexcept { return view(); }
 
 #pragma endregion
 #pragma region Data members
