@@ -24,12 +24,14 @@
 
 namespace corvid::cuda {
 
-// Device-side index and launch-geometry helpers for a kernel body: each
-// thread's coordinates and the grid's strides, typed as the caller wants,
-// and the host-side block count for a launch.
+// Device-side index and launch-geometry helpers for a kernel body.
+//
+// Contains each thread's coordinates and the grid's strides, typed as the
+// caller wants, and the host-side block count for a launch.
 class cuda_kernel {
 public:
   // Thread in each dimension.
+
   template<typename T = int>
   __device__ static T x_thread() {
     return static_cast<T>(threadIdx.x);
@@ -43,7 +45,23 @@ public:
     return static_cast<T>(threadIdx.z);
   }
 
+  // Block in each dimension.
+
+  template<typename T = int>
+  __device__ static T x_block() {
+    return static_cast<T>(blockIdx.x);
+  }
+  template<typename T = int>
+  __device__ static T y_block() {
+    return static_cast<T>(blockIdx.y);
+  }
+  template<typename T = int>
+  __device__ static T z_block() {
+    return static_cast<T>(blockIdx.z);
+  }
+
   // Block dim in each dimension.
+
   template<typename T = int>
   __device__ static T x_block_dim() {
     return static_cast<T>(blockDim.x);
@@ -98,7 +116,8 @@ public:
 
   // The offset of flat index `i` in a row-major matrix `cols` wide whose rows
   // start `stride` elements apart, so a kernel that counts elements can
-  // address a strided view. Packed, where `stride` is `cols`, it is `i`.
+  // address a strided view. When the matrix is packed, `stride` is `cols`, and
+  // the offset is `i`.
   template<typename T = int>
   __host__ __device__ static T strided_offset(T i, T cols, T stride) {
     return ((i / cols) * stride) + (i % cols);

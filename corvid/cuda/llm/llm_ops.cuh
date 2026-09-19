@@ -17,11 +17,17 @@
 #pragma once
 
 #include <cassert>
+#include <cmath>
 #include <cstddef>
+#include <type_traits>
 
 #include <cuda_runtime.h>
 
+#include "../../linalg/linear_algebra.h"
 #include "../../llm/llm_ops.h"
+#include "../../meta/containers.h"
+#include "../cuda_block.cuh"
+#include "../cuda_buffer.cuh"
 #include "../cuda_kernel.cuh"
 #include "../cuda_matrix.cuh"
 #include "../cuda_status.cuh"
@@ -37,6 +43,99 @@ namespace corvid::cuda::llm {
 
 using namespace corvid::cuda::linalg;
 
+#pragma region layer_norm
+
+namespace details {
+
+// Normalize one row of `in`, `cols` wide, to a mean of 0 and a variance of
+// 1, then scale by `weight` and shift by `bias`, into the same row of `out`.
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and every `blockDim.x` after it, so with 256 threads and 768 columns
+// each thread holds 3.
+//
+// The mean and the variance are each a block-wide sum, and the variance is
+// the mean of the squared deviations from the mean, as the CPU op computes
+// it, rather than the mean of the squares minus the square of the mean.
+//
+// In-place is safe. Each element is read only by the thread that writes it,
+// and the writes come after both sums, so no thread reads a column another
+// has already overwritten.
+template<Floating T>
+__global__ void apply_layer_norm(T* out, size_t out_stride, const T* in,
+    size_t in_stride, size_t cols, const T* weight, const T* bias, T eps) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const auto* in_row = in + (row * in_stride);
+  auto* out_row = out + (row * out_stride);
+  const auto first = cuda_kernel::x_thread<size_t>();
+  const auto step = cuda_kernel::x_block_dim<size_t>();
+  const auto count = static_cast<T>(cols);
+
+  T total{};
+  for (auto c = first; c < cols; c += step) total += in_row[c];
+  const auto mean = cuda_block::sum(total) / count;
+
+  T squares{};
+  for (auto c = first; c < cols; c += step) {
+    const auto deviation = in_row[c] - mean;
+    squares += deviation * deviation;
+  }
+  const auto variance = cuda_block::sum(squares) / count;
+  // Note that we could have used `rsqrt(variance + eps)` instead of `1 /
+  // std::sqrt(variance + eps)`, which is faster but yields slightly different
+  // results. We still might, but we'd need to tolerance it.
+  const auto inv_std = T{1} / std::sqrt(variance + eps);
+
+  for (auto c = first; c < cols; c += step)
+    out_row[c] = corvid::linalg::scale_shift(
+        corvid::linalg::standardize(in_row[c], mean, inv_std), weight[c],
+        bias[c]);
+}
+
+} // namespace details
+
+// Normalize each row of `in` to a mean of 0 and a variance of 1, then scale by
+// `weight` and shift by `bias`, elementwise, into `out`.
+//
+// The contract is that of the CPU `corvid::llm::layer_norm`. For T tokens of
+// C features:
+//
+//   out     T x C
+//   in      T x C
+//   weight  C
+//   bias    C
+//
+// `out` can be the same view as `in`, normalizing in place, but must not
+// otherwise overlap it. `eps` is added to each row's variance inside the
+// square root. Returns false when the launch is refused, leaving `out`
+// unspecified.
+template<Floating T>
+[[nodiscard]] bool layer_norm(cuda_matrix_view<T> out, const_view_t<T> in,
+    const cuda_buffer<T>& weight, const cuda_buffer<T>& bias,
+    std::type_identity_t<T> eps) {
+  [[maybe_unused]] const auto width = in.col_extent();
+  assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
+  assert((weight.size() == width) && (bias.size() == width));
+  assert(is_same_or_disjoint(out.as_span(), in.as_span()));
+  assert(is_disjoint(out.as_span(), weight.as_span()));
+  assert(is_disjoint(out.as_span(), bias.as_span()));
+
+  details::apply_layer_norm<T>
+      <<<static_cast<unsigned>(out.row_extent()), threads_per_block>>>(
+          out.get(), out.stride(), in.get(), in.stride(), width, weight.get(),
+          bias.get(), eps);
+  return cuda_last_status{}.ok();
+}
+
+// `layer_norm` over an owning `out`, so the call needs no `view()`.
+template<Floating T>
+[[nodiscard]] bool layer_norm(cuda_matrix<T>& out, const_view_t<T> in,
+    const cuda_buffer<T>& weight, const cuda_buffer<T>& bias,
+    std::type_identity_t<T> eps) {
+  return layer_norm(out.view(), in, weight, bias, eps);
+}
+
+#pragma endregion
 #pragma region gelu_new
 
 namespace details {

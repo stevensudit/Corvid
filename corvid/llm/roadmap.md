@@ -1,11 +1,12 @@
 # LLM roadmap
 
-Plan for `corvid/linalg`, `corvid/llm`, and `corvid/cuda`: a transformer inference and adapter-training
-stack written from scratch in Corvid-flavored C++23 and CUDA, targeting one
-RTX 4090. The destination is the "weights versus context" experiment from
-the personalized-memory design: compile plain-English dispositional traces
-into a LoRA and measure whether the adapted model behaves differently from
-the same base model given the traces in context.
+Plan for `corvid/linalg`, `corvid/llm`, and `corvid/cuda`: a transformer
+inference and adapter-training stack written from scratch in Corvid-flavored
+C++23 and CUDA, targeting one RTX 4090. The destination is the "weights
+versus context" experiment from the personalized-memory design: compile
+plain-English dispositional traces into a LoRA and measure whether the
+adapted model behaves differently from the same base model given the traces
+in context.
 
 ## Why from scratch, and why in C++
 
@@ -904,6 +905,33 @@ inherits the base constructors, which is what lets the base build one. The
 device view gained the host view's bounds asserts at construction and
 slicing, since a span carries the length a bare pointer did not, and
 `cuda_matrix::view()` builds it from the new `cuda_buffer::as_span()`.
+
+Status (2026-09-19, device add): `add` in "linear_algebra.cuh" is the
+elementwise `out = a + b` over three device views, one thread per element
+through `strided_offset` as `gelu_new` maps its elements, with the CPU op's
+in-place-or-disjoint contract and, since the view base now carries a span,
+the CPU op's aliasing asserts word for word. Gated on the CPU test's
+hand-computed rows in all three placements plus a strided-window case, and
+on the same exact 24-site residual gate at `atol = rtol = 0`, since one fp32
+add is one IEEE operation on the device as well.
+
+Status (2026-09-19, device layer_norm): the first block reduction. The kernel
+takes one block per row with the elementwise ops' 256 threads, each thread
+walking the columns at its index and every 256 after it (3 each at 768), and
+sums twice across the block, the values for the mean and then the squared
+deviations from that mean for the variance, so the arithmetic is the CPU
+op's two-pass form rather than the mean of squares minus the squared mean.
+The reduction plumbing is new and is what softmax will reuse: `cuda_warp::sum`,
+an xor butterfly that leaves the warp total in every lane, and
+`cuda_block::sum` in the new "cuda_block.cuh", which parks one partial per
+warp in shared memory and has warp 0 fold them, with two block syncs per
+call so back-to-back calls are safe. The scalar `standardize` and
+`scale_shift` gained `CUDA_HOST_DEVICE` so the kernel calls the CPU formulas,
+as `gelu_new` does. `weight` and `bias` are `cuda_buffer`s, as the GEMM's
+bias is, and `eps` sits behind `std::type_identity_t` so a float literal
+converts. Gated on the CPU test's hand-computed rows in float and double, in
+place, and on the same 25-site oracle gate at 1e-5. The reductions have their
+own unit tests, one warp and eight warps, two sums in a row.
 
 ### 5. Backward pass and LoRA
 

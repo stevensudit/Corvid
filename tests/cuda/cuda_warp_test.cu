@@ -27,6 +27,7 @@ struct lane_record {
   int shuffle_down; // the lane above, or own value at lane 31
   int shuffle_xor;  // the partner lane
   int reduced;      // sum over the warp
+  int sum;          // the same, through `cuda_warp::sum`
 };
 
 // Each lane's value is its index times ten, so every shuffle result names the
@@ -47,6 +48,7 @@ __global__ void warp_kernel(lane_record* out) {
     sum += cuda_warp::shuffle_down(sum, offset, cuda_warp::all_mask);
   cuda_warp::sync();
   rec.reduced = cuda_warp::shuffle(sum, 0, cuda_warp::all_mask);
+  rec.sum = cuda_warp::sum(value);
 }
 
 } // namespace
@@ -70,11 +72,12 @@ TEST_CASE("cuda_warp lane queries and shuffles", "[cuda]") {
     CHECK(rec.warp_id == 0);
     CHECK(rec.active_mask == cuda_warp::all_mask);
     CHECK(rec.shuffle == 50);
-    CHECK(rec.shuffle_up == static_cast<int>(lane == 0 ? 0 : lane - 1) * 10);
+    CHECK(rec.shuffle_up == static_cast<int>((lane == 0) ? 0 : lane - 1) * 10);
     CHECK(rec.shuffle_down ==
-          static_cast<int>(lane == lanes - 1 ? lane : lane + 1) * 10);
+          static_cast<int>((lane == lanes - 1) ? lane : lane + 1) * 10);
     CHECK(rec.shuffle_xor == static_cast<int>(lane ^ 1U) * 10);
     CHECK(rec.reduced == warp_sum);
+    CHECK(rec.sum == warp_sum);
   }
 }
 

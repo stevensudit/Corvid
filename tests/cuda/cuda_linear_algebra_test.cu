@@ -206,5 +206,76 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
 }
 
 #pragma endregion
+#pragma region add
+
+TEMPLATE_TEST_CASE("Device add on hand-computed rows",
+    "[LinearAlgebraTest][cuda]", float, double) {
+  using T = TestType;
+  using view_t = cuda_matrix_view<T>;
+  using row_ndx = view_t::row_ndx;
+  using col_ndx = view_t::col_ndx;
+  using extent_t = view_t::extent_t;
+  const std::vector<T> a_storage{T{1}, T{2}, T{3}, T{4}};
+  const std::vector<T> b_storage{T{10}, T{20}, T{30}, T{40}};
+  const matrix_view<const T> a_view(a_storage,
+      {.row_count = 2, .col_count = 2});
+  const matrix_view<const T> b_view(b_storage,
+      {.row_count = 2, .col_count = 2});
+  const std::vector<T> expected{T{11}, T{22}, T{33}, T{44}};
+  cuda_matrix<T> a(a_view);
+  cuda_matrix<T> b(b_view);
+  std::vector<T> storage(a.size());
+  const matrix_view<T> out_view(storage, a.extent());
+
+  SECTION("into a separate matrix") {
+    cuda_matrix<T> out(a.extent());
+    REQUIRE(cuda::linalg::add(out, a, b));
+    REQUIRE(out.view().store(out_view));
+    CHECK(storage == expected);
+  }
+
+  SECTION("in place on the left") {
+    REQUIRE(cuda::linalg::add(a, a, b));
+    REQUIRE(a.view().store(out_view));
+    CHECK(storage == expected);
+  }
+
+  SECTION("in place on the right") {
+    REQUIRE(cuda::linalg::add(b, a, b));
+    REQUIRE(b.view().store(out_view));
+    CHECK(storage == expected);
+  }
+
+  SECTION("over strided windows") {
+    // The operands are the leading two columns of three-wide matrices, and
+    // `out` the leading columns of one whose last column must survive
+    // untouched. `x` marks filler.
+    constexpr auto x = T{-1};
+    const std::vector<T> a_wide_storage{T{1}, T{2}, x, T{3}, T{4}, x};
+    const std::vector<T> b_wide_storage{T{10}, T{20}, x, T{30}, T{40}, x};
+    const std::vector<T> out_start{x, x, T{9}, x, x, T{9}};
+    const cuda_matrix<T> a_wide(matrix_view<const T>(a_wide_storage,
+        {.row_count = 2, .col_count = 3}));
+    const cuda_matrix<T> b_wide(matrix_view<const T>(b_wide_storage,
+        {.row_count = 2, .col_count = 3}));
+    cuda_matrix<T> out_wide(
+        matrix_view<const T>(out_start, {.row_count = 2, .col_count = 3}));
+    const extent_t window{.row_count = 2, .col_count = 2};
+    const auto out = out_wide.subview({row_ndx{0}, col_ndx{0}}, window);
+    CHECK(!out.is_packed());
+
+    REQUIRE(cuda::linalg::add(out,
+        a_wide.subview({row_ndx{0}, col_ndx{0}}, window),
+        b_wide.subview({row_ndx{0}, col_ndx{0}}, window)));
+
+    std::vector<T> wide_storage(out_wide.size());
+    REQUIRE(out_wide.view().store(
+        matrix_view<T>(wide_storage, out_wide.extent())));
+    const std::vector<T> wide_expected{T{11}, T{22}, T{9}, T{33}, T{44}, T{9}};
+    CHECK(wide_storage == wide_expected);
+  }
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

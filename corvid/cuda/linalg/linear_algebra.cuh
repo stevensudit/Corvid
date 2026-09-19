@@ -23,6 +23,8 @@
 #include <cuda_runtime.h>
 
 #include "../../containers/utils/matrix_view.h"
+#include "../../meta/concepts.h"
+#include "../../meta/containers.h"
 #include "../cuda_buffer.cuh"
 #include "../cuda_cublas.cuh"
 #include "../cuda_kernel.cuh"
@@ -228,6 +230,53 @@ template<GemmElement T>
 linear_projection(const cublas_handle& blas, cuda_matrix<T>& out,
     const_view_t<T> in, const_view_t<T> weight, const cuda_buffer<T>& bias) {
   return linear_projection(blas, out.view(), in, weight, bias);
+}
+
+#pragma endregion
+#pragma region add
+
+namespace details {
+
+// Add the `size` elements of two views `cols` wide, with rows `a_stride` and
+// `b_stride` apart, into rows `out_stride` apart, one thread per element.
+template<typename T>
+__global__ void add_elements(T* out, size_t out_stride, const T* a,
+    size_t a_stride, const T* b, size_t b_stride, size_t size, size_t cols) {
+  const auto i = cuda_kernel::x_index<size_t>();
+  if (i < size)
+    out[cuda_kernel::strided_offset(i, cols, out_stride)] =
+        a[cuda_kernel::strided_offset(i, cols, a_stride)] +
+        b[cuda_kernel::strided_offset(i, cols, b_stride)];
+}
+
+} // namespace details
+
+// Add `a` and `b` elementwise, into `out`.
+//
+// All three views must have the same extent. `out` can be the same view as
+// `a` or as `b`, adding in place, but must not otherwise overlap either.
+// Returns false when the launch is refused, leaving `out` unspecified.
+template<Arithmetic T>
+[[nodiscard]] bool
+add(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) {
+  assert((a.row_extent() == b.row_extent()) &&
+         (a.col_extent() == b.col_extent()));
+  assert((out.row_extent() == a.row_extent()) &&
+         (out.col_extent() == a.col_extent()));
+  assert(is_same_or_disjoint(out.as_span(), a.as_span()));
+  assert(is_same_or_disjoint(out.as_span(), b.as_span()));
+
+  details::add_elements<T><<<blocks_for(out.size()), threads_per_block>>>(
+      out.get(), out.stride(), a.get(), a.stride(), b.get(), b.stride(),
+      out.size(), out.col_extent());
+  return cuda_last_status{}.ok();
+}
+
+// `add` over an owning `out`, so the call needs no `view()`.
+template<Arithmetic T>
+[[nodiscard]] bool
+add(cuda_matrix<T>& out, const_view_t<T> a, const_view_t<T> b) {
+  return add(out.view(), a, b);
 }
 
 #pragma endregion

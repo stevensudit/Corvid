@@ -161,13 +161,15 @@ dot_product(const A& a, const B& b) noexcept {
 // The z-score of `x`, which is its distance from `mean` in units of the
 // standard deviation (which is the reciprocal of `inv_std`).
 template<Floating T>
-[[nodiscard]] constexpr T standardize(T x, T mean, T inv_std) noexcept {
+[[nodiscard]] constexpr CUDA_HOST_DEVICE T standardize(T x, T mean,
+    T inv_std) noexcept {
   return (x - mean) * inv_std;
 }
 
 // `x` scaled by `weight`, then shifted by `bias`.
 template<Arithmetic T>
-[[nodiscard]] constexpr T scale_shift(T x, T weight, T bias) noexcept {
+[[nodiscard]] constexpr CUDA_HOST_DEVICE T scale_shift(T x, T weight,
+    T bias) noexcept {
   return (x * weight) + bias;
 }
 
