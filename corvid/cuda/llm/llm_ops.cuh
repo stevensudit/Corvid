@@ -113,12 +113,10 @@ __global__ void apply_layer_norm(T* out, size_t out_stride, const T* in,
 // unspecified.
 template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
-[[nodiscard]] bool
-layer_norm(Out&& out, const_view_t<device_element_t<Out>> in,
+[[nodiscard]] bool layer_norm(Out&& out, input_view_t<Out> in,
     const cuda_buffer<device_element_t<Out>>& weight,
     const cuda_buffer<device_element_t<Out>>& bias,
     device_element_t<Out> eps) {
-  using T = device_element_t<Out>;
   const auto& out_view = out.as_view();
   [[maybe_unused]] const auto width = in.col_extent();
   assert((out_view.row_extent() == in.row_extent()) &&
@@ -128,10 +126,9 @@ layer_norm(Out&& out, const_view_t<device_element_t<Out>> in,
   assert(is_disjoint(out_view.as_span(), weight.as_span()));
   assert(is_disjoint(out_view.as_span(), bias.as_span()));
 
-  details::apply_layer_norm<T>
-      <<<static_cast<unsigned>(out_view.row_extent()), threads_per_block>>>(
-          out_view.get(), out_view.stride(), in.get(), in.stride(), width,
-          weight.get(), bias.get(), eps);
+  details::apply_layer_norm<<<static_cast<unsigned>(out_view.row_extent()),
+      threads_per_block>>>(out_view.get(), out_view.stride(), in.get(),
+      in.stride(), width, weight.get(), bias.get(), eps);
   return cuda_last_status{}.ok();
 }
 
@@ -161,17 +158,14 @@ __global__ void apply_gelu_new(T* out, size_t out_stride, const T* in,
 // place. Returns false when the launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
-[[nodiscard]] bool
-gelu_new(Out&& out, const_view_t<device_element_t<Out>> in) {
-  using T = device_element_t<Out>;
+[[nodiscard]] bool gelu_new(Out&& out, input_view_t<Out> in) {
   const auto& out_view = out.as_view();
   assert((out_view.row_extent() == in.row_extent()) &&
          (out_view.col_extent() == in.col_extent()));
 
-  details::apply_gelu_new<T>
-      <<<blocks_for(out_view.size()), threads_per_block>>>(out_view.get(),
-          out_view.stride(), in.get(), in.stride(), out_view.size(),
-          out_view.col_extent());
+  details::apply_gelu_new<<<blocks_for(out_view.size()), threads_per_block>>>(
+      out_view.get(), out_view.stride(), in.get(), in.stride(),
+      out_view.size(), out_view.col_extent());
   return cuda_last_status{}.ok();
 }
 

@@ -61,6 +61,10 @@ inline constexpr auto threads_per_block = 256U;
 template<typename T>
 using const_view_t = cuda_matrix_view<const T>;
 
+// The read-only view an op with the output `Out` takes as an input.
+template<DeviceMatrixLike Out>
+using input_view_t = const_view_t<device_element_t<Out>>;
+
 #pragma endregion
 #pragma region gemm
 
@@ -121,15 +125,13 @@ struct gemm_options {
 // refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
 requires GemmElement<device_element_t<Out>>
-[[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out,
-    const_view_t<device_element_t<Out>> a,
-    const_view_t<device_element_t<Out>> b,
-    gemm_options<device_element_t<Out>> options = {},
-    const_view_t<device_element_t<Out>> addend = {}) {
-  using T = device_element_t<Out>;
+[[nodiscard]] bool
+gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
+    input_view_t<Out> b, gemm_options<device_element_t<Out>> options = {},
+    input_view_t<Out> addend = {}) {
   const auto& out_view = out.as_view();
   // The extent of `op(x)`.
-  const auto op_extent = [](const_view_t<T> x, cublas_operation op) {
+  const auto op_extent = [](const auto& x, cublas_operation op) {
     return (op == cublas_operation::none)
                ? x.extent()
                : x.extent().transposed();
@@ -150,7 +152,8 @@ requires GemmElement<device_element_t<Out>>
     // Copy `addend` into `out`, as part of the same default stream as `blas`.
     if (!out_view.load(addend)) return false;
   }
-  const auto beta = has_addend ? options.addend_scale : T{};
+  const auto beta =
+      has_addend ? options.addend_scale : device_element_t<Out>{};
 
   // Each leading dimension is its view's stride, the row length as stored.
   const auto m = static_cast<int>(out_view.row_extent());
@@ -175,12 +178,10 @@ requires GemmElement<device_element_t<Out>>
 // launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
 requires GemmElement<device_element_t<Out>>
-[[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out,
-    const_view_t<device_element_t<Out>> a,
-    const_view_t<device_element_t<Out>> b,
-    const cuda_buffer<device_element_t<Out>>& bias,
+[[nodiscard]] bool
+gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
+    input_view_t<Out> b, const cuda_buffer<device_element_t<Out>>& bias,
     gemm_options<device_element_t<Out>> options = {}) {
-  using T = device_element_t<Out>;
   const auto& out_view = out.as_view();
   assert(bias);
   assert(bias.size() == out_view.col_extent());
@@ -191,7 +192,7 @@ requires GemmElement<device_element_t<Out>>
   // kernel, but we can get the same effect cheaper by broadcasting `bias` into
   // `out`, turning it into a matrix that we then use as the `addend`.
   // Essentially: Ctrl+C, Ctrl+V FTW.
-  details::fill_rows<T><<<blocks_for(out_view.size()), threads_per_block>>>(
+  details::fill_rows<<<blocks_for(out_view.size()), threads_per_block>>>(
       out_view.get(), out_view.size(), out_view.col_extent(),
       out_view.stride(), bias.get());
   if (!cuda_last_status{}) return false;
@@ -213,10 +214,9 @@ requires GemmElement<device_element_t<Out>>
 // Returns false when a launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
 requires GemmElement<device_element_t<Out>>
-[[nodiscard]] bool linear_projection(const cublas_handle& blas, Out&& out,
-    const_view_t<device_element_t<Out>> in,
-    const_view_t<device_element_t<Out>> weight,
-    const cuda_buffer<device_element_t<Out>>& bias) {
+[[nodiscard]] bool
+linear_projection(const cublas_handle& blas, Out&& out, input_view_t<Out> in,
+    input_view_t<Out> weight, const cuda_buffer<device_element_t<Out>>& bias) {
   return gemm(blas, out, in, weight, bias);
 }
 
@@ -258,9 +258,9 @@ combine(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b, Op op) {
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));
   assert(is_same_or_disjoint(out.as_span(), b.as_span()));
 
-  combine_elements<T, Op><<<blocks_for(out.size()), threads_per_block>>>(
-      out.get(), out.stride(), a.get(), a.stride(), b.get(), b.stride(),
-      out.size(), out.col_extent(), op);
+  combine_elements<<<blocks_for(out.size()), threads_per_block>>>(out.get(),
+      out.stride(), a.get(), a.stride(), b.get(), b.stride(), out.size(),
+      out.col_extent(), op);
   return cuda_last_status{}.ok();
 }
 
@@ -273,8 +273,7 @@ combine(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b, Op op) {
 // Returns false when the launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
 requires Arithmetic<device_element_t<Out>>
-[[nodiscard]] bool add(Out&& out, const_view_t<device_element_t<Out>> a,
-    const_view_t<device_element_t<Out>> b) {
+[[nodiscard]] bool add(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
   return details::combine(out.as_view(), a, b, std::plus<>{});
 }
 
@@ -285,8 +284,8 @@ requires Arithmetic<device_element_t<Out>>
 // Returns false when the launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
 requires Arithmetic<device_element_t<Out>>
-[[nodiscard]] bool subtract(Out&& out, const_view_t<device_element_t<Out>> a,
-    const_view_t<device_element_t<Out>> b) {
+[[nodiscard]] bool
+subtract(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
   return details::combine(out.as_view(), a, b, std::minus<>{});
 }
 
