@@ -27,6 +27,7 @@
 // Generic ownership of a CUDA handle.
 
 namespace corvid::cuda {
+using corvid::meta::bool_enums::const_propagation;
 using corvid::meta::bool_enums::on_failure;
 
 #pragma region cuda_handle
@@ -46,24 +47,44 @@ using corvid::meta::bool_enums::on_failure;
 // rule of zero; or derive from it. In the latter case, the constructor makes
 // the handle and passes it down, and the derived type inherits `get` and the
 // conversion to `H`, so it only adds its own construction and methods.
-template<typename H, auto Destroy>
+//
+// `Propagation` determines whether const on the owner is shallow or deep.
+// Under `shallow`, the default, a const owner still hands out `H` as-is, which
+// is what an opaque handle needs. Under `deep`, which requires a pointer `H`,
+// a const owner hands out a pointer to const.
+template<typename H, auto Destroy,
+    const_propagation Propagation = const_propagation::shallow>
 class cuda_handle {
+  static constexpr bool propagate_const =
+      (Propagation == const_propagation::deep);
+  static_assert(!propagate_const || std::is_pointer_v<H>,
+      "deep const propagation needs a pointer handle");
+
 public:
+#pragma region Types
+
+  using handle_t = H;
+
+  // The handle as a const owner hands it out.
+  using const_handle_t =
+      std::conditional_t<propagate_const, const std::remove_pointer_t<H>*, H>;
+
+#pragma endregion
 #pragma region Construction
 
   cuda_handle() noexcept = default;
   cuda_handle(std::nullptr_t) noexcept {}
-  explicit cuda_handle(H handle) noexcept : handle_{handle} {}
+  explicit cuda_handle(handle_t handle) noexcept : handle_{handle} {}
 
   cuda_handle(const cuda_handle&) = delete;
   cuda_handle& operator=(const cuda_handle&) = delete;
 
   cuda_handle(cuda_handle&& other) noexcept
-      : handle_{std::exchange(other.handle_, H{})} {}
+      : handle_{std::exchange(other.handle_, handle_t{})} {}
   cuda_handle& operator=(cuda_handle&& other) noexcept {
     if (this != &other) {
       destroy();
-      handle_ = std::exchange(other.handle_, H{});
+      handle_ = std::exchange(other.handle_, handle_t{});
     }
     return *this;
   }
@@ -72,20 +93,30 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] H get() const noexcept { return handle_; }
-  [[nodiscard]] operator H() const noexcept { return handle_; }
+  [[nodiscard]] handle_t get() noexcept { return handle_; }
+  [[nodiscard]] const_handle_t get() const noexcept { return handle_; }
+  [[nodiscard]] operator handle_t() noexcept { return handle_; }
+  [[nodiscard]] operator const_handle_t() const noexcept { return handle_; }
 
-  [[nodiscard]] bool ok() const noexcept { return handle_ != H{}; }
+  [[nodiscard]] bool ok() const noexcept { return handle_ != handle_t{}; }
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 
-  H operator*() const {
-    if (handle_ == H{})
-      throw std::runtime_error{"dereferencing null cuda_handle"};
+  handle_t operator*() {
+    throw_if_null();
+    return handle_;
+  }
+  const_handle_t operator*() const {
+    throw_if_null();
     return handle_;
   }
 
 #pragma endregion
 #pragma region Helpers
+private:
+  void throw_if_null() const {
+    if (!ok()) throw std::runtime_error{"dereferencing null cuda_handle"};
+  }
+
 protected:
   // Call `Create(&handle, args...)`, a CUDA creation function whose first
   // parameter receives the new handle, and return that handle for the
@@ -102,11 +133,11 @@ protected:
   // Where the runtime overloads a creation function (`cudaMalloc`,
   // `cudaEventCreate`), pass a lambda that names the intended one.
   template<auto Create, typename Status = cuda_last_status, typename... Args>
-  [[nodiscard]] static H create(on_failure policy, Args&&... args) {
-    H handle{};
+  [[nodiscard]] static handle_t create(on_failure policy, Args&&... args) {
+    handle_t handle{};
     const Status status{Create(&handle, std::forward<Args>(args)...)};
     if (status) return handle;
-    if (policy == on_failure::ignore) return H{};
+    if (policy == on_failure::ignore) return handle_t{};
     if constexpr (std::is_same_v<Status, cuda_last_status>) Status::raise();
     Status::raise(status);
   }
@@ -119,7 +150,7 @@ private:
 #pragma endregion
 #pragma region Data members
 protected:
-  H handle_{};
+  handle_t handle_{};
 
 #pragma endregion
 };

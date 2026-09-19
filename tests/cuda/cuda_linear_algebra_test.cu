@@ -22,6 +22,7 @@
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/linalg/linear_algebra.cuh"
 #include "catch2_main.h"
+#include "catch2/catch_template_test_macros.hpp"
 
 using namespace corvid;
 using corvid::cuda::cublas_handle;
@@ -32,28 +33,30 @@ using corvid::cuda::cuda_matrix;
 
 #pragma region Linear
 
-TEST_CASE("Device linear on hand-computed rows", "[LinearAlgebraTest][cuda]") {
+TEMPLATE_TEST_CASE("Device linear on hand-computed rows",
+    "[LinearAlgebraTest][cuda]", float, double) {
+  using T = TestType;
   // Two rows of three features through a three-by-two weight: the first
   // output column sums features 0 and 2, the second sums features 1 and 2,
   // and each gets its bias.
-  const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F};
-  const std::vector<float> weight_storage{1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F};
-  constexpr std::array bias_storage{10.0F, 20.0F};
+  const std::vector<T> in_storage{T{1}, T{2}, T{3}, T{4}, T{5}, T{6}};
+  const std::vector<T> weight_storage{T{1}, T{0}, T{0}, T{1}, T{1}, T{1}};
+  constexpr std::array bias_storage{T{10}, T{20}};
 
   const cublas_handle blas;
-  const cuda_matrix in(
-      const_float_matrix_view(in_storage, {.row_count = 2, .col_count = 3}));
-  const cuda_matrix weight(const_float_matrix_view(weight_storage,
-      {.row_count = 3, .col_count = 2}));
-  cuda_buffer<float> bias(bias_storage.size());
+  const cuda_matrix<T> in(
+      matrix_view<const T>(in_storage, {.row_count = 2, .col_count = 3}));
+  const cuda_matrix<T> weight(
+      matrix_view<const T>(weight_storage, {.row_count = 3, .col_count = 2}));
+  cuda_buffer<T> bias(bias_storage.size());
   REQUIRE(bias.load(bias_storage));
-  cuda_matrix out({.row_count = 2, .col_count = 2});
+  cuda_matrix<T> out({.row_count = 2, .col_count = 2});
 
   REQUIRE(cuda::linalg::linear_projection(blas, out, in, weight, bias));
 
-  std::vector<float> out_storage(out.size());
-  REQUIRE(out.store(float_matrix_view(out_storage, out.extent())));
-  CHECK(out_storage == std::vector<float>{14.0F, 25.0F, 20.0F, 31.0F});
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.store(matrix_view<T>(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<T>{T{14}, T{25}, T{20}, T{31}});
 }
 
 #pragma endregion

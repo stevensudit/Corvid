@@ -27,12 +27,12 @@
 
 // A matrix in device memory.
 //
-// `cuda_matrix` is a `cuda_buffer` that knows its row and column counts, so
-// device ops can check shapes on the host before launching, and a packed
-// `matrix_view` is what it loads from and stores to:
+// `cuda_matrix<T>` is a `cuda_buffer<T>` that knows its row and column
+// counts, so device ops can check shapes on the host before launching. It
+// loads and stores packed `matrix_view`s.
 //
-//   cuda_matrix in(host_view);
-//   cuda_matrix out(in.extent());
+//   cuda_matrix<float> in(host_view);
+//   cuda_matrix<float> out(in.extent());
 //   ... launch over out.get() ...
 //   out.store(host_out).or_throw();
 namespace corvid::cuda {
@@ -41,17 +41,18 @@ using matrix_types::matrix_extent;
 
 #pragma region cuda_matrix
 
-// A row-major matrix of `float` in device memory, packed with no gap between
-// rows.
+// A row-major matrix of `T` in device memory, packed with no gap between rows.
 //
 // It owns its allocation and carries its extent, so an op can check shapes on
 // the host before launching. Rows are the first index, as in `matrix_view`,
 // and a packed host view is the shape data moves in and out through.
-//
-// TODO: Must be templated so it's not just `float`.
+template<typename T>
 class cuda_matrix {
 public:
+  using element_t = T;
   using extent_t = matrix_extent;
+  using view_t = matrix_view<element_t>;
+  using const_view_t = matrix_view<const element_t>;
 
 #pragma region Construction
 
@@ -60,8 +61,7 @@ public:
       : buffer_(extent.row_count * extent.col_count), extent_{extent} {}
 
   // Allocate and upload `host`, which must be packed, or throw.
-  explicit cuda_matrix(const_float_matrix_view host)
-      : cuda_matrix{host.extent()} {
+  explicit cuda_matrix(const_view_t host) : cuda_matrix{host.extent()} {
     assert(host.stride() == host.col_extent());
     load(host).or_throw();
   }
@@ -69,12 +69,12 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] float* get() noexcept { return buffer_.get(); }
-  [[nodiscard]] const float* get() const noexcept { return buffer_.get(); }
+  [[nodiscard]] auto* get(this auto&& self) noexcept {
+    return self.buffer_.get();
+  }
 
-  [[nodiscard]] cuda_buffer<float>& buffer() noexcept { return buffer_; }
-  [[nodiscard]] const cuda_buffer<float>& buffer() const noexcept {
-    return buffer_;
+  [[nodiscard]] auto& buffer(this auto&& self) noexcept {
+    return self.buffer_;
   }
 
   [[nodiscard]] extent_t extent() const noexcept { return extent_; }
@@ -92,13 +92,13 @@ public:
 #pragma region Transfer
 
   // Upload `host`, which must be packed and of the same extent.
-  [[nodiscard]] cuda_last_status load(const_float_matrix_view host) {
+  [[nodiscard]] cuda_last_status load(const_view_t host) {
     assert(is_packed_match(host));
     return buffer_.load(host.as_span());
   }
 
   // Download into `host`, which must be packed and of the same extent.
-  [[nodiscard]] cuda_last_status store(float_matrix_view host) const {
+  [[nodiscard]] cuda_last_status store(view_t host) const {
     assert(is_packed_match(host));
     return buffer_.store(host.as_span());
   }
@@ -106,7 +106,7 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  [[nodiscard]] bool is_packed_match(const_float_matrix_view host) const {
+  [[nodiscard]] bool is_packed_match(const_view_t host) const {
     return (host.row_extent() == extent_.row_count) &&
            (host.col_extent() == extent_.col_count) &&
            (host.stride() == extent_.col_count);
@@ -115,7 +115,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  cuda_buffer<float> buffer_;
+  cuda_buffer<element_t> buffer_;
   extent_t extent_;
 
 #pragma endregion

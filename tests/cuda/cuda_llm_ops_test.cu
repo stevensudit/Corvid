@@ -43,8 +43,8 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
       -10.0F};
   const const_float_matrix_view in_view(in_storage,
       {.row_count = 1, .col_count = in_storage.size()});
-  const cuda_matrix in(in_view);
-  cuda_matrix out(in.extent());
+  const cuda_matrix<float> in(in_view);
+  cuda_matrix<float> out(in.extent());
 
   REQUIRE(cuda::llm::gelu_new(out, in));
 
@@ -60,7 +60,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   CHECK_THAT(out_storage[6], WithinAbs(0.0, tolerance));
 
   // In place gives the same values.
-  cuda_matrix same(in_view);
+  cuda_matrix<float> same(in_view);
   REQUIRE(cuda::llm::gelu_new(same, same));
   std::vector<float> same_storage(same.size());
   REQUIRE(same.store(float_matrix_view(same_storage, same.extent())));
@@ -87,21 +87,21 @@ TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
           matrix_of(oracle.activations, dump + "/mlp/out", n_embd);
       REQUIRE(in_view.row_extent() == 14);
 
-      const cuda_matrix in(in_view);
-      const cuda_matrix fc_weight(
+      const cuda_matrix<float> in(in_view);
+      const cuda_matrix<float> fc_weight(
           matrix_of(oracle.weights, param + ".c_fc.weight", n_hidden));
       cuda_buffer<float> fc_bias(n_hidden);
       REQUIRE(fc_bias.load(
           vector_of(oracle.weights, param + ".c_fc.bias", n_hidden)));
-      const cuda_matrix proj_weight(
+      const cuda_matrix<float> proj_weight(
           matrix_of(oracle.weights, param + ".c_proj.weight", n_embd));
       cuda_buffer<float> proj_bias(n_embd);
       REQUIRE(proj_bias.load(
           vector_of(oracle.weights, param + ".c_proj.bias", n_embd)));
 
-      cuda_matrix hidden(
+      cuda_matrix<float> hidden(
           {.row_count = in_view.row_extent(), .col_count = n_hidden});
-      cuda_matrix out(in_view.extent());
+      cuda_matrix<float> out(in_view.extent());
       std::vector<float> out_storage(out.size());
       const float_matrix_view out_view(out_storage, out.extent());
 

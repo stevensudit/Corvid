@@ -5,6 +5,7 @@
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <type_traits>
 
 #include <cuda_runtime.h>
 
@@ -41,6 +42,20 @@ TEST_CASE("cuda_buffer allocates and moves", "[cuda]") {
   CHECK(a.get() == raw);
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK_FALSE(b.ok()); // moved-from is null
+}
+
+TEST_CASE("cuda_buffer propagates const to its pointer", "[cuda]") {
+  cuda_buffer<int> a{4};
+  const auto& const_a = a;
+  static_assert(std::is_same_v<decltype(a.get()), int*>);
+  static_assert(std::is_same_v<decltype(const_a.get()), const int*>);
+  static_assert(std::is_convertible_v<cuda_buffer<int>&, int*>);
+  static_assert(std::is_convertible_v<const cuda_buffer<int>&, const int*>);
+  static_assert(!std::is_convertible_v<const cuda_buffer<int>&, int*>);
+  static_assert(std::is_same_v<decltype(*a), int*>);
+  static_assert(std::is_same_v<decltype(*const_a), const int*>);
+  CHECK(const_a.get() == a.get());
+  CHECK(*const_a == a.get());
 }
 
 TEST_CASE("cuda_buffer construction failure policy", "[cuda]") {

@@ -24,6 +24,7 @@
 
 #include "corvid/llm/llm_ops.h"
 #include "catch2_main.h"
+#include "catch2/catch_template_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 #include "gpt2_oracle.h"
 
@@ -133,18 +134,20 @@ TEST_CASE("Layer norm honors the stride of both views", "[LlmOpsTest]") {
   CHECK_THAT(out_storage[2], WithinAbs(1.0, tolerance));
 }
 
-TEST_CASE("GELU on hand-computed values", "[LlmOpsTest]") {
+TEMPLATE_TEST_CASE("GELU on hand-computed values", "[LlmOpsTest]", float,
+    double) {
+  using T = TestType;
   // Reference values from torch's gelu with approximate="tanh". Zero maps to
   // zero, the far tails pass through or vanish, and the negative side dips
   // below zero before it does.
   constexpr auto tolerance = 1e-6;
-  CHECK(gelu_new(0.0F) == 0.0F);
-  CHECK_THAT(gelu_new(1.0F), WithinAbs(0.841192, tolerance));
-  CHECK_THAT(gelu_new(-1.0F), WithinAbs(-0.158808, tolerance));
-  CHECK_THAT(gelu_new(2.0F), WithinAbs(1.954598, tolerance));
-  CHECK_THAT(gelu_new(-2.0F), WithinAbs(-0.045402, tolerance));
-  CHECK_THAT(gelu_new(10.0F), WithinAbs(10.0, tolerance));
-  CHECK_THAT(gelu_new(-10.0F), WithinAbs(0.0, tolerance));
+  CHECK(gelu_new(T{0}) == T{0});
+  CHECK_THAT(gelu_new(T{1}), WithinAbs(0.841192, tolerance));
+  CHECK_THAT(gelu_new(T{-1}), WithinAbs(-0.158808, tolerance));
+  CHECK_THAT(gelu_new(T{2}), WithinAbs(1.954598, tolerance));
+  CHECK_THAT(gelu_new(T{-2}), WithinAbs(-0.045402, tolerance));
+  CHECK_THAT(gelu_new(T{10}), WithinAbs(10.0, tolerance));
+  CHECK_THAT(gelu_new(T{-10}), WithinAbs(0.0, tolerance));
 }
 
 TEST_CASE("GELU honors the stride of both views", "[LlmOpsTest]") {

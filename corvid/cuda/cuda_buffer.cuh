@@ -68,8 +68,8 @@ consteval auto corvid_enum_spec(memcpy_kind*) {
 // Owning, move-only RAII handle to an uninitialized block of `count` objects
 // of type `T` in CUDA device memory.
 template<typename T>
-class cuda_buffer: public cuda_handle<T*, cudaFree> {
-  using base = cuda_handle<T*, cudaFree>;
+class cuda_buffer: public cuda_handle<T*, cudaFree, const_propagation::deep> {
+  using base = cuda_handle<T*, cudaFree, const_propagation::deep>;
   static_assert(std::is_trivially_copyable_v<T>,
       "cuda_buffer<T> requires a trivially copyable T: device memory is "
       "copied "
@@ -103,8 +103,7 @@ public:
 
   // Store memory from the CUDA device into the host buffer.
   //
-  // Copies the lesser of `count` and the allocation, so the default copies
-  // the whole allocation and a zero `count` copies nothing.
+  // Copies the lesser of `count` and the allocation.
   [[nodiscard]] cuda_last_status
   store(T* host_ptr, size_t count = strings::npos) const {
     return copy(host_ptr, this->get(), std::min(count, size_),

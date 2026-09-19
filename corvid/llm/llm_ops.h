@@ -103,12 +103,14 @@ inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
 #pragma region gelu_new
 
 // The `sqrt(2 / pi)` that scales the argument of the tanh.
-inline constexpr float gelu_tanh_scale =
-    std::numbers::sqrt2_v<float> * std::numbers::inv_sqrtpi_v<float>;
+template<Floating T>
+inline constexpr T gelu_tanh_scale_v =
+    std::numbers::sqrt2_v<T> * std::numbers::inv_sqrtpi_v<T>;
 
 // The coefficient of the cubic term inside the tanh, from the original
 // paper's fit of the tanh form to the exact one.
-inline constexpr float gelu_cubic_coeff = 0.044715F;
+template<Floating T>
+inline constexpr T gelu_cubic_coeff_v = static_cast<T>(0.044715);
 
 // The GELU (Gaussian Error Linear Unit) of `x`, in the tanh approximation
 // form.
@@ -116,17 +118,17 @@ inline constexpr float gelu_cubic_coeff = 0.044715F;
 // GELU is `x` times the probability that a standard normal draw is below `x`.
 // So it passes large positive inputs through unchanged, squashes large
 // negative ones to zero, and bends smoothly between the two, dipping a little
-// below zero on the way. The exact probability needs `erf`. This form
-// replaces it with a tanh of a cubic, which is close but not identical:
+// The exact probability needs `erf`; this form instead uses a tanh of
+// a cubic, which is close but not identical:
 //
 //   0.5 * x * (1 + tanh(sqrt(2 / pi) * (x + 0.044715 * x^3)))
 //
-// The weights were fit to this curve, so this is the form that matches the
-// oracle, and the `erf` form would not. Not `constexpr` because it uses
-// `std::tanh`.
-[[nodiscard]] CUDA_HOST_DEVICE inline float gelu_new(float x) noexcept {
-  const auto inner = gelu_tanh_scale * (x + (gelu_cubic_coeff * x * x * x));
-  return 0.5F * x * (1.0F + std::tanh(inner));
+// Not `constexpr` because it uses `std::tanh`.
+template<Floating T>
+[[nodiscard]] CUDA_HOST_DEVICE T gelu_new(T x) noexcept {
+  const auto inner =
+      gelu_tanh_scale_v<T> * (x + (gelu_cubic_coeff_v<T> * x * x * x));
+  return T{0.5} * x * (T{1} + std::tanh(inner));
 }
 
 // Apply `gelu_new` to every element of `in`, into `out`.
@@ -138,8 +140,8 @@ inline constexpr float gelu_cubic_coeff = 0.044715F;
 //
 // `out` and `in` must have the same extent. `out` can be the same view
 // as `in`, applying it in place, but must not otherwise overlap it.
-inline void
-gelu_new(float_matrix_view out, const_float_matrix_view in) noexcept {
+template<Floating T>
+void gelu_new(matrix_view<T> out, const_view_t<T> in) noexcept {
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == in.col_extent()));
   assert(is_same_or_disjoint(out.as_span(), in.as_span()));
@@ -272,7 +274,7 @@ inline void attention(float_matrix_view out, const_float_matrix_view qkv,
 }
 
 #pragma endregion
-#pragma region embed
+#pragma region embed tokens
 
 // Look up each ID's row of `table`, into `out`.
 //
