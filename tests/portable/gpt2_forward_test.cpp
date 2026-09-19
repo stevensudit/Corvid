@@ -472,7 +472,7 @@ TEST_CASE("Logits on hand-computed rows", "[Gpt2ForwardTest]") {
   const const_float_matrix_view in(in_storage,
       {.row_count = 2, .col_count = 2});
 
-  std::vector<float> storage(2 * 3);
+  std::vector<float> storage(2UZ * 3);
   const float_matrix_view out(storage, {.row_count = 2, .col_count = 3});
   logits(out, in, wte);
 
@@ -843,7 +843,8 @@ TEST_CASE("Greedy decoding reproduces the manifest",
         model.params.wte);
     ids.push_back(greedy(next_logits));
   }
-  const std::vector<token_id> generated(ids.begin() + prompt_count, ids.end());
+  const auto appended = std::span{ids}.subspan(prompt_count);
+  const std::vector<token_id> generated(appended.begin(), appended.end());
   CHECK(generated == expected_ids);
 
   // And as text, through the tokenizer.
