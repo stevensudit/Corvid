@@ -18,6 +18,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <functional>
 #include <type_traits>
 
 #include <cuda_runtime.h>
@@ -233,20 +234,47 @@ linear_projection(const cublas_handle& blas, cuda_matrix<T>& out,
 }
 
 #pragma endregion
-#pragma region add
+#pragma region add and subtract
 
 namespace details {
 
-// Add the `size` elements of two views `cols` wide, with rows `a_stride` and
-// `b_stride` apart, into rows `out_stride` apart, one thread per element.
-template<typename T>
-__global__ void add_elements(T* out, size_t out_stride, const T* a,
-    size_t a_stride, const T* b, size_t b_stride, size_t size, size_t cols) {
+// Combine the `size` elements of two views `cols` wide through `op`, with
+// rows `a_stride` and `b_stride` apart, into rows `out_stride` apart, one
+// thread per element.
+//
+// Thread `i` takes element `i` in row-major order, so the lanes of a warp
+// read 32 consecutive columns, and `strided_offset` steps over the gap
+// between the rows of a strided view.
+template<typename T, typename Op>
+__global__ void
+combine_elements(T* out, size_t out_stride, const T* a, size_t a_stride,
+    const T* b, size_t b_stride, size_t size, size_t cols, Op op) {
   const auto i = cuda_kernel::x_index<size_t>();
   if (i < size)
-    out[cuda_kernel::strided_offset(i, cols, out_stride)] =
-        a[cuda_kernel::strided_offset(i, cols, a_stride)] +
-        b[cuda_kernel::strided_offset(i, cols, b_stride)];
+    out[cuda_kernel::strided_offset(i, cols, out_stride)] = op(
+        a[cuda_kernel::strided_offset(i, cols, a_stride)],
+        b[cuda_kernel::strided_offset(i, cols, b_stride)]);
+}
+
+// Combine `a` and `b` elementwise through `op`, into `out`.
+//
+// All three views must have the same extent. `out` can be the same view as
+// `a` or as `b`, but must not otherwise overlap either. Returns false when
+// the launch is refused, leaving `out` unspecified.
+template<typename T, typename Op>
+[[nodiscard]] bool
+combine(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b, Op op) {
+  assert((a.row_extent() == b.row_extent()) &&
+         (a.col_extent() == b.col_extent()));
+  assert((out.row_extent() == a.row_extent()) &&
+         (out.col_extent() == a.col_extent()));
+  assert(is_same_or_disjoint(out.as_span(), a.as_span()));
+  assert(is_same_or_disjoint(out.as_span(), b.as_span()));
+
+  combine_elements<T, Op><<<blocks_for(out.size()), threads_per_block>>>(
+      out.get(), out.stride(), a.get(), a.stride(), b.get(), b.stride(),
+      out.size(), out.col_extent(), op);
+  return cuda_last_status{}.ok();
 }
 
 } // namespace details
@@ -259,17 +287,7 @@ __global__ void add_elements(T* out, size_t out_stride, const T* a,
 template<Arithmetic T>
 [[nodiscard]] bool
 add(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) {
-  assert((a.row_extent() == b.row_extent()) &&
-         (a.col_extent() == b.col_extent()));
-  assert((out.row_extent() == a.row_extent()) &&
-         (out.col_extent() == a.col_extent()));
-  assert(is_same_or_disjoint(out.as_span(), a.as_span()));
-  assert(is_same_or_disjoint(out.as_span(), b.as_span()));
-
-  details::add_elements<T><<<blocks_for(out.size()), threads_per_block>>>(
-      out.get(), out.stride(), a.get(), a.stride(), b.get(), b.stride(),
-      out.size(), out.col_extent());
-  return cuda_last_status{}.ok();
+  return details::combine(out, a, b, std::plus<>{});
 }
 
 // `add` over an owning `out`, so the call needs no `view()`.
@@ -277,6 +295,24 @@ template<Arithmetic T>
 [[nodiscard]] bool
 add(cuda_matrix<T>& out, const_view_t<T> a, const_view_t<T> b) {
   return add(out.view(), a, b);
+}
+
+// Subtract `b` from `a` elementwise, into `out`.
+//
+// All three views must have the same extent. `out` can be the same view as
+// `a` or as `b`, subtracting in place, but must not otherwise overlap either.
+// Returns false when the launch is refused, leaving `out` unspecified.
+template<Arithmetic T>
+[[nodiscard]] bool
+subtract(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) {
+  return details::combine(out, a, b, std::minus<>{});
+}
+
+// `subtract` over an owning `out`, so the call needs no `view()`.
+template<Arithmetic T>
+[[nodiscard]] bool
+subtract(cuda_matrix<T>& out, const_view_t<T> a, const_view_t<T> b) {
+  return subtract(out.view(), a, b);
 }
 
 #pragma endregion

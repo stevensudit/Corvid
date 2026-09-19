@@ -16,9 +16,9 @@
 // limitations under the License.
 #include <vector>
 
-#include "corvid/cuda/cuda_block.cuh"
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_kernel.cuh"
+#include "corvid/cuda/cuda_reduce.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "catch2_main.h"
 
@@ -26,39 +26,53 @@ using namespace corvid::cuda;
 
 namespace {
 
-// Each thread contributes its index and then its index times ten, so the two
-// sums in a row exercise the shared-memory reuse, and every thread records
-// both so the broadcast to all threads is checked too.
-__global__ void block_kernel(int* first, int* second) {
+constexpr auto lanes = 32U;
+
+// Each thread contributes its index to a warp sum and a block sum, then its
+// index times ten to a second block sum, so the two block sums in a row
+// exercise the shared-memory reuse. Every thread records all three, so the
+// broadcast to every thread is checked too.
+__global__ void reduce_kernel(int* warp, int* first, int* second) {
   const auto thread = cuda_kernel::x_thread();
-  first[thread] = cuda_block::sum(thread);
-  second[thread] = cuda_block::sum(thread * 10);
+  warp[thread] = cuda_reduce::warp_sum(thread);
+  first[thread] = cuda_reduce::block_sum(thread);
+  second[thread] = cuda_reduce::block_sum(thread * 10);
 }
 
 } // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-#pragma region cuda_block
+#pragma region cuda_reduce
 
-TEST_CASE("cuda_block sums across one warp and across eight", "[cuda]") {
-  for (const auto threads : {32U, 256U}) {
+TEST_CASE("cuda_reduce sums across one warp and across eight", "[cuda]") {
+  for (const auto threads : {lanes, 8 * lanes}) {
     DYNAMIC_SECTION(threads << " threads") {
+      cuda_buffer<int> d_warp{threads};
       cuda_buffer<int> d_first{threads};
       cuda_buffer<int> d_second{threads};
-      block_kernel<<<1, threads>>>(d_first.get(), d_second.get());
+      reduce_kernel<<<1, threads>>>(d_warp.get(), d_first.get(),
+          d_second.get());
+      std::vector<int> warp(threads);
       std::vector<int> first(threads);
       std::vector<int> second(threads);
+      REQUIRE(d_warp.store(warp));
       REQUIRE(d_first.store(first));
       REQUIRE(d_second.store(second));
       REQUIRE(cuda_last_status{}.ok());
 
       // 0 + 1 + ... + (threads - 1)
-      const auto expected = static_cast<int>(threads * (threads - 1) / 2);
+      const auto block_total = static_cast<int>(threads * (threads - 1) / 2);
       for (auto thread = 0U; thread < threads; ++thread) {
         CAPTURE(thread);
-        CHECK(first[thread] == expected);
-        CHECK(second[thread] == expected * 10);
+        // The thread's warp holds the 32 indexes from `32 * w` on, whose sum
+        // is 32 * 32 * w plus 0 + 1 + ... + 31.
+        const auto w = thread / lanes;
+        const auto warp_total =
+            static_cast<int>((lanes * lanes * w) + (lanes * (lanes - 1) / 2));
+        CHECK(warp[thread] == warp_total);
+        CHECK(first[thread] == block_total);
+        CHECK(second[thread] == block_total * 10);
       }
     }
   }

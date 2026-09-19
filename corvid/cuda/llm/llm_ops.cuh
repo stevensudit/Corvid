@@ -26,10 +26,10 @@
 #include "../../linalg/linear_algebra.h"
 #include "../../llm/llm_ops.h"
 #include "../../meta/containers.h"
-#include "../cuda_block.cuh"
 #include "../cuda_buffer.cuh"
 #include "../cuda_kernel.cuh"
 #include "../cuda_matrix.cuh"
+#include "../cuda_reduce.cuh"
 #include "../cuda_status.cuh"
 #include "../linalg/linear_algebra.cuh"
 
@@ -52,7 +52,8 @@ namespace details {
 //
 // The block index picks the row, and each thread takes the columns at its
 // index and every `blockDim.x` after it, so with 256 threads and 768 columns
-// each thread holds 3.
+// each thread holds 3. A thread past the last column sums nothing and still
+// joins both block sums, which every thread must.
 //
 // The mean and the variance are each a block-wide sum, and the variance is
 // the mean of the squared deviations from the mean, as the CPU op computes
@@ -73,14 +74,14 @@ __global__ void apply_layer_norm(T* out, size_t out_stride, const T* in,
 
   T total{};
   for (auto c = first; c < cols; c += step) total += in_row[c];
-  const auto mean = cuda_block::sum(total) / count;
+  const auto mean = cuda_reduce::block_sum(total) / count;
 
   T squares{};
   for (auto c = first; c < cols; c += step) {
     const auto deviation = in_row[c] - mean;
     squares += deviation * deviation;
   }
-  const auto variance = cuda_block::sum(squares) / count;
+  const auto variance = cuda_reduce::block_sum(squares) / count;
   // Note that we could have used `rsqrt(variance + eps)` instead of `1 /
   // std::sqrt(variance + eps)`, which is faster but yields slightly different
   // results. We still might, but we'd need to tolerance it.

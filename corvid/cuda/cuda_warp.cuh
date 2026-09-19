@@ -39,6 +39,13 @@ public:
   // Warp ID within the block.
   __device__ static unsigned warp_id() { return threadIdx.x / warpSize; }
 
+  // The number of warps in the block, which must be one-dimensional and a
+  // multiple of `warpSize`.
+  __device__ static unsigned warps_in_block() { return blockDim.x / warpSize; }
+
+  // The most warps a block can hold, since a block is at most 1024 threads.
+  static constexpr auto max_warps_per_block = 32U;
+
   // Mask of active threads in the warp.
   __device__ static uint32_t active_mask() { return __activemask(); }
 
@@ -77,22 +84,6 @@ public:
   __device__ static T shuffle_xor(T value, unsigned lane_mask,
       uint32_t mask = active_mask(), unsigned width = warpSize) {
     return __shfl_xor_sync(mask, value, lane_mask, width);
-  }
-
-  // The sum of `value` over the lanes of `mask`, returned to every one of
-  // them.
-  //
-  // Every lane in `mask` must call it, so the default is the whole warp
-  // rather than the active lanes. It is a butterfly of `shuffle_xor`, so with
-  // 32 lanes it takes 5 rounds (16, 8, 4, 2, 1) and each round pairs every
-  // lane with a partner that already holds the sum of a disjoint half.
-  template<typename T>
-  __device__ static T sum(T value, uint32_t mask = all_mask) {
-    const auto warps = static_cast<unsigned>(warpSize);
-    for (auto offset = warps / 2; offset > 0; offset /= 2)
-      value += shuffle_xor(value, offset, mask);
-
-    return value;
   }
 };
 
