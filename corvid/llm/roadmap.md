@@ -1,6 +1,6 @@
 # LLM roadmap
 
-Plan for `corvid/cuda/llm`: a transformer inference and adapter-training
+Plan for `corvid/linalg`, `corvid/llm`, and `corvid/cuda`: a transformer inference and adapter-training
 stack written from scratch in Corvid-flavored C++23 and CUDA, targeting one
 RTX 4090. The destination is the "weights versus context" experiment from
 the personalized-memory design: compile plain-English dispositional traces
@@ -57,13 +57,38 @@ manager. So the division of labor is fixed up front:
 
 ## Layout
 
-- `corvid/cuda/llm/`: model code. CPU-only pieces (tokenizer, safetensors
-  reader, CPU forward) are plain `.h` in `corvid::llm`; anything that touches
-  the device is `.cuh` in `corvid::cuda::llm`, resting on `cuda_buffer`,
-  `cuda_cublas`, `cuda_event`, and friends.
-- **A new `cuda` band** in `deps.md`, high in the stack so it may depend on
-  `filesys` and `proto`. This puts the CPU-only `.h` files under the layering
-  lint, which skips `.cuh` today.
+- Three layers, each with a CPU header and a device counterpart (since
+  2026-09-18; before that everything sat in `corvid/cuda/llm/gpt2_forward.h`
+  and `.cuh`):
+  - `corvid/linalg/linear_algebra.h` (namespace `corvid::linalg`): row and
+    matrix arithmetic over `matrix_view` that knows nothing about models:
+    reductions, elementwise steps, `linear`, softmax, `add`. Its device
+    counterpart is `corvid/cuda/linalg/linear_algebra.cuh`
+    (`corvid::cuda::linalg`): `cuda_matrix`, launch geometry, and the same
+    ops over device memory.
+  - `corvid/llm/llm_ops.h` (`corvid::llm`): the transformer ops shared by
+    every model, `layer_norm`, `gelu_new`, `attention`, `embed`, `logits`,
+    `greedy`, plus `token_id.h`, the tokenizer, and the safetensors reader.
+    Device counterpart `corvid/cuda/llm/llm_ops.cuh` (`corvid::cuda::llm`).
+  - `corvid/llm/gpt2.h`: the GPT-2 architecture, `block` and `forward` with
+    their parameter and activation bundles. A later model gets its own file
+    beside it and reuses the ops.
+- **Two bands in `deps.md`**: `linalg` rests on `containers/utils`; `llm` is
+  an apex band so the reader may reach `filesys` and `proto`. The `.cuh`
+  files stay under `corvid/cuda/`, outside the layering lint.
+- **Rulings on the linalg layer** (2026-09-18, Steven's review of the split):
+  the named functions are canonical, since they write into caller-owned
+  storage with no temporaries, and operators are sugar for the in-place
+  cases only (`matrix_view::add` and `subtract`, also spelled `+=` and
+  `-=`); a matrix product operator waits for an owning type. Names say
+  what they are: `dot_product`, `linear_projection` (an affine map, the
+  bias making it so), `population_variance` beside `sample_variance`, and
+  `subtract` beside `add`. The layer knows nothing about tokens or GPT-2:
+  the projection widths and the Conv1D versus `nn.Linear` layout note live
+  in "gpt-2.md". Ops arrive with their first consumer, so no median or
+  geometric mean; the root mean square comes with RMSNorm in stage 6. A
+  transpose flag on `linear_projection` comes with the first `nn.Linear`
+  checkpoint, also stage 6.
 - `tests/portable/`: `.cpp` tests for the CPU pieces (clang, libc++).
 - `tests/cuda/`: `.cu` tests for the device pieces. Since 2026-09-18 the
   Windows leg (clang++ as the CUDA compiler, see crossplatform.md) is where
@@ -406,7 +431,7 @@ Status (2026-09-17, later): attention drafted, after a worked example on
 three tokens of width two (in conversation; the numbers are now the
 hand-computed test). Two ops: `attention_head` runs one head on its
 `q`, `k`, `v` views, scoring each token against the tokens at or before it
-with `dot` scaled by `1 / sqrt(width)`, taking `softmax_row` over those
+with `dot` scaled by `1 / sqrt(width)`, taking `softmax` over those
 scores, and accumulating the value rows with `add_scaled`; `attention`
 splits the `c_attn` output into its query, key, and value thirds, cuts each
 into `head_count` column slices, and runs `attention_head` per slice into
@@ -414,7 +439,7 @@ the matching slice of the output. Decisions: the causal mask is the loop
 bound (only tokens 0 through `i` are ever scored, nothing is set to minus
 infinity); the scratch is one row of `token_count` scores passed in by the
 caller, since each token's weights are consumed before the next token's are
-computed, and the ops stay allocation-free; `softmax_row` takes plain spans
+computed, and the ops stay allocation-free; `softmax` takes plain spans
 because its row is indexed by token here and by vocabulary entry at the
 head, so neither `row_span` nor `col_span` fits; and the max-subtraction
 is a body comment, not contract. The oracle gate is the attention path,
@@ -780,6 +805,18 @@ Done when: the numbers are in this file, whatever they say. Matching the
 control is a legitimate outcome; it means the architecture reduces to a
 well-built context memory, which is worth knowing before anyone builds the
 rest of it.
+
+## Candidate quests
+
+Fun, not blockers, and not small; recorded so they are considered on their
+own merits later rather than slipping in as side quests:
+
+- expression templates over `matrix_view` and spans, so `in * weight + bias`
+  can be written as operators without a temporary. Until then the named
+  functions are canonical and the operators are the in-place ones only;
+- a `number_span` that subsumes `enum_span` and carries the arithmetic
+  operators for rows, the same question as the matrix operators one level
+  down.
 
 ## Deferred
 

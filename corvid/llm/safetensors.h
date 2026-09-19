@@ -29,14 +29,14 @@
 #include <utility>
 #include <vector>
 
-#include "../../containers/core/opt_find.h"
-#include "../../containers/core/transparent.h"
-#include "../../enums/sequence_enum.h"
-#include "../../filesys/os_file.h"
-#include "../../filesys/os_mmap_file.h"
-#include "../../math/endian.h"
-#include "../../meta/bit_cast.h"
-#include "../../proto/misc/json_parser.h"
+#include "../containers/core/opt_find.h"
+#include "../containers/core/transparent.h"
+#include "../enums/sequence_enum.h"
+#include "../filesys/os_file.h"
+#include "../filesys/os_mmap_file.h"
+#include "../math/endian.h"
+#include "../meta/bit_cast.h"
+#include "../proto/misc/json_parser.h"
 
 // A reader for the safetensors weight file format.
 //

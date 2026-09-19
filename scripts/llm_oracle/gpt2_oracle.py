@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Produce the GPT-2 124M reference artifacts for corvid/cuda/llm.
+"""Produce the GPT-2 124M reference artifacts for corvid/llm.
 
 This is the only Python in the LLM quest. It reads the published weights
 through PyTorch and Hugging Face once and writes everything the C++ side

@@ -161,6 +161,25 @@ public:
         lda, B, ldb, &beta, C, ldc);
   }
 
+  // GEMM over row-major matrices, `C = alpha * op(A) * op(B) + beta * C`.
+  //
+  // The same letters as `multiply`, read row-major: `op(A)` is `m` by `k`,
+  // `op(B)` is `k` by `n`, `C` is `m` by `n`, and each leading dimension is
+  // the element distance between the starts of consecutive rows of that
+  // matrix as stored, which for a packed matrix is its column count.
+  [[nodiscard]] cublas_last_status multiply_row_major(int m, int n, int k,
+      float alpha, const cuda_buffer<float>& A, int lda,
+      const cuda_buffer<float>& B, int ldb, float beta, cuda_buffer<float>& C,
+      int ldc, cublas_operation opA = cublas_operation::none,
+      cublas_operation opB = cublas_operation::none) const {
+    // cuBLAS reads each row-major buffer as its column-major transpose, and
+    // transposing both sides gives `C^T = op(B)^T * op(A)^T`. So the operands
+    // swap, `C` is described from the other side, and each flag carries over
+    // unchanged, since a transpose asked for in row-major terms is the same
+    // transpose of the buffer cuBLAS sees.
+    return multiply(n, m, k, alpha, B, ldb, A, lda, beta, C, ldc, opB, opA);
+  }
+
   // Square multiply, where every dimension and leading dimension is `n`.
   [[nodiscard]] cublas_last_status multiply(int n, float alpha,
       const cuda_buffer<float>& A, const cuda_buffer<float>& B, float beta,

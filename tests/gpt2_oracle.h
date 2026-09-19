@@ -31,8 +31,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "corvid/containers/utils/matrix_view.h"
-#include "corvid/cuda/llm/gpt2_tokenizer.h"
-#include "corvid/cuda/llm/safetensors.h"
+#include "corvid/llm/safetensors.h"
+#include "corvid/llm/token_id.h"
 #include "test_files.h"
 
 // The GPT-2 oracle for the forward-pass tests, CPU and device alike: where

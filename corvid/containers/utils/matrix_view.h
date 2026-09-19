@@ -22,6 +22,7 @@
 #include <type_traits>
 
 #include "../../enums/sequence_enum.h"
+#include "../../meta/containers.h"
 #include "enum_span.h"
 #include "interval.h"
 
@@ -112,11 +113,12 @@ public:
 #pragma region Types
 
   using element_t = T;
+  using span_t = std::span<T>;
   using row_ndx = matrix_types::row_ndx;
   using col_ndx = matrix_types::col_ndx;
   using coord = matrix_types::coord;
   using extent_t = matrix_types::matrix_extent;
-  using row_span = enum_span<T, col_ndx>;
+  using row_span = enum_span<element_t, col_ndx>;
 
 #pragma endregion
 #pragma region Construction
@@ -124,7 +126,7 @@ public:
   constexpr matrix_view() = default;
 
   // Packed view over `data`, which must hold exactly the elements of `size`.
-  constexpr matrix_view(std::span<T> data, extent_t size) noexcept
+  constexpr matrix_view(span_t data, extent_t size) noexcept
       : matrix_view{data, size, size.col_count} {
     assert(data.size() == size.row_count * size.col_count);
   }
@@ -134,8 +136,7 @@ public:
   //
   // `stride` must be at least `size.col_count`, and `data` must reach the
   // last element of the last row.
-  constexpr matrix_view(std::span<T> data, extent_t size,
-      size_t stride) noexcept
+  constexpr matrix_view(span_t data, extent_t size, size_t stride) noexcept
       : data_{data}, extent_{size}, stride_{stride} {
     assert(stride >= extent_.col_count);
     assert(data.size() >= footprint(size, stride));
@@ -145,7 +146,7 @@ public:
   // Implicit conversion to a read-only view of a mutable view of the same
   // element type.
   template<typename U>
-  requires(std::is_same_v<const U, T> && !std::is_same_v<U, T>)
+  requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
   constexpr matrix_view(matrix_view<U> other) noexcept
       : data_{other.as_span()}, extent_{other.extent()},
         stride_{other.stride()} {}
@@ -156,9 +157,7 @@ public:
   // The elements the view reaches, from the first of the first row through
   // the last of the last row, so a strided view includes the gaps between
   // its rows.
-  [[nodiscard]] constexpr std::span<T> as_span() const noexcept {
-    return data_;
-  }
+  [[nodiscard]] constexpr span_t as_span() const noexcept { return data_; }
 
   [[nodiscard]] constexpr size_t stride() const noexcept { return stride_; }
 
@@ -200,13 +199,14 @@ public:
   }
 
   // Element at row `r`, column `c`, both of which must be in range.
-  [[nodiscard]] constexpr T& operator[](row_ndx r, col_ndx c) const noexcept {
+  [[nodiscard]] constexpr element_t&
+  operator[](row_ndx r, col_ndx c) const noexcept {
     assert((*r < extent_.row_count) && (*c < extent_.col_count));
     return data_[(*r * stride_) + *c];
   }
 
   // Element at `at`, which must be in range.
-  [[nodiscard]] constexpr T& operator[](coord at) const noexcept {
+  [[nodiscard]] constexpr element_t& operator[](coord at) const noexcept {
     return (*this)[at.row, at.col];
   }
 
@@ -283,6 +283,57 @@ public:
   }
 
 #pragma endregion
+#pragma region Arithmetic
+
+  // Add `other` to every element, in place. Prefer `operator+=`.
+  //
+  // The extents must match, and `other` must be this view or disjoint from
+  // it.
+  constexpr const matrix_view&
+  add(matrix_view<const element_t> other) const noexcept
+  requires(!std::is_const_v<element_t>)
+  {
+    assert((other.row_extent() == extent_.row_count) &&
+           (other.col_extent() == extent_.col_count));
+    assert(is_same_or_disjoint(data_, other.as_span()));
+    for (auto [row, other_row] : std::views::zip(rows(), other.rows()))
+      for (auto [value, other_value] : std::views::zip(row, other_row))
+        value += other_value;
+    return *this;
+  }
+
+  constexpr const matrix_view&
+  operator+=(matrix_view<const element_t> other) const noexcept
+  requires(!std::is_const_v<element_t>)
+  {
+    return add(other);
+  }
+
+  // Subtract `other` from every element, in place. Prefer `operator-=`.
+  //
+  // The extents must match, and `other` must be this view or disjoint from
+  // it.
+  constexpr const matrix_view&
+  subtract(matrix_view<const element_t> other) const noexcept
+  requires(!std::is_const_v<element_t>)
+  {
+    assert((other.row_extent() == extent_.row_count) &&
+           (other.col_extent() == extent_.col_count));
+    assert(is_same_or_disjoint(data_, other.as_span()));
+    for (auto [row, other_row] : std::views::zip(rows(), other.rows()))
+      for (auto [value, other_value] : std::views::zip(row, other_row))
+        value -= other_value;
+    return *this;
+  }
+
+  constexpr const matrix_view&
+  operator-=(matrix_view<const element_t> other) const noexcept
+  requires(!std::is_const_v<element_t>)
+  {
+    return subtract(other);
+  }
+
+#pragma endregion
 #pragma region Workers
 private:
   // The element count from the first element of the first row through the
@@ -304,7 +355,7 @@ private:
 #pragma endregion
 #pragma region Data members
 
-  std::span<T> data_;
+  span_t data_;
   extent_t extent_{0, 0};
   size_t stride_{};
 

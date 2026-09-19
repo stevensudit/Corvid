@@ -29,12 +29,13 @@
 #include <utility>
 #include <vector>
 
-#include "../../containers/core/opt_find.h"
-#include "../../containers/core/transparent.h"
-#include "../../enums/sequence_enum.h"
-#include "../../strings/conversion.h"
-#include "../../strings/token_parser.h"
-#include "../../strings/unicode.h"
+#include "../containers/core/opt_find.h"
+#include "../containers/core/transparent.h"
+#include "../enums/sequence_enum.h"
+#include "../strings/conversion.h"
+#include "../strings/token_parser.h"
+#include "../strings/unicode.h"
+#include "token_id.h"
 
 // GPT-2's byte-level Byte-Pair Encoding (BPE) tokenizer.
 //
@@ -57,15 +58,6 @@ namespace corvid::llm {
 using namespace strings::unicode;
 using strings::unicode::classifier::code_point_class;
 
-#pragma region token_id
-
-// Index of a piece in a tokenizer's vocabulary.
-enum class token_id : uint32_t {};
-consteval auto corvid_enum_spec(token_id*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<token_id, "">();
-}
-
-#pragma endregion
 #pragma region details
 
 namespace details {

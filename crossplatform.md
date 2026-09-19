@@ -310,7 +310,7 @@ generated code for a `std::sqrt` call is then the inline `sqrtss`
 instruction, a NaN test on the result, and a fallback `call sqrtf` on the
 never-taken negative path, so the cost is a compare and a branch per call
 and a function that cannot be treated as pure. Measured on
-"corvid/cuda/llm/gpt2_forward.h" at `-O3`: `layer_norm` carries one such
+"corvid/llm/llm_ops.h" at `-O3`: `layer_norm` carries one such
 fallback per row; with `-fno-math-errno` the call disappears and the
 `sqrtss` sits in a straight line with the multiply that consumes it.
 
