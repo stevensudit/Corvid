@@ -161,8 +161,7 @@ enum class adoption : uint8_t { relocate, box, hand_over, unbox, refuse };
 // is a runtime value. The check is at the border only, where a callable is
 // stored; a move from a sibling transplants whatever it held, unchecked. For
 // `proxy` it is any method that would take a behavior other than `empty`
-// itself. Flipping the default to `strict` and rebuilding is a one-edit
-// audit.
+// itself. Flipping the default to `strict` and rebuilding is a one-edit audit.
 //
 // For `proxy`, policies are checked at proxy construction, not at
 // registration. Registration is per (facade, type) and knows nothing about

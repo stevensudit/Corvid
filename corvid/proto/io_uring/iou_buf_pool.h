@@ -245,8 +245,7 @@ public:
     return std::make_shared<iou_buf_pool_of>(allow::ctor);
   }
 
-  // Register the backing block as a single fixed buffer (index 0) with
-  // `ring`.
+  // Register the backing block as a single fixed buffer (index 0) with `ring`.
   //
   // Must be called exactly once before any buffer is used in an I/O
   // submission. The `ring` unregisters on destruction.

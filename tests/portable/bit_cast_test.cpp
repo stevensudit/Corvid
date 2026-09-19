@@ -32,8 +32,7 @@ using namespace corvid;
 
 namespace {
 
-// A trivially copyable aggregate, to show the cast is not limited to
-// integers.
+// A trivially copyable aggregate, to show the cast is not limited to integers.
 struct point {
   uint16_t x;
   uint16_t y;

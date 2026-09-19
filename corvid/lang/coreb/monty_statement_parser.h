@@ -211,8 +211,7 @@ private:
       return toks.fail("'" + std::string{name} + "' is a literal, not a name");
     }
 
-    // Parse a definition: `name = expr` desugars 1:1 to `(define name
-    // expr)`.
+    // Parse a definition: `name = expr` desugars 1:1 to `(define name expr)`.
     //
     // The literal words read as values, so they name no binding.
     [[nodiscard]] result<stmt> parse_define() {

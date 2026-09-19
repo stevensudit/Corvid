@@ -213,8 +213,7 @@ public:
   //
   // Applies the previous operation's results before starting a new one,
   // pointing the effective start of the segments past the read bytes. This
-  // gives the caller a chance to first process buffers that have been
-  // filled.
+  // gives the caller a chance to first process buffers that have been filled.
   //
   // Status       |  Return  | `index`/`offset`         | `transferred`
   // Success         true      past bytes read into       count

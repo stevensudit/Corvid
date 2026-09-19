@@ -25,8 +25,8 @@
 
 using namespace corvid;
 
-// Minimal scoped enum used by POS-parameter and at() tests.
-// It has no arithmetic operators, which exercises the as_sz/as_pos casts.
+// Minimal scoped enum used by POS-parameter and at() tests. It has no
+// arithmetic operators, which exercises the as_sz/as_pos casts.
 enum class slot_t : size_t {};
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)

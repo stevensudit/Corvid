@@ -63,7 +63,7 @@ TEMPLATE_TEST_CASE("Device linear on hand-computed rows",
 #pragma endregion
 #pragma region GEMM
 
-TEMPLATE_TEST_CASE("Device gemm product, scale, and accumulation",
+TEMPLATE_TEST_CASE("Device gemm product, scale, and addends",
     "[LinearAlgebraTest][cuda]", float, double) {
   using T = TestType;
   // The linear case's two-by-three times three-by-two without its bias:
@@ -80,17 +80,40 @@ TEMPLATE_TEST_CASE("Device gemm product, scale, and accumulation",
   std::vector<T> out_storage(out.size());
   const matrix_view<T> out_view(out_storage, out.extent());
 
-  // A plain product, reading nothing from `out`.
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, nullptr, T{1}, T{0}));
+  // The plain product reads nothing from `out`.
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b));
   REQUIRE(out.store(out_view));
   CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
 
   // Twice the product, accumulated onto ones.
   const std::vector<T> ones_storage(out.size(), T{1});
   REQUIRE(out.load(matrix_view<const T>(ones_storage, out.extent())));
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, nullptr, T{2}));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {.scale = 2}, out));
   REQUIRE(out.store(out_view));
   CHECK(out_storage == std::vector<T>{T{9}, T{11}, T{21}, T{23}});
+
+  // The product plus a separate addend, which is left untouched.
+  const std::vector<T> addend_storage{T{100}, T{200}, T{300}, T{400}};
+  const cuda_matrix<T> addend(
+      matrix_view<const T>(addend_storage, out.extent()));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {}, addend));
+  REQUIRE(out.store(out_view));
+  CHECK(out_storage == std::vector<T>{T{104}, T{205}, T{310}, T{411}});
+  REQUIRE(addend.store(out_view));
+  CHECK(out_storage == addend_storage);
+
+  // A zero addend scale drops the addend, copy and all.
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {.addend_scale = 0}, addend));
+  REQUIRE(out.store(out_view));
+  CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
+
+  // The product plus twice a bias row.
+  constexpr std::array bias_storage{T{10}, T{20}};
+  cuda_buffer<T> bias(bias_storage.size());
+  REQUIRE(bias.load(bias_storage));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b, bias, {.addend_scale = 2}));
+  REQUIRE(out.store(out_view));
+  CHECK(out_storage == std::vector<T>{T{24}, T{45}, T{30}, T{51}});
 }
 
 TEMPLATE_TEST_CASE("Device gemm on a transposed operand",
@@ -108,8 +131,8 @@ TEMPLATE_TEST_CASE("Device gemm on a transposed operand",
       matrix_view<const T>(b_storage, {.row_count = 3, .col_count = 2}));
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
 
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, nullptr, T{1}, T{0},
-      cublas_operation::transpose));
+  REQUIRE(cuda::linalg::gemm(blas, out, a, b,
+      {.op_a = cublas_operation::transpose}));
 
   std::vector<T> out_storage(out.size());
   REQUIRE(out.store(matrix_view<T>(out_storage, out.extent())));

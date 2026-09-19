@@ -33,8 +33,7 @@ using namespace corvid::concurrency;
 
 namespace {
 // The container from the `lock` class comment's example. This test keeps the
-// code sample in "sync_lock.h" compiling and passing; change the two
-// together.
+// code sample in "sync_lock.h" compiling and passing; change the two together.
 class thread_safe_container {
 public:
   synchronizer sync;

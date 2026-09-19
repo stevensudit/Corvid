@@ -106,8 +106,7 @@ struct parsed_spec {
 namespace details {
 
 // Visit a `basic_format_arg` with `fn`, through the argument's own `visit`
-// where the library provides it and through `std::visit_format_arg`
-// otherwise.
+// where the library provides it and through `std::visit_format_arg` otherwise.
 //
 // The member arrived in C++26, which deprecates the free function, so the
 // choice is probed rather than gated on a macro (libc++ deprecates without

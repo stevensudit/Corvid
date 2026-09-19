@@ -842,6 +842,23 @@ before the GEMM and `beta` reaches it there. The `multiply` doc in
 `GemmElement` names the half and complex GEMMs it leaves out.
 "reflow_comments.py" also flags orphan tails now.
 
+Status (2026-09-19, gemm split): `gemm` is two overloads. The matrix-addend
+form, `gemm(blas, out, a, b, options = {}, addend = empty)`, computes
+`out = scale * op(a) * op(b) + addend_scale * addend`, with the scalars and
+transpose flags in a `gemm_options<T>` aggregate named at the call site
+(`{.scale = 2}`, `{.op_a = transpose}`), so the addend can trail with a
+default and a transposed product with no addend spells no sentinel;
+an empty `addend` (the default) is the plain product, `out` itself
+accumulates, and any other matrix is copied into `out` first, since cuBLAS's
+`C` is the one matrix it reads and writes. The vector-bias form takes a
+required `cuda_buffer` bias before the options, broadcasts it into `out`,
+and calls the matrix form with `out` as the addend; `linear_projection` is
+that call. The split
+retired the earlier footgun where a plain product needed an explicit zero
+scale. Supporting pieces: `matrix_extent::transposed()` in "matrix_view.h",
+`cuda_matrix(std::nullptr_t)` for the empty addend, and the device-to-device
+`cuda_buffer::load(const cuda_buffer&)` that retires the buffer's TODO.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

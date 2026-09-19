@@ -473,9 +473,8 @@ public:
   //
   // A refusal that merits a specific status latches it here (currently only
   // the `max_field_lines` cap's "431 Request Header Fields Too Large"),
-  // letting a caller holding only a failed add's bool pick the right
-  // response; failures that latch nothing merit the generic "400 Bad
-  // Request".
+  // letting a caller holding only a failed add's bool pick the right response;
+  // failures that latch nothing merit the generic "400 Bad Request".
   [[nodiscard]] http_status_code reject_status() const noexcept {
     return reject_status_;
   }

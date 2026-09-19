@@ -501,8 +501,8 @@ TEST_CASE("Can adopt", "[flexi_function]") {
 TEST_CASE("Null callables are empty", "[flexi_function]") {
   using fn_t = flexi_function<int(), dflt>;
 
-  // A null function pointer yields an empty wrapper, as with
-  // `std::function`, rather than one that calls through null.
+  // A null function pointer yields an empty wrapper, as with `std::function`,
+  // rather than one that calls through null.
   using fn_ptr = int (*)();
   fn_t f{fn_ptr{nullptr}};
   CHECK(!f);
@@ -660,9 +660,9 @@ TEST_CASE("Empty behavior is fixed per type", "[flexi_function]") {
   CHECK(g() == 3);
   CHECK_THROWS_AS(e(), std::bad_function_call);
 
-  // Across policies, through the converting constructor: the
-  // `fixed_function` raises on empty because that is its type's behavior,
-  // while the drained `silent` source stays silent.
+  // Across policies, through the converting constructor: the `fixed_function`
+  // raises on empty because that is its type's behavior, while the drained
+  // `silent` source stays silent.
   silencer h{[] { return 4; }};
   fixed_function<int(), 64> k{std::move(h)};
   CHECK(k() == 4);
@@ -815,9 +815,8 @@ TEST_CASE("Qualified signatures wrap and adopt like plain ones",
   const auto& cb = b;
   CHECK(cb() == 9);
 
-  // `const_only` and `rvalue_only` are direct, so they are not stored, and
-  // the signature's qualifiers apply to the instance the thunk names per
-  // call.
+  // `const_only` and `rvalue_only` are direct, so they are not stored, and the
+  // signature's qualifiers apply to the instance the thunk names per call.
   CHECK(b.size() == 0);
   flexi_function<int() &&, dflt> rv{rvalue_only{}};
   CHECK(rv.size() == 0);

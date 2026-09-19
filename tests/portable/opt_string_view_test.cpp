@@ -396,8 +396,8 @@ TEST_CASE("Cast", "[OptStringViewTest]") {
   CHECK(accept_overloaded("abc"sv) == "sv");
   CHECK(accept_overloaded("abc"_optsv) == "osv");
 
-  // But not this ambiguity.
-  // Need to either cast here or add a specific overload.
+  // But not this ambiguity. Need to either cast here or add a specific
+  // overload.
   // * CHECK(accept_overloaded("abc"s) == "sv");
 
   // It's not a std::string_view but can be converted to one.

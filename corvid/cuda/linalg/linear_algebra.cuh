@@ -63,69 +63,113 @@ __global__ void fill_rows(T* out, size_t size, const T* bias, size_t cols) {
 
 } // namespace details
 
-// General Matrix Multiply (GEMM) over row-major matrices.
+// The scalars and transpose flags of a `gemm`, named at the call site.
 //
-// `out = scale * op(a) * op(b) + bias_scale * bias`, where `op(x)` is `x` or
-// its transpose, as `op_a` and `op_b` select. The shapes must agree: `op(a)`
-// has a row per row of `out`, `op(b)` has a column per column of `out`, and
-// `op(a)` has as many columns as `op(b)` has rows.
+// `scale` multiplies the product and `addend_scale` the addend, whether that
+// is a matrix or a bias row. `op_a` and `op_b` take each operand as stored or
+// transposed.
+template<GemmElement T>
+struct gemm_options {
+  T scale = 1;
+  T addend_scale = 1;
+  cublas_operation op_a = cublas_operation::none;
+  cublas_operation op_b = cublas_operation::none;
+};
+
+// General Matrix Multiply (GEMM) over row-major matrices, with a matrix
+// addend. The formula is:
 //
-// `bias` is the term added to the product. When given, it is a row with an
-// element per column of `out`, added to every row. When null, it is the prior
-// contents of `out`, so the product accumulates onto them. A `bias_scale` of
-// zero leaves that term unread, which is how a plain product with no `bias`
-// is asked for.
+// `out = scale * op(a) * op(b) + addend_scale * addend`
 //
-// `out` must not be `a` or `b`. Returns false when a launch is refused,
-// leaving `out` unspecified.
+// where `op(x)` is `x` or its transpose, as the options select.
+//
+// The shapes must agree: `op(a)` has a row per row of `out`, `op(b)` has a
+// column per column of `out`, and `op(a)` has as many columns as `op(b)` has
+// rows.
+//
+// `addend` picks what the product is added to:
+//
+//   empty (the default)  out = scale * op(a) * op(b)
+//   `out` itself         out = scale * op(a) * op(b) + addend_scale * out
+//   another matrix       out = scale * op(a) * op(b) + addend_scale * addend
+//
+// Another matrix must have the extent of `out`.
+//
+// `out` must not be `a` or `b`. Returns false when a launch or copy is
+// refused, leaving `out` unspecified.
 //
 // TODO: Handle non-packed views over matrices.
 template<GemmElement T>
 [[nodiscard]] bool gemm(const cublas_handle& blas, cuda_matrix<T>& out,
     const cuda_matrix<T>& a, const cuda_matrix<T>& b,
-    const cuda_buffer<std::type_identity_t<T>>* bias = nullptr,
-    std::type_identity_t<T> scale = 1, std::type_identity_t<T> bias_scale = 1,
-    cublas_operation op_a = cublas_operation::none,
-    cublas_operation op_b = cublas_operation::none) {
-  // The extent of `op(x)`, which is that of `x` with the sides swapped when
-  // `x` is transposed.
+    gemm_options<std::type_identity_t<T>> options = {},
+    const cuda_matrix<T>& addend = cuda_matrix<T>{nullptr}) {
+  // The extent of `op(x)`.
   const auto op_extent = [](const cuda_matrix<T>& x, cublas_operation op) {
     return (op == cublas_operation::none)
                ? x.extent()
-               : matrix_extent{.row_count = x.col_extent(),
-                     .col_count = x.row_extent()};
+               : x.extent().transposed();
   };
-  const auto op_a_extent = op_extent(a, op_a);
-  [[maybe_unused]] const auto op_b_extent = op_extent(b, op_b);
+  const auto op_a_extent = op_extent(a, options.op_a);
+  [[maybe_unused]] const auto op_b_extent = op_extent(b, options.op_b);
   assert((out.row_extent() == op_a_extent.row_count) &&
          (out.col_extent() == op_b_extent.col_count));
   assert(op_a_extent.col_count == op_b_extent.row_count);
   assert((&out != &a) && (&out != &b));
 
-  // The bias goes into `out` before the GEMM, so that cuBLAS sees it as the
-  // `C` operand and `bias_scale` reaches it as `beta`. GEMM has no broadcast:
-  // its addend is a full matrix, so the one row is written across every row
-  // of `out`. That costs no extra memory and one write of `out`, where a
-  // product followed by a separate bias add would read and write `out` again.
-  if (bias) {
-    assert(bias->size() == out.col_extent());
-    details::fill_rows<T><<<blocks_for(out.size()), threads_per_block>>>(
-        out.get(), out.size(), bias->get(), out.col_extent());
-    if (!cuda_last_status{}) return false;
+  // cuBLAS writes the result into the same `C` it reads the addend from, so
+  // `C` must be `out`: passing `addend` as `C` would overwrite the addend and
+  // leave `out` untouched. An addend that is another matrix is therefore
+  // copied into `out` first, and `beta` scales it there. An empty addend, or
+  // a scale of zero, makes `beta` zero, so `out` is never read and nothing is
+  // copied.
+  const auto has_addend = addend.buffer().ok() && (options.addend_scale != 0);
+  if (has_addend && (&addend != &out)) {
+    assert((addend.row_extent() == out.row_extent()) &&
+           (addend.col_extent() == out.col_extent()));
+    if (!out.buffer().load(addend.buffer())) return false;
   }
+  const auto beta = has_addend ? options.addend_scale : T{};
 
   // Every matrix is packed, so each leading dimension is its stored row
-  // length. The handle's stream is the default one, the same the fill ran on,
+  // length. The handle's stream is the default one, the same the copy ran on,
   // so the order holds.
   const auto m = static_cast<int>(out.row_extent());
   const auto n = static_cast<int>(out.col_extent());
   const auto k = static_cast<int>(op_a_extent.col_count);
   return blas
-      .multiply_row_major(m, n, k, scale, a.buffer(),
+      .multiply_row_major(m, n, k, options.scale, a.buffer(),
           static_cast<int>(a.col_extent()), b.buffer(),
-          static_cast<int>(b.col_extent()), bias_scale, out.buffer(), n, op_a,
-          op_b)
+          static_cast<int>(b.col_extent()), beta, out.buffer(), n,
+          options.op_a, options.op_b)
       .ok();
+}
+
+// GEMM over row-major matrices, with a bias row added to every row.
+//
+// `out = scale * op(a) * op(b) + addend_scale * bias`, where `bias` has an
+// element per column of `out` and is the addend of every row. The operands
+// and options are those of the matrix-addend `gemm`.
+//
+// `bias` must not be empty. `out` must not be `a` or `b`. Returns false when a
+// launch is refused, leaving `out` unspecified.
+template<GemmElement T>
+[[nodiscard]] bool
+gemm(const cublas_handle& blas, cuda_matrix<T>& out, const cuda_matrix<T>& a,
+    const cuda_matrix<T>& b, const cuda_buffer<T>& bias,
+    gemm_options<std::type_identity_t<T>> options = {}) {
+  assert(bias);
+  assert(bias.size() == out.col_extent());
+
+  // The bias is broadcast into `out` before the GEMM, making `out` its own
+  // addend, so `addend_scale` reaches the bias as `beta`. That costs one write
+  // of `out`, where a product followed by a separate bias add would read and
+  // write `out` again.
+  details::fill_rows<T><<<blocks_for(out.size()), threads_per_block>>>(
+      out.get(), out.size(), bias.get(), out.col_extent());
+  if (!cuda_last_status{}) return false;
+
+  return gemm(blas, out, a, b, options, out);
 }
 
 #pragma endregion
@@ -144,7 +188,7 @@ template<GemmElement T>
 [[nodiscard]] bool linear_projection(const cublas_handle& blas,
     cuda_matrix<T>& out, const cuda_matrix<T>& in,
     const cuda_matrix<T>& weight, const cuda_buffer<T>& bias) {
-  return gemm(blas, out, in, weight, &bias);
+  return gemm(blas, out, in, weight, bias);
 }
 
 #pragma endregion

@@ -215,8 +215,7 @@ consteval auto corvid_proxy_spec(gunslinger*, sheriff*) {
 // `rustler` has the right shape and the wrong names, like `robber`, but its
 // registration carries member pointers instead of a binding class: one
 // `member` per facade method, keyed by name, and the library synthesizes the
-// impl. `shots` binds a data member, which `std::invoke` reads as a
-// reference.
+// impl. `shots` binds a data member, which `std::invoke` reads as a reference.
 struct rustler {
   int shoot(int rounds) { return fired += rounds; }
   [[nodiscard]] std::string description() const {
@@ -282,11 +281,10 @@ consteval auto corvid_proxy_spec(gunslinger*, gunsmith*) {
           static_cast<int (gunsmith::*)(int)>(&gunsmith::fire)>>>();
 }
 
-// `safecracker` keeps `fire` private and binds it anyway: its hook is a
-// hidden friend, defined inside the class, so it can name the private member,
-// and ADL on the `safecracker*` argument still finds it. Access is checked
-// where the pointer is spelled (the hook), never where the library invokes
-// it.
+// `safecracker` keeps `fire` private and binds it anyway: its hook is a hidden
+// friend, defined inside the class, so it can name the private member, and ADL
+// on the `safecracker*` argument still finds it. Access is checked where the
+// pointer is spelled (the hook), never where the library invokes it.
 struct safecracker {
   friend consteval auto corvid_proxy_spec(gunslinger*, safecracker*) {
     return prox::make_proxy_spec<gunslinger, safecracker,
@@ -1069,8 +1067,7 @@ struct coffer {
 };
 
 // `vault` composes `lockbox` without adding methods of its own: a pure
-// aggregation level. The owning-upcast lifetime tests move targets through
-// it.
+// aggregation level. The owning-upcast lifetime tests move targets through it.
 struct vault
     : prox::facade<prox::name<"vault">, //
           prox::extends<lockbox>> {};
@@ -3240,8 +3237,7 @@ TEST_CASE("Downcasting views", "[proxy]") {
   REQUIRE(ccm);
   CHECK(ccm.describe() == "texas_ranger"s);
 
-  // Through a diamond, a view of the common base sidecasts to either
-  // sibling.
+  // Through a diamond, a view of the common base sidecasts to either sibling.
   trail_boss boss;
   proxy_view<posse_leader> vp = boss;
   proxy_view<gunslinger> vgun = vp;

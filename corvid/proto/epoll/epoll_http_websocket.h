@@ -560,8 +560,7 @@ public:
   // Sanity check limit on frame size, whether a fragment or complete.
   static constexpr auto max_frame_size = 16 * 1024UZ * 1024UZ;
 
-  // Error value returned by the needed-bytes computation to initiate
-  // shutdown.
+  // Error value returned by the needed-bytes computation to initiate shutdown.
   static constexpr auto insatiable = std::numeric_limits<size_t>::max();
 
 #pragma endregion

@@ -248,9 +248,9 @@ TEST_CASE("At", "[CircularBufferTest]") {
 
 TEST_CASE("ZeroCapacity", "[CircularBufferTest]") {
   // A zero-capacity buffer, however obtained, is both empty and full at
-  // once: the `try_` forms fail cleanly and `at` throws.
-  // The last caller below deliberately probes a moved-from buffer, and the
-  // analyzer attributes that to every method reached through here.
+  // once: the `try_` forms fail cleanly and `at` throws. The last caller below
+  // deliberately probes a moved-from buffer, and the analyzer attributes that
+  // to every method reached through here.
   // NOLINTBEGIN(clang-analyzer-cplusplus.Move)
   auto probe = [](circular_buffer<int>& cb) {
     CHECK(cb.capacity() == 0U);

@@ -119,9 +119,8 @@ struct json_parse_options {
 
 // String wrapper for bytes already known to be safe inside JSON quotes.
 //
-// This bypasses the usual escape scan in `json_writer`, so callers must
-// ensure the contents contain no characters that would require JSON
-// escaping.
+// This bypasses the usual escape scan in `json_writer`, so callers must ensure
+// the contents contain no characters that would require JSON escaping.
 struct json_trusted {
   std::string_view value;
 

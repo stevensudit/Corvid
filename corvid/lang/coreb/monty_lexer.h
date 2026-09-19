@@ -293,8 +293,7 @@ private:
       return std::move(out);
     }
 
-    // Dispatch on the current character: whitespace, a comment, or one
-    // token.
+    // Dispatch on the current character: whitespace, a comment, or one token.
     [[nodiscard]] result<void> extract_token() {
       const char c = peek();
       if (c == ' ') {

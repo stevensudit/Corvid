@@ -584,12 +584,11 @@ private:
       state->raw_loop = loop.get();
       state->started.notify(true);
 
-      // When stop is requested, wake the `epoll_wait` so the loop can
-      // exit. Capture `loop` by value (not `state`) so the callback is
-      // self-contained and runs the same regardless of which thread
-      // triggered the stop. Inner scope so the `stop_callback` (and
-      // its `[loop]` capture) is released before the refs are dropped
-      // below.
+      // When stop is requested, wake the `epoll_wait` so the loop can exit.
+      // Capture `loop` by value (not `state`) so the callback is
+      // self-contained and runs the same regardless of which thread triggered
+      // the stop. Inner scope so the `stop_callback` (and its `[loop]`
+      // capture) is released before the refs are dropped below.
       {
         std::stop_callback on_stop(st, [loop] { (void)loop->stop(); });
         (void)loop->run(100);

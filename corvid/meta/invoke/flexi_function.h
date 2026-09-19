@@ -309,10 +309,9 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
         // already answered `hand_over` or `refuse`.
         //
         // The arm exists because it is the branch the `if constexpr`
-        // instantiates for a throwing-move `F` (whose `move_inlined` would
-        // not compile), and it returns the refusal value so that a future
-        // logic error fails safe instead of reporting a successful
-        // relocation.
+        // instantiates for a throwing-move `F` (whose `move_inlined` would not
+        // compile), and it returns the refusal value so that a future logic
+        // error fails safe instead of reporting a successful relocation.
         assert(false);
         return refusal;
       }
