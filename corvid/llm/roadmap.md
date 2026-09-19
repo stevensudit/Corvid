@@ -949,6 +949,21 @@ threads map to elements (thread `i` takes element `i` in row-major order, so
 a warp reads 32 consecutive columns), and the layer norm's says that a thread
 past the last column still joins both block sums.
 
+Status (2026-09-19, DeviceMatrixLike): the owning overloads are gone. Every
+device op takes its output as a forwarding reference constrained by
+`DeviceMatrixLike` ("cuda_matrix.cuh"), which admits a `cuda_matrix<T>` or a
+`cuda_matrix_view<T>` for a non-const `T`, and coerces it on the first line
+with `const auto& out_view = out.as_view();`, the idiom "splitting.h" uses
+for `StringViewLike`. `cuda_matrix::view()` became `as_view()`, and the view
+gained an `as_view()` that returns itself, so the local binds a reference
+either way. The element type comes from `device_element_t<Out>` rather than
+deduction, so `std::type_identity_t` left the CUDA headers, `const_view_t`
+is a plain `cuda_matrix_view<const T>`, and the element constraint moved to
+a trailing `requires`. Deep const survives: a `const cuda_matrix` fails the
+concept because its mutable conversion is a non-const member, while a `const
+cuda_matrix_view` passes, which is right for a shallow-const view; a
+static_assert table in the linalg test pins both sides.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
