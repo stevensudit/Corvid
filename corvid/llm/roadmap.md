@@ -1033,6 +1033,22 @@ kernels at O2 is identical before and after, and a probe kernel gave the same
 result. A test walks four threads over ten columns and pins each thread's
 visits.
 
+Status (2026-09-19, device attend): `attend(blas, out, qkv, head_count,
+scores)` in "llm_ops.cuh" has the CPU op's contract and shape table, with
+`scores` a caller-owned T x T scratch instead of the CPU's one row. Where the
+CPU op walks each token's causal prefix, the device takes a head's whole T x T
+score matrix in four launches over column subviews of `qkv` and `out`: a `gemm`
+of the queries against the transposed keys with `.scale = 1 / sqrt(D)` and
+`.op_b = transpose`, the new `causal_mask` (every element whose column exceeds
+its row becomes negative infinity, the well-known -inf mask, so the row softmax
+gives it zero weight), the row `softmax` in place, and a `gemm` of the weights
+against the values into the head's slice of `out`. Twelve heads are 48 launches
+per block; a fused attention kernel stays deferred with the other fusions until
+the staircase is complete. Tests: the causal mask on a 3 x 3 of ones, the CPU
+napkin example for one head of width two and two heads of width one from the
+same `qkv`, and the oracle case, which runs `c_attn`, the heads, and `c_proj`
+on the device for every block and matches `attn/out` at 1e-4.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
