@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstddef>
 #include <format>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -326,6 +327,114 @@ TEST_CASE("Device embed tokens match the oracle",
   REQUIRE(out.as_view().store(out_view));
 
   check_close(out_view, expected, 0.0F, 0.0F);
+}
+
+#pragma endregion
+#pragma region attend
+
+TEST_CASE("Device causal mask blanks the columns after the diagonal",
+    "[LlmOpsTest][cuda]") {
+  const std::vector<float> ones(3UZ * 3, 1.0F);
+  cuda_matrix<float> scores(
+      const_float_matrix_view(ones, {.row_count = 3, .col_count = 3}));
+  REQUIRE(cuda::llm::causal_mask(scores));
+
+  std::vector<float> storage(scores.size());
+  REQUIRE(scores.as_view().store(float_matrix_view(storage, scores.extent())));
+  constexpr auto blank = -std::numeric_limits<float>::infinity();
+  CHECK(storage == std::vector<float>{1.0F, blank, blank, 1.0F, 1.0F, blank,
+                       1.0F, 1.0F, 1.0F});
+}
+
+TEST_CASE("Device attention on three tokens of width two",
+    "[LlmOpsTest][cuda]") {
+  // The CPU test's napkin example, starting from its `qkv`. There, q and k
+  // equal the input rows [1, 0], [0, 1], [1, 1], and v is the input with its
+  // columns swapped.
+  const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+      0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+  const cuda_matrix<float> qkv(
+      const_float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
+  const cublas_handle blas;
+  cuda_matrix<float> out({.row_count = 3, .col_count = 2});
+  cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
+  std::vector<float> out_storage(out.size());
+  const float_matrix_view out_view(out_storage, out.extent());
+  constexpr auto tolerance = 1e-5;
+
+  SECTION("one head of width two") {
+    REQUIRE(cuda::llm::attend(blas, out, qkv, 1, scores));
+    REQUIRE(out.as_view().store(out_view));
+    CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
+    CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
+    CHECK_THAT(out_storage[2], WithinAbs(0.669762, tolerance));
+    CHECK_THAT(out_storage[3], WithinAbs(0.330238, tolerance));
+    CHECK_THAT(out_storage[4], WithinAbs(0.751745, tolerance));
+    CHECK_THAT(out_storage[5], WithinAbs(0.751745, tolerance));
+  }
+
+  SECTION("two heads of width one") {
+    REQUIRE(cuda::llm::attend(blas, out, qkv, 2, scores));
+    REQUIRE(out.as_view().store(out_view));
+    CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
+    CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
+    CHECK_THAT(out_storage[2], WithinAbs(0.5, tolerance));
+    CHECK_THAT(out_storage[3], WithinAbs(0.268941, tolerance));
+    CHECK_THAT(out_storage[4], WithinAbs(0.577681, tolerance));
+    CHECK_THAT(out_storage[5], WithinAbs(0.577681, tolerance));
+  }
+}
+
+TEST_CASE("Device attention path matches the oracle",
+    "[LlmOpsTest][oracle][cuda]") {
+  oracle_dumps oracle;
+  oracle.load();
+  const cublas_handle blas;
+
+  // Every block's attention, fed its own dumped `ln_1/out` and compared
+  // against its dumped `attn/out`, as the CPU test does, with the two
+  // projections and the heads all on the device.
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    DYNAMIC_SECTION("block_" << n) {
+      const auto dump = std::format("block_{}", n);
+      const auto param = std::format("h.{}.attn", n);
+      const auto in_view =
+          matrix_of(oracle.activations, dump + "/ln_1/out", n_embd);
+      const auto expected =
+          matrix_of(oracle.activations, dump + "/attn/out", n_embd);
+      const auto token_count = in_view.row_extent();
+      REQUIRE(token_count == 14);
+
+      const cuda_matrix<float> in(in_view);
+      const cuda_matrix<float> attn_weight(
+          matrix_of(oracle.weights, param + ".c_attn.weight", n_qkv));
+      cuda_buffer<float> attn_bias(n_qkv);
+      REQUIRE(attn_bias.load(
+          vector_of(oracle.weights, param + ".c_attn.bias", n_qkv)));
+      const cuda_matrix<float> proj_weight(
+          matrix_of(oracle.weights, param + ".c_proj.weight", n_embd));
+      cuda_buffer<float> proj_bias(n_embd);
+      REQUIRE(proj_bias.load(
+          vector_of(oracle.weights, param + ".c_proj.bias", n_embd)));
+
+      cuda_matrix<float> qkv({.row_count = token_count, .col_count = n_qkv});
+      cuda_matrix<float> heads_out(in_view.extent());
+      cuda_matrix<float> scores(
+          {.row_count = token_count, .col_count = token_count});
+      cuda_matrix<float> out(in_view.extent());
+      std::vector<float> out_storage(out.size());
+      const float_matrix_view out_view(out_storage, out.extent());
+
+      REQUIRE(cuda::linalg::linear_projection(blas, qkv, in, attn_weight,
+          attn_bias));
+      REQUIRE(cuda::llm::attend(blas, heads_out, qkv, n_head, scores));
+      REQUIRE(cuda::linalg::linear_projection(blas, out, heads_out,
+          proj_weight, proj_bias));
+      REQUIRE(out.as_view().store(out_view));
+
+      check_close(out_view, expected, 1e-4F, 1e-4F);
+    }
+  }
 }
 
 #pragma endregion

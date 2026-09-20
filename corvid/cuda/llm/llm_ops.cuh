@@ -19,6 +19,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <type_traits>
 
 #include <cuda_runtime.h>
@@ -203,6 +204,101 @@ template<DeviceMatrixLike Out>
       kernel_matrix_view{out_view}, ids.get(), kernel_matrix_view{table},
       out_view.extent());
   return cuda_last_status{}.ok();
+}
+
+#pragma endregion
+#pragma region attend
+
+namespace details {
+
+// Set every element of `scores` after its row's diagonal to negative
+// infinity, over `extent`, one thread per element.
+template<Floating T>
+__global__ void
+apply_causal_mask(kernel_matrix_view<T> scores, matrix_extent extent) {
+  if (const kernel_coord at; at.is_within(extent) && (at.col > at.row))
+    scores[at] = -std::numeric_limits<T>::infinity();
+}
+
+} // namespace details
+
+// Set every element of `scores` whose column exceeds its row to negative
+// infinity, so a softmax over the row gives the tokens after it no weight.
+//
+// Returns false when the launch is refused, leaving `scores` unspecified.
+template<DeviceMatrixLike Out>
+requires Floating<device_element_t<Out>>
+[[nodiscard]] bool causal_mask(Out&& scores) {
+  const auto& scores_view = scores.as_view();
+  details::apply_causal_mask<<<grid_for(scores_view), threads_per_block>>>(
+      kernel_matrix_view{scores_view}, scores_view.extent());
+  return cuda_last_status{}.ok();
+}
+
+// Let each token read from the tokens at or before it, across all attention
+// heads, into `out`.
+//
+// The contract is that of the CPU `corvid::llm::attend`, which also holds the
+// worked explanation. For T tokens, width C, and H heads of width D = C / H:
+//
+//   out     T x C     a row per token, each head writing its D columns
+//   qkv     T x 3C    each token's queries, then keys, then values
+//   scores  T x T     scratch, holding one head's weights at a time
+//
+// Where the CPU op walks each token's causal prefix, this one takes a head's
+// whole T x T score matrix in four launches: a GEMM of the queries against
+// the transposed keys, scaled by 1 / sqrt(D), the causal mask, the row
+// softmax, and a GEMM of the weights against the values.
+//
+// `qkv` must be three times as wide as `out`, whose width must divide evenly
+// by `head_count`, and `scores` must be square with a side per token. `out`
+// must not overlap `qkv` or `scores`, and `scores` must not overlap `qkv`.
+// Returns false when a launch is refused, leaving `out` and `scores`
+// unspecified.
+template<DeviceMatrixLike Out>
+requires GemmElement<device_element_t<Out>>
+[[nodiscard]] bool
+attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
+    size_t head_count, cuda_matrix_view<device_element_t<Out>> scores) {
+  using T = device_element_t<Out>;
+  using row_ndx = cuda_matrix_view<T>::row_ndx;
+  using col_ndx = cuda_matrix_view<T>::col_ndx;
+
+  const auto& out_view = out.as_view();
+  const auto token_count = out_view.row_extent();
+  const auto width = out_view.col_extent();
+  assert(qkv.row_extent() == token_count);
+  assert(qkv.col_extent() == 3 * width);
+  assert(head_count && (width % head_count == 0));
+  assert((scores.row_extent() == token_count) &&
+         (scores.col_extent() == token_count));
+  assert(is_disjoint(out_view.as_span(), qkv.as_span()));
+  assert(is_disjoint(out_view.as_span(), scores.as_span()));
+  assert(is_disjoint(scores.as_span(), qkv.as_span()));
+  const auto head_width = width / head_count;
+  const auto scale = T{1} / std::sqrt(static_cast<T>(head_width));
+
+  const auto one_third = [&](size_t which) {
+    return qkv.subview({row_ndx{0}, col_ndx{which * width}},
+        {.row_count = token_count, .col_count = width});
+  };
+  const auto q = one_third(0);
+  const auto k = one_third(1);
+  const auto v = one_third(2);
+
+  for (auto head = 0UZ; head < head_count; ++head) {
+    const auto slice = [&](const auto& m) {
+      return m.subview({row_ndx{0}, col_ndx{head * head_width}},
+          {.row_count = token_count, .col_count = head_width});
+    };
+    if (!gemm(blas, scores, slice(q), slice(k),
+            {.scale = scale, .op_b = cublas_operation::transpose}))
+      return false;
+    if (!causal_mask(scores)) return false;
+    if (!softmax(scores, scores)) return false;
+    if (!gemm(blas, slice(out_view), scores, slice(v))) return false;
+  }
+  return true;
 }
 
 #pragma endregion
