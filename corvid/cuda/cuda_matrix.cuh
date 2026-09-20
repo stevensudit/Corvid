@@ -25,6 +25,7 @@
 
 #include "../containers/utils/matrix_view.h"
 #include "./cuda_buffer.cuh"
+#include "./cuda_kernel.cuh"
 #include "./cuda_status.cuh"
 
 // Matrices in device memory.
@@ -32,8 +33,9 @@
 // `cuda_matrix<T>` owns a packed row-major matrix, and `cuda_matrix_view<T>`
 // is a non-owning window onto one, possibly strided.
 //
-// A view derived from a column block of a wider matrix carries the wider
-// matrix's stride.
+// Both are host-side handles. Inside a kernel, `kernel_matrix_view<T>` is what
+// a view becomes at a launch, and `kernel_coord` is the row and column a
+// thread owns.
 //
 //   cuda_matrix<float> qkv(host_qkv);
 //   const auto q = qkv.subview({row_ndx{0}, col_ndx{0}}, q_extent);
@@ -128,6 +130,54 @@ private:
   }
 
 #pragma endregion
+};
+
+#pragma endregion
+#pragma region kernel_coord
+
+// The row and column a thread owns in a 2-D launch over a matrix.
+//
+// Rows run along y and columns along x, so the lanes of a warp take
+// consecutive columns of one row.
+struct kernel_coord {
+  size_t row;
+  size_t col;
+
+  __device__ kernel_coord()
+      : row{cuda_kernel::y_index<size_t>()},
+        col{cuda_kernel::x_index<size_t>()} {}
+
+  // Whether this lies inside `extent`.
+  __device__ bool is_within(matrix_extent extent) const {
+    return (row < extent.row_count) && (col < extent.col_count);
+  }
+};
+
+#pragma endregion
+#pragma region kernel_matrix_view
+
+// A kernel's view of a row-major matrix of `T` in device memory, whose rows
+// start `stride` elements apart.
+//
+// It is what a `cuda_matrix_view` becomes at a launch.
+template<typename T>
+class kernel_matrix_view {
+public:
+  using element_t = T;
+
+  kernel_matrix_view(cuda_matrix_view<element_t> view) noexcept
+      : data_{view.get()}, stride_{view.stride()} {}
+
+  __device__ element_t& operator[](size_t row, size_t col) const {
+    return data_[(row * stride_) + col];
+  }
+  __device__ element_t& operator[](kernel_coord at) const {
+    return (*this)[at.row, at.col];
+  }
+
+private:
+  element_t* data_;
+  size_t stride_;
 };
 
 #pragma endregion

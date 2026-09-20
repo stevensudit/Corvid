@@ -30,7 +30,7 @@ namespace corvid::cuda {
 // caller wants, and the host-side block count for a launch.
 class cuda_kernel {
 public:
-  // Thread in each dimension.
+  // Thread in each dimension. (See also: `kernel_coord`.)
 
   template<typename T = int>
   __device__ static T x_thread() {
@@ -112,15 +112,6 @@ public:
   template<typename T = int>
   __device__ static T stride() {
     return x_stride<T>() * y_stride<T>() * z_stride<T>();
-  }
-
-  // The offset of flat index `i` in a row-major matrix `cols` wide whose rows
-  // start `stride` elements apart, so a kernel that counts elements can
-  // address a strided view. When the matrix is packed, `stride` is `cols`, and
-  // the offset is `i`.
-  template<typename T = int>
-  __host__ __device__ static T strided_offset(T i, T cols, T stride) {
-    return ((i / cols) * stride) + (i % cols);
   }
 
   // Launch size. For `n` elements and `threads_per_block` threads per block,

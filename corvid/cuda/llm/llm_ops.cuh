@@ -66,22 +66,21 @@ namespace details {
 // and the writes come after both sums, so no thread reads a column another
 // has already overwritten.
 template<Floating T>
-__global__ void apply_layer_norm(T* out, size_t out_stride, const T* in,
-    size_t in_stride, size_t cols, const T* weight, const T* bias, T eps) {
+__global__ void
+apply_layer_norm(kernel_matrix_view<T> out, kernel_matrix_view<const T> in,
+    size_t cols, const T* weight, const T* bias, T eps) {
   const auto row = cuda_kernel::x_block<size_t>();
-  const auto* in_row = in + (row * in_stride);
-  auto* out_row = out + (row * out_stride);
   const auto first = cuda_kernel::x_thread<size_t>();
   const auto step = cuda_kernel::x_block_dim<size_t>();
   const auto count = static_cast<T>(cols);
 
   T total{};
-  for (auto c = first; c < cols; c += step) total += in_row[c];
+  for (auto c = first; c < cols; c += step) total += in[row, c];
   const auto mean = cuda_reduce::block_sum(total) / count;
 
   T squares{};
   for (auto c = first; c < cols; c += step) {
-    const auto deviation = in_row[c] - mean;
+    const auto deviation = in[row, c] - mean;
     squares += deviation * deviation;
   }
   const auto variance = cuda_reduce::block_sum(squares) / count;
@@ -91,8 +90,8 @@ __global__ void apply_layer_norm(T* out, size_t out_stride, const T* in,
   const auto inv_std = T{1} / std::sqrt(variance + eps);
 
   for (auto c = first; c < cols; c += step)
-    out_row[c] = corvid::linalg::scale_shift(
-        corvid::linalg::standardize(in_row[c], mean, inv_std), weight[c],
+    out[row, c] = corvid::linalg::scale_shift(
+        corvid::linalg::standardize(in[row, c], mean, inv_std), weight[c],
         bias[c]);
 }
 
@@ -128,8 +127,8 @@ layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
   assert(is_disjoint(out_view.as_span(), bias.as_span()));
 
   details::apply_layer_norm<<<static_cast<unsigned>(out_view.row_extent()),
-      threads_per_block>>>(out_view.get(), out_view.stride(), in.get(),
-      in.stride(), width, weight.get(), bias.get(), eps);
+      threads_per_block>>>(kernel_matrix_view{out_view},
+      kernel_matrix_view{in}, width, weight.get(), bias.get(), eps);
   return cuda_last_status{}.ok();
 }
 
@@ -138,17 +137,13 @@ layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
 
 namespace details {
 
-// Apply the scalar `gelu_new` to the `size` elements of a view `cols` wide,
-// from rows `in_stride` apart into rows `out_stride` apart, one thread per
-// element.
+// Apply the scalar `gelu_new` to the elements of `in`, into `out`, both
+// `extent` in size, one thread per element.
 template<Floating T>
-__global__ void apply_gelu_new(T* out, size_t out_stride, const T* in,
-    size_t in_stride, size_t size, size_t cols) {
-  const auto i = cuda_kernel::x_index<size_t>();
-  if (i < size)
-    out[cuda_kernel::strided_offset(i, cols, out_stride)] =
-        corvid::llm::gelu_new(
-            in[cuda_kernel::strided_offset(i, cols, in_stride)]);
+__global__ void apply_gelu_new(kernel_matrix_view<T> out,
+    kernel_matrix_view<const T> in, matrix_extent extent) {
+  using corvid::llm::gelu_new;
+  if (const kernel_coord at; at.is_within(extent)) out[at] = gelu_new(in[at]);
 }
 
 } // namespace details
@@ -164,9 +159,8 @@ requires Floating<device_element_t<Out>>
   assert((out_view.row_extent() == in.row_extent()) &&
          (out_view.col_extent() == in.col_extent()));
 
-  details::apply_gelu_new<<<blocks_for(out_view.size()), threads_per_block>>>(
-      out_view.get(), out_view.stride(), in.get(), in.stride(),
-      out_view.size(), out_view.col_extent());
+  details::apply_gelu_new<<<grid_for(out_view), threads_per_block>>>(
+      kernel_matrix_view{out_view}, kernel_matrix_view{in}, out_view.extent());
   return cuda_last_status{}.ok();
 }
 
@@ -175,23 +169,13 @@ requires Floating<device_element_t<Out>>
 
 namespace details {
 
-// Copy the rows of `table` that `ids` name into `out`, `size` elements over
-// rows `cols` wide, with the rows of `table` `table_stride` apart and those
-// of `out` `out_stride` apart, one thread per element.
-//
-// Thread `i` takes element `i` of `out` in row-major order, so the lanes of a
-// warp read 32 consecutive columns of one row of `table` and write them to 32
-// consecutive columns of `out`.
+// Copy the row of `table` that each row's ID names into `out`, `extent` in
+// size, one thread per element.
 template<typename T>
-__global__ void gather_rows(T* out, size_t out_stride, const token_id* ids,
-    const T* table, size_t table_stride, size_t size, size_t cols) {
-  const auto i = cuda_kernel::x_index<size_t>();
-  if (i < size) {
-    const auto row = i / cols;
-    const auto col = i % cols;
-    const auto table_row = *ids[row];
-    out[(row * out_stride) + col] = table[(table_row * table_stride) + col];
-  }
+__global__ void gather_rows(kernel_matrix_view<T> out, const token_id* ids,
+    kernel_matrix_view<const T> table, matrix_extent extent) {
+  if (const kernel_coord at; at.is_within(extent))
+    out[at] = table[*ids[at.row], at.col];
 }
 
 } // namespace details
@@ -216,9 +200,9 @@ template<DeviceMatrixLike Out>
   assert(out_view.col_extent() == table.col_extent());
   assert(is_disjoint(out_view.as_span(), table.as_span()));
 
-  details::gather_rows<<<blocks_for(out_view.size()), threads_per_block>>>(
-      out_view.get(), out_view.stride(), ids.get(), table.get(),
-      table.stride(), out_view.size(), out_view.col_extent());
+  details::gather_rows<<<grid_for(out_view), threads_per_block>>>(
+      kernel_matrix_view{out_view}, ids.get(), kernel_matrix_view{table},
+      out_view.extent());
   return cuda_last_status{}.ok();
 }
 
