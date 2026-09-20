@@ -30,13 +30,18 @@ constexpr auto lanes = 32U;
 
 // Each thread contributes its index to a warp sum and a block sum, then its
 // index times ten to a second block sum, so the two block sums in a row
-// exercise the shared-memory reuse. Every thread records all three, so the
-// broadcast to every thread is checked too.
-__global__ void reduce_kernel(int* warp, int* first, int* second) {
+// exercise the shared-memory reuse. It then contributes its index less 1000
+// to a warp max and a block max, all negative, so a lane that wrongly brought
+// zero would win. Every thread records all five, so the broadcast to every
+// thread is checked too.
+__global__ void reduce_kernel(int* warp, int* first, int* second,
+    int* warp_top, int* block_top) {
   const auto thread = cuda_kernel::x_thread();
   warp[thread] = cuda_reduce::warp_sum(thread);
   first[thread] = cuda_reduce::block_sum(thread);
   second[thread] = cuda_reduce::block_sum(thread * 10);
+  warp_top[thread] = cuda_reduce::warp_max(thread - 1000);
+  block_top[thread] = cuda_reduce::block_max(thread - 1000);
 }
 
 } // namespace
@@ -45,20 +50,27 @@ __global__ void reduce_kernel(int* warp, int* first, int* second) {
 
 #pragma region cuda_reduce
 
-TEST_CASE("cuda_reduce sums across one warp and across eight", "[cuda]") {
+TEST_CASE("cuda_reduce sums and maxes across one warp and across eight",
+    "[cuda]") {
   for (const auto threads : {lanes, 8 * lanes}) {
     DYNAMIC_SECTION(threads << " threads") {
       cuda_buffer<int> d_warp{threads};
       cuda_buffer<int> d_first{threads};
       cuda_buffer<int> d_second{threads};
+      cuda_buffer<int> d_warp_top{threads};
+      cuda_buffer<int> d_block_top{threads};
       reduce_kernel<<<1, threads>>>(d_warp.get(), d_first.get(),
-          d_second.get());
+          d_second.get(), d_warp_top.get(), d_block_top.get());
       std::vector<int> warp(threads);
       std::vector<int> first(threads);
       std::vector<int> second(threads);
+      std::vector<int> warp_top(threads);
+      std::vector<int> block_top(threads);
       REQUIRE(d_warp.store(warp));
       REQUIRE(d_first.store(first));
       REQUIRE(d_second.store(second));
+      REQUIRE(d_warp_top.store(warp_top));
+      REQUIRE(d_block_top.store(block_top));
       REQUIRE(cuda_last_status{}.ok());
 
       // 0 + 1 + ... + (threads - 1)
@@ -73,6 +85,10 @@ TEST_CASE("cuda_reduce sums across one warp and across eight", "[cuda]") {
         CHECK(warp[thread] == warp_total);
         CHECK(first[thread] == block_total);
         CHECK(second[thread] == block_total * 10);
+        // The warp's largest index is its last lane's.
+        CHECK(
+            warp_top[thread] == static_cast<int>(lanes * (w + 1)) - 1 - 1000);
+        CHECK(block_top[thread] == static_cast<int>(threads) - 1 - 1000);
       }
     }
   }
