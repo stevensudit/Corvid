@@ -980,6 +980,23 @@ process. Tests: the hand rows over float and double, and the oracle case, which
 adds the first T rows of the position table through the device `add` and
 matches `embed/out` exactly.
 
+Status (2026-09-19, kernel views): the flat-index kernels are gone. Every
+elementwise kernel now launches a 2-D grid, rows along y and columns along x,
+from `grid_for(extent)` in "linear_algebra.cuh" (overloaded for anything with
+an `extent()`), so a thread's row and column are its coordinates and no kernel
+divides. Two kernel-side types in "cuda_matrix.cuh" carry that: `kernel_coord`,
+whose default constructor reads the calling thread's indices and whose
+`is_within(matrix_extent)` is the bounds guard, and `kernel_matrix_view<T>`,
+the pointer and stride a `cuda_matrix_view` converts to at a launch, indexed as
+`out[at]` or `out[row, col]` with the C++23 multidimensional subscript.
+Launches spell the conversion, `kernel_matrix_view{out_view}`, so the kernel's
+element type deduces. `cuda_kernel::strided_offset` is deleted. The
+one-block-per-row `apply_layer_norm` takes the same views and indexes `in[row,
+c]`. The grid's y dimension caps at 65535 rows, asserted in `grid_for` as
+`max_grid_rows`; a backward pass over Qwen's 151936-row embedding will need a
+multi-row block or a row loop. The 1-D versus 2-D launch question is thereby
+settled in favor of 2-D.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

@@ -52,6 +52,29 @@ TEST_CASE("DeviceMatrixLike admits only writable outputs",
 }
 
 #pragma endregion
+#pragma region Launch geometry
+
+TEST_CASE("Grid for an extent", "[LinearAlgebraTest][cuda]") {
+  // Columns fill 256-thread blocks along x, and each row is a block along y.
+  const cuda_matrix<float> m({.row_count = 14, .col_count = 768});
+  const auto grid = cuda::linalg::grid_for(m);
+  CHECK(grid.x == 3);
+  CHECK(grid.y == 14);
+  CHECK(grid.z == 1);
+
+  // A view of it, and a bare extent, give the same grid, with a partial block
+  // rounding up.
+  const auto narrow = cuda::linalg::grid_for(
+      m.subview({}, {.row_count = 2, .col_count = 257}));
+  CHECK(narrow.x == 2);
+  CHECK(narrow.y == 2);
+  const auto bare = cuda::linalg::grid_for(
+      matrix_view<float>::extent_t{.row_count = 1, .col_count = 1});
+  CHECK(bare.x == 1);
+  CHECK(bare.y == 1);
+}
+
+#pragma endregion
 #pragma region Linear
 
 TEMPLATE_TEST_CASE("Device linear on hand-computed rows",

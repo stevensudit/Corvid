@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cassert>
+#include <concepts>
 #include <cstddef>
 #include <functional>
 #include <type_traits>
@@ -53,6 +54,30 @@ inline constexpr auto threads_per_block = 256U;
       threads_per_block);
 }
 
+// The most rows a 2-D grid can cover, the limit on its y dimension in the
+// CUDA programming guide's compute capability table.
+inline constexpr auto max_grid_rows = 65535UZ;
+
+// The grid of `threads_per_block` blocks that covers `extent`, rows along y
+// and columns along x, for a kernel whose threads each own one `kernel_coord`.
+// Designed for use in a launch statement.
+//
+// The row count must not exceed `max_grid_rows`.
+[[nodiscard]] inline dim3 grid_for(matrix_extent extent) noexcept {
+  assert(extent.row_count <= max_grid_rows);
+  return {blocks_for(extent.col_count),
+      static_cast<unsigned>(extent.row_count)};
+}
+
+// The grid that covers a matrix or view.
+template<typename M>
+requires requires(const M& m) {
+  { m.extent() } -> std::convertible_to<matrix_extent>;
+}
+[[nodiscard]] dim3 grid_for(const M& m) noexcept {
+  return grid_for(m.extent());
+}
+
 #pragma endregion
 #pragma region Views
 
@@ -75,14 +100,12 @@ using input_buffer_t = cuda_buffer<device_element_t<Out>>;
 
 namespace details {
 
-// Write `bias` across every row of the `size` elements of a view `cols` wide
-// whose rows start `stride` apart, one thread per element.
+// Write `bias` across every row of `out`, `extent` in size, one thread per
+// element.
 template<typename T>
 __global__ void
-fill_rows(T* out, size_t size, size_t cols, size_t stride, const T* bias) {
-  const auto i = cuda_kernel::x_index<size_t>();
-  if (i < size)
-    out[cuda_kernel::strided_offset(i, cols, stride)] = bias[i % cols];
+fill_rows(kernel_matrix_view<T> out, matrix_extent extent, const T* bias) {
+  if (const kernel_coord at; at.is_within(extent)) out[at] = bias[at.col];
 }
 
 } // namespace details
@@ -196,9 +219,8 @@ requires GemmElement<device_element_t<Out>>
   // kernel, but we can get the same effect cheaper by broadcasting `bias` into
   // `out`, turning it into a matrix that we then use as the `addend`.
   // Essentially: Ctrl+C, Ctrl+V FTW.
-  details::fill_rows<<<blocks_for(out_view.size()), threads_per_block>>>(
-      out_view.get(), out_view.size(), out_view.col_extent(),
-      out_view.stride(), bias.get());
+  details::fill_rows<<<grid_for(out_view), threads_per_block>>>(
+      kernel_matrix_view{out_view}, out_view.extent(), bias.get());
   if (!cuda_last_status{}) return false;
 
   return gemm(blas, out_view, a, b, options, out_view);
@@ -210,10 +232,11 @@ requires GemmElement<device_element_t<Out>>
 // Project each row of `in` through `weight` and add `bias`, into `out`.
 //
 // The contract is that of the CPU `corvid::linalg::linear_projection`, which
-// also holds the worked explanation: `out` has a row per row of `in` and a
-// column per column of `weight`, `weight` has a row per column of `in`, and
-// `bias` has an element per column of `weight`. `out` must not be `in` or
-// `weight`.
+// also holds the worked explanation.
+//
+// `out` has a row per row of `in` and a column per column of `weight`,
+// `weight` has a row per column of `in`, and `bias` has an element per column
+// of `weight`. `out` must not be `in` or `weight`.
 //
 // Returns false when a launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
@@ -229,22 +252,13 @@ linear_projection(const cublas_handle& blas, Out&& out, input_view_t<Out> in,
 
 namespace details {
 
-// Combine the `size` elements of two views `cols` wide through `op`, with
-// rows `a_stride` and `b_stride` apart, into rows `out_stride` apart, one
-// thread per element.
-//
-// Thread `i` takes element `i` in row-major order, so the lanes of a warp
-// read 32 consecutive columns, and `strided_offset` steps over the gap
-// between the rows of a strided view.
+// Combine the elements of `a` and `b` through `op`, into `out`, all `extent`
+// in size, one thread per element.
 template<typename T, typename Op>
 __global__ void
-combine_elements(T* out, size_t out_stride, const T* a, size_t a_stride,
-    const T* b, size_t b_stride, size_t size, size_t cols, Op op) {
-  const auto i = cuda_kernel::x_index<size_t>();
-  if (i < size)
-    out[cuda_kernel::strided_offset(i, cols, out_stride)] = op(
-        a[cuda_kernel::strided_offset(i, cols, a_stride)],
-        b[cuda_kernel::strided_offset(i, cols, b_stride)]);
+combine_elements(kernel_matrix_view<T> out, kernel_matrix_view<const T> a,
+    kernel_matrix_view<const T> b, matrix_extent extent, Op op) {
+  if (const kernel_coord at; at.is_within(extent)) out[at] = op(a[at], b[at]);
 }
 
 // Combine `a` and `b` elementwise through `op`, into `out`.
@@ -262,9 +276,9 @@ combine(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b, Op op) {
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));
   assert(is_same_or_disjoint(out.as_span(), b.as_span()));
 
-  combine_elements<<<blocks_for(out.size()), threads_per_block>>>(out.get(),
-      out.stride(), a.get(), a.stride(), b.get(), b.stride(), out.size(),
-      out.col_extent(), op);
+  combine_elements<<<grid_for(out), threads_per_block>>>(
+      kernel_matrix_view{out}, kernel_matrix_view{a}, kernel_matrix_view{b},
+      out.extent(), op);
   return cuda_last_status{}.ok();
 }
 
