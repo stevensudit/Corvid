@@ -965,6 +965,21 @@ fails the concept because its mutable conversion is a non-const member, while a
 `const cuda_matrix_view` passes, which is right for a shallow-const view; a
 static_assert table in the linalg test pins both sides.
 
+Status (2026-09-19, device embed_tokens): the embedding gather is
+`embed_tokens` in "llm_ops.cuh", taking `out`, the IDs as a
+`cuda_buffer<token_id>` the caller uploads (generation will keep them on the
+device), and the table as a view. One thread per output element, each computing
+its row and column once and reading the table row that the row's ID names, so a
+warp reads and writes 32 consecutive columns. The enum's `operator*` is
+`constexpr`, which clang CUDA lets device code call, so the kernel reads the
+underlying index the way the CPU op does. There is no element constraint beyond
+`DeviceMatrixLike`, since a gather is a copy. The per-ID bound is a
+precondition with no device-side check: no kernel in the tree asserts, and a
+device `assert` would fault the context with `cudaErrorAssert` rather than the
+process. Tests: the hand rows over float and double, and the oracle case, which
+adds the first T rows of the position table through the device `add` and
+matches `embed/out` exactly.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
