@@ -997,6 +997,18 @@ c]`. The grid's y dimension caps at 65535 rows, asserted in `grid_for` as
 multi-row block or a row loop. The 1-D versus 2-D launch question is thereby
 settled in favor of 2-D.
 
+Status (2026-09-19, block max): `cuda_reduce` gained `warp_max` and `block_max`
+beside the sums, for the row max that softmax subtracts before exponentiating.
+The four public reductions are two-line wrappers over two private folds,
+`warp_reduce(value, op, mask)` (the xor butterfly) and `block_reduce(value, op,
+identity)` (per-warp partials in shared memory, warp 0 folds them), with
+`std::plus<>` and `std::ranges::max` as the ops; clang CUDA calls both from
+device code because they are constexpr. The identity is what a thread with
+nothing to contribute brings, and what warp 0's spare lanes read: zero for a
+sum, `numeric_limits<T>::lowest()` for a max. The test contributes each
+thread's index less 1000 to the maxes, all negative, so a lane that wrongly
+brought zero would win.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

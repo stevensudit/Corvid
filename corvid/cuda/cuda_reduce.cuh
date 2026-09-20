@@ -16,7 +16,10 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <functional>
+#include <limits>
 
 #include <cuda_runtime.h>
 
@@ -32,54 +35,97 @@ namespace corvid::cuda {
 //
 // Each thread brings one value, and every thread gets the result back. What a
 // value stands for is the caller's business. A thread with nothing to
-// contribute brings zero and still takes part, since every reduction here
-// synchronizes the threads it runs over.
+// contribute brings the identity, zero for a sum and the lowest `T` for a
+// max, and still takes part, since every reduction here synchronizes the
+// threads it runs over.
 class cuda_reduce {
 public:
   // The sum of `value` over the lanes of `mask`, returned to every one of
   // them.
   //
   // Every lane in `mask` must call it, so the default is the whole warp
-  // rather than the active lanes. It is a butterfly of `shuffle_xor`, so with
-  // 32 lanes it takes 5 rounds (16, 8, 4, 2, 1), each round pairing every
-  // lane with a partner that already holds the sum of a disjoint half, and
-  // every lane ends with the total.
+  // rather than the active lanes.
   template<typename T>
   __device__ static T warp_sum(T value, uint32_t mask = cuda_warp::all_mask) {
-    const auto lanes = static_cast<unsigned>(warpSize);
-    for (auto offset = lanes / 2; offset > 0; offset /= 2)
-      value += cuda_warp::shuffle_xor(value, offset, mask);
+    return warp_reduce(value, std::plus<>{}, mask);
+  }
 
-    return value;
+  // The largest `value` over the lanes of `mask`, returned to every one of
+  // them.
+  //
+  // Every lane in `mask` must call it, so the default is the whole warp
+  // rather than the active lanes.
+  template<typename T>
+  __device__ static T warp_max(T value, uint32_t mask = cuda_warp::all_mask) {
+    return warp_reduce(value, std::ranges::max, mask);
   }
 
   // The sum of `value` over every thread of the block, returned to every one
   // of them.
   //
-  // Each warp sums itself with shuffles, lane 0 of each warp parks that
-  // partial in shared memory, and warp 0 sums the partials. With 256 threads,
-  // that is 8 partials, so the second round is one warp sum with lanes 8
-  // through 31 contributing zero.
-  //
-  // Every thread of the block must call it, since it synchronizes the block
-  // twice. The block must be one-dimensional and a multiple of `warpSize`.
-  // Two calls in a row are safe because the second call's partials land in
-  // slots the first call has finished reading, and its total is written only
-  // after a synchronization every reader of the first total has passed.
+  // Every thread of the block must call it. The block must be one-dimensional
+  // and a multiple of `warpSize`.
   template<typename T>
   __device__ static T block_sum(T value) {
+    return block_reduce(value, std::plus<>{}, T{});
+  }
+
+  // The largest `value` over every thread of the block, returned to every one
+  // of them.
+  //
+  // Every thread of the block must call it. The block must be one-dimensional
+  // and a multiple of `warpSize`.
+  template<typename T>
+  __device__ static T block_max(T value) {
+    return block_reduce(value, std::ranges::max,
+        std::numeric_limits<T>::lowest());
+  }
+
+private:
+  // Fold `value` through `op` over the lanes of `mask`, returned to every one
+  // of them.
+  //
+  // It is a butterfly of `shuffle_xor`, so with 32 lanes it takes 5 rounds
+  // (16, 8, 4, 2, 1), each round pairing every lane with a partner that
+  // already holds the fold of a disjoint half, and every lane ends with the
+  // total.
+  template<typename T, typename Op>
+  __device__ static T warp_reduce(T value, Op op, uint32_t mask) {
+    const auto lanes = static_cast<unsigned>(warpSize);
+    for (auto offset = lanes / 2; offset > 0; offset /= 2)
+      value = op(value, cuda_warp::shuffle_xor(value, offset, mask));
+
+    return value;
+  }
+
+  // Fold `value` through `op` over every thread of the block, returned to
+  // every one of them, with `identity` standing in where a warp has no
+  // partial to offer.
+  //
+  // Each warp folds itself with shuffles, lane 0 of each warp parks that
+  // partial in shared memory, and warp 0 folds the partials. With 256
+  // threads, that is 8 partials, so the second round is one warp fold with
+  // lanes 8 through 31 contributing `identity`.
+  //
+  // It synchronizes the block twice. Two calls in a row are safe because the
+  // second call's partials land in slots the first call has finished reading,
+  // and its total is written only after a synchronization every reader of
+  // the first total has passed.
+  template<typename T, typename Op>
+  __device__ static T block_reduce(T value, Op op, T identity) {
     __shared__ T partials[cuda_warp::max_warps_per_block];
     __shared__ T total;
     const auto lane = cuda_warp::lane_id();
     const auto warp = cuda_warp::warp_id();
     const auto warps = cuda_warp::warps_in_block();
 
-    value = warp_sum(value);
+    value = warp_reduce(value, op, cuda_warp::all_mask);
     if (lane == 0) partials[warp] = value;
     cuda_block::sync();
 
     if (warp == 0) {
-      value = warp_sum((lane < warps) ? partials[lane] : T{});
+      value = warp_reduce((lane < warps) ? partials[lane] : identity, op,
+          cuda_warp::all_mask);
       if (lane == 0) total = value;
     }
     cuda_block::sync();
