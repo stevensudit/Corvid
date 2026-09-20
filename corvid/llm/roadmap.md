@@ -1049,6 +1049,37 @@ napkin example for one head of width two and two heads of width one from the
 same `qkv`, and the oracle case, which runs `c_attn`, the heads, and `c_proj`
 on the device for every block and matches `attn/out` at 1e-4.
 
+Status (2026-09-20, device block, forward, and head): the composition is
+"gpt2.cuh" (namespace `corvid::cuda::llm`), mirroring "gpt2.h" op for op.
+`block_params` and `gpt2_params` are owning twins of the CPU bundles, one
+`cuda_matrix<float>` or `cuda_buffer<float>` per weight, each constructed from
+its CPU views so the weights upload once; `cuda_buffer` gained the
+allocate-and-upload constructor from a host span that `cuda_matrix` already
+had. `block_activations` stays caller-owned views, as on the CPU, with
+`scores` the device `attend`'s T x T scratch. `block(blas, out, in, params,
+acts, head_count)` and `forward(blas, out, ids, params, acts, head_count)`
+run the same steps as their CPU twins (the CPU docs keep the step tables),
+with the IDs a `cuda_buffer<token_id>` as `embed_tokens` takes them and
+`layer_norm_eps` shared from "gpt2.h"; each returns the ops' `bool`, so a
+refused launch stops the chain. The head is one op, `compute_logits` in
+"llm_ops.cuh", a `gemm` of the trunk against the transposed embedding
+(`.op_b = transpose`); the CPU's per-token form is the same call over a
+one-row subview, so there is no second op. Greedy picking stays on the CPU:
+the test downloads the last token's row of logits (200 KB) and calls
+`pick_greedy`, since cuBLAS's `amax` takes absolute values and a device argmax
+needs a pair reduction the KV-cache step can bring with the generation loop.
+The oracle loaders (`block_params_of`, `oracle_params`, the manifest's greedy
+continuation, decoding through the tokenizer) moved from the CPU test into
+"gpt2_oracle.h" so both tests read them. The stage-4 gate, "cuda_gpt2_test.cu",
+mirrors the CPU one and passes at the CPU tolerances on the first run: every
+block from its dumped `ln_1/in` (exits within 6.7e-4, block 11; `ln_1/out`
+within 1.4e-6 at 1e-5), in place bit for bit; the forward pass against
+`ln_f/out` (6.9e-5); the five prompts' logits (worst 3.5e-4, prompt 3); and
+the twenty greedy IDs and their text. Timing, in-process: a 14-token pass with
+logits takes 10 to 15 ms, the model upload 0.23 s per test case, and the
+twenty-step greedy loop 0.42 s against the CPU's 2.3 s. Next: batched-GEMM
+attend, the KV cache, bf16, and tokens per second against llama.cpp.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

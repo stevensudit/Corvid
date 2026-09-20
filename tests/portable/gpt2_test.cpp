@@ -15,22 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <cstddef>
-#include <cstdint>
 #include <format>
 #include <span>
 #include <string>
 #include <vector>
 
 #include "corvid/llm/gpt2.h"
-#include "corvid/llm/gpt2_tokenizer.h"
-#include "corvid/proto/misc/json_parser.h"
-#include "corvid/strings/conversion.h"
 #include "catch2_main.h"
 #include "gpt2_oracle.h"
 
 using namespace corvid;
 using namespace corvid::llm;
-using namespace corvid::strings::conversion;
 using namespace corvid::tests::gpt2;
 
 using row_ndx = float_matrix_view::row_ndx;
@@ -40,26 +35,6 @@ using row_ndx = float_matrix_view::row_ndx;
 namespace {
 
 #pragma region Block
-
-// The parameters of block `n`, as views over the oracle's weights.
-block_params block_params_of(const oracle_dumps& oracle, size_t n) {
-  const auto& w = oracle.weights;
-  const auto h = std::format("h.{}", n);
-  return {
-      .ln_1_weight = vector_of(w, h + ".ln_1.weight", n_embd),
-      .ln_1_bias = vector_of(w, h + ".ln_1.bias", n_embd),
-      .attn_c_attn_weight = matrix_of(w, h + ".attn.c_attn.weight", n_qkv),
-      .attn_c_attn_bias = vector_of(w, h + ".attn.c_attn.bias", n_qkv),
-      .attn_c_proj_weight = matrix_of(w, h + ".attn.c_proj.weight", n_embd),
-      .attn_c_proj_bias = vector_of(w, h + ".attn.c_proj.bias", n_embd),
-      .ln_2_weight = vector_of(w, h + ".ln_2.weight", n_embd),
-      .ln_2_bias = vector_of(w, h + ".ln_2.bias", n_embd),
-      .mlp_c_fc_weight = matrix_of(w, h + ".mlp.c_fc.weight", n_hidden),
-      .mlp_c_fc_bias = vector_of(w, h + ".mlp.c_fc.bias", n_hidden),
-      .mlp_c_proj_weight = matrix_of(w, h + ".mlp.c_proj.weight", n_embd),
-      .mlp_c_proj_bias = vector_of(w, h + ".mlp.c_proj.bias", n_embd),
-  };
-}
 
 // Owned storage for every activation of `block`, all distinct, sized for
 // `token_count` tokens of the model's widths.
@@ -99,31 +74,6 @@ struct owned_block_activations {
         .mlp_out = rows(mlp_out, n_embd),
         .scores = scores,
     };
-  }
-};
-
-#pragma endregion
-#pragma region Model
-
-// The whole model's parameters, as views over the oracle's weights, with the
-// per-block views owned here since `gpt2_params` only spans them.
-struct oracle_params {
-  std::vector<block_params> blocks;
-  gpt2_params params;
-
-  explicit oracle_params(const oracle_dumps& oracle) {
-    for (auto n = 0UZ; n < n_layer; ++n)
-      blocks.push_back(block_params_of(oracle, n));
-    const auto& w = oracle.weights;
-    params = {
-        .wte = matrix_of(w, "wte.weight", n_embd),
-        .wpe = matrix_of(w, "wpe.weight", n_embd),
-        .blocks = blocks,
-        .ln_f_weight = vector_of(w, "ln_f.weight", n_embd),
-        .ln_f_bias = vector_of(w, "ln_f.bias", n_embd),
-    };
-    REQUIRE(params.wte.row_extent() == n_vocab);
-    REQUIRE(params.wpe.row_extent() == n_ctx);
   }
 };
 
@@ -252,29 +202,16 @@ TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
   // twenty IDs it appended, and their text. Each step here runs the whole
   // model over the IDs so far and appends the most likely next token, so
   // one wrong pick would derail every later one.
-  const auto manifest_text = read_file(fixture_path("manifest.json"));
-  json_value_view root;
-  REQUIRE(parse_json(manifest_text, root));
-  const auto spec = root.as_object().get_object("greedy");
-  const auto prompt = spec.get_number<size_t>("prompt");
-  REQUIRE(prompt);
-  std::vector<token_id> expected_ids;
-  for (const auto item : spec.get_array("tokens")) {
-    const auto id = item.as_number<uint32_t>();
-    REQUIRE(id);
-    expected_ids.push_back(token_id{*id});
-  }
-  REQUIRE(expected_ids.size() == 20);
-  std::string expected_text;
-  REQUIRE(spec.get_string("text", expected_text));
+  const auto expected = read_greedy_continuation();
+  REQUIRE(expected.ids.size() == 20);
 
   const oracle_params model(oracle);
-  auto ids =
-      ids_of(oracle.logits, std::format("prompt_{}/input_ids", *prompt));
+  auto ids = ids_of(oracle.logits,
+      std::format("prompt_{}/input_ids", expected.prompt));
   const auto prompt_count = ids.size();
   std::vector<float> logits_storage(n_vocab);
   const float_row_span next_logits(logits_storage);
-  for (auto step = 0UZ; step < expected_ids.size(); ++step) {
+  for (auto step = 0UZ; step < expected.ids.size(); ++step) {
     const auto token_count = ids.size();
     std::vector<float> trunk_storage(token_count * n_embd);
     const float_matrix_view trunk(trunk_storage,
@@ -287,16 +224,10 @@ TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
   }
   const auto appended = std::span{ids}.subspan(prompt_count);
   const std::vector<token_id> generated(appended.begin(), appended.end());
-  CHECK(generated == expected_ids);
+  CHECK(generated == expected.ids);
 
   // And as text, through the tokenizer.
-  gpt2_tokenizer tok;
-  const auto merges = read_file(fixture_path("merges.txt"));
-  const auto merges_span = as_byte_span<char8_t>(merges);
-  REQUIRE(tok.load({merges_span.data(), merges_span.size()}));
-  std::u8string bytes;
-  REQUIRE(tok.decode(bytes, generated));
-  CHECK(std::string(bytes.begin(), bytes.end()) == expected_text);
+  CHECK(decode_ids(generated) == expected.text);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

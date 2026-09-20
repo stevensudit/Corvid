@@ -31,16 +31,24 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "corvid/containers/utils/matrix_view.h"
+#include "corvid/llm/gpt2.h"
+#include "corvid/llm/gpt2_tokenizer.h"
 #include "corvid/llm/safetensors.h"
 #include "corvid/llm/token_id.h"
+#include "corvid/proto/misc/json_parser.h"
+#include "corvid/strings/conversion.h"
 #include "test_files.h"
 
 // The GPT-2 oracle for the forward-pass tests, CPU and device alike: where
-// the dumps and fixtures are, how to view their tensors, the allclose
-// comparison, and the model's dimensions.
+// the dumps and fixtures are, how to view their tensors, the model's
+// parameters as views over them, the allclose comparison, the greedy
+// continuation from the manifest, and the model's dimensions.
 
 namespace corvid::tests::gpt2 {
 
+using corvid::llm::block_params;
+using corvid::llm::gpt2_params;
+using corvid::llm::gpt2_tokenizer;
 using corvid::llm::safetensors_file;
 using corvid::llm::token_id;
 
@@ -188,5 +196,93 @@ constexpr auto n_ctx = 1024UZ;
 // The prompt whose activations the oracle dumped, by its index in the
 // manifest.
 constexpr auto bisect_prompt = 1UZ;
+
+#pragma region Parameters
+
+// The parameters of block `n`, as views over the oracle's weights.
+inline block_params block_params_of(const oracle_dumps& oracle, size_t n) {
+  const auto& w = oracle.weights;
+  const auto h = std::format("h.{}", n);
+  return {
+      .ln_1_weight = vector_of(w, h + ".ln_1.weight", n_embd),
+      .ln_1_bias = vector_of(w, h + ".ln_1.bias", n_embd),
+      .attn_c_attn_weight = matrix_of(w, h + ".attn.c_attn.weight", n_qkv),
+      .attn_c_attn_bias = vector_of(w, h + ".attn.c_attn.bias", n_qkv),
+      .attn_c_proj_weight = matrix_of(w, h + ".attn.c_proj.weight", n_embd),
+      .attn_c_proj_bias = vector_of(w, h + ".attn.c_proj.bias", n_embd),
+      .ln_2_weight = vector_of(w, h + ".ln_2.weight", n_embd),
+      .ln_2_bias = vector_of(w, h + ".ln_2.bias", n_embd),
+      .mlp_c_fc_weight = matrix_of(w, h + ".mlp.c_fc.weight", n_hidden),
+      .mlp_c_fc_bias = vector_of(w, h + ".mlp.c_fc.bias", n_hidden),
+      .mlp_c_proj_weight = matrix_of(w, h + ".mlp.c_proj.weight", n_embd),
+      .mlp_c_proj_bias = vector_of(w, h + ".mlp.c_proj.bias", n_embd),
+  };
+}
+
+// The whole model's parameters, as views over the oracle's weights, with the
+// per-block views owned here since `gpt2_params` only spans them.
+struct oracle_params {
+  std::vector<block_params> blocks;
+  gpt2_params params;
+
+  explicit oracle_params(const oracle_dumps& oracle) {
+    for (auto n = 0UZ; n < n_layer; ++n)
+      blocks.push_back(block_params_of(oracle, n));
+    const auto& w = oracle.weights;
+    params = {
+        .wte = matrix_of(w, "wte.weight", n_embd),
+        .wpe = matrix_of(w, "wpe.weight", n_embd),
+        .blocks = blocks,
+        .ln_f_weight = vector_of(w, "ln_f.weight", n_embd),
+        .ln_f_bias = vector_of(w, "ln_f.bias", n_embd),
+    };
+    REQUIRE(params.wte.row_extent() == n_vocab);
+    REQUIRE(params.wpe.row_extent() == n_ctx);
+  }
+};
+
+#pragma endregion
+#pragma region Greedy
+
+// The oracle's greedy continuation of one prompt, as the manifest records
+// it: the prompt's index, the IDs appended to it, and their text.
+struct greedy_continuation {
+  size_t prompt{};
+  std::vector<token_id> ids;
+  std::string text;
+};
+
+// Read the greedy continuation from the manifest fixture.
+inline greedy_continuation read_greedy_continuation() {
+  const auto manifest_text = read_file(fixture_path("manifest.json"));
+  json_value_view root;
+  REQUIRE(parse_json(manifest_text, root));
+  const auto spec = root.as_object().get_object("greedy");
+  greedy_continuation result;
+  const auto prompt = spec.get_number<size_t>("prompt");
+  REQUIRE(prompt);
+  result.prompt = *prompt;
+  for (const auto item : spec.get_array("tokens")) {
+    const auto id = item.as_number<uint32_t>();
+    REQUIRE(id);
+    result.ids.push_back(token_id{*id});
+  }
+  REQUIRE(spec.get_string("text", result.text));
+  return result;
+}
+
+// Decode `ids` to text through the tokenizer, loaded from the merges fixture.
+inline std::string decode_ids(std::span<const token_id> ids) {
+  gpt2_tokenizer tok;
+  const auto merges = read_file(fixture_path("merges.txt"));
+  const auto merges_span =
+      corvid::strings::conversion::as_byte_span<char8_t>(merges);
+  REQUIRE(tok.load({merges_span.data(), merges_span.size()}));
+  std::u8string bytes;
+  REQUIRE(tok.decode(bytes, ids));
+  return {bytes.begin(), bytes.end()};
+}
+
+#pragma endregion
 
 } // namespace corvid::tests::gpt2
