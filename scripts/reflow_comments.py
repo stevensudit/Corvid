@@ -32,13 +32,26 @@
 #  - paragraphs listed in SKIP below (path:firstline keys; these go stale as
 #    line numbers shift, so prune entries once fixed or obsolete).
 #
+# The glue check reports and never rewrites. A colon or semicolon followed by
+# a lowercase word mid-line ("so C must be out: passing addend would...") is
+# usually an em dash in disguise gluing two sentences together. Each hit is
+# printed as a GLUE line for the author to rewrite as two sentences or with a
+# connective. Colons that end a line or introduce code, an example, or a list
+# are not matched. False positives are expected (quoted code such as
+# `a; b`, or a genuine "for example: foo"), so hits are advisory. To triage
+# one, reread the sentence with the colon or semicolon replaced by an em
+# dash. If it still reads naturally, the punctuation is glue and the
+# sentence wants splitting. If the em dash reads wrong ("Note: ", "the rule
+# is simple: ..."), the colon is doing its own job and the hit is noise.
+#
 # Usage:
 #   python scripts/reflow_comments.py [paths...]          # dry run (default)
 #   python scripts/reflow_comments.py [paths...] --apply  # rewrite files
 #
 # Paths may be files or directories (searched recursively for .h/.cuh/.cpp/
 # .cu); the default is corvid/. Dry-run prints each flagged paragraph as
-# OLD/NEW lines for review. Run format_all and the test suite after --apply.
+# OLD/NEW lines for review, and both modes print GLUE lines. Run format_all
+# and the test suite after --apply.
 
 import glob
 import os
@@ -68,6 +81,7 @@ pat = re.compile(r"^(\s*)// (.*\S)\s*$")
 item = re.compile(r"\d+\. ")
 banner = re.compile(r"[=\-*#_~]{4,}$")
 label = re.compile(r"\S[^:]{0,29}: ")
+glue = re.compile(r"[a-z`)][:;] [a-z`]")
 
 
 def breaks_para(c):
@@ -109,6 +123,21 @@ def paragraphs(lines):
         yield start, i, indent, content
 
 
+def glue_lines(lines):
+    """Yield (index, content) for comment lines with colon/semicolon glue."""
+    in_fence = False
+    for i in range(LICENSE_LINES, len(lines)):
+        m = pat.match(lines[i])
+        if not m:
+            continue
+        c = m.group(2)
+        if c.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and glue.search(c):
+            yield i, c
+
+
 def collect_files():
     files = []
     for root in ROOTS:
@@ -123,9 +152,12 @@ def collect_files():
 
 
 def main():
-    total = skipped = 0
+    total = skipped = glued = 0
     for path in collect_files():
         lines = open(path, encoding="utf-8").read().splitlines()
+        for i, c in glue_lines(lines):
+            glued += 1
+            print(f"GLUE {path}:{i + 1}: {c}")
         out = lines[:]
         hits = []
         for start, end, indent, content in reversed(list(paragraphs(lines))):
@@ -169,7 +201,7 @@ def main():
             open(path, "w", encoding="utf-8",
                  newline="").write("\n".join(out) + "\n")
     print(f"{'applied' if APPLY else 'flagged'} {total} paragraphs, "
-          f"skipped {skipped}")
+          f"skipped {skipped}, {glued} glue lines")
 
 
 if __name__ == "__main__":

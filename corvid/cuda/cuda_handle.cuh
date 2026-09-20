@@ -98,7 +98,7 @@ public:
   [[nodiscard]] operator handle_t() noexcept { return handle_; }
   [[nodiscard]] operator const_handle_t() const noexcept { return handle_; }
 
-  [[nodiscard]] bool ok() const noexcept { return handle_ != handle_t{}; }
+  [[nodiscard]] bool ok() const noexcept { return handle_; }
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 
   handle_t operator*() {

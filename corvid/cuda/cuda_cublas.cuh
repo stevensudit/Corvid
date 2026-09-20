@@ -68,7 +68,7 @@ public:
   cublas_last_status(cublasStatus_t status)
       : value_{static_cast<cublas_status>(status)} {}
 
-  [[nodiscard]] bool ok() const { return value_ == cublas_status::success; }
+  [[nodiscard]] bool ok() const { return (value_ == cublas_status::success); }
   [[nodiscard]] explicit operator bool() const { return ok(); }
 
   [[nodiscard]] cublas_status status() const { return value_; }
