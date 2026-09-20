@@ -101,6 +101,8 @@ void check_device_close(cuda_matrix_view<const float> device,
 
 } // namespace
 
+#pragma region Tests
+
 TEST_CASE("Device block matches the oracle", "[Gpt2Test][oracle][cuda]") {
   oracle_dumps oracle;
   oracle.load();
@@ -262,3 +264,4 @@ TEST_CASE("Device greedy decoding reproduces the manifest",
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
+#pragma endregion

@@ -123,8 +123,7 @@ layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
     const input_buffer_t<Out>& bias, device_element_t<Out> eps) {
   const auto& out_view = out.as_view();
   [[maybe_unused]] const auto width = in.col_extent();
-  assert((out_view.row_extent() == in.row_extent()) &&
-         (out_view.col_extent() == width));
+  assert(out_view.extent() == in.extent());
   assert((weight.size() == width) && (bias.size() == width));
   assert(is_same_or_disjoint(out_view.as_span(), in.as_span()));
   assert(is_disjoint(out_view.as_span(), weight.as_span()));
@@ -160,8 +159,7 @@ template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
 [[nodiscard]] bool gelu_new(Out&& out, input_view_t<Out> in) {
   const auto& out_view = out.as_view();
-  assert((out_view.row_extent() == in.row_extent()) &&
-         (out_view.col_extent() == in.col_extent()));
+  assert(out_view.extent() == in.extent());
 
   details::apply_gelu_new<<<grid_for(out_view), threads_per_block>>>(
       kernel_matrix_view{out_view}, kernel_matrix_view{in}, out_view.extent());

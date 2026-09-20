@@ -272,10 +272,8 @@ void softmax(O& span_out, const I& span_in) noexcept {
 // `a` or as `b`, adding in place, but must not otherwise overlap either.
 template<Arithmetic T>
 void add(matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) noexcept {
-  assert((a.row_extent() == b.row_extent()) &&
-         (a.col_extent() == b.col_extent()));
-  assert((out.row_extent() == a.row_extent()) &&
-         (out.col_extent() == a.col_extent()));
+  assert(a.extent() == b.extent());
+  assert(out.extent() == a.extent());
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));
   assert(is_same_or_disjoint(out.as_span(), b.as_span()));
 
@@ -295,10 +293,8 @@ void add(matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) noexcept {
 template<Arithmetic T>
 void subtract(matrix_view<T> out, const_view_t<T> a,
     const_view_t<T> b) noexcept {
-  assert((a.row_extent() == b.row_extent()) &&
-         (a.col_extent() == b.col_extent()));
-  assert((out.row_extent() == a.row_extent()) &&
-         (out.col_extent() == a.col_extent()));
+  assert(a.extent() == b.extent());
+  assert(out.extent() == a.extent());
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));
   assert(is_same_or_disjoint(out.as_span(), b.as_span()));
 

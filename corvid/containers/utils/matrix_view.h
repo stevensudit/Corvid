@@ -101,6 +101,9 @@ struct matrix_extent {
     return {.row_count = col_count, .col_count = row_count};
   }
 
+  [[nodiscard]] constexpr bool operator==(
+      const matrix_extent&) const noexcept = default;
+
   static const matrix_extent npos;
   static const matrix_extent dynamic;
 };
