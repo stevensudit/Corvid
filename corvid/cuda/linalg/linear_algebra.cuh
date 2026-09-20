@@ -329,24 +329,23 @@ template<Floating T>
 __global__ void apply_softmax(kernel_matrix_view<T> out,
     kernel_matrix_view<const T> in, size_t cols) {
   const auto row = cuda_kernel::x_block<size_t>();
-  const auto first = cuda_kernel::x_thread<size_t>();
-  const auto step = cuda_kernel::x_block_dim<size_t>();
+  const kernel_col_range columns{cols};
 
   // Shifting every value by the same amount leaves the weights unchanged, and
   // shifting by the maximum keeps `exp` at or below 1.
   auto peak = std::numeric_limits<T>::lowest();
-  for (auto c = first; c < cols; c += step) peak = std::max(peak, in[row, c]);
+  for (const auto c : columns) peak = std::max(peak, in[row, c]);
   peak = cuda_reduce::block_max(peak);
 
   T total{};
-  for (auto c = first; c < cols; c += step) {
+  for (const auto c : columns) {
     const auto weight = std::exp(in[row, c] - peak);
     out[row, c] = weight;
     total += weight;
   }
   total = cuda_reduce::block_sum(total);
 
-  for (auto c = first; c < cols; c += step) out[row, c] /= total;
+  for (const auto c : columns) out[row, c] /= total;
 }
 
 } // namespace details

@@ -1021,6 +1021,18 @@ rows, in place, a strided window whose filler column survives, and a
 1000-column ramp where each thread folds four columns, checked by the row sum
 and the exp(0.01) ratio of neighbors.
 
+Status (2026-09-19, kernel column range): the block-stride loop that
+`apply_layer_norm` and `apply_softmax` spelled by hand six times, `for (auto c
+= first; c < cols; c += step)`, is now `for (const auto c : columns)` over a
+`kernel_col_range` (the user's design, in "cuda_matrix.cuh" beside
+`kernel_coord`). It is an aggregate whose `cols` the kernel supplies and whose
+`first` and `step` default from the thread index and block width, walked by a
+range-for whose `end()` is a sentinel of a different type than the iterator,
+compared as "column at or past the end". It costs nothing: the PTX of both
+kernels at O2 is identical before and after, and a probe kernel gave the same
+result. A test walks four threads over ten columns and pins each thread's
+visits.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
