@@ -25,6 +25,7 @@
 
 #include "../../linalg/linear_algebra.h"
 #include "../../llm/llm_ops.h"
+#include "../../llm/token_id.h"
 #include "../../meta/containers.h"
 #include "../cuda_buffer.cuh"
 #include "../cuda_kernel.cuh"
@@ -43,6 +44,7 @@
 namespace corvid::cuda::llm {
 
 using namespace corvid::cuda::linalg;
+using corvid::llm::token_id;
 
 #pragma region layer_norm
 
@@ -165,6 +167,58 @@ requires Floating<device_element_t<Out>>
   details::apply_gelu_new<<<blocks_for(out_view.size()), threads_per_block>>>(
       out_view.get(), out_view.stride(), in.get(), in.stride(),
       out_view.size(), out_view.col_extent());
+  return cuda_last_status{}.ok();
+}
+
+#pragma endregion
+#pragma region embed_tokens
+
+namespace details {
+
+// Copy the rows of `table` that `ids` name into `out`, `size` elements over
+// rows `cols` wide, with the rows of `table` `table_stride` apart and those
+// of `out` `out_stride` apart, one thread per element.
+//
+// Thread `i` takes element `i` of `out` in row-major order, so the lanes of a
+// warp read 32 consecutive columns of one row of `table` and write them to 32
+// consecutive columns of `out`.
+template<typename T>
+__global__ void gather_rows(T* out, size_t out_stride, const token_id* ids,
+    const T* table, size_t table_stride, size_t size, size_t cols) {
+  const auto i = cuda_kernel::x_index<size_t>();
+  if (i < size) {
+    const auto row = i / cols;
+    const auto col = i % cols;
+    const auto table_row = *ids[row];
+    out[(row * out_stride) + col] = table[(table_row * table_stride) + col];
+  }
+}
+
+} // namespace details
+
+// Look up each ID's row of `table`, into `out`.
+//
+// The contract is that of the CPU `corvid::llm::embed_tokens`. With T tokens,
+// V vocabulary entries, and width C:
+//
+//   ids    [T]     one token ID per row of `out`
+//   table  [V, C]  a row per vocabulary entry
+//   out    [T, C]  a row per ID, written
+//
+// `out` must have one row per ID and the width of `table`, every ID must
+// index a row of `table`, and `out` must not overlap `table`. Returns false
+// when the launch is refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out>
+[[nodiscard]] bool embed_tokens(Out&& out, const cuda_buffer<token_id>& ids,
+    input_view_t<Out> table) {
+  const auto& out_view = out.as_view();
+  assert(out_view.row_extent() == ids.size());
+  assert(out_view.col_extent() == table.col_extent());
+  assert(is_disjoint(out_view.as_span(), table.as_span()));
+
+  details::gather_rows<<<blocks_for(out_view.size()), threads_per_block>>>(
+      out_view.get(), out_view.stride(), ids.get(), table.get(),
+      table.stride(), out_view.size(), out_view.col_extent());
   return cuda_last_status{}.ok();
 }
 

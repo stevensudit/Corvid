@@ -35,6 +35,7 @@ using Catch::Matchers::WithinAbs;
 using corvid::cuda::cublas_handle;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
+using corvid::llm::token_id;
 
 // The epsilon every layer norm test passes, GPT-2's own so the oracle case
 // matches.
@@ -264,6 +265,67 @@ TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
       check_close(out_view, expected, 1e-4F, 1e-4F);
     }
   }
+}
+
+#pragma endregion
+#pragma region embed_tokens
+
+TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
+    "[LlmOpsTest][cuda]", float, double) {
+  using T = TestType;
+  // Three tokens in the vocabulary, width two, as the CPU test has them.
+  const std::vector<T> table_storage{T{1}, T{2}, T{10}, T{20}, T{100}, T{200}};
+  const matrix_view<const T> table_view(table_storage,
+      {.row_count = 3, .col_count = 2});
+  const std::vector<token_id> id_storage{token_id{2}, token_id{0}};
+
+  const cuda_matrix<T> table(table_view);
+  cuda_buffer<token_id> ids(id_storage.size());
+  REQUIRE(ids.load(id_storage));
+  cuda_matrix<T> out({.row_count = id_storage.size(), .col_count = 2});
+
+  REQUIRE(cuda::llm::embed_tokens(out, ids, table));
+
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.as_view().store(matrix_view<T>(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<T>{T{100}, T{200}, T{1}, T{2}});
+}
+
+TEST_CASE("Device embed tokens match the oracle",
+    "[LlmOpsTest][oracle][cuda]") {
+  using view_t = cuda_matrix<float>::view_t;
+  using row_ndx = view_t::row_ndx;
+  using col_ndx = view_t::col_ndx;
+  oracle_dumps oracle;
+  oracle.load();
+
+  // The bisect prompt's IDs come from the logits dump, the only place the
+  // oracle wrote them. The dumped `embed/out` is the token embedding plus the
+  // position embedding, so the device add supplies the second half, and both
+  // halves are exact.
+  const auto id_storage =
+      ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
+  REQUIRE(id_storage.size() == 14);
+  const auto wte_view = matrix_of(oracle.weights, "wte.weight", n_embd);
+  const auto wpe_view = matrix_of(oracle.weights, "wpe.weight", n_embd);
+  REQUIRE(wte_view.row_extent() == n_vocab);
+  REQUIRE(wpe_view.row_extent() == n_ctx);
+  const auto expected = matrix_of(oracle.activations, "embed/out", n_embd);
+
+  cuda_buffer<token_id> ids(id_storage.size());
+  REQUIRE(ids.load(id_storage));
+  const cuda_matrix<float> wte(wte_view);
+  const cuda_matrix<float> wpe(wpe_view);
+  cuda_matrix<float> out(expected.extent());
+  std::vector<float> out_storage(out.size());
+  const float_matrix_view out_view(out_storage, out.extent());
+
+  REQUIRE(cuda::llm::embed_tokens(out, ids, wte));
+  REQUIRE(cuda::linalg::add(out, out,
+      wpe.subview({row_ndx{0}, col_ndx{0}}, out.extent())));
+  REQUIRE(out.as_view().store(out_view));
+
+  check_close(out_view, expected, 0.0F, 0.0F);
 }
 
 #pragma endregion
