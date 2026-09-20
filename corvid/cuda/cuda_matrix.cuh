@@ -85,7 +85,7 @@ public:
   [[nodiscard]] cuda_last_status load(matrix_view<const value_t> host) const
   requires(!std::is_const_v<element_t>)
   {
-    assert(is_same_extent(host.extent()));
+    assert(host.extent() == extent_);
     return copy(get(), stride_, host.as_span().data(), host.stride(),
         memcpy_kind::host_to_device);
   }
@@ -95,14 +95,14 @@ public:
   load(cuda_matrix_view<const value_t> device) const
   requires(!std::is_const_v<element_t>)
   {
-    assert(is_same_extent(device.extent()));
+    assert(device.extent() == extent_);
     return copy(get(), stride_, device.get(), device.stride(),
         memcpy_kind::device_to_device);
   }
 
   // Download into `host`, which must have the same extent.
   [[nodiscard]] cuda_last_status store(matrix_view<value_t> host) const {
-    assert(is_same_extent(host.extent()));
+    assert(host.extent() == extent_);
     return copy(host.as_span().data(), host.stride(), get(), stride_,
         memcpy_kind::device_to_host);
   }
@@ -110,11 +110,6 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  [[nodiscard]] bool is_same_extent(extent_t other) const noexcept {
-    return (other.row_count == extent_.row_count) &&
-           (other.col_count == extent_.col_count);
-  }
-
   // Copy this view's extent of elements from `src` to `dest`, each with its
   // own row stride, as one plain transfer when both are packed and as a
   // pitched transfer otherwise.

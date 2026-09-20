@@ -153,8 +153,7 @@ struct closeness {
 // Compare `actual` to `expected`, which must have the same extent.
 inline closeness compare(const_float_matrix_view actual,
     const_float_matrix_view expected, float atol, float rtol) {
-  REQUIRE(actual.row_extent() == expected.row_extent());
-  REQUIRE(actual.col_extent() == expected.col_extent());
+  REQUIRE(actual.extent() == expected.extent());
   closeness result;
   for (const auto r : actual.row_interval()) {
     const auto actual_row = actual[r];

@@ -179,8 +179,7 @@ gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
   // copy of the `addend`, if there's anything there for us.
   const auto has_addend = !addend.empty() && (options.addend_scale != 0);
   if (has_addend && (addend.get() != out_view.get())) {
-    assert((addend.row_extent() == out_view.row_extent()) &&
-           (addend.col_extent() == out_view.col_extent()));
+    assert(addend.extent() == out_view.extent());
     // Copy `addend` into `out`, as part of the same default stream as `blas`.
     if (!out_view.load(addend)) return false;
   }
@@ -273,10 +272,8 @@ combine_elements(kernel_matrix_view<T> out, kernel_matrix_view<const T> a,
 template<typename T, typename Op>
 [[nodiscard]] bool
 combine(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b, Op op) {
-  assert((a.row_extent() == b.row_extent()) &&
-         (a.col_extent() == b.col_extent()));
-  assert((out.row_extent() == a.row_extent()) &&
-         (out.col_extent() == a.col_extent()));
+  assert(a.extent() == b.extent());
+  assert(out.extent() == a.extent());
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));
   assert(is_same_or_disjoint(out.as_span(), b.as_span()));
 
@@ -364,8 +361,7 @@ template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
 [[nodiscard]] bool softmax(Out&& out, input_view_t<Out> in) {
   const auto& out_view = out.as_view();
-  assert((out_view.row_extent() == in.row_extent()) &&
-         (out_view.col_extent() == in.col_extent()));
+  assert(out_view.extent() == in.extent());
   assert(in.col_extent() > 0);
   assert(is_same_or_disjoint(out_view.as_span(), in.as_span()));
 

@@ -86,7 +86,7 @@ inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
     const_float_row_span weight, const_float_row_span bias,
     float eps) noexcept {
   [[maybe_unused]] const auto width = in.col_extent();
-  assert((out.row_extent() == in.row_extent()) && (out.col_extent() == width));
+  assert(out.extent() == in.extent());
   assert((weight.size() == width) && (bias.size() == width));
   assert(is_same_or_disjoint(out.as_span(), in.as_span()));
   assert(is_disjoint(out.as_span(), weight));
@@ -141,8 +141,7 @@ template<Floating T>
 // as `in`, applying it in place, but must not otherwise overlap it.
 template<Floating T>
 void gelu_new(matrix_view<T> out, const_view_t<T> in) noexcept {
-  assert((out.row_extent() == in.row_extent()) &&
-         (out.col_extent() == in.col_extent()));
+  assert(out.extent() == in.extent());
   assert(is_same_or_disjoint(out.as_span(), in.as_span()));
 
   for (const auto [out_row, in_row] : zip(out.rows(), in.rows()))
