@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -23,13 +24,35 @@
 #include "corvid/cuda/linalg/linear_algebra.cuh"
 #include "catch2_main.h"
 #include "catch2/catch_template_test_macros.hpp"
+#include "catch2/matchers/catch_matchers_floating_point.hpp"
 
 using namespace corvid;
+using Catch::Matchers::WithinAbs;
 using corvid::cuda::cublas_handle;
 using corvid::cuda::cublas_operation;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::cuda::cuda_matrix_view;
+using corvid::cuda::kernel_col_range;
+
+namespace {
+
+// Each thread walks its columns of a `cols`-wide row and records how many it
+// visited and their sum, so the test can pin which columns each thread owns.
+__global__ void walk_columns(unsigned* count, unsigned* sum, size_t cols) {
+  const auto thread = cuda::cuda_kernel::x_thread();
+  const kernel_col_range columns{cols};
+  auto visited = 0U;
+  auto total = 0U;
+  for (const auto c : columns) {
+    ++visited;
+    total += static_cast<unsigned>(c);
+  }
+  count[thread] = visited;
+  sum[thread] = total;
+}
+
+} // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -49,6 +72,30 @@ TEST_CASE("DeviceMatrixLike admits only writable outputs",
   static_assert(!DeviceMatrixLike<const cuda_matrix<float>&>);
   static_assert(!DeviceMatrixLike<cuda_matrix_view<const float>>);
   static_assert(!DeviceMatrixLike<int>);
+}
+
+#pragma endregion
+#pragma region kernel_col_range
+
+TEST_CASE("Kernel column range strides by the block width",
+    "[LinearAlgebraTest][cuda]") {
+  // Four threads over ten columns: thread 0 owns 0, 4, 8 and thread 3 owns
+  // 3, 7. A zero-column row is walked by nobody.
+  constexpr auto threads = 4U;
+  cuda_buffer<unsigned> d_count{threads};
+  cuda_buffer<unsigned> d_sum{threads};
+  std::vector<unsigned> count(threads);
+  std::vector<unsigned> sum(threads);
+
+  walk_columns<<<1, threads>>>(d_count.get(), d_sum.get(), 10);
+  REQUIRE(d_count.store(count));
+  REQUIRE(d_sum.store(sum));
+  CHECK(count == std::vector<unsigned>{3, 3, 2, 2});
+  CHECK(sum == std::vector<unsigned>{12, 15, 8, 10});
+
+  walk_columns<<<1, threads>>>(d_count.get(), d_sum.get(), 0);
+  REQUIRE(d_count.store(count));
+  CHECK(count == std::vector<unsigned>{0, 0, 0, 0});
 }
 
 #pragma endregion
@@ -354,6 +401,105 @@ TEMPLATE_TEST_CASE("Device subtract on hand-computed rows",
     REQUIRE(cuda::linalg::subtract(b, a, b));
     REQUIRE(b.as_view().store(out_view));
     CHECK(storage == expected);
+  }
+}
+
+#pragma endregion
+#pragma region softmax
+
+TEMPLATE_TEST_CASE("Device softmax on hand-computed rows",
+    "[LinearAlgebraTest][cuda]", float, double) {
+  using T = TestType;
+  using view_t = cuda_matrix_view<T>;
+  using row_ndx = view_t::row_ndx;
+  using col_ndx = view_t::col_ndx;
+  using extent_t = view_t::extent_t;
+  constexpr auto tolerance = 1e-5;
+
+  // Row 0 is the CPU test's pair, where the second score gets twice the
+  // weight. Row 1 has equal scores whose raw exponential would overflow a
+  // float. Row 2 is a gap of 8, so the smaller weight is exp(-8) over
+  // 1 + exp(-8).
+  const std::vector<T> in_storage{T{0}, static_cast<T>(0.707), T{1000},
+      T{1000}, T{-3}, T{5}};
+  const matrix_view<const T> in_view(in_storage,
+      {.row_count = 3, .col_count = 2});
+  const std::vector<T> expected{static_cast<T>(0.330262),
+      static_cast<T>(0.669738), T{0.5}, T{0.5}, static_cast<T>(0.000335350),
+      static_cast<T>(0.999664650)};
+  const cuda_matrix<T> in(in_view);
+
+  const auto check_rows = [&](const std::vector<T>& storage) {
+    for (auto i = 0UZ; i < expected.size(); ++i) {
+      CAPTURE(i);
+      CHECK_THAT(storage[i], WithinAbs(expected[i], tolerance));
+    }
+  };
+
+  SECTION("into a separate matrix") {
+    cuda_matrix<T> out(in.extent());
+    REQUIRE(cuda::linalg::softmax(out, in));
+    std::vector<T> storage(out.size());
+    REQUIRE(out.as_view().store(matrix_view<T>(storage, out.extent())));
+    check_rows(storage);
+  }
+
+  SECTION("in place") {
+    cuda_matrix<T> same(in_view);
+    REQUIRE(cuda::linalg::softmax(same, same));
+    std::vector<T> storage(same.size());
+    REQUIRE(same.as_view().store(matrix_view<T>(storage, same.extent())));
+    check_rows(storage);
+  }
+
+  SECTION("over strided windows") {
+    // The rows are the leading two columns of a three-wide matrix whose last
+    // column must survive untouched. `x` marks filler.
+    constexpr auto x = T{-1};
+    const std::vector<T> wide_storage{T{0}, static_cast<T>(0.707), x, T{1000},
+        T{1000}, x, T{-3}, T{5}, x};
+    cuda_matrix<T> wide(
+        matrix_view<const T>(wide_storage, {.row_count = 3, .col_count = 3}));
+    const extent_t window{.row_count = 3, .col_count = 2};
+    const auto out = wide.subview({row_ndx{0}, col_ndx{0}}, window);
+    CHECK(!out.is_packed());
+    REQUIRE(cuda::linalg::softmax(out, out));
+
+    std::vector<T> storage(wide.size());
+    REQUIRE(wide.as_view().store(matrix_view<T>(storage, wide.extent())));
+    for (auto r = 0UZ; r < 3; ++r) {
+      CAPTURE(r);
+      CHECK_THAT(storage[(r * 3)], WithinAbs(expected[r * 2], tolerance));
+      CHECK_THAT(storage[(r * 3) + 1],
+          WithinAbs(expected[(r * 2) + 1], tolerance));
+      CHECK(storage[(r * 3) + 2] == x);
+    }
+  }
+}
+
+TEST_CASE("Device softmax over a row wider than a block",
+    "[LinearAlgebraTest][cuda]") {
+  // With 1000 columns and 256 threads, each thread folds four columns before
+  // the block reductions. The scores ramp by 0.01, so neighboring weights
+  // differ by a factor of exp(0.01), and the row sums to 1.
+  constexpr auto cols = 1000UZ;
+  std::vector<float> in_storage(cols);
+  for (auto c = 0UZ; c < cols; ++c)
+    in_storage[c] = static_cast<float>(c) * 0.01F;
+  const cuda_matrix<float> in(const_float_matrix_view(in_storage,
+      {.row_count = 1, .col_count = cols}));
+  cuda_matrix<float> out(in.extent());
+  REQUIRE(cuda::linalg::softmax(out, in));
+
+  std::vector<float> weights(cols);
+  REQUIRE(out.as_view().store(float_matrix_view(weights, out.extent())));
+  auto total = 0.0;
+  for (const auto weight : weights) total += weight;
+  CHECK_THAT(total, WithinAbs(1.0, 1e-5));
+  const auto ratio = std::exp(0.01);
+  for (const auto c : {0UZ, 255UZ, 256UZ, 998UZ}) {
+    CAPTURE(c);
+    CHECK_THAT(weights[c + 1] / weights[c], WithinAbs(ratio, 1e-4));
   }
 }
 

@@ -1009,6 +1009,18 @@ sum, `numeric_limits<T>::lowest()` for a max. The test contributes each
 thread's index less 1000 to the maxes, all negative, so a lane that wrongly
 brought zero would win.
 
+Status (2026-09-19, device softmax): `softmax` in "linear_algebra.cuh" turns
+each row of `in` into weights that sum to 1, one block per row as
+`apply_layer_norm` launches, with the row max from `block_max` (threads past
+the last column bring `lowest()`), the exponentials summed by `block_sum`, and
+a final divide. In place is allowed. Causality is not its business: the CPU
+`attend_head` runs softmax over each row's causal prefix, and the device
+`attend` will instead mask the columns after the diagonal with `lowest()`
+before calling it, so their exponential is zero. Tests cover the CPU test's
+rows, in place, a strided window whose filler column survives, and a
+1000-column ramp where each thread folds four columns, checked by the row sum
+and the exp(0.01) ratio of neighbors.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
