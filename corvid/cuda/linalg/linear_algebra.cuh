@@ -16,10 +16,13 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <type_traits>
 
 #include <cuda_runtime.h>
@@ -31,6 +34,7 @@
 #include "../cuda_cublas.cuh"
 #include "../cuda_kernel.cuh"
 #include "../cuda_matrix.cuh"
+#include "../cuda_reduce.cuh"
 #include "../cuda_status.cuh"
 
 // Row and matrix arithmetic on the device, one free function per op.
@@ -305,6 +309,71 @@ requires Arithmetic<device_element_t<Out>>
 [[nodiscard]] bool
 subtract(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
   return details::combine(out.as_view(), a, b, std::minus<>{});
+}
+
+#pragma endregion
+#pragma region softmax
+
+namespace details {
+
+// Turn one row of `in`, `cols` wide, into weights that sum to 1, writing into
+// the matching row of `out`.
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and every `blockDim.x` after it. A thread past the last column brings
+// the identity to both block reductions, which every thread must join.
+//
+// In-place is safe. Each element is read only by the thread that writes it,
+// and every read of `in` precedes that thread's write.
+template<Floating T>
+__global__ void apply_softmax(kernel_matrix_view<T> out,
+    kernel_matrix_view<const T> in, size_t cols) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const auto first = cuda_kernel::x_thread<size_t>();
+  const auto step = cuda_kernel::x_block_dim<size_t>();
+
+  // Shifting every value by the same amount leaves the weights unchanged, and
+  // shifting by the maximum keeps `exp` at or below 1.
+  auto peak = std::numeric_limits<T>::lowest();
+  for (auto c = first; c < cols; c += step) peak = std::max(peak, in[row, c]);
+  peak = cuda_reduce::block_max(peak);
+
+  T total{};
+  for (auto c = first; c < cols; c += step) {
+    const auto weight = std::exp(in[row, c] - peak);
+    out[row, c] = weight;
+    total += weight;
+  }
+  total = cuda_reduce::block_sum(total);
+
+  for (auto c = first; c < cols; c += step) out[row, c] /= total;
+}
+
+} // namespace details
+
+// Turn each row of `in` into weights that sum to 1, into `out`.
+//
+// The contract is that of the CPU `corvid::linalg::softmax`, applied to each
+// row. A weight is the exponential of its score divided by the sum of the
+// row's exponentials, and large scores do not overflow.
+//
+// `out` and `in` must have the same extent, with at least one column. `out`
+// can be the same view as `in`, applying it in place, but must not otherwise
+// overlap it. Returns false when the launch is refused, leaving `out`
+// unspecified.
+template<DeviceMatrixLike Out>
+requires Floating<device_element_t<Out>>
+[[nodiscard]] bool softmax(Out&& out, input_view_t<Out> in) {
+  const auto& out_view = out.as_view();
+  assert((out_view.row_extent() == in.row_extent()) &&
+         (out_view.col_extent() == in.col_extent()));
+  assert(in.col_extent() > 0);
+  assert(is_same_or_disjoint(out_view.as_span(), in.as_span()));
+
+  details::apply_softmax<<<static_cast<unsigned>(out_view.row_extent()),
+      threads_per_block>>>(kernel_matrix_view{out_view},
+      kernel_matrix_view{in}, out_view.col_extent());
+  return cuda_last_status{}.ok();
 }
 
 #pragma endregion

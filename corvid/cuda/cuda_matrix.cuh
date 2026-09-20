@@ -154,6 +154,42 @@ struct kernel_coord {
 };
 
 #pragma endregion
+#pragma region kernel_col_range
+
+// The columns a thread owns in a one-block-per-row launch, walked by a
+// range-for.
+//
+// The thread starts at its index and steps by the block's width, so the
+// block's threads together cover every column, and the lanes of a warp touch
+// consecutive columns.
+struct kernel_col_range {
+  size_t cols;
+  size_t first = cuda_kernel::x_thread<size_t>();
+  size_t step = cuda_kernel::x_block_dim<size_t>();
+
+  struct sentinel {
+    size_t cols;
+  };
+
+  struct iterator {
+    size_t col;
+    size_t step;
+
+    __device__ size_t operator*() const { return col; }
+    __device__ iterator& operator++() {
+      col += step;
+      return *this;
+    }
+    __device__ bool operator==(sentinel end) const {
+      return (col >= end.cols);
+    }
+  };
+
+  __device__ iterator begin() const { return {first, step}; }
+  __device__ sentinel end() const { return {cols}; }
+};
+
+#pragma endregion
 #pragma region kernel_matrix_view
 
 // A kernel's view of a row-major matrix of `T` in device memory, whose rows
