@@ -70,16 +70,15 @@ __global__ void
 apply_layer_norm(kernel_matrix_view<T> out, kernel_matrix_view<const T> in,
     size_t cols, const T* weight, const T* bias, T eps) {
   const auto row = cuda_kernel::x_block<size_t>();
-  const auto first = cuda_kernel::x_thread<size_t>();
-  const auto step = cuda_kernel::x_block_dim<size_t>();
+  const kernel_col_range columns{cols};
   const auto count = static_cast<T>(cols);
 
   T total{};
-  for (auto c = first; c < cols; c += step) total += in[row, c];
+  for (const auto c : columns) total += in[row, c];
   const auto mean = cuda_reduce::block_sum(total) / count;
 
   T squares{};
-  for (auto c = first; c < cols; c += step) {
+  for (const auto c : columns) {
     const auto deviation = in[row, c] - mean;
     squares += deviation * deviation;
   }
@@ -89,7 +88,7 @@ apply_layer_norm(kernel_matrix_view<T> out, kernel_matrix_view<const T> in,
   // results. We still might, but we'd need to tolerance it.
   const auto inv_std = T{1} / std::sqrt(variance + eps);
 
-  for (auto c = first; c < cols; c += step)
+  for (const auto c : columns)
     out[row, c] = corvid::linalg::scale_shift(
         corvid::linalg::standardize(in[row, c], mean, inv_std), weight[c],
         bias[c]);
