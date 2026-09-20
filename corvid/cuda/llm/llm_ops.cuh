@@ -52,16 +52,15 @@ using corvid::llm::token_id;
 namespace details {
 
 // Normalize one row of `in`, `cols` wide, to a mean of 0 and a variance of
-// 1, then scale by `weight` and shift by `bias`, into the same row of `out`.
+// 1, then scale by `weight` and shift by `bias`, writing into the matching row
+// of `out`.
 //
 // The block index picks the row, and each thread takes the columns at its
-// index and every `blockDim.x` after it, so with 256 threads and 768 columns
-// each thread holds 3. A thread past the last column sums nothing and still
-// joins both block sums, which every thread must.
+// index and at every `blockDim.x` after it, so with 256 threads and 768
+// columns each thread holds 3. A thread past the last column sums nothing and
+// still joins both block sums, which every thread must.
 //
-// The mean and the variance are each a block-wide sum, and the variance is
-// the mean of the squared deviations from the mean, as the CPU op computes
-// it, rather than the mean of the squares minus the square of the mean.
+// The mean and the variance are each a block-wide sum.
 //
 // In-place is safe. Each element is read only by the thread that writes it,
 // and the writes come after both sums, so no thread reads a column another
@@ -70,6 +69,8 @@ template<Floating T>
 __global__ void
 apply_layer_norm(kernel_matrix_view<T> out, kernel_matrix_view<const T> in,
     size_t cols, const T* weight, const T* bias, T eps) {
+  using corvid::linalg::scale_shift;
+  using corvid::linalg::standardize;
   const auto row = cuda_kernel::x_block<size_t>();
   const kernel_col_range columns{cols};
   const auto count = static_cast<T>(cols);
@@ -78,27 +79,30 @@ apply_layer_norm(kernel_matrix_view<T> out, kernel_matrix_view<const T> in,
   for (const auto c : columns) total += in[row, c];
   const auto mean = cuda_reduce::block_sum(total) / count;
 
+  // The variance is calculated as the mean of the squared deviations from the
+  // mean, as the CPU op computes it, rather than the mean of the squares minus
+  // the square of the mean.
   T squares{};
   for (const auto c : columns) {
     const auto deviation = in[row, c] - mean;
     squares += deviation * deviation;
   }
   const auto variance = cuda_reduce::block_sum(squares) / count;
-  // Note that we could have used `rsqrt(variance + eps)` instead of `1 /
-  // std::sqrt(variance + eps)`, which is faster but yields slightly different
-  // results. We still might, but we'd need to tolerance it.
+
+  // The inverse standard deviation is calculated as an actual reciprocal of
+  // the square root, instead of using `rsqrt`. The latter would be faster, but
+  // yield slightly different results.
   const auto inv_std = T{1} / std::sqrt(variance + eps);
 
   for (const auto c : columns)
-    out[row, c] = corvid::linalg::scale_shift(
-        corvid::linalg::standardize(in[row, c], mean, inv_std), weight[c],
-        bias[c]);
+    out[row, c] = scale_shift(standardize(in[row, c], mean, inv_std),
+        weight[c], bias[c]);
 }
 
 } // namespace details
 
 // Normalize each row of `in` to a mean of 0 and a variance of 1, then scale by
-// `weight` and shift by `bias`, elementwise, into `out`.
+// `weight` and shift by `bias`, elementwise, writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::layer_norm`. For T tokens of
 // C features:
@@ -126,9 +130,9 @@ layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
   assert(is_disjoint(out_view.as_span(), weight.as_span()));
   assert(is_disjoint(out_view.as_span(), bias.as_span()));
 
-  details::apply_layer_norm<<<static_cast<unsigned>(out_view.row_extent()),
-      threads_per_block>>>(kernel_matrix_view{out_view},
-      kernel_matrix_view{in}, width, weight.get(), bias.get(), eps);
+  details::apply_layer_norm<<<out_view.row_extent(), threads_per_block>>>(
+      kernel_matrix_view{out_view}, kernel_matrix_view{in}, width,
+      weight.get(), bias.get(), eps);
   return cuda_last_status{}.ok();
 }
 
@@ -137,8 +141,8 @@ layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
 
 namespace details {
 
-// Apply the scalar `gelu_new` to the elements of `in`, into `out`, both
-// `extent` in size, one thread per element.
+// Apply the scalar `gelu_new` to the elements of `in`, writing into `out`,
+// both `extent` in size, one thread per element.
 template<Floating T>
 __global__ void apply_gelu_new(kernel_matrix_view<T> out,
     kernel_matrix_view<const T> in, matrix_extent extent) {
@@ -148,7 +152,7 @@ __global__ void apply_gelu_new(kernel_matrix_view<T> out,
 
 } // namespace details
 
-// Apply `gelu_new` to every element of `in`, into `out`.
+// Apply `gelu_new` to every element of `in`, writing into `out`.
 //
 // `out` and `in` must have the same extent. `out` can be `in`, applying it in
 // place. Returns false when the launch is refused, leaving `out` unspecified.
@@ -169,8 +173,8 @@ requires Floating<device_element_t<Out>>
 
 namespace details {
 
-// Copy the row of `table` that each row's ID names into `out`, `extent` in
-// size, one thread per element.
+// Copy the row of `table` that each ID names into `out`, `extent` in size, one
+// thread per element.
 template<typename T>
 __global__ void gather_rows(kernel_matrix_view<T> out, const token_id* ids,
     kernel_matrix_view<const T> table, matrix_extent extent) {
@@ -180,7 +184,7 @@ __global__ void gather_rows(kernel_matrix_view<T> out, const token_id* ids,
 
 } // namespace details
 
-// Look up each ID's row of `table`, into `out`.
+// Look up each ID's row of `table`, writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::embed_tokens`. With T tokens,
 // V vocabulary entries, and width C:
@@ -236,7 +240,7 @@ requires Floating<device_element_t<Out>>
 }
 
 // Let each token read from the tokens at or before it, across all attention
-// heads, into `out`.
+// heads, writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::attend`, which also holds the
 // worked explanation. For T tokens, width C, and H heads of width D = C / H:
@@ -299,6 +303,30 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
     if (!gemm(blas, slice(out_view), scores, slice(v))) return false;
   }
   return true;
+}
+
+#pragma endregion
+#pragma region logits
+
+// Score every vocabulary entry after every token of `in`, writing into `out`.
+//
+// The contract is that of the CPU `corvid::llm::compute_all_logits`. Each
+// logit is the dot product of a token's row of `in` with a vocabulary entry's
+// row of `vocab`. This is a projection through the transpose of `vocab` with
+// no bias, so it is one GEMM. With T tokens, V vocabulary entries, and width
+// C:
+//
+//   out    T x V  one logit per token and vocabulary entry
+//   in     T x C  a row per token
+//   vocab  V x C  a row per vocabulary entry
+//
+// A one-row `in` scores one token. `out` must not be `in` or `vocab`. Returns
+// false when the launch is refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out>
+requires GemmElement<device_element_t<Out>>
+[[nodiscard]] bool compute_logits(const cublas_handle& blas, Out&& out,
+    input_view_t<Out> in, input_view_t<Out> vocab) {
+  return gemm(blas, out, in, vocab, {.op_b = cublas_operation::transpose});
 }
 
 #pragma endregion

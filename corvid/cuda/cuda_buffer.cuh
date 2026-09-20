@@ -85,6 +85,11 @@ public:
   explicit cuda_buffer(size_t count = 1UZ)
       : cuda_buffer{make(count, on_failure::raise), count} {}
 
+  // Allocate and upload `host`, or throw.
+  explicit cuda_buffer(std::span<const T> host) : cuda_buffer{host.size()} {
+    load(host).or_throw();
+  }
+
   // Allocate, or return a failed instance.
   //
   // Check with `operator bool`, and follow up with `cuda_last_status{}`.
