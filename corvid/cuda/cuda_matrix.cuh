@@ -42,6 +42,7 @@
 //   ... launch over q ...
 //   q.store(host_q).or_throw();
 namespace corvid::cuda {
+using matrix_types::matrix_axis;
 using matrix_types::matrix_extent;
 
 #pragma region cuda_matrix_view

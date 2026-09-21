@@ -1173,29 +1173,29 @@ malformed-file cases in "safetensors_test.cpp" check for the throw. The
 GPT-2 empty-weights test parses a ten-byte image with an empty header, which
 is a valid file with no tensors.
 
-Status (2026-09-21, batched-GEMM attend): the device `attend` no longer
-loops over the heads. Its four launches now cover every head at once, down
-from four per head (48 per block for GPT-2): a batched GEMM of the queries
-against the transposed keys, the causal mask, the row softmax, and a batched
-GEMM of the weights against the values. `cublas_handle` gained
-`multiply_batched` and `multiply_batched_row_major` over
-`cublasSgemmStridedBatched` and its double twin. The linalg layer gained
-`gemm_batched(blas, out, a, b, batch, options)`, where each operand is one
-matrix holding every instance as an equal piece and `gemm_batch` names the
-count and the `batch_axis` (`rows` or `cols`) each operand divides along. A
-head is a block of columns in `q`, `k`, `v`, and `out`, and a block of rows
-in `scores`, so the batch stride is the head width D for the column-split
-operands, the leading dimension stays the stored stride (3C for `qkv`), and
-nothing is permuted or copied. The scratch `scores` grew from T x T to HT x
-T, every head's square stacked, and `causal_mask` takes a stack by masking
-each row against its index within its own square. The device
+Status (2026-09-21, batched-GEMM attend): the device `attend` no longer loops
+over the heads. Its four launches now cover every head at once, down from
+four per head (48 per block for GPT-2): a batched GEMM of the queries against
+the transposed keys, the causal mask, the row softmax, and a batched GEMM of
+the weights against the values. `cublas_handle` gained `multiply_batched` and
+`multiply_batched_row_major` over `cublasSgemmStridedBatched` and its double
+twin. The linalg layer gained `gemm_batched(blas, out, a, b, batch,
+options)`, where each operand is one matrix holding every instance as an
+equal piece and `gemm_batch` names the count and the `matrix_axis` (`rows` or
+`cols`, beside `matrix_extent`, which gained `count(axis)`) each operand
+divides along. A head is a block of columns in `q`, `k`, `v`, and `out`, and
+a block of rows in `scores`, so the batch stride is the head width D for the
+column-split operands, the leading dimension stays the stored stride (3C for
+`qkv`), and nothing is permuted or copied. The scratch `scores` grew from T x
+T to HT x T, every head's square stacked, and `causal_mask` takes a stack by
+masking each row against its index within its own square. The device
 `block_activation_buffers` constructor takes the head count to size it. One
 point rests on a reading of the cuBLAS documentation, which says the
 instances of `C` must not overlap: the second GEMM writes interleaved column
 blocks of `out`, whose elements are disjoint though their address ranges
-interleave. The hand-computed batched test, the two-head napkin test, and
-the twelve-block oracle gate all pass at the old tolerances. Next: the KV
-cache, bf16, and tokens per second against llama.cpp.
+interleave. The hand-computed batched test, the two-head napkin test, and the
+twelve-block oracle gate all pass at the old tolerances. Next: the KV cache,
+bf16, and tokens per second against llama.cpp.
 
 ### 5. Backward pass and LoRA
 

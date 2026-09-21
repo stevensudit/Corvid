@@ -17,6 +17,7 @@
 #pragma once
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <ranges>
 #include <span>
@@ -89,6 +90,9 @@ struct coord {
 };
 inline constexpr coord coord::npos{row_ndx::npos, col_ndx::npos};
 
+// An axis of a matrix.
+enum class matrix_axis : uint8_t { rows, cols };
+
 // The size of a rectangle of elements, as row and column counts.
 struct matrix_extent {
   size_t row_count = dynamic_extent;
@@ -99,6 +103,13 @@ struct matrix_extent {
   // The extent of the transposed matrix, with the counts swapped.
   [[nodiscard]] constexpr matrix_extent transposed() const noexcept {
     return {.row_count = col_count, .col_count = row_count};
+  }
+
+  // The count along `axis`.
+  template<typename Self>
+  [[nodiscard]] constexpr auto&
+  count(this Self& self, matrix_axis axis) noexcept {
+    return (axis == matrix_axis::rows) ? self.row_count : self.col_count;
   }
 
   [[nodiscard]] constexpr bool operator==(

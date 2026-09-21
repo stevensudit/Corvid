@@ -326,18 +326,18 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
   // rows in `scores`.
   if (!gemm_batched(blas, scores, q, k,
           {.count = head_count,
-              .a = batch_axis::cols,
-              .b = batch_axis::cols,
-              .out = batch_axis::rows},
+              .a = matrix_axis::cols,
+              .b = matrix_axis::cols,
+              .out = matrix_axis::rows},
           {.scale = scale, .op_b = cublas_operation::transpose}))
     return false;
   if (!causal_mask(scores)) return false;
   if (!softmax(scores, scores)) return false;
   return gemm_batched(blas, out, scores, v,
       {.count = head_count,
-          .a = batch_axis::rows,
-          .b = batch_axis::cols,
-          .out = batch_axis::cols});
+          .a = matrix_axis::rows,
+          .b = matrix_axis::cols,
+          .out = matrix_axis::cols});
 }
 
 #pragma endregion
