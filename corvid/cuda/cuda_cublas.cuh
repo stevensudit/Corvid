@@ -213,6 +213,54 @@ public:
   }
 
 #pragma endregion
+#pragma region Batched multiply
+
+  // GEMM over a batch of column-major matrices at fixed strides.
+  //
+  // For each instance, `C[i] = alpha * op(A[i]) * op(B[i]) + beta * C[i]`.
+  //
+  // The letters are those of `multiply` and describe one instance. Every
+  // instance shares them. These are added:
+  //   stride_a     element distance from `A[i]` to `A[i + 1]`
+  //   stride_b     likewise for `B`
+  //   stride_c     likewise for `C`
+  //   batch_count  how many instances
+  //
+  // `A`, `B`, and `C` point at instance 0. A stride is free to be shorter than
+  // its instance, so the instances of one buffer can be interleaved blocks of
+  // a wider stored matrix, each reached through the shared leading dimension.
+  //
+  // No stride is permitted to be zero, and no two instances of `C` may share
+  // an element.
+  template<GemmElement T>
+  [[nodiscard]] cublas_last_status multiply_batched(int m, int n, int k,
+      std::type_identity_t<T> alpha, const T* A, int lda, long long stride_a,
+      const T* B, int ldb, long long stride_b, std::type_identity_t<T> beta,
+      T* C, int ldc, long long stride_c, int batch_count,
+      cublas_operation opA = cublas_operation::none,
+      cublas_operation opB = cublas_operation::none) const {
+    return gemm_strided_batched(handle_, as_raw(opA), as_raw(opB), m, n, k,
+        &alpha, A, lda, stride_a, B, ldb, stride_b, &beta, C, ldc, stride_c,
+        batch_count);
+  }
+
+  // GEMM over a batch of row-major matrices at fixed strides.
+  //
+  // The same letters as `multiply_batched`, read row-major as in
+  // `multiply_row_major`, which also explains the swap. The strides travel
+  // with their operands.
+  template<GemmElement T>
+  [[nodiscard]] cublas_last_status multiply_batched_row_major(int m, int n,
+      int k, std::type_identity_t<T> alpha, const T* A, int lda,
+      long long stride_a, const T* B, int ldb, long long stride_b,
+      std::type_identity_t<T> beta, T* C, int ldc, long long stride_c,
+      int batch_count, cublas_operation opA = cublas_operation::none,
+      cublas_operation opB = cublas_operation::none) const {
+    return multiply_batched(n, m, k, alpha, B, ldb, stride_b, A, lda, stride_a,
+        beta, C, ldc, stride_c, batch_count, opB, opA);
+  }
+
+#pragma endregion
 #pragma region Helpers
 private:
   explicit cublas_handle(cublasHandle_t handle) noexcept
@@ -237,6 +285,24 @@ private:
       double* C, int ldc) {
     return cublasDgemm(handle, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta,
         C, ldc);
+  }
+
+  // The strided-batched GEMM routine for each `GemmElement`.
+  static cublasStatus_t gemm_strided_batched(cublasHandle_t handle,
+      cublasOperation_t opA, cublasOperation_t opB, int m, int n, int k,
+      const float* alpha, const float* A, int lda, long long stride_a,
+      const float* B, int ldb, long long stride_b, const float* beta, float* C,
+      int ldc, long long stride_c, int batch_count) {
+    return cublasSgemmStridedBatched(handle, opA, opB, m, n, k, alpha, A, lda,
+        stride_a, B, ldb, stride_b, beta, C, ldc, stride_c, batch_count);
+  }
+  static cublasStatus_t gemm_strided_batched(cublasHandle_t handle,
+      cublasOperation_t opA, cublasOperation_t opB, int m, int n, int k,
+      const double* alpha, const double* A, int lda, long long stride_a,
+      const double* B, int ldb, long long stride_b, const double* beta,
+      double* C, int ldc, long long stride_c, int batch_count) {
+    return cublasDgemmStridedBatched(handle, opA, opB, m, n, k, alpha, A, lda,
+        stride_a, B, ldb, stride_b, beta, C, ldc, stride_c, batch_count);
   }
 
   [[nodiscard]] static cublasOperation_t as_raw(cublas_operation op) {

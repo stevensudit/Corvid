@@ -62,7 +62,7 @@ public:
   //
   // The names, shapes, and sharing rules are those of the CPU
   // `corvid::llm::gpt2_engine::block_activations`, except that `scores` is the
-  // device `attend`'s T x T scratch rather than one row.
+  // device `attend`'s HT x T scratch rather than one row.
   //
   // Note that the `const` on an instance is shallow.
   struct block_activations {
@@ -78,7 +78,8 @@ public:
   };
 
   // Owned device storage for every activation of `apply_block`, all distinct,
-  // for `token_count` tokens of width `width` and MLP width `hidden_width`.
+  // for `token_count` tokens of width `width` and MLP width `hidden_width`,
+  // attended by `head_count` heads.
   struct block_activation_buffers {
     cuda_matrix<float> ln_1_out;
     cuda_matrix<float> qkv;
@@ -92,7 +93,7 @@ public:
 
     // Allocate every buffer, or throw.
     block_activation_buffers(size_t token_count, size_t width,
-        size_t hidden_width)
+        size_t hidden_width, size_t head_count)
         : ln_1_out({.row_count = token_count, .col_count = width}),
           qkv({.row_count = token_count, .col_count = 3 * width}),
           heads_out({.row_count = token_count, .col_count = width}),
@@ -101,7 +102,8 @@ public:
           ln_2_out({.row_count = token_count, .col_count = width}),
           hidden({.row_count = token_count, .col_count = hidden_width}),
           mlp_out({.row_count = token_count, .col_count = width}),
-          scores({.row_count = token_count, .col_count = token_count}) {}
+          scores({.row_count = head_count * token_count,
+              .col_count = token_count}) {}
 
     // The views `apply_block` takes.
     [[nodiscard]] block_activations views() noexcept {
@@ -220,7 +222,7 @@ public:
     const cuda_buffer<token_id> device_ids(ids);
     cuda_matrix<float> trunk({.row_count = token_count, .col_count = width});
     block_activation_buffers buffers(token_count, width,
-        blocks_.front().mlp_c_fc_weight.col_extent());
+        blocks_.front().mlp_c_fc_weight.col_extent(), head_count_);
     if (!forward(trunk, device_ids, buffers.views())) return false;
 
     cuda_matrix<float> logits({.row_count = 1, .col_count = vocab_size});

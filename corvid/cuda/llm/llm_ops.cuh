@@ -242,10 +242,14 @@ namespace details {
 
 // Set every element of `scores` after its row's diagonal to negative
 // infinity, over `extent`, one thread per element.
+//
+// `scores` is a stack of square matrices, so a row's diagonal is at its index
+// within its own square.
 template<Floating T>
 __global__ void
 apply_causal_mask(kernel_matrix_view<T> scores, matrix_extent extent) {
-  if (const kernel_coord at; at.is_within(extent) && (at.col > at.row))
+  if (const kernel_coord at;
+      at.is_within(extent) && (at.col > at.row % extent.col_count))
     scores[at] = -std::numeric_limits<T>::infinity();
 }
 
@@ -254,11 +258,15 @@ apply_causal_mask(kernel_matrix_view<T> scores, matrix_extent extent) {
 // Set every element of `scores` whose column exceeds its row to negative
 // infinity, so a softmax over the row gives the tokens after it no weight.
 //
-// Returns false when the launch is refused, leaving `scores` unspecified.
+// `scores` is one square matrix or a stack of them, each masked on its own,
+// so its row count must be a multiple of its column count. Returns false when
+// the launch is refused, leaving `scores` unspecified.
 template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
 [[nodiscard]] bool causal_mask(Out&& scores) {
   const auto& scores_view = scores.as_view();
+  assert(scores_view.col_extent() &&
+         (scores_view.row_extent() % scores_view.col_extent() == 0));
   details::apply_causal_mask<<<grid_for(scores_view), threads_per_block>>>(
       kernel_matrix_view{scores_view}, scores_view.extent());
   return cuda_last_status{}.ok();
@@ -272,18 +280,19 @@ requires Floating<device_element_t<Out>>
 //
 //   out     T x C     a row per token, each head writing its D columns
 //   qkv     T x 3C    each token's queries, then keys, then values
-//   scores  T x T     scratch, holding one head's weights at a time
+//   scores  HT x T    scratch, holding every head's T x T weights, stacked
 //
-// Where the CPU op walks each token's causal prefix, this one takes a head's
-// whole T x T score matrix in four launches: a GEMM of the queries against
-// the transposed keys, scaled by 1 / sqrt(D), the causal mask, the row
-// softmax, and a GEMM of the weights against the values.
+// Where the CPU op walks each token's causal prefix one head at a time, this
+// one takes every head's whole T x T score matrix at once, in four launches: a
+// batched GEMM of the queries against the transposed keys, scaled by
+// 1 / sqrt(D), the causal mask, the row softmax, and a batched GEMM of the
+// weights against the values.
 //
 // `qkv` must be three times as wide as `out`, whose width must divide evenly
-// by `head_count`, and `scores` must be square with a side per token. `out`
-// must not overlap `qkv` or `scores`, and `scores` must not overlap `qkv`.
-// Returns false when a launch is refused, leaving `out` and `scores`
-// unspecified.
+// by `head_count`, and `scores` must have a column per token and a row per
+// token per head. `out` must not overlap `qkv` or `scores`, and `scores` must
+// not overlap `qkv`. Returns false when a launch is refused, leaving `out` and
+// `scores` unspecified.
 template<DeviceMatrixLike Out>
 requires GemmElement<device_element_t<Out>>
 [[nodiscard]] bool
@@ -297,7 +306,7 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
   assert(qkv.row_extent() == token_count);
   assert(qkv.col_extent() == 3 * width);
   assert(head_count && (width % head_count == 0));
-  assert((scores.row_extent() == token_count) &&
+  assert((scores.row_extent() == head_count * token_count) &&
          (scores.col_extent() == token_count));
   assert(is_disjoint(out_view.as_span(), qkv.as_span()));
   assert(is_disjoint(out_view.as_span(), scores.as_span()));
@@ -313,19 +322,22 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
   const auto k = one_third(1);
   const auto v = one_third(2);
 
-  for (auto head = 0UZ; head < head_count; ++head) {
-    const auto slice = [&](const auto& m) {
-      return m.subview({row_ndx{0}, col_ndx{head * head_width}},
-          {.row_count = token_count, .col_count = head_width});
-    };
-    if (!gemm(blas, scores, slice(q), slice(k),
-            {.scale = scale, .op_b = cublas_operation::transpose}))
-      return false;
-    if (!causal_mask(scores)) return false;
-    if (!softmax(scores, scores)) return false;
-    if (!gemm(blas, slice(out_view), scores, slice(v))) return false;
-  }
-  return true;
+  // A head is a block of columns in `q`, `k`, `v`, and `out`, and a block of
+  // rows in `scores`.
+  if (!gemm_batched(blas, scores, q, k,
+          {.count = head_count,
+              .a = batch_axis::cols,
+              .b = batch_axis::cols,
+              .out = batch_axis::rows},
+          {.scale = scale, .op_b = cublas_operation::transpose}))
+    return false;
+  if (!causal_mask(scores)) return false;
+  if (!softmax(scores, scores)) return false;
+  return gemm_batched(blas, out, scores, v,
+      {.count = head_count,
+          .a = batch_axis::rows,
+          .b = batch_axis::cols,
+          .out = batch_axis::cols});
 }
 
 #pragma endregion
