@@ -35,6 +35,7 @@ using Catch::Matchers::WithinAbs;
 
 using row_ndx = float_matrix_lens::row_ndx;
 using col_ndx = float_matrix_lens::col_ndx;
+using matrix_extent = float_matrix_lens::extent_t;
 
 // The epsilon every layer norm test passes, GPT-2's own so the oracle case
 // matches.
@@ -118,9 +119,9 @@ TEST_CASE("Layer norm honors the stride of both views", "[LlmOpsTest]") {
   const auto in = float_matrix_view(in_storage,
       {.row_count = 1, .col_count = 3})[{row_ndx{0}, col_ndx{0}},
       {.row_count = 1, .col_count = 2}];
-  const auto out =
-      float_matrix_lens(out_storage, {.row_count = 1, .col_count = 3})
-          .slice({row_ndx{0}, col_ndx{1}});
+  const auto out = float_matrix_lens(out_storage,
+      {.row_count = 1,
+          .col_count = 3})[{row_ndx{0}, col_ndx{1}}, matrix_extent::npos];
   constexpr std::array weight{1.0F, 1.0F};
   constexpr std::array bias{0.0F, 0.0F};
 
@@ -157,9 +158,9 @@ TEST_CASE("GELU honors the stride of both views", "[LlmOpsTest]") {
   const auto in = float_matrix_view(in_storage,
       {.row_count = 2, .col_count = 3})[{row_ndx{0}, col_ndx{0}},
       {.row_count = 2, .col_count = 2}];
-  const auto out =
-      float_matrix_lens(out_storage, {.row_count = 2, .col_count = 3})
-          .slice({row_ndx{0}, col_ndx{1}});
+  const auto out = float_matrix_lens(out_storage,
+      {.row_count = 2,
+          .col_count = 3})[{row_ndx{0}, col_ndx{1}}, matrix_extent::npos];
 
   gelu_new(out, in);
 
