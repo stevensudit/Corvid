@@ -1217,6 +1217,31 @@ for bit. Next: the cache and prefix matching in the CPU engine, then the
 device twin (offset mask, rectangular batched attend), then the device
 argmax.
 
+Status (2026-09-21, KV cache, slice 2: the CPU engine): `gpt2_engine` gained
+a nested `kv_cache`, the cached token IDs plus one packed [M, 3C] store per
+block that grows by rows, which keeps every cached row in place because the
+row width is fixed. `qkv` left `block_activations`: it is no longer scratch,
+so `apply_block` takes it as its own parameter, M + N rows with the cached
+tokens on top, projects `ln_1_out` into the bottom N rows, and attends over
+all of them. `forward(out, new_ids, acts, cache)` runs only the new tokens,
+takes their position rows from `wpe` at M, and appends them to the cache on
+return; an empty cache is the old full pass, so the oracle tests pass a fresh
+one. `next_token(out, ids)` keeps its signature and stays `const` over a
+`mutable` cache, one caller at a time: it keeps the cached tokens that `ids`
+starts with, short of the last one, whose trunk row the logits need, and runs
+the rest, so an extended list costs its added tokens and an unrelated list
+replaces the cache. `block_activation_buffers` takes the cached count to size
+`scores` at M + N. The tests: the bisect prompt as nine tokens then five
+matches the single pass bit for bit, in the trunk rows and in every block's
+cache; the greedy test now decodes through the cache, then checks that an
+unrelated list followed by the prompt, and the prompt asked twice, both get
+the manifest's first pick. The twenty-step greedy test case fell from about
+2.3 s to 0.6 s, model load included. The device engine is unchanged and its
+surface now differs from the CPU one until slice 3. Still allocated per
+`next_token` call: the activation buffers, the trunk, and the logits row.
+Next: the device twin (offset mask, rectangular batched attend, device
+cache), then the device argmax.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
