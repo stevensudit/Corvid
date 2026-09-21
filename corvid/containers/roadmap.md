@@ -31,7 +31,7 @@ offer everything a span offers, subspans included. A runtime stride is set at
 construction only, since changing it under a live view changes what every
 index means.
 
-### `matrix_view`: static extent and stride
+### `matrix_lens`: static extent and stride
 
 Specialize on `matrix_extent Extent` and `size_t Stride`, both defaulting to
 dynamic, with each of the three counts independently static or dynamic. When
@@ -47,22 +47,29 @@ types per combination, static-to-dynamic conversions). Worth doing when the
 CPU reference is measured to need it. The device pass takes its constants
 from kernel template parameters, not from the view.
 
-### `matrix_view`: subscript operators for spans and subviews
+### `matrix_lens`: subscript operators for spans and slices
 
-Expose `row_as_span` as `operator[](row_ndx)`, add `col_as_span` on top of a
-strided `enum_span` and expose it as `operator[](col_ndx)`, and expose the
-two `subview` overloads as `operator[](coord, coord)` and
-`operator[](coord, matrix_extent)`.
+Done 2026-09-21 for slices: `subview` became `slice`, since it is slicing in
+the Python sense and the result is of the type it is sliced from, a lens from
+a lens and a view from a view. Both forms are subscripts, `m[from, to]` with
+two coordinates and `m[from, size]` with a coordinate and an extent, and the
+subscript is the preferred spelling. The one-argument `slice(from)`, which
+runs to the end, stays named only, because `m[from]` is already the element
+at that coordinate. `matrix_extent` likewise took `operator[](matrix_axis)`
+over its named `count`. `operator[](row_ndx)` over `row_as_span` was done
+2026-09-18.
 
-The case for it: the operator's one job is to select part of the matrix.
+Remaining: add `col_as_span` on top of a strided `enum_span` and expose it as
+`operator[](col_ndx)`.
+
+The case for the set: the operator's one job is to select part of the matrix.
 Row and column together select a cell, a row alone selects all of its
-columns, a column alone all of its rows, and two coordinates select the
-rectangle they cut out. The coordinate-plus-extent form is harder to justify
-on those terms and may stay named only.
+columns, a column alone all of its rows, and two coordinates or a coordinate
+and an extent select the rectangle they cut out.
 
 Agreed shape: every operator is a thin wrapper over a named method that has
 the fuller interface, so `operator[](row_ndx)` calls `row_as_span` with its
-column defaults, and supporting `operator[](col_ndx)` means adding
-`col_as_span`, which waits on the strided span. Open concern to weigh at the
-time: `m[a, b]` is then an element or a rectangle depending on the argument
-types, which a cold read cannot tell apart.
+column defaults, the slicing subscripts call `slice`, and supporting
+`operator[](col_ndx)` means adding `col_as_span`, which waits on the strided
+span. Accepted cost: `m[a, b]` is an element or a rectangle depending on the
+argument types, which a cold read tells apart only by the braces.

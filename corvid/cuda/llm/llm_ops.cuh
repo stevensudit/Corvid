@@ -38,7 +38,7 @@
 // The transformer ops on the device, in fp32, one free function per op.
 //
 // Every op writes into a caller-owned output (a `cuda_matrix` or a
-// `cuda_matrix_view`), launches on the default stream, and returns whether its
+// `cuda_matrix_lens`), launches on the default stream, and returns whether its
 // launches were accepted, so a fault inside a kernel surfaces at the next
 // synchronizing call, such as a `store`. The scalar formulas are the CPU ops'
 // own, shared through `CUDA_HOST_DEVICE`.
@@ -69,7 +69,7 @@ namespace details {
 // has already overwritten.
 template<Floating T>
 __global__ void
-apply_layer_norm(kernel_matrix_view<T> out, kernel_matrix_view<const T> in,
+apply_layer_norm(kernel_matrix_lens<T> out, kernel_matrix_view<T> in,
     size_t cols, const T* weight, const T* bias, T eps) {
   using corvid::linalg::scale_shift;
   using corvid::linalg::standardize;
@@ -123,16 +123,16 @@ requires Floating<device_element_t<Out>>
 [[nodiscard]] bool
 layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
     const input_buffer_t<Out>& bias, device_element_t<Out> eps) {
-  const auto& out_view = out.as_view();
+  const auto& out_lens = out.as_lens();
   [[maybe_unused]] const auto width = in.col_extent();
-  assert(out_view.extent() == in.extent());
+  assert(out_lens.extent() == in.extent());
   assert((weight.size() == width) && (bias.size() == width));
-  assert(is_same_or_disjoint(out_view.as_span(), in.as_span()));
-  assert(is_disjoint(out_view.as_span(), weight.as_span()));
-  assert(is_disjoint(out_view.as_span(), bias.as_span()));
+  assert(is_same_or_disjoint(out_lens.as_span(), in.as_span()));
+  assert(is_disjoint(out_lens.as_span(), weight.as_span()));
+  assert(is_disjoint(out_lens.as_span(), bias.as_span()));
 
-  details::apply_layer_norm<<<out_view.row_extent(), threads_per_block>>>(
-      kernel_matrix_view{out_view}, kernel_matrix_view{in}, width,
+  details::apply_layer_norm<<<out_lens.row_extent(), threads_per_block>>>(
+      kernel_matrix_lens{out_lens}, kernel_matrix_view{in}, width,
       weight.get(), bias.get(), eps);
   return cuda_last_status{}.ok();
 }
@@ -145,8 +145,8 @@ namespace details {
 // Apply the scalar `gelu_new` to the elements of `in`, writing into `out`,
 // both `extent` in size, one thread per element.
 template<Floating T>
-__global__ void apply_gelu_new(kernel_matrix_view<T> out,
-    kernel_matrix_view<const T> in, matrix_extent extent) {
+__global__ void apply_gelu_new(kernel_matrix_lens<T> out,
+    kernel_matrix_view<T> in, matrix_extent extent) {
   using corvid::llm::gelu_new;
   if (const kernel_coord at; at.is_within(extent)) out[at] = gelu_new(in[at]);
 }
@@ -160,11 +160,11 @@ __global__ void apply_gelu_new(kernel_matrix_view<T> out,
 template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
 [[nodiscard]] bool gelu_new(Out&& out, input_view_t<Out> in) {
-  const auto& out_view = out.as_view();
-  assert(out_view.extent() == in.extent());
+  const auto& out_lens = out.as_lens();
+  assert(out_lens.extent() == in.extent());
 
-  details::apply_gelu_new<<<grid_for(out_view), threads_per_block>>>(
-      kernel_matrix_view{out_view}, kernel_matrix_view{in}, out_view.extent());
+  details::apply_gelu_new<<<grid_for(out_lens), threads_per_block>>>(
+      kernel_matrix_lens{out_lens}, kernel_matrix_view{in}, out_lens.extent());
   return cuda_last_status{}.ok();
 }
 
@@ -176,8 +176,8 @@ namespace details {
 // Copy the row of `table` that each ID names into `out`, `extent` in size, one
 // thread per element.
 template<typename T>
-__global__ void gather_rows(kernel_matrix_view<T> out, const token_id* ids,
-    kernel_matrix_view<const T> table, matrix_extent extent) {
+__global__ void gather_rows(kernel_matrix_lens<T> out, const token_id* ids,
+    kernel_matrix_view<T> table, matrix_extent extent) {
   if (const kernel_coord at; at.is_within(extent))
     out[at] = table[*ids[at.row], at.col];
 }
@@ -199,14 +199,14 @@ __global__ void gather_rows(kernel_matrix_view<T> out, const token_id* ids,
 template<DeviceMatrixLike Out>
 [[nodiscard]] bool embed_tokens(Out&& out, const cuda_buffer<token_id>& ids,
     input_view_t<Out> table) {
-  const auto& out_view = out.as_view();
-  assert(out_view.row_extent() == ids.size());
-  assert(out_view.col_extent() == table.col_extent());
-  assert(is_disjoint(out_view.as_span(), table.as_span()));
+  const auto& out_lens = out.as_lens();
+  assert(out_lens.row_extent() == ids.size());
+  assert(out_lens.col_extent() == table.col_extent());
+  assert(is_disjoint(out_lens.as_span(), table.as_span()));
 
-  details::gather_rows<<<grid_for(out_view), threads_per_block>>>(
-      kernel_matrix_view{out_view}, ids.get(), kernel_matrix_view{table},
-      out_view.extent());
+  details::gather_rows<<<grid_for(out_lens), threads_per_block>>>(
+      kernel_matrix_lens{out_lens}, ids.get(), kernel_matrix_view{table},
+      out_lens.extent());
   return cuda_last_status{}.ok();
 }
 
@@ -228,12 +228,12 @@ template<DeviceMatrixLike Out>
 requires Arithmetic<device_element_t<Out>>
 [[nodiscard]] bool embed_positions(Out&& out, input_view_t<Out> table,
     size_t first_position = 0) {
-  const auto& out_view = out.as_view();
-  assert(first_position + out_view.row_extent() <= table.row_extent());
-  assert(out_view.col_extent() == table.col_extent());
+  const auto& out_lens = out.as_lens();
+  assert(first_position + out_lens.row_extent() <= table.row_extent());
+  assert(out_lens.col_extent() == table.col_extent());
 
-  return add(out, out_view,
-      table.subview({row_ndx{first_position}, col_ndx{0}}, out_view.extent()));
+  return add(out, out_lens,
+      table[{row_ndx{first_position}, col_ndx{0}}, out_lens.extent()]);
 }
 
 #pragma endregion
@@ -248,7 +248,7 @@ namespace details {
 // within its own square.
 template<Floating T>
 __global__ void
-apply_causal_mask(kernel_matrix_view<T> scores, matrix_extent extent) {
+apply_causal_mask(kernel_matrix_lens<T> scores, matrix_extent extent) {
   if (const kernel_coord at;
       at.is_within(extent) && (at.col > at.row % extent.col_count))
     scores[at] = -std::numeric_limits<T>::infinity();
@@ -265,11 +265,11 @@ apply_causal_mask(kernel_matrix_view<T> scores, matrix_extent extent) {
 template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
 [[nodiscard]] bool causal_mask(Out&& scores) {
-  const auto& scores_view = scores.as_view();
-  assert(scores_view.col_extent() &&
-         (scores_view.row_extent() % scores_view.col_extent() == 0));
-  details::apply_causal_mask<<<grid_for(scores_view), threads_per_block>>>(
-      kernel_matrix_view{scores_view}, scores_view.extent());
+  const auto& scores_lens = scores.as_lens();
+  assert(scores_lens.col_extent() &&
+         (scores_lens.row_extent() % scores_lens.col_extent() == 0));
+  details::apply_causal_mask<<<grid_for(scores_lens), threads_per_block>>>(
+      kernel_matrix_lens{scores_lens}, scores_lens.extent());
   return cuda_last_status{}.ok();
 }
 
@@ -298,26 +298,26 @@ template<DeviceMatrixLike Out>
 requires GemmElement<device_element_t<Out>>
 [[nodiscard]] bool
 attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
-    size_t head_count, cuda_matrix_view<device_element_t<Out>> scores) {
+    size_t head_count, cuda_matrix_lens<device_element_t<Out>> scores) {
   using T = device_element_t<Out>;
 
-  const auto& out_view = out.as_view();
-  const auto token_count = out_view.row_extent();
-  const auto width = out_view.col_extent();
+  const auto& out_lens = out.as_lens();
+  const auto token_count = out_lens.row_extent();
+  const auto width = out_lens.col_extent();
   assert(qkv.row_extent() == token_count);
   assert(qkv.col_extent() == 3 * width);
   assert(head_count && (width % head_count == 0));
   assert((scores.row_extent() == head_count * token_count) &&
          (scores.col_extent() == token_count));
-  assert(is_disjoint(out_view.as_span(), qkv.as_span()));
-  assert(is_disjoint(out_view.as_span(), scores.as_span()));
+  assert(is_disjoint(out_lens.as_span(), qkv.as_span()));
+  assert(is_disjoint(out_lens.as_span(), scores.as_span()));
   assert(is_disjoint(scores.as_span(), qkv.as_span()));
   const auto head_width = width / head_count;
   const auto scale = T{1} / std::sqrt(static_cast<T>(head_width));
 
   const auto one_third = [&](size_t which) {
-    return qkv.subview({row_ndx{0}, col_ndx{which * width}},
-        {.row_count = token_count, .col_count = width});
+    return qkv[{row_ndx{0}, col_ndx{which * width}},
+        {.row_count = token_count, .col_count = width}];
   };
   const auto q = one_third(0);
   const auto k = one_third(1);

@@ -28,26 +28,30 @@
 #include "enum_span.h"
 #include "interval.h"
 
-// `matrix_view` is a two-dimensional view over contiguous memory, providing
-// row-major access.
+// `matrix_lens` and `matrix_view` are two-dimensional references into
+// contiguous memory, providing row-major access.
 //
-// Like `std::mdspan`, which this is an extreme simplification of, it does not
-// own the memory. It pairs a pointer with a row count, a column count, and a
-// stride, which is the element distance between the starts of consecutive
+// A lens reads and writes its elements, and a view only reads them. A
+// `matrix_view<T>` is a `matrix_lens<const T>`, so a lens converts to a view
+// of the same element type, and everything below holds for both.
+//
+// Like `std::mdspan`, which this is an extreme simplification of, a lens does
+// not own the memory. It pairs a pointer with a row count, a column count, and
+// a stride, which is the element distance between the starts of consecutive
 // rows.
 //
 // For a packed matrix, which is typical, the stride is the column count. A
-// larger stride allows a view to refer to a rectangular slice of a matrix.
+// larger stride allows a lens to refer to a rectangular slice of a matrix.
 //
 // Rows and columns are indexed by distinct types, `row_ndx` and `col_ndx`, so
 // the two cannot be swapped by accident. `coord` pairs one of each to name an
 // element, and `extent` holds a rectangle's row and column counts. All four
-// are nested under `matrix_view`.
+// are nested under `matrix_lens`.
 //
-// Viewing packed storage and indexing it:
-//   using view_t = matrix_view<float>;
+// Wrapping packed storage and indexing it:
+//   using lens_t = matrix_lens<float>;
 //   std::vector<float> storage(rows * cols);
-//   view_t m(storage, {.row_count = rows, .col_count = cols});
+//   lens_t m(storage, {.row_count = rows, .col_count = cols});
 //   for (const auto r : m.row_indexes())
 //     for (const auto c : m.col_indexes()) m[r, c] = 1.0F;
 //   for (const auto value : m[r]) ...
@@ -57,8 +61,7 @@
 //     std::ranges::copy(in_row, out_row.begin());
 //
 // Slicing out a block:
-//   const auto block = m.subview({r, c},
-//       {.row_count = 2, .col_count = 3});
+//   const auto block = m[{r, c}, {.row_count = 2, .col_count = 3}];
 namespace corvid { inline namespace container { inline namespace matrices {
 
 #pragma region matrix_types
@@ -93,7 +96,7 @@ inline constexpr coord coord::npos{row_ndx::npos, col_ndx::npos};
 // An axis of a matrix.
 enum class matrix_axis : uint8_t { rows, cols };
 
-// Tag that selects the view constructor requiring the span to hold exactly
+// Tag that selects the lens constructor requiring the span to hold exactly
 // the elements of the extent.
 struct exact_size_t {
   explicit exact_size_t() = default;
@@ -112,11 +115,16 @@ struct matrix_extent {
     return {.row_count = col_count, .col_count = row_count};
   }
 
-  // The count along `axis`.
+  // The count along `axis`. Prefer the subscript.
   template<typename Self>
   [[nodiscard]] constexpr auto&
   count(this Self& self, matrix_axis axis) noexcept {
     return (axis == matrix_axis::rows) ? self.row_count : self.col_count;
+  }
+  template<typename Self>
+  [[nodiscard]] constexpr auto&
+  operator[](this Self& self, matrix_axis axis) noexcept {
+    return self.count(axis);
   }
 
   [[nodiscard]] constexpr bool operator==(
@@ -132,19 +140,18 @@ inline constexpr matrix_extent matrix_extent::dynamic{
 } // namespace matrix_types
 
 #pragma endregion
-#pragma region matrix_view_base
+#pragma region matrix_lens_base
 
-// A row-major view over a span of `T`, with the shape, the index math, and
+// A row-major lens over a span of `T`, with the shape, the index math, and
 // the slicing that every storage shares.
 //
-// `matrix_view` and `cuda_matrix_view` derive from it and add what reaches an
+// `matrix_lens` and `cuda_matrix_lens` derive from it and add what reaches an
 // element, host access or device transfers. The base never dereferences the
 // span, so it serves device memory as well as host memory.
 //
-// A derived class inherits the constructors, which is how `subview` builds
-// one.
+// A derived class inherits the constructors, which is how `slice` builds one.
 template<typename T>
-class matrix_view_base {
+class matrix_lens_base {
 public:
 #pragma region Types
 
@@ -158,26 +165,26 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  constexpr matrix_view_base() = default;
+  constexpr matrix_lens_base() = default;
 
-  // Packed view over the start of `data`, which must hold at least the
+  // Packed lens over the start of `data`, which must hold at least the
   // elements of `extent`.
-  constexpr matrix_view_base(span_t data, extent_t extent) noexcept
-      : matrix_view_base{data, extent, extent.col_count} {}
+  constexpr matrix_lens_base(span_t data, extent_t extent) noexcept
+      : matrix_lens_base{data, extent, extent.col_count} {}
 
-  // Packed view over `data`, which must hold exactly the elements of `extent`.
-  constexpr matrix_view_base(span_t data, extent_t extent,
+  // Packed lens over `data`, which must hold exactly the elements of `extent`.
+  constexpr matrix_lens_base(span_t data, extent_t extent,
       matrix_types::exact_size_t) noexcept
-      : matrix_view_base{data, extent, extent.col_count} {
+      : matrix_lens_base{data, extent, extent.col_count} {
     assert(data.size() == extent.row_count * extent.col_count);
   }
 
-  // Strided view over `data`, whose rows start `stride` elements apart and
+  // Strided lens over `data`, whose rows start `stride` elements apart and
   // show only their first `extent.col_count` elements.
   //
   // `stride` must be at least `extent.col_count`, and `data` must reach the
   // last element of the last row.
-  constexpr matrix_view_base(span_t data, extent_t extent,
+  constexpr matrix_lens_base(span_t data, extent_t extent,
       size_t stride) noexcept
       : extent_{extent}, stride_{stride}, data_{data} {
     assert(stride >= extent.col_count);
@@ -185,11 +192,10 @@ public:
     data_ = data_.first(footprint());
   }
 
-  // Implicit conversion to a read-only view of a mutable view of the same
-  // element type.
+  // Implicit conversion of a lens to a view of the same element type.
   template<typename U>
   requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
-  constexpr matrix_view_base(const matrix_view_base<U>& other) noexcept
+  constexpr matrix_lens_base(const matrix_lens_base<U>& other) noexcept
       : extent_{other.extent()}, stride_{other.stride()},
         data_{other.as_span()} {}
 
@@ -246,37 +252,49 @@ public:
 #pragma endregion
 #pragma region Slicing
 
-  // View of the rectangle from `from` up to, but not including, `to`, sharing
-  // this view's stride.
+  // Slice out the rectangle from `from` up to, but not including, `to`,
+  // sharing this one's stride. Prefer the subscript, `m[from, to]`.
   //
-  // A member of `to` at its `npos` means the end of that dimension. The
-  // rectangle must lie within the view.
+  // The result is of the type it is sliced from, so a lens gives a lens and a
+  // view gives a view. A member of `to` at its `npos` means the end of that
+  // dimension. The rectangle must lie within this one.
   template<typename Self>
   [[nodiscard]] constexpr Self
-  subview(this const Self& self, coord from, coord to) noexcept {
-    return self.do_subview(from, self.window_size(from, to));
+  slice(this const Self& self, coord from, coord to) noexcept {
+    return self.do_slice(from, self.window_size(from, to));
+  }
+  template<typename Self>
+  [[nodiscard]] constexpr Self
+  operator[](this const Self& self, coord from, coord to) noexcept {
+    return self.slice(from, to);
   }
 
-  // View of the rectangle of `size` starting at `from`, sharing this view's
-  // stride.
+  // Slice out the rectangle of `size` starting at `from`, sharing this one's
+  // stride. Prefer the subscript, `m[from, size]`.
   //
   // A count of `size` at its `npos` means the rest of that dimension, so the
-  // default takes everything from `from` on.
+  // default takes everything from `from` on. That form has no subscript,
+  // since `m[from]` is an element.
   //
-  // The rectangle must lie within the view.
+  // The rectangle must lie within this one.
   template<typename Self>
-  [[nodiscard]] constexpr Self subview(this const Self& self, coord from,
+  [[nodiscard]] constexpr Self slice(this const Self& self, coord from,
       extent_t size = extent_t::npos) noexcept {
-    return self.do_subview(from, self.window_size(from, size));
+    return self.do_slice(from, self.window_size(from, size));
+  }
+  template<typename Self>
+  [[nodiscard]] constexpr Self
+  operator[](this const Self& self, coord from, extent_t size) noexcept {
+    return self.slice(from, size);
   }
 
 #pragma endregion
 #pragma region Workers
 private:
-  // View of the rectangle of `size` at `from`, both already checked.
+  // The rectangle of `size` at `from`, both already checked.
   template<typename Self>
   [[nodiscard]] constexpr Self
-  do_subview(this const Self& self, coord from, extent_t size) noexcept {
+  do_slice(this const Self& self, coord from, extent_t size) noexcept {
     const auto stride = self.stride();
     return Self{self.as_span().subspan((*from.row * stride) + *from.col,
                     footprint(size, stride)),
@@ -350,12 +368,20 @@ protected:
 };
 
 #pragma endregion
-#pragma region matrix_view
+#pragma region matrix_lens
+
+// Fwd.
+template<typename T>
+class matrix_lens;
+
+// A read-only `matrix_lens`.
+template<typename T>
+using matrix_view = matrix_lens<const T>;
 
 // Shared across CPU and GPU.
 template<typename T>
-class matrix_view: public matrix_view_base<T> {
-  using base = matrix_view_base<T>;
+class matrix_lens: public matrix_lens_base<T> {
+  using base = matrix_lens_base<T>;
   using base::extent_, base::stride_, base::data_;
 
 public:
@@ -376,6 +402,9 @@ public:
 
 #pragma endregion
 #pragma region Accessors
+
+  // The base's slicing subscripts, which the ones below would hide.
+  using base::operator[];
 
   // Element at row `r`, column `c`, both of which must be in range.
   [[nodiscard]] constexpr element_t&
@@ -424,8 +453,7 @@ public:
   // Add `other` to every element, in place. Prefer `operator+=`.
   //
   // The extents must match, and `other` must be this view or disjoint from it.
-  constexpr const matrix_view&
-  add(matrix_view<const element_t> other) const noexcept
+  constexpr const matrix_lens& add(matrix_view<element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
   {
     assert((other.row_extent() == extent_.row_count) &&
@@ -437,8 +465,8 @@ public:
     return *this;
   }
 
-  constexpr const matrix_view&
-  operator+=(matrix_view<const element_t> other) const noexcept
+  constexpr const matrix_lens&
+  operator+=(matrix_view<element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
   {
     return add(other);
@@ -447,8 +475,8 @@ public:
   // Subtract `other` from every element, in place. Prefer `operator-=`.
   //
   // The extents must match, and `other` must be this view or disjoint from it.
-  constexpr const matrix_view&
-  subtract(matrix_view<const element_t> other) const noexcept
+  constexpr const matrix_lens&
+  subtract(matrix_view<element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
   {
     assert((other.row_extent() == extent_.row_count) &&
@@ -460,8 +488,8 @@ public:
     return *this;
   }
 
-  constexpr const matrix_view&
-  operator-=(matrix_view<const element_t> other) const noexcept
+  constexpr const matrix_lens&
+  operator-=(matrix_view<element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
   {
     return subtract(other);
@@ -471,19 +499,19 @@ public:
 };
 
 template<typename T>
-matrix_view(std::span<T>, matrix_types::matrix_extent) -> matrix_view<T>;
+matrix_lens(std::span<T>, matrix_types::matrix_extent) -> matrix_lens<T>;
 
 template<typename T>
-matrix_view(std::span<T>, matrix_types::matrix_extent, size_t)
-    -> matrix_view<T>;
+matrix_lens(std::span<T>, matrix_types::matrix_extent, size_t)
+    -> matrix_lens<T>;
 
 #pragma endregion
 #pragma region Aliases
 
+using float_matrix_lens = matrix_lens<float>;
 using float_matrix_view = matrix_view<float>;
-using const_float_matrix_view = matrix_view<const float>;
+using double_matrix_lens = matrix_lens<double>;
 using double_matrix_view = matrix_view<double>;
-using const_double_matrix_view = matrix_view<const double>;
 
 using float_span = std::span<float>;
 using const_float_span = std::span<const float>;

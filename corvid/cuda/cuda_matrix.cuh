@@ -30,32 +30,40 @@
 
 // Matrices in device memory.
 //
-// `cuda_matrix<T>` owns a packed row-major matrix, and `cuda_matrix_view<T>`
+// `cuda_matrix<T>` owns a packed row-major matrix, and `cuda_matrix_lens<T>`
 // is a non-owning window onto one, possibly strided.
 //
-// Both are host-side handles. Inside a kernel, `kernel_matrix_view<T>` is what
-// a view becomes at a launch, and `kernel_coord` is the row and column a
+// Both are host-side handles. Inside a kernel, `kernel_matrix_lens<T>` is what
+// a lens becomes at a launch, and `kernel_coord` is the row and column a
 // thread owns.
 //
 //   cuda_matrix<float> qkv(host_qkv);
-//   const auto q = qkv.subview({row_ndx{0}, col_ndx{0}}, q_extent);
+//   const auto q = qkv[{row_ndx{0}, col_ndx{0}}, q_extent];
 //   ... launch over q ...
 //   q.store(host_q).or_throw();
 namespace corvid::cuda {
 using matrix_types::matrix_axis;
 using matrix_types::matrix_extent;
 
-#pragma region cuda_matrix_view
+#pragma region cuda_matrix_lens
 
-// A non-owning view of a row-major matrix of `T` in device memory, whose
+// Fwd.
+template<typename T>
+class cuda_matrix_lens;
+
+// A read-only `cuda_matrix_lens`.
+template<typename T>
+using cuda_matrix_view = cuda_matrix_lens<const T>;
+
+// A non-owning lens over a row-major matrix of `T` in device memory, whose
 // rows start `stride()` elements apart.
 //
-// `cuda_matrix_view<const T>` is the read-only form, which a mutable view
-// converts to. A packed view has a stride equal to its column count. Rows
-// are the first index, as in `matrix_view`.
+// `cuda_matrix_view<T>` is the read-only form, which a lens converts to. A
+// packed lens has a stride equal to its column count. Rows are the first
+// index, as in `matrix_lens`.
 template<typename T>
-class cuda_matrix_view: public matrix_view_base<T> {
-  using base = matrix_view_base<T>;
+class cuda_matrix_lens: public matrix_lens_base<T> {
+  using base = matrix_lens_base<T>;
   using base::extent_, base::stride_, base::data_;
 
 public:
@@ -75,7 +83,7 @@ public:
 
   [[nodiscard]] element_t* get() const noexcept { return data_.data(); }
 
-  [[nodiscard]] const cuda_matrix_view& as_view() const noexcept {
+  [[nodiscard]] const cuda_matrix_lens& as_lens() const noexcept {
     return *this;
   }
 
@@ -83,7 +91,7 @@ public:
 #pragma region Transfer
 
   // Upload `host`, which must have the same extent.
-  [[nodiscard]] cuda_last_status load(matrix_view<const value_t> host) const
+  [[nodiscard]] cuda_last_status load(matrix_view<value_t> host) const
   requires(!std::is_const_v<element_t>)
   {
     assert(host.extent() == extent_);
@@ -91,9 +99,8 @@ public:
         memcpy_kind::host_to_device);
   }
 
-  // Copy `device`, another view, which must have the same extent.
-  [[nodiscard]] cuda_last_status
-  load(cuda_matrix_view<const value_t> device) const
+  // Copy `device`, which must have the same extent.
+  [[nodiscard]] cuda_last_status load(cuda_matrix_view<value_t> device) const
   requires(!std::is_const_v<element_t>)
   {
     assert(device.extent() == extent_);
@@ -102,7 +109,7 @@ public:
   }
 
   // Download into `host`, which must have the same extent.
-  [[nodiscard]] cuda_last_status store(matrix_view<value_t> host) const {
+  [[nodiscard]] cuda_last_status store(matrix_lens<value_t> host) const {
     assert(host.extent() == extent_);
     return copy(host.as_span().data(), host.stride(), get(), stride_,
         memcpy_kind::device_to_host);
@@ -111,7 +118,7 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  // Copy this view's extent of elements from `src` to `dest`, each with its
+  // Copy this lens's extent of elements from `src` to `dest`, each with its
   // own row stride, as one plain transfer when both are packed and as a
   // pitched transfer otherwise.
   [[nodiscard]] cuda_last_status copy(value_t* dest, size_t dest_stride,
@@ -186,19 +193,27 @@ struct kernel_col_range {
 };
 
 #pragma endregion
-#pragma region kernel_matrix_view
+#pragma region kernel_matrix_lens
 
-// A kernel's view of a row-major matrix of `T` in device memory, whose rows
+// Fwd.
+template<typename T>
+class kernel_matrix_lens;
+
+// A read-only `kernel_matrix_lens`.
+template<typename T>
+using kernel_matrix_view = kernel_matrix_lens<const T>;
+
+// A kernel's lens over a row-major matrix of `T` in device memory, whose rows
 // start `stride` elements apart.
 //
-// It is what a `cuda_matrix_view` becomes at a launch.
+// It is what a `cuda_matrix_lens` becomes at a launch.
 template<typename T>
-class kernel_matrix_view {
+class kernel_matrix_lens {
 public:
   using element_t = T;
 
-  kernel_matrix_view(cuda_matrix_view<element_t> view) noexcept
-      : data_{view.get()}, stride_{view.stride()} {}
+  kernel_matrix_lens(cuda_matrix_lens<element_t> lens) noexcept
+      : data_{lens.get()}, stride_{lens.stride()} {}
 
   __device__ element_t& operator[](size_t row, size_t col) const {
     return data_[(row * stride_) + col];
@@ -218,14 +233,15 @@ private:
 // A row-major matrix of `T` in device memory, packed with no gap between rows.
 //
 // It owns its allocation and carries its extent. Transfers go through its
-// `as_view()`, and it converts to a view where one is expected.
+// `as_lens()` and `as_view()`, and it converts to either where one is
+// expected.
 template<typename T>
 class cuda_matrix {
 public:
   using element_t = T;
   using extent_t = matrix_extent;
+  using lens_t = cuda_matrix_lens<element_t>;
   using view_t = cuda_matrix_view<element_t>;
-  using const_view_t = cuda_matrix_view<const element_t>;
   using coord = matrix_types::coord;
 
 #pragma region Construction
@@ -235,9 +251,9 @@ public:
       : buffer_(extent.row_count * extent.col_count), extent_{extent} {}
 
   // Allocate and upload `host`, or throw.
-  explicit cuda_matrix(matrix_view<const element_t> host)
+  explicit cuda_matrix(matrix_view<element_t> host)
       : cuda_matrix{host.extent()} {
-    as_view().load(host).or_throw();
+    as_lens().load(host).or_throw();
   }
 
 #pragma endregion
@@ -262,24 +278,30 @@ public:
     return extent_.row_count * extent_.col_count;
   }
 
-  // The whole matrix as a packed view.
-  [[nodiscard]] view_t as_view() noexcept {
+  // The whole matrix as a packed lens, or as a packed view.
+  [[nodiscard]] lens_t as_lens() noexcept {
     return {buffer_.as_span(), extent_};
   }
-  [[nodiscard]] const_view_t as_view() const noexcept {
+  [[nodiscard]] view_t as_view() const noexcept {
     return {buffer_.as_span(), extent_};
   }
-  operator view_t() noexcept { return as_view(); }
-  operator const_view_t() const noexcept { return as_view(); }
+  operator lens_t() noexcept { return as_lens(); }
+  operator view_t() const noexcept { return as_view(); }
 
-  // The view's `subview`, over the whole matrix.
-  [[nodiscard]] view_t
-  subview(coord from, extent_t size = extent_t::npos) noexcept {
-    return as_view().subview(from, size);
+  // The lens's `slice`, over the whole matrix. Prefer the subscript.
+  [[nodiscard]] lens_t
+  slice(coord from, extent_t size = extent_t::npos) noexcept {
+    return as_lens().slice(from, size);
   }
-  [[nodiscard]] const_view_t
-  subview(coord from, extent_t size = extent_t::npos) const noexcept {
-    return as_view().subview(from, size);
+  [[nodiscard]] view_t
+  slice(coord from, extent_t size = extent_t::npos) const noexcept {
+    return as_view().slice(from, size);
+  }
+  [[nodiscard]] lens_t operator[](coord from, extent_t size) noexcept {
+    return slice(from, size);
+  }
+  [[nodiscard]] view_t operator[](coord from, extent_t size) const noexcept {
+    return slice(from, size);
   }
 
 #pragma endregion
@@ -294,20 +316,21 @@ private:
 #pragma endregion
 #pragma region Concepts
 
-// The element type of `M`, a device matrix or view, however `M` itself is
-// qualified.
+// The element type of `M`, a device matrix, lens, or view, however `M` itself
+// is qualified.
 template<typename M>
 using device_element_t = std::remove_cvref_t<M>::element_t;
 
-// A device matrix, or a view of one, whose elements can be written.
+// A device matrix, or a lens over one, whose elements can be written.
 //
-// That is a `cuda_matrix<T>`, or a `cuda_matrix_view<T>` for a non-const `T`.
+// That is a `cuda_matrix<T>`, or a `cuda_matrix_lens<T>` for a non-const `T`,
+// which leaves out a `cuda_matrix_view`.
 template<typename M>
 concept DeviceMatrixLike = requires(M& m) {
   requires !std::is_const_v<device_element_t<M>>;
   {
-    m.as_view()
-  } -> std::convertible_to<cuda_matrix_view<device_element_t<M>>>;
+    m.as_lens()
+  } -> std::convertible_to<cuda_matrix_lens<device_element_t<M>>>;
 };
 
 #pragma endregion

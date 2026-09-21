@@ -35,7 +35,7 @@
 // forward pass from token IDs through every block to the final layer norm,
 // and greedy generation on top of it, composing the ops of "llm_ops.cuh" as
 // "gpt2_engine.h" composes the CPU ones. The activations of a block are
-// caller-owned views, as on the CPU.
+// caller-owned lenses, as on the CPU.
 namespace corvid::cuda::llm {
 
 using corvid::llm::gpt2_model;
@@ -58,7 +58,7 @@ public:
 #pragma region block_activations
 
   // The intermediate activations of `apply_block`, as caller-owned device
-  // views.
+  // lenses.
   //
   // The names, shapes, and sharing rules are those of the CPU
   // `corvid::llm::gpt2_engine::block_activations`, except that `scores` is the
@@ -66,15 +66,15 @@ public:
   //
   // Note that the `const` on an instance is shallow.
   struct block_activations {
-    cuda_matrix_view<float> ln_1_out;
-    cuda_matrix_view<float> qkv;
-    cuda_matrix_view<float> heads_out;
-    cuda_matrix_view<float> attn_out;
-    cuda_matrix_view<float> ln_2_in;
-    cuda_matrix_view<float> ln_2_out;
-    cuda_matrix_view<float> hidden;
-    cuda_matrix_view<float> mlp_out;
-    cuda_matrix_view<float> scores;
+    cuda_matrix_lens<float> ln_1_out;
+    cuda_matrix_lens<float> qkv;
+    cuda_matrix_lens<float> heads_out;
+    cuda_matrix_lens<float> attn_out;
+    cuda_matrix_lens<float> ln_2_in;
+    cuda_matrix_lens<float> ln_2_out;
+    cuda_matrix_lens<float> hidden;
+    cuda_matrix_lens<float> mlp_out;
+    cuda_matrix_lens<float> scores;
   };
 
   // Owned device storage for every activation of `apply_block`, all distinct,
@@ -105,8 +105,8 @@ public:
           scores({.row_count = head_count * token_count,
               .col_count = token_count}) {}
 
-    // The views `apply_block` takes.
-    [[nodiscard]] block_activations views() noexcept {
+    // The lenses `apply_block` takes.
+    [[nodiscard]] block_activations lenses() noexcept {
       return {
           .ln_1_out = ln_1_out,
           .qkv = qkv,
@@ -144,8 +144,8 @@ public:
   // `block_activations` states for that extent and may share storage only as
   // it allows. Returns false when a launch is refused, leaving `out` and the
   // activations unspecified.
-  [[nodiscard]] bool apply_block(cuda_matrix_view<float> out,
-      cuda_matrix_view<const float> in, size_t block_index,
+  [[nodiscard]] bool apply_block(cuda_matrix_lens<float> out,
+      cuda_matrix_view<float> in, size_t block_index,
       const block_activations& acts) const {
     const auto& params = blocks_[block_index];
     // Each of these four writes is followed by an add that reads the residual
@@ -192,7 +192,7 @@ public:
   // `out`, the in-place form, but no other buffer may overlap `out`. Returns
   // false when a launch is refused, leaving `out` and the activations
   // unspecified.
-  [[nodiscard]] bool forward(cuda_matrix_view<float> out,
+  [[nodiscard]] bool forward(cuda_matrix_lens<float> out,
       const cuda_buffer<token_id>& ids, const block_activations& acts) const {
     assert(ids.size() <= wpe_.row_extent());
 
@@ -223,15 +223,15 @@ public:
     cuda_matrix<float> trunk({.row_count = token_count, .col_count = width});
     block_activation_buffers buffers(token_count, width,
         blocks_.front().mlp_c_fc_weight.col_extent(), head_count_);
-    if (!forward(trunk, device_ids, buffers.views())) return false;
+    if (!forward(trunk, device_ids, buffers.lenses())) return false;
 
     cuda_matrix<float> logits({.row_count = 1, .col_count = vocab_size});
-    const auto last_row = trunk.subview({row_ndx{token_count - 1}, col_ndx{0}},
-        {.row_count = 1, .col_count = width});
+    const auto last_row = trunk[{row_ndx{token_count - 1}, col_ndx{0}},
+        {.row_count = 1, .col_count = width}];
     if (!compute_logits(blas_, logits, last_row, wte_)) return false;
     std::vector<float> logits_storage(vocab_size);
     if (!logits.as_view().store(
-            float_matrix_view(logits_storage, logits.extent())))
+            float_matrix_lens(logits_storage, logits.extent())))
       return false;
     out = corvid::llm::pick_greedy(const_float_row_span(logits_storage));
     return true;

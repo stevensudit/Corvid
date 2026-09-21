@@ -53,8 +53,7 @@ TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
   // normalizes to zero and the output is the bias alone.
   const std::vector<T> in_storage{T{1}, T{2}, T{3}, T{4}, T{5}, T{5}, T{5},
       T{5}};
-  const matrix_view<const T> in_view(in_storage,
-      {.row_count = 2, .col_count = 4});
+  const matrix_view<T> in_view(in_storage, {.row_count = 2, .col_count = 4});
   constexpr std::array weight_storage{T{1}, T{2}, T{1}, T{2}};
   constexpr std::array bias_storage{T{0}, T{0}, T{0.5}, T{0.5}};
 
@@ -68,7 +67,7 @@ TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
   REQUIRE(cuda::llm::layer_norm(out, in, weight, bias, eps));
 
   std::vector<T> out_storage(out.size());
-  REQUIRE(out.as_view().store(matrix_view<T>(out_storage, out.extent())));
+  REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
   constexpr auto tolerance = 1e-5;
   const auto inv_std = T{1} / std::sqrt(T{1.25} + T{eps});
   CHECK_THAT(out_storage[0], WithinAbs(T{-1.5} * inv_std, tolerance));
@@ -86,7 +85,7 @@ TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
   cuda_matrix<T> same(in_view);
   REQUIRE(cuda::llm::layer_norm(same, same, weight, bias, eps));
   std::vector<T> same_storage(same.size());
-  REQUIRE(same.as_view().store(matrix_view<T>(same_storage, same.extent())));
+  REQUIRE(same.as_view().store(matrix_lens<T>(same_storage, same.extent())));
   CHECK(same_storage == out_storage);
 }
 
@@ -123,12 +122,12 @@ TEST_CASE("Device layer norm matches the oracle",
       REQUIRE(bias.load(vector_of(oracle.weights, param + ".bias", n_embd)));
       cuda_matrix<float> out(in_view.extent());
       std::vector<float> out_storage(out.size());
-      const float_matrix_view out_view(out_storage, out.extent());
+      const float_matrix_lens out_lens(out_storage, out.extent());
 
       REQUIRE(cuda::llm::layer_norm(out, in, weight, bias, eps));
-      REQUIRE(out.as_view().store(out_view));
+      REQUIRE(out.as_view().store(out_lens));
 
-      check_close(out_view, expected, 1e-5F, 1e-5F);
+      check_close(out_lens, expected, 1e-5F, 1e-5F);
     }
   }
 }
@@ -171,12 +170,12 @@ TEST_CASE("Device residual adds match the oracle",
       const cuda_matrix<float> b(b_view);
       cuda_matrix<float> out(a_view.extent());
       std::vector<float> out_storage(out.size());
-      const float_matrix_view out_view(out_storage, out.extent());
+      const float_matrix_lens out_lens(out_storage, out.extent());
 
       REQUIRE(cuda::linalg::add(out, a, b));
-      REQUIRE(out.as_view().store(out_view));
+      REQUIRE(out.as_view().store(out_lens));
 
-      check_close(out_view, expected, 0.0F, 0.0F);
+      check_close(out_lens, expected, 0.0F, 0.0F);
     }
   }
 }
@@ -189,7 +188,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   // approximate="tanh".
   const std::vector<float> in_storage{0.0F, 1.0F, -1.0F, 2.0F, -2.0F, 10.0F,
       -10.0F};
-  const const_float_matrix_view in_view(in_storage,
+  const float_matrix_view in_view(in_storage,
       {.row_count = 1, .col_count = in_storage.size()});
   const cuda_matrix<float> in(in_view);
   cuda_matrix<float> out(in.extent());
@@ -197,7 +196,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   REQUIRE(cuda::llm::gelu_new(out, in));
 
   std::vector<float> out_storage(out.size());
-  REQUIRE(out.as_view().store(float_matrix_view(out_storage, out.extent())));
+  REQUIRE(out.as_view().store(float_matrix_lens(out_storage, out.extent())));
   constexpr auto tolerance = 1e-6;
   CHECK(out_storage[0] == 0.0F);
   CHECK_THAT(out_storage[1], WithinAbs(0.841192, tolerance));
@@ -212,7 +211,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   REQUIRE(cuda::llm::gelu_new(same, same));
   std::vector<float> same_storage(same.size());
   REQUIRE(
-      same.as_view().store(float_matrix_view(same_storage, same.extent())));
+      same.as_view().store(float_matrix_lens(same_storage, same.extent())));
   CHECK(same_storage == out_storage);
 }
 
@@ -251,16 +250,16 @@ TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
           {.row_count = in_view.row_extent(), .col_count = n_hidden});
       cuda_matrix<float> out(in_view.extent());
       std::vector<float> out_storage(out.size());
-      const float_matrix_view out_view(out_storage, out.extent());
+      const float_matrix_lens out_lens(out_storage, out.extent());
 
       REQUIRE(cuda::linalg::linear_projection(blas, hidden, in, fc_weight,
           fc_bias));
       REQUIRE(cuda::llm::gelu_new(hidden, hidden));
       REQUIRE(cuda::linalg::linear_projection(blas, out, hidden, proj_weight,
           proj_bias));
-      REQUIRE(out.as_view().store(out_view));
+      REQUIRE(out.as_view().store(out_lens));
 
-      check_close(out_view, expected, 1e-4F, 1e-4F);
+      check_close(out_lens, expected, 1e-4F, 1e-4F);
     }
   }
 }
@@ -273,7 +272,7 @@ TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
   using T = TestType;
   // Three tokens in the vocabulary, width two, as the CPU test has them.
   const std::vector<T> table_storage{T{1}, T{2}, T{10}, T{20}, T{100}, T{200}};
-  const matrix_view<const T> table_view(table_storage,
+  const matrix_view<T> table_view(table_storage,
       {.row_count = 3, .col_count = 2});
   const std::vector<token_id> id_storage{token_id{2}, token_id{0}};
 
@@ -285,7 +284,7 @@ TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
   REQUIRE(cuda::llm::embed_tokens(out, ids, table));
 
   std::vector<T> out_storage(out.size());
-  REQUIRE(out.as_view().store(matrix_view<T>(out_storage, out.extent())));
+  REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
   CHECK(out_storage == std::vector<T>{T{100}, T{200}, T{1}, T{2}});
 }
 
@@ -296,15 +295,15 @@ TEMPLATE_TEST_CASE("Device embed positions on hand-computed rows",
   // test has them.
   const std::vector<T> table_storage{T{1}, T{2}, T{10}, T{20}, T{100}, T{200}};
   const cuda_matrix<T> table(
-      matrix_view<const T>(table_storage, {.row_count = 3, .col_count = 2}));
+      matrix_view<T>(table_storage, {.row_count = 3, .col_count = 2}));
   const std::vector<T> in_storage{T{0.5}, T{0.25}, T{-10}, T{5}};
   cuda_matrix<T> out(
-      matrix_view<const T>(in_storage, {.row_count = 2, .col_count = 2}));
+      matrix_view<T>(in_storage, {.row_count = 2, .col_count = 2}));
 
   REQUIRE(cuda::llm::embed_positions(out, table));
 
   std::vector<T> out_storage(out.size());
-  REQUIRE(out.as_view().store(matrix_view<T>(out_storage, out.extent())));
+  REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
   CHECK(out_storage == std::vector<T>{T{1.5}, T{2.25}, T{0}, T{25}});
 }
 
@@ -331,13 +330,13 @@ TEST_CASE("Device embed tokens match the oracle",
   const cuda_matrix<float> wpe(wpe_view);
   cuda_matrix<float> out(expected.extent());
   std::vector<float> out_storage(out.size());
-  const float_matrix_view out_view(out_storage, out.extent());
+  const float_matrix_lens out_lens(out_storage, out.extent());
 
   REQUIRE(cuda::llm::embed_tokens(out, ids, wte));
   REQUIRE(cuda::llm::embed_positions(out, wpe));
-  REQUIRE(out.as_view().store(out_view));
+  REQUIRE(out.as_view().store(out_lens));
 
-  check_close(out_view, expected, 0.0F, 0.0F);
+  check_close(out_lens, expected, 0.0F, 0.0F);
 }
 
 #pragma endregion
@@ -347,11 +346,11 @@ TEST_CASE("Device causal mask blanks the columns after the diagonal",
     "[LlmOpsTest][cuda]") {
   const std::vector<float> ones(3UZ * 3, 1.0F);
   cuda_matrix<float> scores(
-      const_float_matrix_view(ones, {.row_count = 3, .col_count = 3}));
+      float_matrix_view(ones, {.row_count = 3, .col_count = 3}));
   REQUIRE(cuda::llm::causal_mask(scores));
 
   std::vector<float> storage(scores.size());
-  REQUIRE(scores.as_view().store(float_matrix_view(storage, scores.extent())));
+  REQUIRE(scores.as_view().store(float_matrix_lens(storage, scores.extent())));
   constexpr auto blank = -std::numeric_limits<float>::infinity();
   CHECK(storage == std::vector<float>{1.0F, blank, blank, 1.0F, 1.0F, blank,
                        1.0F, 1.0F, 1.0F});
@@ -361,11 +360,11 @@ TEST_CASE("Device causal mask blanks each square of a stack on its own",
     "[LlmOpsTest][cuda]") {
   const std::vector<float> ones(4UZ * 2, 1.0F);
   cuda_matrix<float> scores(
-      const_float_matrix_view(ones, {.row_count = 4, .col_count = 2}));
+      float_matrix_view(ones, {.row_count = 4, .col_count = 2}));
   REQUIRE(cuda::llm::causal_mask(scores));
 
   std::vector<float> storage(scores.size());
-  REQUIRE(scores.as_view().store(float_matrix_view(storage, scores.extent())));
+  REQUIRE(scores.as_view().store(float_matrix_lens(storage, scores.extent())));
   constexpr auto blank = -std::numeric_limits<float>::infinity();
   CHECK(storage ==
         std::vector<float>{1.0F, blank, 1.0F, 1.0F, 1.0F, blank, 1.0F, 1.0F});
@@ -379,17 +378,17 @@ TEST_CASE("Device attention on three tokens of width two",
   const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
       0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
   const cuda_matrix<float> qkv(
-      const_float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
+      float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
   const cublas_handle blas;
   cuda_matrix<float> out({.row_count = 3, .col_count = 2});
   std::vector<float> out_storage(out.size());
-  const float_matrix_view out_view(out_storage, out.extent());
+  const float_matrix_lens out_lens(out_storage, out.extent());
   constexpr auto tolerance = 1e-5;
 
   SECTION("one head of width two") {
     cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
     REQUIRE(cuda::llm::attend(blas, out, qkv, 1, scores));
-    REQUIRE(out.as_view().store(out_view));
+    REQUIRE(out.as_view().store(out_lens));
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
     CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
     CHECK_THAT(out_storage[2], WithinAbs(0.669762, tolerance));
@@ -401,7 +400,7 @@ TEST_CASE("Device attention on three tokens of width two",
   SECTION("two heads of width one") {
     cuda_matrix<float> scores({.row_count = 2UZ * 3, .col_count = 3});
     REQUIRE(cuda::llm::attend(blas, out, qkv, 2, scores));
-    REQUIRE(out.as_view().store(out_view));
+    REQUIRE(out.as_view().store(out_lens));
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
     CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
     CHECK_THAT(out_storage[2], WithinAbs(0.5, tolerance));
@@ -448,16 +447,16 @@ TEST_CASE("Device attention path matches the oracle",
           {.row_count = n_head * token_count, .col_count = token_count});
       cuda_matrix<float> out(in_view.extent());
       std::vector<float> out_storage(out.size());
-      const float_matrix_view out_view(out_storage, out.extent());
+      const float_matrix_lens out_lens(out_storage, out.extent());
 
       REQUIRE(cuda::linalg::linear_projection(blas, qkv, in, attn_weight,
           attn_bias));
       REQUIRE(cuda::llm::attend(blas, heads_out, qkv, n_head, scores));
       REQUIRE(cuda::linalg::linear_projection(blas, out, heads_out,
           proj_weight, proj_bias));
-      REQUIRE(out.as_view().store(out_view));
+      REQUIRE(out.as_view().store(out_lens));
 
-      check_close(out_view, expected, 1e-4F, 1e-4F);
+      check_close(out_lens, expected, 1e-4F, 1e-4F);
     }
   }
 }

@@ -32,7 +32,7 @@
 // The transformer ops on the CPU, in fp32, one free function per op.
 //
 // Every op writes into a caller-owned output view. Activations are
-// `matrix_view` rows of features, one row per token, and parameters are
+// `matrix_lens` rows of features, one row per token, and parameters are
 // spans over the weight file. Shape mismatches are contract violations.
 namespace corvid::llm {
 
@@ -86,7 +86,7 @@ constexpr void scale_shift_row(float_row_span row_out,
 // `weight` and `bias`. `out` can be the same view as `in`, normalizing in
 // place, but must not otherwise overlap it. `eps` is added to each row's
 // variance inside the square root.
-inline void layer_norm(float_matrix_view out, const_float_matrix_view in,
+inline void layer_norm(float_matrix_lens out, float_matrix_view in,
     const_float_row_span weight, const_float_row_span bias,
     float eps) noexcept {
   [[maybe_unused]] const auto width = in.col_extent();
@@ -144,7 +144,7 @@ template<Floating T>
 // `out` and `in` must have the same extent. `out` can be the same view
 // as `in`, applying it in place, but must not otherwise overlap it.
 template<Floating T>
-void gelu_new(matrix_view<T> out, const_view_t<T> in) noexcept {
+void gelu_new(matrix_lens<T> out, matrix_view_t<T> in) noexcept {
   assert(out.extent() == in.extent());
   assert(is_same_or_disjoint(out.as_span(), in.as_span()));
 
@@ -197,9 +197,8 @@ void gelu_new(matrix_view<T> out, const_view_t<T> in) noexcept {
 //
 // `out` must have the row count of `q`, and `v` that of `k`, which must be at
 // least that of `q`. `out` must not overlap any of the others.
-inline void attend_head(float_matrix_view out, const_float_matrix_view q,
-    const_float_matrix_view k, const_float_matrix_view v,
-    float_col_span scores) noexcept {
+inline void attend_head(float_matrix_lens out, float_matrix_view q,
+    float_matrix_view k, float_matrix_view v, float_col_span scores) noexcept {
   const auto new_count = q.row_extent();
   const auto total_count = k.row_extent();
   const auto width = q.col_extent();
@@ -266,7 +265,7 @@ inline void attend_head(float_matrix_view out, const_float_matrix_view q,
 // element per row of `qkv`, which must have at least as many rows as `out`.
 // `qkv` must be three times as wide as `out`, whose width must divide evenly
 // by `head_count`. `out` must not overlap `qkv` or `scores`.
-inline void attend(float_matrix_view out, const_float_matrix_view qkv,
+inline void attend(float_matrix_lens out, float_matrix_view qkv,
     size_t head_count, float_col_span scores) noexcept {
   const auto new_count = out.row_extent();
   const auto total_count = qkv.row_extent();
@@ -277,21 +276,20 @@ inline void attend(float_matrix_view out, const_float_matrix_view qkv,
   const auto head_width = width / head_count;
 
   const auto one_third = [&](size_t which) {
-    return qkv.subview({row_ndx{0}, col_ndx{which * width}},
-        {.row_count = total_count, .col_count = width});
+    return qkv[{row_ndx{0}, col_ndx{which * width}},
+        {.row_count = total_count, .col_count = width}];
   };
   // The queries are those of the new tokens, below the cached ones.
-  const auto q = one_third(0).subview(
-      {row_ndx{total_count - new_count}, col_ndx{0}},
-      {.row_count = new_count, .col_count = width});
+  const auto q = one_third(0)[{row_ndx{total_count - new_count}, col_ndx{0}},
+      {.row_count = new_count, .col_count = width}];
   const auto k = one_third(1);
   const auto v = one_third(2);
 
   for (size_t head = 0; head < head_count; ++head) {
     // Every row of `m`, which has its own count, and the head's columns.
     const auto slice = [&](const auto& m) {
-      return m.subview({row_ndx{0}, col_ndx{head * head_width}},
-          {.row_count = m.row_extent(), .col_count = head_width});
+      return m[{row_ndx{0}, col_ndx{head * head_width}},
+          {.row_count = m.row_extent(), .col_count = head_width}];
     };
     attend_head(slice(out), slice(q), slice(k), slice(v), scores);
   }
@@ -311,8 +309,8 @@ inline void attend(float_matrix_view out, const_float_matrix_view qkv,
 //
 // `out` must have one row per ID and the width of `table`, every ID must
 // index a row of `table`, and `out` must not overlap `table`.
-inline void embed_tokens(float_matrix_view out, std::span<const token_id> ids,
-    const_float_matrix_view table) noexcept {
+inline void embed_tokens(float_matrix_lens out, std::span<const token_id> ids,
+    float_matrix_view table) noexcept {
   assert(out.row_extent() == ids.size());
   assert(out.col_extent() == table.col_extent());
   assert(is_disjoint(out.as_span(), table.as_span()));
@@ -337,12 +335,12 @@ inline void embed_tokens(float_matrix_view out, std::span<const token_id> ids,
 //
 // `out` must have the width of `table`, its last row's position must be in
 // `table`, and it must not overlap `table`.
-inline void embed_positions(float_matrix_view out,
-    const_float_matrix_view table, size_t first_position = 0) noexcept {
+inline void embed_positions(float_matrix_lens out, float_matrix_view table,
+    size_t first_position = 0) noexcept {
   assert(first_position + out.row_extent() <= table.row_extent());
   assert(out.col_extent() == table.col_extent());
 
-  out += table.subview({row_ndx{first_position}, col_ndx{0}}, out.extent());
+  out += table[{row_ndx{first_position}, col_ndx{0}}, out.extent()];
 }
 
 #pragma endregion
@@ -362,7 +360,7 @@ inline void embed_positions(float_matrix_view out,
 // `out` must have one element per row of `vocab`, `features` must be as wide
 // as `vocab`, and `out` must not overlap either.
 inline void compute_token_logits(float_row_span out,
-    const_float_row_span features, const_float_matrix_view vocab) noexcept {
+    const_float_row_span features, float_matrix_view vocab) noexcept {
   assert(out.size() == vocab.row_extent());
   assert(features.size() == vocab.col_extent());
   assert(is_disjoint(out, features) && is_disjoint(out, vocab.as_span()));
@@ -385,8 +383,8 @@ inline void compute_token_logits(float_row_span out,
 //
 // `out` and `in` must have the same row count, and the shapes of each row
 // are as `compute_token_logits` requires.
-inline void compute_all_logits(float_matrix_view out,
-    const_float_matrix_view in, const_float_matrix_view vocab) noexcept {
+inline void compute_all_logits(float_matrix_lens out, float_matrix_view in,
+    float_matrix_view vocab) noexcept {
   assert(out.row_extent() == in.row_extent());
 
   for (const auto [out_row, in_row] : zip(out.rows(), in.rows()))

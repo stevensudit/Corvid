@@ -26,7 +26,7 @@ L2  enums             corvid/enums/                  scoped/sequence/bitmask/boo
 L3  filesys           corvid/filesys/                os_file, os_event, epoll glue.
     concurrency       corvid/concurrency/            locks, timers, dispatch, atomics.
     containers/utils  corvid/containers/utils/       Enum/string-aware containers.
-    linalg            corvid/linalg/                 Row/matrix arithmetic over matrix_view; rests on containers/utils.
+    linalg            corvid/linalg/                 Row/matrix arithmetic over matrix_lens; rests on containers/utils.
 L4  ecs, proto, lang  corvid/{ecs,proto,lang}/       Apex consumers.
 L5  sim               corvid/sim/                    Apex consumer.
     llm               corvid/llm/                    Apex consumer: transformer ops, GPT-2, tokenizer, weight reader.
@@ -43,7 +43,7 @@ any lower band.
 `llm` is the CPU side of the transformer work: the ops, the GPT-2 model, the
 tokenizer, and the safetensors reader. It sits at the top so that reader may
 reach `filesys` (file mapping) and `proto` (the JSON parser). `linalg` is the
-arithmetic those ops rest on, which needs only `matrix_view`, so it is a
+arithmetic those ops rest on, which needs only `matrix_lens`, so it is a
 proper mid band rather than an apex one.
 
 `cuda` is a band only for the plain `.h` headers under `corvid/cuda/` (the

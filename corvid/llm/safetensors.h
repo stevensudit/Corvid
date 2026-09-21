@@ -206,7 +206,7 @@ public:
   // `dynamic_extent`. Returns an empty view when there is no such tensor or
   // it has another element type, rank, or shape.
   template<TensorElement T>
-  [[nodiscard]] matrix_view<const T> find_matrix(std::string_view name,
+  [[nodiscard]] matrix_view<T> find_matrix(std::string_view name,
       matrix_types::matrix_extent expected = {}) const noexcept {
     const auto* entry = find(name);
     if (!entry || (entry->shape.size() != 2) || !entry->is<T>()) return {};
@@ -219,7 +219,7 @@ public:
     if (!matches(extent.row_count, expected.row_count) ||
         !matches(extent.col_count, expected.col_count))
       return {};
-    return matrix_view<const T>(entry->as<T>(), extent);
+    return matrix_view<T>(entry->as<T>(), extent);
   }
 
   // Find the one-dimensional tensor of `T` named `name`, `size` long, as a

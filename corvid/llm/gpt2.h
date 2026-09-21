@@ -73,15 +73,15 @@ struct gpt2_model {
   struct block_params {
     const_float_row_span ln_1_weight;
     const_float_row_span ln_1_bias;
-    const_float_matrix_view attn_c_attn_weight;
+    float_matrix_view attn_c_attn_weight;
     const_float_row_span attn_c_attn_bias;
-    const_float_matrix_view attn_c_proj_weight;
+    float_matrix_view attn_c_proj_weight;
     const_float_row_span attn_c_proj_bias;
     const_float_row_span ln_2_weight;
     const_float_row_span ln_2_bias;
-    const_float_matrix_view mlp_c_fc_weight;
+    float_matrix_view mlp_c_fc_weight;
     const_float_row_span mlp_c_fc_bias;
-    const_float_matrix_view mlp_c_proj_weight;
+    float_matrix_view mlp_c_proj_weight;
     const_float_row_span mlp_c_proj_bias;
   };
 
@@ -89,8 +89,8 @@ struct gpt2_model {
 #pragma region Data members
 
   const safetensors_file weights;
-  const const_float_matrix_view wte;
-  const const_float_matrix_view wpe;
+  const float_matrix_view wte;
+  const float_matrix_view wpe;
   const std::vector<block_params> blocks;
   const const_float_row_span ln_f_weight;
   const const_float_row_span ln_f_bias;
@@ -147,7 +147,7 @@ struct gpt2_model {
 private:
   // The fp32 matrix `name` of `file`, whose shape must match `expected` in
   // each count that is not `dynamic_extent`, or throw.
-  [[nodiscard]] static const_float_matrix_view
+  [[nodiscard]] static float_matrix_view
   lookup_matrix(const safetensors_file& file, std::string_view name,
       matrix_types::matrix_extent expected = {}) {
     const auto view = file.find_matrix<float>(name, expected);

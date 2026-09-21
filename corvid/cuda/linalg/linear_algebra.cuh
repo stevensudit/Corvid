@@ -40,7 +40,7 @@
 // Row and matrix arithmetic on the device, one free function per op.
 //
 // Every op writes into a caller-owned output (a `cuda_matrix` or a
-// `cuda_matrix_view`), launches on the default stream, and returns whether its
+// `cuda_matrix_lens`), launches on the default stream, and returns whether its
 // launches were accepted, so a fault inside a kernel surfaces at the next
 // synchronizing call, such as a `store`. Shape mismatches are contract
 // violations.
@@ -88,14 +88,10 @@ requires requires(const M& m) {
 #pragma endregion
 #pragma region Views
 
-// A read-only device view of `T`, the element type of an op's output, which
-// an owning `cuda_matrix` or a mutable view converts to at the call.
-template<typename T>
-using const_view_t = cuda_matrix_view<const T>;
-
-// The read-only view an op with the output `Out` takes as an input.
+// The view an op with the output `Out` takes as an input, which an owning
+// `cuda_matrix` or a lens converts to at the call.
 template<DeviceMatrixLike Out>
-using input_view_t = const_view_t<device_element_t<Out>>;
+using input_view_t = cuda_matrix_view<device_element_t<Out>>;
 
 // The buffer an op with the output `Out` takes as a per-column input, such as
 // a bias.
@@ -111,14 +107,14 @@ namespace details {
 // element.
 template<typename T>
 __global__ void
-fill_rows(kernel_matrix_view<T> out, matrix_extent extent, const T* bias) {
+fill_rows(kernel_matrix_lens<T> out, matrix_extent extent, const T* bias) {
   if (const kernel_coord at; at.is_within(extent)) out[at] = bias[at.col];
 }
 
 // The extent of `op(x)`.
 template<typename T>
 [[nodiscard]] matrix_extent
-op_extent(cuda_matrix_view<T> x, cublas_operation op) noexcept {
+op_extent(cuda_matrix_lens<T> x, cublas_operation op) noexcept {
   return (op == cublas_operation::none) ? x.extent() : x.extent().transposed();
 }
 
@@ -171,36 +167,36 @@ requires GemmElement<device_element_t<Out>>
 gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
     input_view_t<Out> b, gemm_options<device_element_t<Out>> options = {},
     input_view_t<Out> addend = {}) {
-  const auto& out_view = out.as_view();
+  const auto& out_lens = out.as_lens();
   const auto op_a_extent = details::op_extent(a, options.op_a);
   [[maybe_unused]] const auto op_b_extent =
       details::op_extent(b, options.op_b);
-  assert((out_view.row_extent() == op_a_extent.row_count) &&
-         (out_view.col_extent() == op_b_extent.col_count));
+  assert((out_lens.row_extent() == op_a_extent.row_count) &&
+         (out_lens.col_extent() == op_b_extent.col_count));
   assert(op_a_extent.col_count == op_b_extent.row_count);
-  assert((out_view.get() != a.get()) && (out_view.get() != b.get()));
+  assert((out_lens.get() != a.get()) && (out_lens.get() != b.get()));
 
   // To create the `out`/`addend` distinction, we need to initialize `C` with a
   // copy of the `addend`, if there's anything there for us.
   const auto has_addend = !addend.empty() && (options.addend_scale != 0);
-  if (has_addend && (addend.get() != out_view.get())) {
-    assert(addend.extent() == out_view.extent());
+  if (has_addend && (addend.get() != out_lens.get())) {
+    assert(addend.extent() == out_lens.extent());
     // Copy `addend` into `out`, as part of the same default stream as `blas`.
-    if (!out_view.load(addend)) return false;
+    if (!out_lens.load(addend)) return false;
   }
   const auto beta =
       has_addend ? options.addend_scale : device_element_t<Out>{};
 
   // Each leading dimension is its view's stride, the row length as stored.
-  const auto m = static_cast<int>(out_view.row_extent());
-  const auto n = static_cast<int>(out_view.col_extent());
+  const auto m = static_cast<int>(out_lens.row_extent());
+  const auto n = static_cast<int>(out_lens.col_extent());
   const auto k = static_cast<int>(op_a_extent.col_count);
   const auto lda = static_cast<int>(a.stride());
   const auto ldb = static_cast<int>(b.stride());
-  const auto ldc = static_cast<int>(out_view.stride());
+  const auto ldc = static_cast<int>(out_lens.stride());
   return blas
       .multiply_row_major(m, n, k, options.scale, a.get(), lda, b.get(), ldb,
-          beta, out_view.get(), ldc, options.op_a, options.op_b)
+          beta, out_lens.get(), ldc, options.op_a, options.op_b)
       .ok();
 }
 
@@ -217,9 +213,9 @@ requires GemmElement<device_element_t<Out>>
 [[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out,
     input_view_t<Out> a, input_view_t<Out> b, const input_buffer_t<Out>& bias,
     gemm_options<device_element_t<Out>> options = {}) {
-  const auto& out_view = out.as_view();
+  const auto& out_lens = out.as_lens();
   assert(bias);
-  assert(bias.size() == out_view.col_extent());
+  assert(bias.size() == out_lens.col_extent());
 
   // We can't directly add `bias` as part of the GEMM operation because `bias`
   // is a row vector and GEMM expects a matrix for `addend`. In principle, we
@@ -227,11 +223,11 @@ requires GemmElement<device_element_t<Out>>
   // kernel, but we can get the same effect cheaper by broadcasting `bias` into
   // `out`, turning it into a matrix that we then use as the `addend`.
   // Essentially: Ctrl+C, Ctrl+V FTW.
-  details::fill_rows<<<grid_for(out_view), threads_per_block>>>(
-      kernel_matrix_view{out_view}, out_view.extent(), bias.get());
+  details::fill_rows<<<grid_for(out_lens), threads_per_block>>>(
+      kernel_matrix_lens{out_lens}, out_lens.extent(), bias.get());
   if (!cuda_last_status{}) return false;
 
-  return gemm(blas, out_view, a, b, options, out_view);
+  return gemm(blas, out_lens, a, b, options, out_lens);
 }
 
 #pragma endregion
@@ -259,7 +255,7 @@ namespace details {
 // each instance to the next.
 template<typename T>
 struct batch_pieces {
-  cuda_matrix_view<T> first;
+  cuda_matrix_lens<T> first;
   size_t stride{};
 };
 
@@ -268,10 +264,10 @@ struct batch_pieces {
 // `count` must divide the extent of `whole` along `axis`.
 template<typename T>
 [[nodiscard]] batch_pieces<T>
-split_batch(cuda_matrix_view<T> whole, matrix_axis axis, size_t count) {
+split_batch(cuda_matrix_lens<T> whole, matrix_axis axis, size_t count) {
   auto piece = whole.extent();
-  assert(count && (piece.count(axis) % count == 0));
-  piece.count(axis) /= count;
+  assert(count && (piece[axis] % count == 0));
+  piece[axis] /= count;
 
   // Stacked pieces are a piece's worth of stored rows apart. Side-by-side
   // pieces are a piece's width apart, and share the stride of `whole` as their
@@ -280,7 +276,7 @@ split_batch(cuda_matrix_view<T> whole, matrix_axis axis, size_t count) {
       (axis == matrix_axis::rows)
           ? piece.row_count * whole.stride()
           : piece.col_count;
-  return {whole.subview({row_ndx{0}, col_ndx{0}}, piece), stride};
+  return {whole[{row_ndx{0}, col_ndx{0}}, piece], stride};
 }
 
 } // namespace details
@@ -305,11 +301,11 @@ requires GemmElement<device_element_t<Out>>
 [[nodiscard]] bool gemm_batched(const cublas_handle& blas, Out&& out,
     input_view_t<Out> a, input_view_t<Out> b, gemm_batch batch,
     gemm_options<device_element_t<Out>> options = {}) {
-  const auto& out_view = out.as_view();
-  assert(is_disjoint(out_view.as_span(), a.as_span()));
-  assert(is_disjoint(out_view.as_span(), b.as_span()));
+  const auto& out_lens = out.as_lens();
+  assert(is_disjoint(out_lens.as_span(), a.as_span()));
+  assert(is_disjoint(out_lens.as_span(), b.as_span()));
   const auto out_pieces =
-      details::split_batch(out_view, batch.out, batch.count);
+      details::split_batch(out_lens, batch.out, batch.count);
   const auto a_pieces = details::split_batch(a, batch.a, batch.count);
   const auto b_pieces = details::split_batch(b, batch.b, batch.count);
 
@@ -327,12 +323,12 @@ requires GemmElement<device_element_t<Out>>
   const auto k = static_cast<int>(op_a_extent.col_count);
   const auto lda = static_cast<int>(a.stride());
   const auto ldb = static_cast<int>(b.stride());
-  const auto ldc = static_cast<int>(out_view.stride());
+  const auto ldc = static_cast<int>(out_lens.stride());
   return blas
       .multiply_batched_row_major(m, n, k, options.scale, a.get(), lda,
           static_cast<long long>(a_pieces.stride), b.get(), ldb,
           static_cast<long long>(b_pieces.stride), device_element_t<Out>{},
-          out_view.get(), ldc, static_cast<long long>(out_pieces.stride),
+          out_lens.get(), ldc, static_cast<long long>(out_pieces.stride),
           static_cast<int>(batch.count), options.op_a, options.op_b)
       .ok();
 }
@@ -368,8 +364,8 @@ namespace details {
 // `extent` in size, one thread per element.
 template<typename T, typename Op>
 __global__ void
-combine_elements(kernel_matrix_view<T> out, kernel_matrix_view<const T> a,
-    kernel_matrix_view<const T> b, matrix_extent extent, Op op) {
+combine_elements(kernel_matrix_lens<T> out, kernel_matrix_view<T> a,
+    kernel_matrix_view<T> b, matrix_extent extent, Op op) {
   if (const kernel_coord at; at.is_within(extent)) out[at] = op(a[at], b[at]);
 }
 
@@ -379,15 +375,15 @@ combine_elements(kernel_matrix_view<T> out, kernel_matrix_view<const T> a,
 // `a` or as `b`, but must not otherwise overlap either. Returns false when
 // the launch is refused, leaving `out` unspecified.
 template<typename T, typename Op>
-[[nodiscard]] bool
-combine(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b, Op op) {
+[[nodiscard]] bool combine(cuda_matrix_lens<T> out, cuda_matrix_view<T> a,
+    cuda_matrix_view<T> b, Op op) {
   assert(a.extent() == b.extent());
   assert(out.extent() == a.extent());
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));
   assert(is_same_or_disjoint(out.as_span(), b.as_span()));
 
   combine_elements<<<grid_for(out), threads_per_block>>>(
-      kernel_matrix_view{out}, kernel_matrix_view{a}, kernel_matrix_view{b},
+      kernel_matrix_lens{out}, kernel_matrix_view{a}, kernel_matrix_view{b},
       out.extent(), op);
   return cuda_last_status{}.ok();
 }
@@ -402,7 +398,7 @@ combine(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b, Op op) {
 template<DeviceMatrixLike Out>
 requires Arithmetic<device_element_t<Out>>
 [[nodiscard]] bool add(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
-  return details::combine(out.as_view(), a, b, std::plus<>{});
+  return details::combine(out.as_lens(), a, b, std::plus<>{});
 }
 
 // Subtract `b` from `a` elementwise, writing into `out`.
@@ -414,7 +410,7 @@ template<DeviceMatrixLike Out>
 requires Arithmetic<device_element_t<Out>>
 [[nodiscard]] bool
 subtract(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
-  return details::combine(out.as_view(), a, b, std::minus<>{});
+  return details::combine(out.as_lens(), a, b, std::minus<>{});
 }
 
 #pragma endregion
@@ -432,8 +428,8 @@ namespace details {
 // In-place is safe. Each element is read only by the thread that writes it,
 // and every read of `in` precedes that thread's write.
 template<Floating T>
-__global__ void apply_softmax(kernel_matrix_view<T> out,
-    kernel_matrix_view<const T> in, size_t cols) {
+__global__ void apply_softmax(kernel_matrix_lens<T> out,
+    kernel_matrix_view<T> in, size_t cols) {
   const auto row = cuda_kernel::x_block<size_t>();
   const kernel_col_range columns{cols};
 
@@ -469,14 +465,14 @@ __global__ void apply_softmax(kernel_matrix_view<T> out,
 template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
 [[nodiscard]] bool softmax(Out&& out, input_view_t<Out> in) {
-  const auto& out_view = out.as_view();
-  assert(out_view.extent() == in.extent());
+  const auto& out_lens = out.as_lens();
+  assert(out_lens.extent() == in.extent());
   assert(in.col_extent() > 0);
-  assert(is_same_or_disjoint(out_view.as_span(), in.as_span()));
+  assert(is_same_or_disjoint(out_lens.as_span(), in.as_span()));
 
-  details::apply_softmax<<<static_cast<unsigned>(out_view.row_extent()),
-      threads_per_block>>>(kernel_matrix_view{out_view},
-      kernel_matrix_view{in}, out_view.col_extent());
+  details::apply_softmax<<<static_cast<unsigned>(out_lens.row_extent()),
+      threads_per_block>>>(kernel_matrix_lens{out_lens},
+      kernel_matrix_view{in}, out_lens.col_extent());
   return cuda_last_status{}.ok();
 }
 
