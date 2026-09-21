@@ -139,16 +139,16 @@ public:
   //   n      columns of `op(B)` and of `C`
   //   k      columns of `op(A)` and rows of `op(B)`, the summed dimension
   //   alpha  scale applied to the product
-  //   A      device matrix, `m` by `k` after `opA`
+  //   A      device matrix, `m` by `k` after `op_a`
   //   lda    leading dimension of `A` as stored
-  //   B      device matrix, `k` by `n` after `opB`
+  //   B      device matrix, `k` by `n` after `op_b`
   //   ldb    leading dimension of `B` as stored
   //   beta   scale applied to the existing `C` before the product is added;
   //          zero ignores its contents, one accumulates onto them
   //   C      device matrix, `m` by `n`, read when `beta` is nonzero, written
   //   ldc    leading dimension of `C`
-  //   opA    whether `A` is used as stored or transposed
-  //   opB    likewise for `B`
+  //   op_a   whether `A` is used as stored or transposed
+  //   op_b   likewise for `B`
   //
   // Note that `C` is both the addend and the result. cuBLAS scales what it
   // holds by `beta`, adds the product, and writes the sum back over it, so
@@ -174,10 +174,10 @@ public:
   [[nodiscard]] cublas_last_status
   multiply(int m, int n, int k, std::type_identity_t<T> alpha, const T* A,
       int lda, const T* B, int ldb, std::type_identity_t<T> beta, T* C,
-      int ldc, cublas_operation opA = cublas_operation::none,
-      cublas_operation opB = cublas_operation::none) const {
-    return gemm(handle_, as_raw(opA), as_raw(opB), m, n, k, &alpha, A, lda, B,
-        ldb, &beta, C, ldc);
+      int ldc, cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    return gemm(handle_, as_raw(op_a), as_raw(op_b), m, n, k, &alpha, A, lda,
+        B, ldb, &beta, C, ldc);
   }
 
   // GEMM over row-major matrices, `C = alpha * op(A) * op(B) + beta * C`.
@@ -197,9 +197,9 @@ public:
   [[nodiscard]] cublas_last_status
   multiply_row_major(int m, int n, int k, std::type_identity_t<T> alpha,
       const T* A, int lda, const T* B, int ldb, std::type_identity_t<T> beta,
-      T* C, int ldc, cublas_operation opA = cublas_operation::none,
-      cublas_operation opB = cublas_operation::none) const {
-    return multiply(n, m, k, alpha, B, ldb, A, lda, beta, C, ldc, opB, opA);
+      T* C, int ldc, cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    return multiply(n, m, k, alpha, B, ldb, A, lda, beta, C, ldc, op_b, op_a);
   }
 
   // Square multiply, where every dimension and leading dimension is `n`.
@@ -207,9 +207,9 @@ public:
   [[nodiscard]] cublas_last_status
   multiply(int n, std::type_identity_t<T> alpha, const T* A, const T* B,
       std::type_identity_t<T> beta, T* C,
-      cublas_operation opA = cublas_operation::none,
-      cublas_operation opB = cublas_operation::none) const {
-    return multiply(n, n, n, alpha, A, n, B, n, beta, C, n, opA, opB);
+      cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    return multiply(n, n, n, alpha, A, n, B, n, beta, C, n, op_a, op_b);
   }
 
 #pragma endregion
@@ -237,9 +237,9 @@ public:
       std::type_identity_t<T> alpha, const T* A, int lda, long long stride_a,
       const T* B, int ldb, long long stride_b, std::type_identity_t<T> beta,
       T* C, int ldc, long long stride_c, int batch_count,
-      cublas_operation opA = cublas_operation::none,
-      cublas_operation opB = cublas_operation::none) const {
-    return gemm_strided_batched(handle_, as_raw(opA), as_raw(opB), m, n, k,
+      cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    return gemm_strided_batched(handle_, as_raw(op_a), as_raw(op_b), m, n, k,
         &alpha, A, lda, stride_a, B, ldb, stride_b, &beta, C, ldc, stride_c,
         batch_count);
   }
@@ -254,10 +254,10 @@ public:
       int k, std::type_identity_t<T> alpha, const T* A, int lda,
       long long stride_a, const T* B, int ldb, long long stride_b,
       std::type_identity_t<T> beta, T* C, int ldc, long long stride_c,
-      int batch_count, cublas_operation opA = cublas_operation::none,
-      cublas_operation opB = cublas_operation::none) const {
+      int batch_count, cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
     return multiply_batched(n, m, k, alpha, B, ldb, stride_b, A, lda, stride_a,
-        beta, C, ldc, stride_c, batch_count, opB, opA);
+        beta, C, ldc, stride_c, batch_count, op_b, op_a);
   }
 
 #pragma endregion
@@ -272,37 +272,37 @@ private:
 
   // The GEMM routine for each `GemmElement`, so `multiply` dispatches by
   // overload.
-  static cublasStatus_t gemm(cublasHandle_t handle, cublasOperation_t opA,
-      cublasOperation_t opB, int m, int n, int k, const float* alpha,
+  static cublasStatus_t gemm(cublasHandle_t handle, cublasOperation_t op_a,
+      cublasOperation_t op_b, int m, int n, int k, const float* alpha,
       const float* A, int lda, const float* B, int ldb, const float* beta,
       float* C, int ldc) {
-    return cublasSgemm(handle, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta,
-        C, ldc);
+    return cublasSgemm(handle, op_a, op_b, m, n, k, alpha, A, lda, B, ldb,
+        beta, C, ldc);
   }
-  static cublasStatus_t gemm(cublasHandle_t handle, cublasOperation_t opA,
-      cublasOperation_t opB, int m, int n, int k, const double* alpha,
+  static cublasStatus_t gemm(cublasHandle_t handle, cublasOperation_t op_a,
+      cublasOperation_t op_b, int m, int n, int k, const double* alpha,
       const double* A, int lda, const double* B, int ldb, const double* beta,
       double* C, int ldc) {
-    return cublasDgemm(handle, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta,
-        C, ldc);
+    return cublasDgemm(handle, op_a, op_b, m, n, k, alpha, A, lda, B, ldb,
+        beta, C, ldc);
   }
 
   // The strided-batched GEMM routine for each `GemmElement`.
   static cublasStatus_t gemm_strided_batched(cublasHandle_t handle,
-      cublasOperation_t opA, cublasOperation_t opB, int m, int n, int k,
+      cublasOperation_t op_a, cublasOperation_t op_b, int m, int n, int k,
       const float* alpha, const float* A, int lda, long long stride_a,
       const float* B, int ldb, long long stride_b, const float* beta, float* C,
       int ldc, long long stride_c, int batch_count) {
-    return cublasSgemmStridedBatched(handle, opA, opB, m, n, k, alpha, A, lda,
-        stride_a, B, ldb, stride_b, beta, C, ldc, stride_c, batch_count);
+    return cublasSgemmStridedBatched(handle, op_a, op_b, m, n, k, alpha, A,
+        lda, stride_a, B, ldb, stride_b, beta, C, ldc, stride_c, batch_count);
   }
   static cublasStatus_t gemm_strided_batched(cublasHandle_t handle,
-      cublasOperation_t opA, cublasOperation_t opB, int m, int n, int k,
+      cublasOperation_t op_a, cublasOperation_t op_b, int m, int n, int k,
       const double* alpha, const double* A, int lda, long long stride_a,
       const double* B, int ldb, long long stride_b, const double* beta,
       double* C, int ldc, long long stride_c, int batch_count) {
-    return cublasDgemmStridedBatched(handle, opA, opB, m, n, k, alpha, A, lda,
-        stride_a, B, ldb, stride_b, beta, C, ldc, stride_c, batch_count);
+    return cublasDgemmStridedBatched(handle, op_a, op_b, m, n, k, alpha, A,
+        lda, stride_a, B, ldb, stride_b, beta, C, ldc, stride_c, batch_count);
   }
 
   [[nodiscard]] static cublasOperation_t as_raw(cublas_operation op) {

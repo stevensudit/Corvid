@@ -241,6 +241,37 @@ TEST_CASE("Attention on three tokens of width two", "[LlmOpsTest]") {
   }
 }
 
+TEST_CASE("Attention over cached tokens matches the rows of a full pass",
+    "[LlmOpsTest]") {
+  // The napkin example's `qkv`. Attending the last two tokens with one cached,
+  // or the last token with two cached, gives the rows that the full pass gives
+  // those tokens.
+  const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+      0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+  const const_float_matrix_view qkv(qkv_storage,
+      {.row_count = 3, .col_count = 6});
+  std::array<float, 3> scores{};
+
+  for (const auto head_count : {1UZ, 2UZ}) {
+    DYNAMIC_SECTION(head_count << " heads") {
+      std::vector<float> full_storage(3UZ * 2);
+      const float_matrix_view full(full_storage,
+          {.row_count = 3, .col_count = 2});
+      attend(full, qkv, head_count, scores);
+
+      for (const auto new_count : {1UZ, 2UZ, 3UZ}) {
+        std::vector<float> out_storage(new_count * 2);
+        const float_matrix_view out(out_storage,
+            {.row_count = new_count, .col_count = 2});
+        attend(out, qkv, head_count, scores);
+        const auto expected =
+            full.subview({row_ndx{3 - new_count}, col_ndx{0}}, out.extent());
+        check_close(out, expected, 0.0F, 0.0F);
+      }
+    }
+  }
+}
+
 TEST_CASE("Embed tokens on hand-computed rows", "[LlmOpsTest]") {
   // Three tokens in the vocabulary, width two.
   const std::vector<float> table_storage{1.0F, 2.0F, 10.0F, 20.0F, 100.0F,
@@ -406,6 +437,18 @@ TEST_CASE("Attention path matches the oracle", "[LlmOpsTest][oracle]") {
       linear_projection(out, heads_out, proj_weight, proj_bias);
 
       check_close(out, expected, 1e-4F, 1e-4F);
+
+      // The last five tokens with nine cached get the same head outputs,
+      // bit for bit, since each row's arithmetic is unchanged.
+      constexpr auto new_count = 5UZ;
+      std::vector<float> suffix_storage(new_count * n_embd);
+      const float_matrix_view suffix_out(suffix_storage,
+          {.row_count = new_count, .col_count = n_embd});
+      attend(suffix_out, qkv, n_head, scores);
+      check_close(suffix_out,
+          heads_out.subview({row_ndx{token_count - new_count}, col_ndx{0}},
+              suffix_out.extent()),
+          0.0F, 0.0F);
     }
   }
 }
