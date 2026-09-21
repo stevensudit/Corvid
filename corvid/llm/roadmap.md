@@ -1224,7 +1224,7 @@ row width is fixed. `qkv` left `block_activations`: it is no longer scratch,
 so `apply_block` takes it as its own parameter, M + N rows with the cached
 tokens on top, projects `ln_1_out` into the bottom N rows, and attends over
 all of them. `forward(out, new_ids, acts, cache)` runs only the new tokens,
-takes their position rows from `wpe` at M, and appends them to the cache on
+embeds their positions starting at M, and appends them to the cache on
 return; an empty cache is the old full pass, so the oracle tests pass a fresh
 one. `next_token(out, ids)` keeps its signature and stays `const` over a
 `mutable` cache, one caller at a time: it keeps the cached tokens that `ids`
@@ -1237,10 +1237,17 @@ cache; the greedy test now decodes through the cache, then checks that an
 unrelated list followed by the prompt, and the prompt asked twice, both get
 the manifest's first pick. The twenty-step greedy test case fell from about
 2.3 s to 0.6 s, model load included. The device engine is unchanged and its
-surface now differs from the CPU one until slice 3. Still allocated per
-`next_token` call: the activation buffers, the trunk, and the logits row.
-Next: the device twin (offset mask, rectangular batched attend, device
-cache), then the device argmax.
+surface now differs from the CPU one until slice 3. Steven's review:
+`embed_positions` on both sides took a defaulted `first_position`, since
+slicing the table is the op's job and not its caller's; the cache reserves
+the whole context on first use, so no later pass reallocates; the block loop
+walks the cache through `std::views::enumerate`; and the packed `matrix_view`
+constructor now takes the start of a span at least as large as its extent,
+with the old exact-size check behind the `exact_size` tag, which removed the
+engine's hand-trimmed span. Still allocated per `next_token` call: the
+activation buffers, the trunk, and the logits row. Next: the device twin
+(offset mask, rectangular batched attend, device cache), then the device
+argmax.
 
 ### 5. Backward pass and LoRA
 

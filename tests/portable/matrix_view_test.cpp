@@ -221,6 +221,22 @@ TEST_CASE("Strided view over a larger buffer", "[MatrixViewTest]") {
   CHECK(tight[row_ndx{2}, col_ndx{1}] == 21.0F);
 }
 
+TEST_CASE("Packed view over the start of a larger buffer",
+    "[MatrixViewTest]") {
+  std::vector<float> storage{0.0F, 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F};
+
+  // The view takes the elements of its extent and leaves the rest.
+  const view_t m(storage, {.row_count = 2, .col_count = 3});
+  CHECK(m.is_packed());
+  CHECK(m.as_span().size() == 6);
+  CHECK(m[row_ndx{1}, col_ndx{2}] == 5.0F);
+
+  // A buffer of exactly the extent's size can say so.
+  const view_t exact(std::span{storage}.first(6),
+      {.row_count = 2, .col_count = 3}, matrix_types::exact_size);
+  CHECK(exact.as_span().size() == 6);
+}
+
 TEST_CASE("Rows as a range", "[MatrixViewTest]") {
   static_assert(std::ranges::random_access_range<decltype(view_t{}.rows())>);
   static_assert(std::ranges::view<decltype(view_t{}.rows())>);

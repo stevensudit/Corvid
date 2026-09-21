@@ -299,6 +299,10 @@ TEST_CASE("Embed positions on hand-computed rows", "[LlmOpsTest]") {
   embed_positions(out, table);
 
   CHECK(storage == std::vector<float>{1.5F, 2.25F, 0.0F, 25.0F});
+
+  // The same two tokens again, now at positions one and two.
+  embed_positions(out, table, 1);
+  CHECK(storage == std::vector<float>{11.5F, 22.25F, 100.0F, 225.0F});
 }
 
 TEST_CASE("Logits on hand-computed rows", "[LlmOpsTest]") {
