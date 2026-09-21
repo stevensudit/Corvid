@@ -298,7 +298,7 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
 TEMPLATE_TEST_CASE("Device batched gemm over both axes",
     "[LinearAlgebraTest][cuda]", float, double) {
   using T = TestType;
-  using cuda::linalg::batch_axis;
+  using matrix_types::matrix_axis;
   const cublas_handle blas;
 
   // Two instances. Instance 0 is column 0 of `a` and of `b`, instance 1 is
@@ -313,9 +313,9 @@ TEMPLATE_TEST_CASE("Device batched gemm over both axes",
   cuda_matrix<T> outer({.row_count = 4, .col_count = 2});
   REQUIRE(cuda::linalg::gemm_batched(blas, outer, a, b,
       {.count = 2,
-          .a = batch_axis::cols,
-          .b = batch_axis::cols,
-          .out = batch_axis::rows},
+          .a = matrix_axis::cols,
+          .b = matrix_axis::cols,
+          .out = matrix_axis::rows},
       {.op_b = cublas_operation::transpose}));
 
   std::vector<T> outer_storage(outer.size());
@@ -329,9 +329,9 @@ TEMPLATE_TEST_CASE("Device batched gemm over both axes",
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
   REQUIRE(cuda::linalg::gemm_batched(blas, out, outer, a,
       {.count = 2,
-          .a = batch_axis::rows,
-          .b = batch_axis::cols,
-          .out = batch_axis::cols}));
+          .a = matrix_axis::rows,
+          .b = matrix_axis::cols,
+          .out = matrix_axis::cols}));
 
   std::vector<T> out_storage(out.size());
   REQUIRE(out.as_view().store(matrix_view<T>(out_storage, out.extent())));

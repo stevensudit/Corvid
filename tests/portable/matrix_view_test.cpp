@@ -304,4 +304,16 @@ TEST_CASE("Extent transposes", "[MatrixViewTest]") {
   STATIC_CHECK(tall.col_count == 2);
 }
 
+TEST_CASE("Extent count along an axis", "[MatrixViewTest]") {
+  using matrix_types::matrix_axis;
+  constexpr extent wide{.row_count = 2, .col_count = 3};
+  STATIC_CHECK(wide.count(matrix_axis::rows) == 2);
+  STATIC_CHECK(wide.count(matrix_axis::cols) == 3);
+
+  // Through a mutable extent, the count is assignable.
+  auto halved = wide;
+  halved.count(matrix_axis::rows) /= 2;
+  CHECK(halved == extent{.row_count = 1, .col_count = 3});
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)

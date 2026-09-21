@@ -21,7 +21,6 @@
 #include <cmath>
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <limits>
 #include <type_traits>
@@ -46,6 +45,9 @@
 // synchronizing call, such as a `store`. Shape mismatches are contract
 // violations.
 namespace corvid::cuda::linalg {
+
+using matrix_types::col_ndx;
+using matrix_types::row_ndx;
 
 #pragma region Launch geometry
 
@@ -235,23 +237,20 @@ requires GemmElement<device_element_t<Out>>
 #pragma endregion
 #pragma region gemm_batched
 
-// The axis along which a matrix divides into the equal pieces that a batched
-// op takes one at a time.
-//
-// Under `rows`, a matrix of B * R rows is B pieces of R rows each, stacked.
-// Under `cols`, a matrix of B * C columns is B pieces of C columns each, side
-// by side.
-enum class batch_axis : uint8_t { rows, cols };
-
 // How the operands of a `gemm_batched` divide into instances.
+//
+// Each operand is one matrix that holds every instance as an equal piece, and
+// its axis is the one it divides along. Under `rows`, a matrix of B * R rows
+// is B pieces of R rows each, stacked. Under `cols`, a matrix of B * C columns
+// is B pieces of C columns each, side by side.
 //
 // `count` is how many instances there are, and must divide the extent of each
 // operand along its axis.
 struct gemm_batch {
   size_t count{};
-  batch_axis a = batch_axis::rows;
-  batch_axis b = batch_axis::rows;
-  batch_axis out = batch_axis::rows;
+  matrix_axis a = matrix_axis::rows;
+  matrix_axis b = matrix_axis::rows;
+  matrix_axis out = matrix_axis::rows;
 };
 
 namespace details {
@@ -269,20 +268,16 @@ struct batch_pieces {
 // `count` must divide the extent of `whole` along `axis`.
 template<typename T>
 [[nodiscard]] batch_pieces<T>
-split_batch(cuda_matrix_view<T> whole, batch_axis axis, size_t count) {
-  using matrix_types::col_ndx;
-  using matrix_types::row_ndx;
+split_batch(cuda_matrix_view<T> whole, matrix_axis axis, size_t count) {
   auto piece = whole.extent();
-  auto& divided =
-      (axis == batch_axis::rows) ? piece.row_count : piece.col_count;
-  assert(count && (divided % count == 0));
-  divided /= count;
+  assert(count && (piece.count(axis) % count == 0));
+  piece.count(axis) /= count;
 
   // Stacked pieces are a piece's worth of stored rows apart. Side-by-side
   // pieces are a piece's width apart, and share the stride of `whole` as their
   // leading dimension.
   const auto stride =
-      (axis == batch_axis::rows)
+      (axis == matrix_axis::rows)
           ? piece.row_count * whole.stride()
           : piece.col_count;
   return {whole.subview({row_ndx{0}, col_ndx{0}}, piece), stride};
