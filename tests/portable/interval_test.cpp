@@ -110,9 +110,30 @@ TEST_CASE("Ctors", "[Intervals]") {
 #pragma endregion
 #pragma region Insert
 
+TEST_CASE("Iota", "[IntervalTest]") {
+  // The default value type is `size_t`, so the indices subscript a container
+  // as they are.
+  static_assert(std::is_same_v<decltype(iota(3)), interval<size_t>>);
+  static_assert(std::is_same_v<interval<>, interval<size_t>>);
+  static_assert(std::is_same_v<decltype(iota<int>(3)), interval<int>>);
+
+  CHECK(iota(0).empty());
+
+  std::vector<size_t> seen;
+  for (const auto ndx : iota(3)) seen.push_back(ndx);
+  CHECK(seen == std::vector<size_t>{0, 1, 2});
+  CHECK(iota(3) == interval<>::iota(3));
+
+  // A sentinel count gives the largest interval that still reports its size
+  // and can be iterated.
+  constexpr auto npos = std::numeric_limits<size_t>::max();
+  static_assert(iota(npos).size() == npos);
+  static_assert(iota(npos).back() == npos - 1);
+}
+
 TEST_CASE("Insert", "[IntervalTest]") {
   if (true) {
-    interval i;
+    interval<int64_t> i;
     CHECK(i.empty());
     CHECK(i.insert(0));
     CHECK_FALSE(i.empty());
@@ -138,7 +159,7 @@ TEST_CASE("Insert", "[IntervalTest]") {
   }
   if (true) {
     // The extremes insert cleanly; these were the old corruption cases.
-    interval i;
+    interval<int64_t> i;
     CHECK(i.insert(std::numeric_limits<int64_t>::max()));
     CHECK(i.size() == 1U);
     CHECK_FALSE(i.insert(std::numeric_limits<int64_t>::max()));
@@ -357,7 +378,7 @@ TEST_CASE("Formatting", "[Intervals]") {
     // Empty in regular mode; debug shows the raw reversed bounds, which for
     // the canonical empty are the extremes.
     CHECK(std::format("{}", interval{}) == "[]");
-    CHECK(std::format("{:?}", interval{}) ==
+    CHECK(std::format("{:?}", interval<int64_t>{}) ==
           "{9223372036854775807, -9223372036854775808}");
     interval bad{5, 9};
     bad.max(3);

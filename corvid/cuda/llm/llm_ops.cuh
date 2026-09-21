@@ -46,6 +46,8 @@ namespace corvid::cuda::llm {
 
 using namespace corvid::cuda::linalg;
 using corvid::llm::token_id;
+using matrix_types::col_ndx;
+using matrix_types::row_ndx;
 
 #pragma region layer_norm
 
@@ -209,6 +211,31 @@ template<DeviceMatrixLike Out>
 }
 
 #pragma endregion
+#pragma region embed_positions
+
+// Add each row's position embedding from `table`, writing into `out`.
+//
+// The contract is that of the CPU `corvid::llm::embed_positions`. With T
+// tokens, a context of P positions, and width C:
+//
+//   table  [P, C]  a row per position
+//   out    [T, C]  a row per token, added to in place
+//
+// `out` must have the width of `table` and no more rows than it, and must
+// not overlap `table`. Returns false when the launch is refused, leaving
+// `out` unspecified.
+template<DeviceMatrixLike Out>
+requires Arithmetic<device_element_t<Out>>
+[[nodiscard]] bool embed_positions(Out&& out, input_view_t<Out> table) {
+  const auto& out_view = out.as_view();
+  assert(out_view.row_extent() <= table.row_extent());
+  assert(out_view.col_extent() == table.col_extent());
+
+  return add(out, out_view,
+      table.subview({row_ndx{0}, col_ndx{0}}, out_view.extent()));
+}
+
+#pragma endregion
 #pragma region attend
 
 namespace details {
@@ -263,8 +290,6 @@ requires GemmElement<device_element_t<Out>>
 attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
     size_t head_count, cuda_matrix_view<device_element_t<Out>> scores) {
   using T = device_element_t<Out>;
-  using row_ndx = cuda_matrix_view<T>::row_ndx;
-  using col_ndx = cuda_matrix_view<T>::col_ndx;
 
   const auto& out_view = out.as_view();
   const auto token_count = out_view.row_extent();

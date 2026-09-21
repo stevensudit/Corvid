@@ -16,143 +16,22 @@
 // limitations under the License.
 #pragma once
 
-#include <cassert>
 #include <cstddef>
-#include <span>
+#include <format>
+#include <stdexcept>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include "../containers/utils/matrix_view.h"
-#include "llm_ops.h"
+#include "safetensors.h"
 #include "token_id.h"
 
-// The GPT-2 architecture on the CPU, in fp32.
-//
-// The parameter and activation bundles of one block, the block itself, and
-// the forward pass from token IDs through every block to the final layer
-// norm. The ops it composes live in "llm_ops.h".
 namespace corvid::llm {
 
-#pragma region block
+#pragma region gpt2_model
 
-// The epsilon GPT-2 adds to the variance inside every layer norm.
-inline constexpr float layer_norm_eps = 1e-5F;
-
-// The parameters of one block, as views over the weight file.
-//
-// The names follow the tensor names under `h.N`, with the sublayer prefixed
-// so the two `c_proj` projections can be told apart. For GPT-2, with C = 768
-// and F = 3072:
-//
-//   ln_1_weight, ln_1_bias                [C]
-//   attn_c_attn_weight, attn_c_attn_bias  [C, 3C], [3C]
-//   attn_c_proj_weight, attn_c_proj_bias  [C, C], [C]
-//   ln_2_weight, ln_2_bias                [C]
-//   mlp_c_fc_weight, mlp_c_fc_bias        [C, F], [F]
-//   mlp_c_proj_weight, mlp_c_proj_bias    [F, C], [C]
-struct block_params {
-  const_float_row_span ln_1_weight;
-  const_float_row_span ln_1_bias;
-  const_float_matrix_view attn_c_attn_weight;
-  const_float_row_span attn_c_attn_bias;
-  const_float_matrix_view attn_c_proj_weight;
-  const_float_row_span attn_c_proj_bias;
-  const_float_row_span ln_2_weight;
-  const_float_row_span ln_2_bias;
-  const_float_matrix_view mlp_c_fc_weight;
-  const_float_row_span mlp_c_fc_bias;
-  const_float_matrix_view mlp_c_proj_weight;
-  const_float_row_span mlp_c_proj_bias;
-};
-
-// The intermediate activations of `block`, as caller-owned views.
-//
-// For T tokens of width C and MLP width F, in the order written:
-//
-//   ln_1_out   [T, C]   the first layer norm's output
-//   qkv        [T, 3C]  the `attn.c_attn` output
-//   heads_out  [T, C]   the attention output before `attn.c_proj`
-//   attn_out   [T, C]   the attention sublayer's correction
-//   ln_2_in    [T, C]   the residual after the attention add
-//   ln_2_out   [T, C]   the second layer norm's output
-//   hidden     [T, F]   the MLP's widened rows
-//   mlp_out    [T, C]   the MLP sublayer's correction
-//   scores     [T]      the attention scratch
-//
-// The names follow the dump points in "gpt-2.md", so every one of them can
-// be read after the block returns. While storage may be distinct, so as to
-// allow inspection at every point, if the caller doesn't plan to inspect them
-// then some of the buffers may share memory. Specifically, `ln_1_out` can
-// share with `ln_2_out`, and `attn_out` with `mlp_out`. `ln_2_in` may be the
-// block's `in` or `out` view, which is the in-place form.
-struct block_activations {
-  float_matrix_view ln_1_out;
-  float_matrix_view qkv;
-  float_matrix_view heads_out;
-  float_matrix_view attn_out;
-  float_matrix_view ln_2_in;
-  float_matrix_view ln_2_out;
-  float_matrix_view hidden;
-  float_matrix_view mlp_out;
-  float_col_span scores;
-};
-
-// Run one block over the residual, reading `in` and writing `out`.
-//
-// Each sublayer reads the residual through its layer norm, computes a
-// correction of the same shape, and adds it back. For GPT-2 with T tokens:
-//
-// step        |  reads              |  produces
-// ------------+---------------------+---------------------
-// ln_1        |  in [T, 768]        |  ln_1_out [T, 768]
-// attn.c_attn |  ln_1_out           |  qkv [T, 2304]
-// attention   |  qkv                |  heads_out [T, 768]
-// attn.c_proj |  heads_out          |  attn_out [T, 768]
-// add         |  in, attn_out       |  ln_2_in [T, 768]
-// ln_2        |  ln_2_in            |  ln_2_out [T, 768]
-// mlp.c_fc    |  ln_2_out           |  hidden [T, 3072]
-// gelu_new    |  hidden             |  hidden, in place
-// mlp.c_proj  |  hidden             |  mlp_out [T, 768]
-// add         |  ln_2_in, mlp_out   |  out [T, 768]
-//
-// `out` and `in` must have the same extent and may be the same view. The
-// activation views must have the extents above for that extent and may
-// share storage only as `block_activations` allows; in particular, no
-// buffer may overlap the residual it is later added to.
-//
-// Note that the `const` on `acts` is shallow.
-inline void block(float_matrix_view out, const_float_matrix_view in,
-    const block_params& params, const block_activations& acts,
-    size_t head_count) noexcept {
-  // Each of these four writes is followed by an add that reads the residual
-  // it would have destroyed; the ops' same-or-disjoint checks allow all
-  // four, and the ops catch every other overlap.
-  assert(is_disjoint(in.as_span(), acts.ln_1_out.as_span()));
-  assert(is_disjoint(in.as_span(), acts.attn_out.as_span()));
-  assert(is_disjoint(acts.ln_2_in.as_span(), acts.ln_2_out.as_span()));
-  assert(is_disjoint(acts.ln_2_in.as_span(), acts.mlp_out.as_span()));
-
-  layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias,
-      layer_norm_eps);
-  linear_projection(acts.qkv, acts.ln_1_out, params.attn_c_attn_weight,
-      params.attn_c_attn_bias);
-  attend(acts.heads_out, acts.qkv, head_count, acts.scores);
-  linear_projection(acts.attn_out, acts.heads_out, params.attn_c_proj_weight,
-      params.attn_c_proj_bias);
-  add(acts.ln_2_in, in, acts.attn_out);
-
-  layer_norm(acts.ln_2_out, acts.ln_2_in, params.ln_2_weight, params.ln_2_bias,
-      layer_norm_eps);
-  linear_projection(acts.hidden, acts.ln_2_out, params.mlp_c_fc_weight,
-      params.mlp_c_fc_bias);
-  gelu_new(acts.hidden, acts.hidden);
-  linear_projection(acts.mlp_out, acts.hidden, params.mlp_c_proj_weight,
-      params.mlp_c_proj_bias);
-  add(out, acts.ln_2_in, acts.mlp_out);
-}
-
-#pragma endregion
-#pragma region forward
-
-// The parameters of the whole model, as views over the weight file.
+// A GPT-2 model, as views over the weights file it owns.
 //
 // For GPT-2, with V = 50257 vocabulary entries, a context of 1024, C = 768,
 // and L = 12 blocks:
@@ -161,50 +40,180 @@ inline void block(float_matrix_view out, const_float_matrix_view in,
 //   wpe                     [1024, C]  the position embedding
 //   blocks                  [L]        one `block_params` per `h.N`, in order
 //   ln_f_weight, ln_f_bias  [C]        the final layer norm
-struct gpt2_params {
-  const_float_matrix_view wte;
-  const_float_matrix_view wpe;
-  std::span<const block_params> blocks;
-  const_float_row_span ln_f_weight;
-  const_float_row_span ln_f_bias;
+//
+// Every member is const, so a model is built by `load` and never changes,
+// and the views live as long as it does.
+//
+//   const auto model = gpt2_model::load(safetensors_file::load(os_file));
+struct gpt2_model {
+#pragma region Constants
+
+  // The epsilon GPT-2 adds to the variance inside every layer norm.
+  static constexpr float layer_norm_eps = 1e-5F;
+
+  // The ID of `<|endoftext|>`, the last vocabulary entry, which ends a
+  // generation.
+  static constexpr token_id end_of_text{50256};
+
+#pragma endregion
+#pragma region block_params
+
+  // The parameters of one block, as views over the weight file.
+  //
+  // The names follow the tensor names under `h.N`, with the sublayer
+  // prefixed so the two `c_proj` projections can be told apart. For GPT-2,
+  // with C = 768 and F = 3072:
+  //
+  //   ln_1_weight, ln_1_bias                [C]
+  //   attn_c_attn_weight, attn_c_attn_bias  [C, 3C], [3C]
+  //   attn_c_proj_weight, attn_c_proj_bias  [C, C], [C]
+  //   ln_2_weight, ln_2_bias                [C]
+  //   mlp_c_fc_weight, mlp_c_fc_bias        [C, F], [F]
+  //   mlp_c_proj_weight, mlp_c_proj_bias    [F, C], [C]
+  struct block_params {
+    const_float_row_span ln_1_weight;
+    const_float_row_span ln_1_bias;
+    const_float_matrix_view attn_c_attn_weight;
+    const_float_row_span attn_c_attn_bias;
+    const_float_matrix_view attn_c_proj_weight;
+    const_float_row_span attn_c_proj_bias;
+    const_float_row_span ln_2_weight;
+    const_float_row_span ln_2_bias;
+    const_float_matrix_view mlp_c_fc_weight;
+    const_float_row_span mlp_c_fc_bias;
+    const_float_matrix_view mlp_c_proj_weight;
+    const_float_row_span mlp_c_proj_bias;
+  };
+
+#pragma endregion
+#pragma region Data members
+
+  const safetensors_file weights;
+  const const_float_matrix_view wte;
+  const const_float_matrix_view wpe;
+  const std::vector<block_params> blocks;
+  const const_float_row_span ln_f_weight;
+  const const_float_row_span ln_f_bias;
+  const size_t head_count; // Heads per block, H.
+
+#pragma endregion
+#pragma region Dimensions
+
+  // The features per token, C.
+  [[nodiscard]] size_t width() const noexcept { return wte.col_extent(); }
+
+  // The features per token inside the MLP, F.
+  [[nodiscard]] size_t hidden_width() const noexcept {
+    return blocks.front().mlp_c_fc_weight.col_extent();
+  }
+
+  // The vocabulary entries, V.
+  [[nodiscard]] size_t vocab_size() const noexcept { return wte.row_extent(); }
+
+  // The most tokens one pass can take.
+  [[nodiscard]] size_t context_length() const noexcept {
+    return wpe.row_extent();
+  }
+
+#pragma endregion
+#pragma region Loading
+
+  // Take `file` and view every parameter, or throw when a tensor is missing
+  // or misshaped or the block count is not one of GPT-2's four sizes.
+  [[nodiscard]] static gpt2_model load(safetensors_file&& file) {
+    const auto wte = lookup_matrix(file, "wte.weight");
+    const auto width = wte.col_extent();
+    const auto wpe = lookup_matrix(file, "wpe.weight", {.col_count = width});
+    std::vector<block_params> blocks;
+    for (auto n = 0UZ; file.find(std::format("h.{}.ln_1.weight", n)); ++n)
+      blocks.push_back(lookup_block(file, n, width));
+    const auto head_count = head_count_of(blocks.size());
+    const auto ln_f_weight = lookup_vector(file, "ln_f.weight", width);
+    const auto ln_f_bias = lookup_vector(file, "ln_f.bias", width);
+    // The views point into the mapping, whose address the move preserves.
+    return {
+        .weights = std::move(file),
+        .wte = wte,
+        .wpe = wpe,
+        .blocks = std::move(blocks),
+        .ln_f_weight = ln_f_weight,
+        .ln_f_bias = ln_f_bias,
+        .head_count = head_count,
+    };
+  }
+
+#pragma endregion
+#pragma region Helpers
+private:
+  // The fp32 matrix `name` of `file`, whose shape must match `expected` in
+  // each count that is not `dynamic_extent`, or throw.
+  [[nodiscard]] static const_float_matrix_view
+  lookup_matrix(const safetensors_file& file, std::string_view name,
+      matrix_types::matrix_extent expected = {}) {
+    const auto view = file.find_matrix<float>(name, expected);
+    if (view.empty())
+      throw std::runtime_error{std::format(
+          "GPT-2 weights: tensor {} is missing or misshaped", name)};
+    return view;
+  }
+
+  // The fp32 vector `name` of `file`, `size` long, or throw.
+  [[nodiscard]] static const_float_row_span lookup_vector(
+      const safetensors_file& file, std::string_view name, size_t size) {
+    const auto span = file.find_vector<float>(name, size);
+    if (span.empty())
+      throw std::runtime_error{std::format(
+          "GPT-2 weights: tensor {} is missing or misshaped", name)};
+    return span;
+  }
+
+  // The parameters of block `n` of `file`, for tokens `width` wide, or throw.
+  [[nodiscard]] static block_params
+  lookup_block(const safetensors_file& file, size_t n, size_t width) {
+    const auto h = std::format("h.{}", n);
+    const auto mlp_c_fc_weight =
+        lookup_matrix(file, h + ".mlp.c_fc.weight", {.row_count = width});
+    const auto hidden_width = mlp_c_fc_weight.col_extent();
+    return {
+        .ln_1_weight = lookup_vector(file, h + ".ln_1.weight", width),
+        .ln_1_bias = lookup_vector(file, h + ".ln_1.bias", width),
+        .attn_c_attn_weight = lookup_matrix(file, h + ".attn.c_attn.weight",
+            {.row_count = width, .col_count = 3 * width}),
+        .attn_c_attn_bias =
+            lookup_vector(file, h + ".attn.c_attn.bias", 3 * width),
+        .attn_c_proj_weight = lookup_matrix(file, h + ".attn.c_proj.weight",
+            {.row_count = width, .col_count = width}),
+        .attn_c_proj_bias =
+            lookup_vector(file, h + ".attn.c_proj.bias", width),
+        .ln_2_weight = lookup_vector(file, h + ".ln_2.weight", width),
+        .ln_2_bias = lookup_vector(file, h + ".ln_2.bias", width),
+        .mlp_c_fc_weight = mlp_c_fc_weight,
+        .mlp_c_fc_bias =
+            lookup_vector(file, h + ".mlp.c_fc.bias", hidden_width),
+        .mlp_c_proj_weight = lookup_matrix(file, h + ".mlp.c_proj.weight",
+            {.row_count = hidden_width, .col_count = width}),
+        .mlp_c_proj_bias = lookup_vector(file, h + ".mlp.c_proj.bias", width),
+    };
+  }
+
+  // The head count of the GPT-2 size with `block_count` blocks, or throw.
+  //
+  // The tensor shapes give every other dimension, but not how the width
+  // divides into heads, so the block count names the size.
+  [[nodiscard]] static size_t head_count_of(size_t block_count) {
+    switch (block_count) {
+    case 12: return 12; // 124M
+    case 24: return 16; // 355M
+    case 36: return 20; // 774M
+    case 48: return 25; // 1558M
+    default:
+      throw std::runtime_error{std::format(
+          "GPT-2 weights: {} blocks is not a GPT-2 size", block_count)};
+    }
+  }
+
+#pragma endregion
 };
-
-// Run the model over `ids`, writing the final layer norm's output to `out`.
-//
-// This is everything before the head: the residual stream starts as the
-// token embedding plus the position embedding of each row, every block adds
-// to it in place, and `ln_f` normalizes what leaves the last block. For
-// GPT-2 with T tokens:
-//
-// step          |  reads          |  produces
-// --------------+-----------------+-------------------
-// embed_tokens  |  ids [T]        |  out [T, 768]
-// add           |  out, wpe [T:]  |  out, in place
-// block, x 12   |  out            |  out, in place
-// ln_f          |  out            |  out, in place
-//
-// where `wpe [T:]` is the first T rows of the position table, so there must
-// be no more IDs than it has rows.
-//
-// `out` doubles as the residual, so it must have one row per ID and the
-// model's width. `acts` is reused by every block, so it holds the last
-// block's activations on return; its `ln_2_in` may be `out`, the in-place
-// form, but no other buffer may overlap `out`.
-inline void forward(float_matrix_view out, std::span<const token_id> ids,
-    const gpt2_params& params, const block_activations& acts,
-    size_t head_count) noexcept {
-  using row_ndx = float_matrix_view::row_ndx;
-  using col_ndx = float_matrix_view::col_ndx;
-
-  assert(ids.size() <= params.wpe.row_extent());
-
-  embed_tokens(out, ids, params.wte);
-  out += params.wpe.subview({row_ndx{0}, col_ndx{0}},
-      {.row_count = ids.size(), .col_count = params.wpe.col_extent()});
-  for (const auto& block_params : params.blocks)
-    block(out, out, block_params, acts, head_count);
-  layer_norm(out, out, params.ln_f_weight, params.ln_f_bias, layer_norm_eps);
-}
 
 #pragma endregion
 

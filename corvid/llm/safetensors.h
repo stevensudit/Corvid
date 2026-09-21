@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -31,6 +32,7 @@
 
 #include "../containers/core/opt_find.h"
 #include "../containers/core/transparent.h"
+#include "../containers/utils/matrix_view.h"
 #include "../enums/sequence_enum.h"
 #include "../filesys/os_file.h"
 #include "../filesys/os_mmap_file.h"
@@ -48,8 +50,7 @@
 // tensor.
 //
 // Loading an open file:
-//   safetensors_file weights;
-//   if (!weights.load(file)) ...
+//   const auto weights = safetensors_file::load(file);
 //   if (const auto* wte = weights.find("wte.weight"); wte && wte->is<float>())
 //     std::span<const float> values = wte->as<float>();
 namespace corvid::llm {
@@ -121,13 +122,13 @@ template<TensorElement T>
 
 // The tensors of one safetensors file, found by name and viewed in place.
 //
-// `parse` reads a file image the caller keeps alive, and `load` maps a file
-// and keeps the mapping. Either validates the whole header before exposing
-// anything: the header length is capped, every byte range lies within the
-// buffer, the ranges tile the buffer exactly with no gaps or overlaps (as the
-// reference implementation requires), every range's size matches its shape
-// and dtype, and names are unique. On failure, both leave the object as it
-// was.
+// A reader comes from one of two factories. `load` maps an open file and keeps
+// the mapping, and `parse` reads a file image the caller keeps alive. Either
+// validates the whole header before the reader exists: the header length is
+// capped, every byte range lies within the buffer, the ranges tile the buffer
+// exactly with no gaps or overlaps (as the reference implementation requires),
+// every range's size matches its shape and dtype, and names are unique. A file
+// that fails any of it is a throw.
 class safetensors_file {
 public:
 #pragma region tensor
@@ -165,33 +166,109 @@ public:
 #pragma endregion
 #pragma region Loading
 
-  // Map the open `file` and parse it, keeping the mapping.
+  // Map the open `file` and parse it, keeping the mapping, or throw when the
+  // file cannot be mapped or is not a valid safetensors file.
   //
   // The mapping holds the file, so `file` may be closed once this returns.
-  // On failure (the file cannot be mapped, or `parse` rejects it), returns
-  // false, leaving the object as it was.
-  [[nodiscard]] bool load(const os_file& file) {
+  [[nodiscard]] static safetensors_file load(const os_file& file) {
     auto mapping = os_mmap_file::map(file);
-    if (!mapping) return false;
-    if (!parse(mapping.bytes())) return false;
-    mapping_ = std::move(mapping);
-    return true;
+    if (!mapping)
+      throw std::runtime_error{"safetensors: the file cannot be mapped"};
+    auto reader = parse(mapping.bytes());
+    // The tensors' views point into the mapping, whose address the move
+    // preserves.
+    reader.mapping_ = std::move(mapping);
+    return reader;
   }
 
-  // Parse the file image `file`, which must outlive the tensors' views.
+  // Parse the file image `image`, which must outlive the tensors' views, or
+  // throw when it is not a valid safetensors file.
+  [[nodiscard]] static safetensors_file parse(
+      std::span<const std::byte> image) {
+    safetensors_file reader;
+    if (!reader.do_parse(image))
+      throw std::runtime_error{"safetensors: malformed file"};
+    return reader;
+  }
+
+#pragma endregion
+#pragma region Tensors
+
+  // Find the tensor named `name`, or null.
+  [[nodiscard]] const tensor* find(std::string_view name) const noexcept {
+    if (const auto ndx = find_opt(index_, name)) return &tensors_[*ndx];
+    return nullptr;
+  }
+
+  // Find the two-dimensional tensor of `T` named `name`, as a matrix view.
   //
-  // Releases any mapping a previous `load` kept. On failure, returns false,
-  // leaving the object as it was.
-  [[nodiscard]] bool parse(std::span<const std::byte> file) {
+  // Its shape must match `expected` in each count that is not
+  // `dynamic_extent`. Returns an empty view when there is no such tensor or
+  // it has another element type, rank, or shape.
+  template<TensorElement T>
+  [[nodiscard]] matrix_view<const T> find_matrix(std::string_view name,
+      matrix_types::matrix_extent expected = {}) const noexcept {
+    const auto* entry = find(name);
+    if (!entry || (entry->shape.size() != 2) || !entry->is<T>()) return {};
+    const matrix_types::matrix_extent extent{.row_count = entry->shape[0],
+        .col_count = entry->shape[1]};
+    const auto matches = [](size_t actual, size_t wanted) {
+      return (wanted == matrix_types::matrix_extent::dynamic_extent) ||
+             (actual == wanted);
+    };
+    if (!matches(extent.row_count, expected.row_count) ||
+        !matches(extent.col_count, expected.col_count))
+      return {};
+    return matrix_view<const T>(entry->as<T>(), extent);
+  }
+
+  // Find the one-dimensional tensor of `T` named `name`, `size` long, as a
+  // span.
+  //
+  // Returns an empty span when there is no such tensor or it has another
+  // element type, rank, or size.
+  template<TensorElement T>
+  [[nodiscard]] std::span<const T>
+  find_vector(std::string_view name, size_t size) const noexcept {
+    const auto* entry = find(name);
+    if (!entry || (entry->shape.size() != 1) || (entry->shape[0] != size) ||
+        !entry->is<T>())
+      return {};
+    return entry->as<T>();
+  }
+
+  // Every tensor, in header order.
+  [[nodiscard]] std::span<const tensor> tensors() const noexcept {
+    return tensors_;
+  }
+
+  [[nodiscard]] size_t size() const noexcept { return tensors_.size(); }
+
+  // The header's `__metadata__` strings, if any.
+  [[nodiscard]] const auto& metadata() const noexcept { return metadata_; }
+
+#pragma endregion
+#pragma region Helpers
+private:
+  // The reference implementation's cap on the header length.
+  static constexpr size_t max_header_size = 100'000'000;
+
+  safetensors_file() = default;
+
+  // Parse the file image `image` into this reader, which must be empty.
+  //
+  // On failure (the image is not a valid safetensors file), returns false,
+  // leaving the reader empty.
+  [[nodiscard]] bool do_parse(std::span<const std::byte> image) {
     // The header length, then the header, then the buffer.
     uint64_t header_size{};
-    if (!try_bit_cast_to(header_size, file)) return false;
+    if (!try_bit_cast_to(header_size, image)) return false;
     header_size = swap_not_little(header_size);
     if (header_size > max_header_size ||
-        header_size > file.size() - sizeof(header_size))
+        header_size > image.size() - sizeof(header_size))
       return false;
-    const auto header = file.subspan(sizeof(header_size), header_size);
-    const auto buffer = file.subspan(sizeof(header_size) + header_size);
+    const auto header = image.subspan(sizeof(header_size), header_size);
+    const auto buffer = image.subspan(sizeof(header_size) + header_size);
 
     json_value_view root;
     if (!parse_json(strings::as_string_view(header), root) ||
@@ -219,34 +296,8 @@ public:
     tensors_ = std::move(tensors);
     index_ = std::move(index);
     metadata_ = std::move(metadata);
-    mapping_ = {};
     return true;
   }
-
-#pragma endregion
-#pragma region Tensors
-
-  // Find the tensor named `name`, or null.
-  [[nodiscard]] const tensor* find(std::string_view name) const noexcept {
-    if (const auto ndx = find_opt(index_, name)) return &tensors_[*ndx];
-    return nullptr;
-  }
-
-  // Every tensor, in header order.
-  [[nodiscard]] std::span<const tensor> tensors() const noexcept {
-    return tensors_;
-  }
-
-  [[nodiscard]] size_t size() const noexcept { return tensors_.size(); }
-
-  // The header's `__metadata__` strings, if any.
-  [[nodiscard]] const auto& metadata() const noexcept { return metadata_; }
-
-#pragma endregion
-#pragma region Helpers
-private:
-  // The reference implementation's cap on the header length.
-  static constexpr size_t max_header_size = 100'000'000;
 
   // Parse the `__metadata__` object `value` into `metadata`.
   [[nodiscard]] static bool

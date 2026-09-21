@@ -232,7 +232,8 @@ requires GemmElement<device_element_t<Out>>
 #pragma endregion
 #pragma region linear_projection
 
-// Project each row of `in` through `weight` and add `bias`, into `out`.
+// Project each row of `in` through `weight` and add `bias`, writing into
+// `out`.
 //
 // The contract is that of the CPU `corvid::linalg::linear_projection`, which
 // also holds the worked explanation.
@@ -255,8 +256,8 @@ linear_projection(const cublas_handle& blas, Out&& out, input_view_t<Out> in,
 
 namespace details {
 
-// Combine the elements of `a` and `b` through `op`, into `out`, all `extent`
-// in size, one thread per element.
+// Combine the elements of `a` and `b` through `op`, writing into `out`, all
+// `extent` in size, one thread per element.
 template<typename T, typename Op>
 __global__ void
 combine_elements(kernel_matrix_view<T> out, kernel_matrix_view<const T> a,
@@ -264,7 +265,7 @@ combine_elements(kernel_matrix_view<T> out, kernel_matrix_view<const T> a,
   if (const kernel_coord at; at.is_within(extent)) out[at] = op(a[at], b[at]);
 }
 
-// Combine `a` and `b` elementwise through `op`, into `out`.
+// Combine `a` and `b` elementwise through `op`, writing into `out`.
 //
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, but must not otherwise overlap either. Returns false when
@@ -285,7 +286,7 @@ combine(cuda_matrix_view<T> out, const_view_t<T> a, const_view_t<T> b, Op op) {
 
 } // namespace details
 
-// Add `a` and `b` elementwise, into `out`.
+// Add `a` and `b` elementwise, writing into `out`.
 //
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, adding in place, but must not otherwise overlap either.
@@ -296,7 +297,7 @@ requires Arithmetic<device_element_t<Out>>
   return details::combine(out.as_view(), a, b, std::plus<>{});
 }
 
-// Subtract `b` from `a` elementwise, into `out`.
+// Subtract `b` from `a` elementwise, writing into `out`.
 //
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, subtracting in place, but must not otherwise overlap either.
@@ -347,7 +348,7 @@ __global__ void apply_softmax(kernel_matrix_view<T> out,
 
 } // namespace details
 
-// Turn each row of `in` into weights that sum to 1, into `out`.
+// Turn each row of `in` into weights that sum to 1, writing into `out`.
 //
 // The contract is that of the CPU `corvid::linalg::softmax`, applied to each
 // row. A weight is the exponential of its score divided by the sum of the

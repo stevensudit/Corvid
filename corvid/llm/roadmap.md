@@ -72,9 +72,13 @@ manager. So the division of labor is fixed up front:
     `logits`, `pick_greedy`, plus `token_id.h`, the tokenizer, and the
     safetensors reader.
     Device counterpart `corvid/cuda/llm/llm_ops.cuh` (`corvid::cuda::llm`).
-  - `corvid/llm/gpt2.h`: the GPT-2 architecture, `block` and `forward` with
-    their parameter and activation bundles. A later model gets its own file
-    beside it and reuses the ops.
+  - `corvid/llm/gpt2.h`: `gpt2_model`, the parsed weights file (parameter
+    views, dimensions, the head-count table), shared by both engines.
+    `corvid/llm/gpt2_engine.h` (`gpt2_engine`, CPU) and
+    `corvid/cuda/llm/gpt2_engine.cuh` (`corvid::cuda::llm::gpt2_engine`,
+    device) run it: `apply_block`, `forward`, `next_token`, `generate`,
+    with their activation bundles. A later model gets its own files beside
+    them and reuses the ops.
 - **Two bands in `deps.md`**: `linalg` rests on `containers/utils`; `llm` is
   an apex band so the reader may reach `filesys` and `proto`. The `.cuh`
   files stay under `corvid/cuda/`, outside the layering lint.
@@ -1079,6 +1083,95 @@ the twenty greedy IDs and their text. Timing, in-process: a 14-token pass with
 logits takes 10 to 15 ms, the model upload 0.23 s per test case, and the
 twenty-step greedy loop 0.42 s against the CPU's 2.3 s. Next: batched-GEMM
 attend, the KV cache, bf16, and tokens per second against llama.cpp.
+
+Status (2026-09-20, the model): the generation loop moved out of the tests
+into `gpt2_model`, one in "gpt2.h" and one in "gpt2.cuh" with the same
+surface. Steven's rulings: single-phase construction from a
+`safetensors_file` that throws on a missing or misshaped tensor, since the
+failure is fatal and a two-phase object would carry an unusable state (a
+"marsupial object"); the head count comes from a four-entry table keyed on
+the block count, since the tensor shapes give every other dimension but not
+how the width divides into heads, and it is fine for the GPT-2 engine to
+know GPT-2's sizes; the tokenizer stays the separate `gpt2_tokenizer`, used
+with the model rather than part of it, so the model takes and produces token
+IDs alone; `generate` stops at `end_of_text` without appending it, so the
+result always decodes; and the device model downloads the last token's row
+of logits and picks on the host, reusing `pick_greedy`. The CPU model views
+the file, which must outlive it; the device model uploads at construction and
+the file can then be closed. `next_token(out, ids)` runs one pass and picks,
+failing on no IDs, more than the context holds, or (on the device) a refused
+launch or transfer; `generate(ids, count)` appends up to `count` picks in
+place. The block-count probe (`h.N.ln_1.weight` until absent) and the shape
+checks are the deferred library loader. The activation storage the tests
+owned moved into the library as `block_activation_buffers` in each namespace,
+sized by token count, width, and MLP width, and allocated per `next_token`
+call until the KV cache brings a persistent scratch. `matrix_extent` gained a
+defaulted equality, so the paired row-and-column asserts became one
+comparison. The tests' own loaders (`block_params_of`, `oracle_params`) are
+gone; the gates read `model.params()`, and the greedy gates call `generate`.
+`end_of_text` (50256) lives beside `layer_norm_eps`.
+
+Status (2026-09-20, model and engines): Steven's structural review of the
+above found two smells, both fixed the same day. First, `block` and
+`forward` were free functions with no caller but the model, so they are now
+engine methods, `apply_block(out, in, block_index, acts)` and `forward(out,
+ids, acts)`, and the parameter bundle and head count left their signatures;
+the ops in "llm_ops.h" stay free because stage 6 reuses them. Second, the
+device model was built through the CPU model to get its views, which is the
+wrong dependency. The fix is one shared `gpt2_model` in "gpt2.h" that owns
+the `safetensors_file` (moved in), views every parameter, derives the
+dimensions from the tensors, and holds the head-count table; it knows the
+file layout and nothing about running it. The engines are `gpt2_engine` in
+"gpt2_engine.h" (CPU, holding a reference to a model that must outlive it)
+and "gpt2_engine.cuh" (device, uploading at construction and keeping
+nothing, so the model may then be destroyed). No close method: destroying
+the model closes the file, and a model that had closed its file but still
+existed would be the two-phase object's mirror image. The typed lookups
+moved to the reader as `safetensors_file::find_matrix<T>(name, expected)`
+and `find_vector<T>(name, size)`, returning empty on a missing, mistyped, or
+misshaped tensor, since they know nothing about GPT-2; the model throws
+with the tensor's name on an empty result, and the test header's
+`matrix_of` and `vector_of` are thin wrappers over them. The host
+`gpt2_params` struct folded into the model's members and the device one
+into the engine's. The device five-prompt gate uploads `wte` for itself,
+since the engine scores only the last token. Timing is unchanged.
+
+Status (2026-09-20, `gpt2_model` as a struct): Steven's second pass on the
+model. `block_params` is nested inside it, since it is only the format the
+blocks are stored in. Every data member is public and const, `weights`
+included, so the model is a struct of views with the code that fills it
+behind `private:`; the four derived sizes (`width`, `hidden_width`,
+`vocab_size`, `context_length`) stay functions, since a derived quantity is
+not stored beside its source, while `head_count` is a stored member because
+it comes from the table, not the views. Construction is the static factory
+`gpt2_model::load(safetensors_file&&)`, which computes every view into
+locals and then returns a designated aggregate, moving the file in last;
+the views stay valid because they point into the mapping, whose address the
+move preserves. With every member const the struct is immovable, and the
+prvalue return lands in the caller's object by guaranteed elision, so the
+result can only initialize a new model. That suits it, since the CPU engine
+binds it by reference and moving it from under the engine was already a
+bug. The engines read the members directly (`model.wte`,
+`model_.blocks[block_index]`) in place of the accessors. The two constants,
+`layer_norm_eps` and `end_of_text`, are public statics of the struct, so
+they read as GPT-2's rather than the `llm` namespace's, and a hand-built
+`gpt2_model` (an aggregate, so a test could assemble one) is allowed rather
+than fenced off.
+
+Status (2026-09-20, safetensors factories): `safetensors_file` lost its
+two-phase construction, the same marsupial shape the model shed. `load(const
+os_file&)` and `parse(std::span<const std::byte>)` are static factories that
+return a fully built reader or throw `std::runtime_error`; there is no
+default constructor and no way to hold an unloaded reader. `load` still maps
+the file and keeps the mapping, and `parse` still views a caller-owned image,
+so the two sources stay distinct, which is why they are named factories
+rather than two constructors told apart by parameter type. The validation
+walk is unchanged, now the private `do_parse` behind `parse`; the "leaves the
+object as it was" guarantee has nothing left to guarantee. The test fixture
+followed: `oracle_dumps::load()` returns the three readers or skips, and the
+malformed-file cases in "safetensors_test.cpp" check for the throw. The
+GPT-2 empty-weights test parses a ten-byte image with an empty header, which
+is a valid file with no tensors.
 
 ### 5. Backward pass and LoRA
 

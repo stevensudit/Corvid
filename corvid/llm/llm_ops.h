@@ -37,10 +37,13 @@
 namespace corvid::llm {
 
 using namespace corvid::linalg;
+using matrix_types::col_ndx;
+using matrix_types::row_ndx;
 
 #pragma region layer_norm
 
-// Normalize `row_in` to a mean of 0 and a variance of 1, into `row_out`.
+// Normalize `row_in` to a mean of 0 and a variance of 1, writing into
+// `row_out`.
 //
 // The variance is the population variance (divided by the size), with
 // `eps` added inside the square root. `row_out` and `row_in` must be the same
@@ -56,7 +59,8 @@ inline void standardize_row(float_row_span row_out,
     out_value = standardize(in_value, row_mean, inv_std);
 }
 
-// Scale `row_in` by `weight` and shift by `bias`, elementwise, into `row_out`.
+// Scale `row_in` by `weight` and shift by `bias`, elementwise, writing into
+// `row_out`.
 //
 // All four spans must be the same size, and `row_out` and `row_in` can refer
 // to the same memory.
@@ -72,8 +76,8 @@ constexpr void scale_shift_row(float_row_span row_out,
 }
 
 // Normalize each row of `in` to a mean of 0 and a variance of 1, then scale by
-// `weight` and shift by `bias`, elementwise, into `out`, performing a diagonal
-// affine transformation.
+// `weight` and shift by `bias`, elementwise, writing into `out`, performing a
+// diagonal affine transformation.
 //
 // This is `standardize_row` followed by `scale_shift_row`, one row at a time
 // so that the row is still in cache for the second step.
@@ -130,7 +134,7 @@ template<Floating T>
   return T{0.5} * x * (T{1} + std::tanh(inner));
 }
 
-// Apply `gelu_new` to every element of `in`, into `out`.
+// Apply `gelu_new` to every element of `in`, writing into `out`.
 //
 // This is typically applied to the hidden states of the model to weed out
 // negative values. It also provides nonlinearity, ensuring that the model can
@@ -244,9 +248,6 @@ inline void attend_head(float_matrix_view out, const_float_matrix_view q,
 // or `scores`.
 inline void attend(float_matrix_view out, const_float_matrix_view qkv,
     size_t head_count, float_col_span scores) noexcept {
-  using row_ndx = float_matrix_view::row_ndx;
-  using col_ndx = float_matrix_view::col_ndx;
-
   const auto token_count = out.row_extent();
   const auto width = out.col_extent();
   assert(qkv.row_extent() == token_count);
@@ -274,7 +275,7 @@ inline void attend(float_matrix_view out, const_float_matrix_view qkv,
 #pragma endregion
 #pragma region embed tokens
 
-// Look up each ID's row of `table`, into `out`.
+// Look up each ID's row of `table`, writing into `out`.
 //
 // The residual stream starts here, and nothing after this step reads the
 // IDs. With T tokens, V vocabulary entries, and width C:
@@ -287,8 +288,6 @@ inline void attend(float_matrix_view out, const_float_matrix_view qkv,
 // index a row of `table`, and `out` must not overlap `table`.
 inline void embed_tokens(float_matrix_view out, std::span<const token_id> ids,
     const_float_matrix_view table) noexcept {
-  using row_ndx = float_matrix_view::row_ndx;
-
   assert(out.row_extent() == ids.size());
   assert(out.col_extent() == table.col_extent());
   assert(is_disjoint(out.as_span(), table.as_span()));
@@ -300,9 +299,31 @@ inline void embed_tokens(float_matrix_view out, std::span<const token_id> ids,
 }
 
 #pragma endregion
+#pragma region embed positions
+
+// Add each row's position embedding from `table`, writing into `out`.
+//
+// Row t of `out` holds the token at position t, so it takes row t of
+// `table`. With T tokens, a context of P positions, and width C:
+//
+//   table  [P, C]  a row per position
+//   out    [T, C]  a row per token, added to in place
+//
+// `out` must have the width of `table` and no more rows than it, and must
+// not overlap `table`.
+inline void embed_positions(float_matrix_view out,
+    const_float_matrix_view table) noexcept {
+  assert(out.row_extent() <= table.row_extent());
+  assert(out.col_extent() == table.col_extent());
+
+  out += table.subview({row_ndx{0}, col_ndx{0}}, out.extent());
+}
+
+#pragma endregion
 #pragma region logits
 
-// Score every vocabulary entry as the next token after `features`, into `out`.
+// Score every vocabulary entry as the next token after `features`, writing
+// into `out`.
 //
 // Each score is the dot product of `features` with that entry's row of
 // `vocab`. This is a projection through the transpose of `vocab`, with no
@@ -324,7 +345,7 @@ inline void compute_token_logits(float_row_span out,
     logit = dot_product(features, entry);
 }
 
-// Score every vocabulary entry after every token of `in`, into `out`.
+// Score every vocabulary entry after every token of `in`, writing into `out`.
 //
 // Row `t` of `out` is `compute_token_logits` of row `t` of `in`. Generation
 // only needs the last row, and calls `compute_token_logits` on it directly;

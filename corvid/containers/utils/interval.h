@@ -75,7 +75,7 @@ namespace corvid { inline namespace intervals {
 // `U` must match the signedness of `V` (for an enum, of its underlying type)
 // and be at least as wide, so that every `V` value is representable in `U`
 // with order preserved.
-template<typename V = int64_t, typename U = as_underlying_t<V>>
+template<typename V = size_t, typename U = as_underlying_t<V>>
 requires Integer<V> || StdEnum<V>
 class interval {
 public:
@@ -426,6 +426,18 @@ template<bitmask::BitmaskEnum E, typename U = as_underlying_t<E>>
   static_assert(*max_value<E>() != std::numeric_limits<U>::max(),
       "Specify U as something larger than the underlying type");
   return interval<E, U>{E{}, max_value<E>()};
+}
+
+#pragma endregion
+#pragma region iota
+
+// Make interval of the first `count` indices, for use with ranged-for.
+//
+// The free spelling of `interval<V>::iota`, so that a counted loop reads
+// `for (const auto ndx : iota(count))`.
+template<typename V = size_t>
+[[nodiscard]] constexpr auto iota(size_t count) noexcept {
+  return interval<V>::iota(count);
 }
 
 #pragma endregion

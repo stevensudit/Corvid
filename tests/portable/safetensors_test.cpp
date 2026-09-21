@@ -21,6 +21,7 @@
 #include <fstream>
 #include <initializer_list>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -106,8 +107,7 @@ image_t small_payload() {
 
 TEST_CASE("Parse a small file", "[SafetensorsTest]") {
   const auto image = make_image(small_header, small_payload());
-  safetensors_file file;
-  REQUIRE(file.parse(image));
+  const auto file = safetensors_file::parse(image);
   CHECK(file.size() == 2);
   CHECK(file.tensors().size() == 2);
   CHECK(file.tensors()[0].name == "a");
@@ -143,8 +143,8 @@ TEST_CASE("Header padding, scalars, and empty tensors", "[SafetensorsTest]") {
   const auto header =
       R"({"s":{"dtype":"F64","shape":[],"data_offsets":[0,8]},)"
       R"("e":{"dtype":"U8","shape":[0],"data_offsets":[8,8]}})"sv;
-  safetensors_file file;
-  REQUIRE(file.parse(make_image(header, bytes_of<double>({2.5}))));
+  const auto file =
+      safetensors_file::parse(make_image(header, bytes_of<double>({2.5})));
   const auto* s = file.find("s");
   REQUIRE(s);
   CHECK(s->shape.empty());
@@ -159,31 +159,29 @@ TEST_CASE("Header padding, scalars, and empty tensors", "[SafetensorsTest]") {
 }
 
 TEST_CASE("Rejects malformed files", "[SafetensorsTest]") {
-  safetensors_file file;
-  REQUIRE(file.parse(make_image(small_header, small_payload())));
-
-  // Every rejection leaves the previous contents in place.
-  const auto rejects = [&](std::string_view header, const image_t& payload) {
-    const auto image = make_image(header, payload);
-    const auto is_rejected = !file.parse(image);
-    CHECK(file.size() == 2);
-    return is_rejected;
+  // Whether `parse` throws on the image of `header` over `payload`.
+  const auto rejects = [](std::string_view header, const image_t& payload) {
+    try {
+      (void)safetensors_file::parse(make_image(header, payload));
+    }
+    catch (const std::runtime_error&) {
+      return true;
+    }
+    return false;
   };
   const auto one_float = bytes_of<float>({1});
   constexpr auto one_float_header =
       R"({"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}})"sv;
-  if (safetensors_file probe; true)
-    CHECK(probe.parse(make_image(one_float_header, one_float)));
+  CHECK_FALSE(rejects(one_float_header, one_float));
 
   // Too short for a length, a length past the end, a huge length.
-  CHECK_FALSE(file.parse(image_t(7)));
+  CHECK_THROWS_AS(safetensors_file::parse(image_t(7)), std::runtime_error);
   image_t past_end(8);
   past_end[0] = std::byte{9};
-  CHECK_FALSE(file.parse(past_end));
+  CHECK_THROWS_AS(safetensors_file::parse(past_end), std::runtime_error);
   auto huge = make_image("{}", {});
   huge[3] = std::byte{0x10};
-  CHECK_FALSE(file.parse(huge));
-  CHECK(file.size() == 2);
+  CHECK_THROWS_AS(safetensors_file::parse(huge), std::runtime_error);
 
   // Not JSON, not an object, a tensor that is not an object.
   CHECK(rejects("nope", {}));
@@ -230,8 +228,8 @@ TEST_CASE("Typed views require alignment", "[SafetensorsTest]") {
   const auto header =
       R"({"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}} )"sv;
   REQUIRE((8 + header.size()) % 4 != 0);
-  safetensors_file file;
-  REQUIRE(file.parse(make_image(header, bytes_of<float>({1}), false)));
+  const auto file =
+      safetensors_file::parse(make_image(header, bytes_of<float>({1}), false));
   const auto* a = file.find("a");
   REQUIRE(a);
   CHECK(a->bytes.size() == 4);
@@ -243,18 +241,15 @@ TEST_CASE("Typed views require alignment", "[SafetensorsTest]") {
 TEST_CASE("Load maps a file", "[SafetensorsTest]") {
   const auto image = make_image(small_header, small_payload());
   const tests::temp_file tf{as_string_view(std::span{image})};
-  safetensors_file file;
-  REQUIRE(file.load(tf.file));
+  const auto file = safetensors_file::load(tf.file);
   CHECK(file.size() == 2);
   const auto* a = file.find("a");
   REQUIRE(a);
   REQUIRE(a->is<float>());
   CHECK(a->as<float>()[5] == 6);
 
-  // A closed file fails and leaves the previous contents in place.
-  CHECK_FALSE(file.load(os_file{}));
-  CHECK(file.size() == 2);
-  CHECK(file.find("a")->as<float>()[0] == 1);
+  // A closed file cannot be mapped.
+  CHECK_THROWS_AS(safetensors_file::load(os_file{}), std::runtime_error);
 }
 
 #pragma endregion
@@ -265,8 +260,8 @@ TEST_CASE("GPT-2 weights", "[SafetensorsTest]") {
   if (!std::filesystem::exists(model_path))
     SKIP("no " << model_path.string() << "; run the oracle to create it");
 
-  safetensors_file weights;
-  REQUIRE(weights.load(tests::open_read_only(model_path)));
+  const auto weights =
+      safetensors_file::load(tests::open_read_only(model_path));
   CHECK(weights.size() == 160);
   REQUIRE(weights.metadata().contains("format"));
   CHECK(weights.metadata().find("format")->second == "pt");
@@ -325,10 +320,10 @@ TEST_CASE("GPT-2 embeddings match the oracle", "[SafetensorsTest]") {
   REQUIRE(ids.size() == 14);
 
   // The embedding output is the token embedding plus the position embedding.
-  safetensors_file weights;
-  REQUIRE(weights.load(tests::open_read_only(model_path)));
-  safetensors_file activations;
-  REQUIRE(activations.load(tests::open_read_only(activations_path)));
+  const auto weights =
+      safetensors_file::load(tests::open_read_only(model_path));
+  const auto activations =
+      safetensors_file::load(tests::open_read_only(activations_path));
   const auto* wte = weights.find("wte.weight");
   const auto* wpe = weights.find("wpe.weight");
   const auto* embed = activations.find("embed/out");
