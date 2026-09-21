@@ -182,17 +182,32 @@ void gelu_new(matrix_view<T> out, const_view_t<T> in) noexcept {
 // through `i`, weighing each with the corresponding attention weight. That
 // ends up in `out[i]`.
 //
-// All four views must have the same row count, and `out` must not overlap
-// any of the others.
+// `k` and `v` can have more rows than `q` and `out`. The extra rows at the
+// top are cached tokens, whose keys and values were computed earlier and whose
+// outputs are not wanted. With M cached tokens, N new ones, and T = M + N, the
+// shapes are then:
+//
+//   q         [N, D]   the queries of the new tokens alone
+//   k, v      [T, D]   the keys and values of the cached tokens, then the new
+//   out       [N, D]   a row per new token, written
+//   scores    [T]      at least T long
+//
+// Row `i` of `q` is then token M + `i`, and reads from tokens 0 through
+// M + `i`.
+//
+// `out` must have the row count of `q`, and `v` that of `k`, which must be at
+// least that of `q`. `out` must not overlap any of the others.
 inline void attend_head(float_matrix_view out, const_float_matrix_view q,
     const_float_matrix_view k, const_float_matrix_view v,
     float_col_span scores) noexcept {
-  [[maybe_unused]] const auto token_count = q.row_extent();
+  const auto new_count = q.row_extent();
+  const auto total_count = k.row_extent();
   const auto width = q.col_extent();
-  assert((k.row_extent() == token_count) && (k.col_extent() == width));
-  assert((v.row_extent() == token_count) && (v.col_extent() == width));
-  assert((out.row_extent() == token_count) && (out.col_extent() == width));
-  assert(scores.size() >= token_count);
+  assert((total_count >= new_count) && (k.col_extent() == width));
+  assert((v.row_extent() == total_count) && (v.col_extent() == width));
+  assert((out.row_extent() == new_count) && (out.col_extent() == width));
+  assert(scores.size() >= total_count);
+  const auto cached_count = total_count - new_count;
   assert(is_disjoint(out.as_span(), q.as_span()) &&
          is_disjoint(out.as_span(), k.as_span()) &&
          is_disjoint(out.as_span(), v.as_span()));
@@ -204,9 +219,10 @@ inline void attend_head(float_matrix_view out, const_float_matrix_view q,
   for (const auto [i, query, out_row] :
       zip(std::views::iota(size_t{0}), q.rows(), out.rows()))
   {
-    // Only tokens 0 through `i` get a weight, so the mask is the length of
-    // `weights`. Zipping it against all the key or value rows stops there.
-    const auto weights = scores.first(i + 1);
+    // Only the cached tokens and new tokens 0 through `i` get a weight, so the
+    // mask is the length of `weights`. Zipping it against all the key or value
+    // rows stops there.
+    const auto weights = scores.first(cached_count + i + 1);
     for (auto [weight, key] : zip(weights, k.rows()))
       weight = dot_product(query, key) * scale;
 
@@ -242,31 +258,40 @@ inline void attend_head(float_matrix_view out, const_float_matrix_view q,
 // other words, the first head writes to the first `D` columns of `out`, and so
 // on.
 //
+// `qkv` can have more rows than `out`. The extra rows at the top are cached
+// tokens, as `attend_head` describes, and `out` has a row for each of the
+// remaining, new tokens. The query columns of the cached rows are not read.
+//
 // `scores` is scratch for one row of weights, and must hold at least one
-// element per token. `qkv` must be three times as wide as `out`, whose
-// width must divide evenly by `head_count`. `out` must not overlap `qkv`
-// or `scores`.
+// element per row of `qkv`, which must have at least as many rows as `out`.
+// `qkv` must be three times as wide as `out`, whose width must divide evenly
+// by `head_count`. `out` must not overlap `qkv` or `scores`.
 inline void attend(float_matrix_view out, const_float_matrix_view qkv,
     size_t head_count, float_col_span scores) noexcept {
-  const auto token_count = out.row_extent();
+  const auto new_count = out.row_extent();
+  const auto total_count = qkv.row_extent();
   const auto width = out.col_extent();
-  assert(qkv.row_extent() == token_count);
+  assert(total_count >= new_count);
   assert(qkv.col_extent() == 3 * width);
   assert(head_count && (width % head_count == 0));
   const auto head_width = width / head_count;
 
   const auto one_third = [&](size_t which) {
     return qkv.subview({row_ndx{0}, col_ndx{which * width}},
-        {.row_count = token_count, .col_count = width});
+        {.row_count = total_count, .col_count = width});
   };
-  const auto q = one_third(0);
+  // The queries are those of the new tokens, below the cached ones.
+  const auto q = one_third(0).subview(
+      {row_ndx{total_count - new_count}, col_ndx{0}},
+      {.row_count = new_count, .col_count = width});
   const auto k = one_third(1);
   const auto v = one_third(2);
 
   for (size_t head = 0; head < head_count; ++head) {
+    // Every row of `m`, which has its own count, and the head's columns.
     const auto slice = [&](const auto& m) {
       return m.subview({row_ndx{0}, col_ndx{head * head_width}},
-          {.row_count = token_count, .col_count = head_width});
+          {.row_count = m.row_extent(), .col_count = head_width});
     };
     attend_head(slice(out), slice(q), slice(k), slice(v), scores);
   }

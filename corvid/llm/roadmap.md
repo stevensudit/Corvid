@@ -1197,6 +1197,26 @@ interleave. The hand-computed batched test, the two-head napkin test, and the
 twelve-block oracle gate all pass at the old tolerances. Next: the KV cache,
 bf16, and tokens per second against llama.cpp.
 
+Status (2026-09-21, KV cache, slice 1: CPU attend over cached tokens):
+Steven's rulings for the cache. The layout is [T, 3C] per block in the first
+cut, the `c_attn` output as it stands, so the projection writes a new token's
+row straight into the cache and the unused query columns ride along; dropping
+to [T, 2C] trades a copy for a third of the memory and waits for a model with
+a longer context. The engine caches a single token list, matched by common
+prefix, so an unrelated list clears it, which timing tests can use on
+purpose. The CPU engine goes first. Slice 1 is the op: `attend` and
+`attend_head` take a `qkv` (or `k` and `v`) with more rows than `out`, the
+extra rows at the top being M cached tokens. Row `i` of the N new queries is
+token M + `i` and reads from tokens 0 through M + `i`, which moves the causal
+mask right by M, and the scratch row holds M + N scores. With nothing cached
+the op is what it was. The vocabulary is cached and new, with total for their
+sum; prefix is kept for the matching of token lists, where it is literal. A
+napkin test and the twelve-block oracle test check that attending the last
+tokens over the cached rest gives the full pass's rows for those tokens bit
+for bit. Next: the cache and prefix matching in the CPU engine, then the
+device twin (offset mask, rectangular batched attend), then the device
+argmax.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
