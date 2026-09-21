@@ -33,8 +33,8 @@ using namespace corvid::llm;
 using namespace corvid::tests::gpt2;
 using Catch::Matchers::WithinAbs;
 
-using row_ndx = float_matrix_view::row_ndx;
-using col_ndx = float_matrix_view::col_ndx;
+using row_ndx = float_matrix_lens::row_ndx;
+using col_ndx = float_matrix_lens::col_ndx;
 
 // The epsilon every layer norm test passes, GPT-2's own so the oracle case
 // matches.
@@ -48,9 +48,8 @@ TEST_CASE("Layer norm on hand-computed rows", "[LlmOpsTest]") {
   const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 5.0F, 5.0F,
       5.0F};
   std::vector<float> out_storage(in_storage.size());
-  const const_float_matrix_view in(in_storage,
-      {.row_count = 2, .col_count = 4});
-  const float_matrix_view out(out_storage, {.row_count = 2, .col_count = 4});
+  const float_matrix_view in(in_storage, {.row_count = 2, .col_count = 4});
+  const float_matrix_lens out(out_storage, {.row_count = 2, .col_count = 4});
   constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
   constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
 
@@ -77,10 +76,9 @@ TEST_CASE("Row ops match layer norm step by step", "[LlmOpsTest]") {
   const std::vector<float> in_storage{1.0F, 2.0F, 3.0F, 4.0F};
   std::vector<float> out_storage(in_storage.size());
   std::vector<float> expected(in_storage.size());
-  const const_float_matrix_view in(in_storage,
-      {.row_count = 1, .col_count = 4});
-  const float_matrix_view out(out_storage, {.row_count = 1, .col_count = 4});
-  const float_matrix_view fused(expected, {.row_count = 1, .col_count = 4});
+  const float_matrix_view in(in_storage, {.row_count = 1, .col_count = 4});
+  const float_matrix_lens out(out_storage, {.row_count = 1, .col_count = 4});
+  const float_matrix_lens fused(expected, {.row_count = 1, .col_count = 4});
   constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
   constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
 
@@ -101,8 +99,8 @@ TEST_CASE("Row ops match layer norm step by step", "[LlmOpsTest]") {
 TEST_CASE("Layer norm in place", "[LlmOpsTest]") {
   std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
   std::vector<float> expected(storage.size());
-  const float_matrix_view m(storage, {.row_count = 1, .col_count = 4});
-  const float_matrix_view out(expected, {.row_count = 1, .col_count = 4});
+  const float_matrix_lens m(storage, {.row_count = 1, .col_count = 4});
+  const float_matrix_lens out(expected, {.row_count = 1, .col_count = 4});
   constexpr std::array weight{1.0F, 2.0F, 1.0F, 2.0F};
   constexpr std::array bias{0.0F, 0.0F, 0.5F, 0.5F};
 
@@ -117,12 +115,12 @@ TEST_CASE("Layer norm honors the stride of both views", "[LlmOpsTest]") {
   // writes land in the last two columns of another, leaving the rest alone.
   const std::vector<float> in_storage{2.0F, 4.0F, -1.0F};
   std::vector<float> out_storage{-1.0F, -1.0F, -1.0F};
-  const auto in =
-      const_float_matrix_view(in_storage, {.row_count = 1, .col_count = 3})
-          .subview({row_ndx{0}, col_ndx{0}}, {.row_count = 1, .col_count = 2});
+  const auto in = float_matrix_view(in_storage,
+      {.row_count = 1, .col_count = 3})[{row_ndx{0}, col_ndx{0}},
+      {.row_count = 1, .col_count = 2}];
   const auto out =
-      float_matrix_view(out_storage, {.row_count = 1, .col_count = 3})
-          .subview({row_ndx{0}, col_ndx{1}});
+      float_matrix_lens(out_storage, {.row_count = 1, .col_count = 3})
+          .slice({row_ndx{0}, col_ndx{1}});
   constexpr std::array weight{1.0F, 1.0F};
   constexpr std::array bias{0.0F, 0.0F};
 
@@ -156,12 +154,12 @@ TEST_CASE("GELU honors the stride of both views", "[LlmOpsTest]") {
   // untouched column of each output row proves the stride is honored.
   const std::vector<float> in_storage{1.0F, -1.0F, 99.0F, 2.0F, 0.0F, 99.0F};
   std::vector<float> out_storage(in_storage.size(), -1.0F);
-  const auto in =
-      const_float_matrix_view(in_storage, {.row_count = 2, .col_count = 3})
-          .subview({row_ndx{0}, col_ndx{0}}, {.row_count = 2, .col_count = 2});
+  const auto in = float_matrix_view(in_storage,
+      {.row_count = 2, .col_count = 3})[{row_ndx{0}, col_ndx{0}},
+      {.row_count = 2, .col_count = 2}];
   const auto out =
-      float_matrix_view(out_storage, {.row_count = 2, .col_count = 3})
-          .subview({row_ndx{0}, col_ndx{1}});
+      float_matrix_lens(out_storage, {.row_count = 2, .col_count = 3})
+          .slice({row_ndx{0}, col_ndx{1}});
 
   gelu_new(out, in);
 
@@ -177,8 +175,8 @@ TEST_CASE("GELU honors the stride of both views", "[LlmOpsTest]") {
 TEST_CASE("GELU in place", "[LlmOpsTest]") {
   std::vector<float> storage{1.0F, -1.0F, 2.0F, 0.5F};
   std::vector<float> expected(storage.size());
-  const float_matrix_view m(storage, {.row_count = 2, .col_count = 2});
-  const float_matrix_view out(expected, {.row_count = 2, .col_count = 2});
+  const float_matrix_lens m(storage, {.row_count = 2, .col_count = 2});
+  const float_matrix_lens out(expected, {.row_count = 2, .col_count = 2});
 
   gelu_new(out, m);
   gelu_new(m, m);
@@ -195,20 +193,19 @@ TEST_CASE("Attention on three tokens of width two", "[LlmOpsTest]") {
   const std::vector<float> c_attn_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
       0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F};
   constexpr std::array no_bias{0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
-  const const_float_matrix_view in(in_storage,
-      {.row_count = 3, .col_count = 2});
-  const const_float_matrix_view c_attn(c_attn_storage,
+  const float_matrix_view in(in_storage, {.row_count = 3, .col_count = 2});
+  const float_matrix_view c_attn(c_attn_storage,
       {.row_count = 2, .col_count = 6});
 
   std::vector<float> qkv_storage(3UZ * 6);
-  const float_matrix_view qkv(qkv_storage, {.row_count = 3, .col_count = 6});
+  const float_matrix_lens qkv(qkv_storage, {.row_count = 3, .col_count = 6});
   linear_projection(qkv, in, c_attn, no_bias);
   CHECK(qkv_storage ==
         std::vector<float>{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F,
             0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F});
 
   std::vector<float> out_storage(3UZ * 2);
-  const float_matrix_view out(out_storage, {.row_count = 3, .col_count = 2});
+  const float_matrix_lens out(out_storage, {.row_count = 3, .col_count = 2});
   std::array<float, 3> scores{};
   constexpr auto tolerance = 1e-5;
 
@@ -248,24 +245,23 @@ TEST_CASE("Attention over cached tokens matches the rows of a full pass",
   // those tokens.
   const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
       0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
-  const const_float_matrix_view qkv(qkv_storage,
-      {.row_count = 3, .col_count = 6});
+  const float_matrix_view qkv(qkv_storage, {.row_count = 3, .col_count = 6});
   std::array<float, 3> scores{};
 
   for (const auto head_count : {1UZ, 2UZ}) {
     DYNAMIC_SECTION(head_count << " heads") {
       std::vector<float> full_storage(3UZ * 2);
-      const float_matrix_view full(full_storage,
+      const float_matrix_lens full(full_storage,
           {.row_count = 3, .col_count = 2});
       attend(full, qkv, head_count, scores);
 
       for (const auto new_count : {1UZ, 2UZ, 3UZ}) {
         std::vector<float> out_storage(new_count * 2);
-        const float_matrix_view out(out_storage,
+        const float_matrix_lens out(out_storage,
             {.row_count = new_count, .col_count = 2});
         attend(out, qkv, head_count, scores);
         const auto expected =
-            full.subview({row_ndx{3 - new_count}, col_ndx{0}}, out.extent());
+            full[{row_ndx{3 - new_count}, col_ndx{0}}, out.extent()];
         check_close(out, expected, 0.0F, 0.0F);
       }
     }
@@ -276,12 +272,12 @@ TEST_CASE("Embed tokens on hand-computed rows", "[LlmOpsTest]") {
   // Three tokens in the vocabulary, width two.
   const std::vector<float> table_storage{1.0F, 2.0F, 10.0F, 20.0F, 100.0F,
       200.0F};
-  const const_float_matrix_view table(table_storage,
+  const float_matrix_view table(table_storage,
       {.row_count = 3, .col_count = 2});
   const std::vector<token_id> ids{token_id{2}, token_id{0}};
 
   std::vector<float> storage(ids.size() * 2);
-  const float_matrix_view out(storage, {.row_count = 2, .col_count = 2});
+  const float_matrix_lens out(storage, {.row_count = 2, .col_count = 2});
   embed_tokens(out, ids, table);
 
   CHECK(storage == std::vector<float>{100.0F, 200.0F, 1.0F, 2.0F});
@@ -291,11 +287,11 @@ TEST_CASE("Embed positions on hand-computed rows", "[LlmOpsTest]") {
   // A context of three positions, width two, under two tokens.
   const std::vector<float> table_storage{1.0F, 2.0F, 10.0F, 20.0F, 100.0F,
       200.0F};
-  const const_float_matrix_view table(table_storage,
+  const float_matrix_view table(table_storage,
       {.row_count = 3, .col_count = 2});
 
   std::vector<float> storage{0.5F, 0.25F, -10.0F, 5.0F};
-  const float_matrix_view out(storage, {.row_count = 2, .col_count = 2});
+  const float_matrix_lens out(storage, {.row_count = 2, .col_count = 2});
   embed_positions(out, table);
 
   CHECK(storage == std::vector<float>{1.5F, 2.25F, 0.0F, 25.0F});
@@ -308,14 +304,12 @@ TEST_CASE("Embed positions on hand-computed rows", "[LlmOpsTest]") {
 TEST_CASE("Logits on hand-computed rows", "[LlmOpsTest]") {
   // Two tokens of width two against a three-entry vocabulary.
   const std::vector<float> wte_storage{1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F};
-  const const_float_matrix_view wte(wte_storage,
-      {.row_count = 3, .col_count = 2});
+  const float_matrix_view wte(wte_storage, {.row_count = 3, .col_count = 2});
   const std::vector<float> in_storage{2.0F, 3.0F, -1.0F, 0.5F};
-  const const_float_matrix_view in(in_storage,
-      {.row_count = 2, .col_count = 2});
+  const float_matrix_view in(in_storage, {.row_count = 2, .col_count = 2});
 
   std::vector<float> storage(2UZ * 3);
-  const float_matrix_view out(storage, {.row_count = 2, .col_count = 3});
+  const float_matrix_lens out(storage, {.row_count = 2, .col_count = 3});
   compute_all_logits(out, in, wte);
 
   CHECK(storage == std::vector<float>{2.0F, 3.0F, 5.0F, -1.0F, 0.5F, -0.5F});
@@ -354,7 +348,7 @@ TEST_CASE("Layer norm matches the oracle", "[LlmOpsTest][oracle]") {
       REQUIRE(in.row_extent() == 14);
 
       std::vector<float> storage(in.size());
-      const float_matrix_view out(storage, in.extent());
+      const float_matrix_lens out(storage, in.extent());
       layer_norm(out, in, weight, bias, eps);
 
       check_close(out, expected, 1e-5F, 1e-5F);
@@ -388,10 +382,10 @@ TEST_CASE("MLP path matches the oracle", "[LlmOpsTest][oracle]") {
       REQUIRE(in.row_extent() == 14);
 
       std::vector<float> hidden_storage(in.row_extent() * n_hidden);
-      const float_matrix_view hidden(hidden_storage,
+      const float_matrix_lens hidden(hidden_storage,
           {.row_count = in.row_extent(), .col_count = n_hidden});
       std::vector<float> out_storage(in.size());
-      const float_matrix_view out(out_storage, in.extent());
+      const float_matrix_lens out(out_storage, in.extent());
 
       linear_projection(hidden, in, fc_weight, fc_bias);
       gelu_new(hidden, hidden);
@@ -428,13 +422,13 @@ TEST_CASE("Attention path matches the oracle", "[LlmOpsTest][oracle]") {
       REQUIRE(token_count == 14);
 
       std::vector<float> qkv_storage(token_count * n_qkv);
-      const float_matrix_view qkv(qkv_storage,
+      const float_matrix_lens qkv(qkv_storage,
           {.row_count = token_count, .col_count = n_qkv});
       std::vector<float> heads_storage(in.size());
-      const float_matrix_view heads_out(heads_storage, in.extent());
+      const float_matrix_lens heads_out(heads_storage, in.extent());
       std::vector<float> scores(token_count);
       std::vector<float> out_storage(in.size());
-      const float_matrix_view out(out_storage, in.extent());
+      const float_matrix_lens out(out_storage, in.extent());
 
       linear_projection(qkv, in, attn_weight, attn_bias);
       attend(heads_out, qkv, n_head, scores);
@@ -446,12 +440,12 @@ TEST_CASE("Attention path matches the oracle", "[LlmOpsTest][oracle]") {
       // bit for bit, since each row's arithmetic is unchanged.
       constexpr auto new_count = 5UZ;
       std::vector<float> suffix_storage(new_count * n_embd);
-      const float_matrix_view suffix_out(suffix_storage,
+      const float_matrix_lens suffix_out(suffix_storage,
           {.row_count = new_count, .col_count = n_embd});
       attend(suffix_out, qkv, n_head, scores);
       check_close(suffix_out,
-          heads_out.subview({row_ndx{token_count - new_count}, col_ndx{0}},
-              suffix_out.extent()),
+          heads_out[{row_ndx{token_count - new_count}, col_ndx{0}},
+              suffix_out.extent()],
           0.0F, 0.0F);
     }
   }
@@ -488,7 +482,7 @@ TEST_CASE("Residual adds match the oracle", "[LlmOpsTest][oracle]") {
       REQUIRE(a.row_extent() == 14);
 
       std::vector<float> storage(a.size());
-      const float_matrix_view out(storage, a.extent());
+      const float_matrix_lens out(storage, a.extent());
       add(out, a, b);
 
       check_close(out, expected, 0.0F, 0.0F);
@@ -512,7 +506,7 @@ TEST_CASE("Embed matches the oracle", "[LlmOpsTest][oracle]") {
   const auto expected = matrix_of(oracle.activations, "embed/out", n_embd);
 
   std::vector<float> storage(ids.size() * n_embd);
-  const float_matrix_view out(storage, expected.extent());
+  const float_matrix_lens out(storage, expected.extent());
   embed_tokens(out, ids, wte);
   embed_positions(out, wpe);
 
@@ -530,7 +524,7 @@ TEST_CASE("Logits match the oracle", "[LlmOpsTest][oracle]") {
   REQUIRE(in.row_extent() == 14);
 
   std::vector<float> storage(expected.size());
-  const float_matrix_view out(storage, expected.extent());
+  const float_matrix_lens out(storage, expected.extent());
   compute_all_logits(out, in, wte);
 
   check_close(out, expected, 1e-4F, 1e-4F);

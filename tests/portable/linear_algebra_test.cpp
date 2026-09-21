@@ -28,8 +28,8 @@ using namespace corvid;
 using namespace corvid::linalg;
 using Catch::Matchers::WithinAbs;
 
-using row_ndx = float_matrix_view::row_ndx;
-using col_ndx = float_matrix_view::col_ndx;
+using row_ndx = float_matrix_lens::row_ndx;
+using col_ndx = float_matrix_lens::col_ndx;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -80,16 +80,16 @@ TEMPLATE_TEST_CASE("Linear projection on hand-computed rows",
   const std::vector<T> in_storage{T{1}, T{2}, T{3}, T{4}, T{5}, T{6}};
   const std::vector<T> weight_storage{T{1}, T{0}, T{0}, T{1}, T{1}, T{1}};
   constexpr std::array bias{T{10}, T{20}};
-  const matrix_view<const T> in(in_storage, {.row_count = 2, .col_count = 3});
-  const matrix_view<const T> weight(weight_storage,
+  const matrix_view<T> in(in_storage, {.row_count = 2, .col_count = 3});
+  const matrix_view<T> weight(weight_storage,
       {.row_count = 3, .col_count = 2});
 
   // The output lands in the middle two columns of a wider buffer, the way a
   // projection fills one block of columns and leaves the rest alone.
   std::vector<T> out_storage(2UZ * 4, T{-1});
-  const auto out =
-      matrix_view<T>(out_storage, {.row_count = 2, .col_count = 4})
-          .subview({row_ndx{0}, col_ndx{1}}, {.row_count = 2, .col_count = 2});
+  const auto out = matrix_lens<T>(out_storage,
+      {.row_count = 2, .col_count = 4})[{row_ndx{0}, col_ndx{1}},
+      {.row_count = 2, .col_count = 2}];
 
   linear_projection(out, in, weight, bias);
 
@@ -136,13 +136,13 @@ TEMPLATE_TEST_CASE("Add on hand-computed rows", "[LinearAlgebraTest]", float,
   using T = TestType;
   std::vector<T> a_storage{T{1}, T{2}, T{3}, T{4}};
   std::vector<T> b_storage{T{10}, T{20}, T{30}, T{40}};
-  const matrix_view<T> a(a_storage, {.row_count = 2, .col_count = 2});
-  const matrix_view<T> b(b_storage, {.row_count = 2, .col_count = 2});
+  const matrix_lens<T> a(a_storage, {.row_count = 2, .col_count = 2});
+  const matrix_lens<T> b(b_storage, {.row_count = 2, .col_count = 2});
   const std::vector<T> expected{T{11}, T{22}, T{33}, T{44}};
 
   SECTION("into a separate matrix") {
     std::vector<T> storage(a.size());
-    const matrix_view<T> out(storage, a.extent());
+    const matrix_lens<T> out(storage, a.extent());
     add(out, a, b);
     CHECK(storage == expected);
   }
@@ -163,13 +163,13 @@ TEMPLATE_TEST_CASE("Subtract on hand-computed rows", "[LinearAlgebraTest]",
   using T = TestType;
   std::vector<T> a_storage{T{11}, T{22}, T{33}, T{44}};
   std::vector<T> b_storage{T{1}, T{2}, T{3}, T{4}};
-  const matrix_view<T> a(a_storage, {.row_count = 2, .col_count = 2});
-  const matrix_view<T> b(b_storage, {.row_count = 2, .col_count = 2});
+  const matrix_lens<T> a(a_storage, {.row_count = 2, .col_count = 2});
+  const matrix_lens<T> b(b_storage, {.row_count = 2, .col_count = 2});
   const std::vector<T> expected{T{10}, T{20}, T{30}, T{40}};
 
   SECTION("into a separate matrix") {
     std::vector<T> storage(a.size());
-    const matrix_view<T> out(storage, a.extent());
+    const matrix_lens<T> out(storage, a.extent());
     subtract(out, a, b);
     CHECK(storage == expected);
   }

@@ -33,15 +33,15 @@
 // Arithmetic over rows and matrices, one free function per op.
 //
 // The row ops take any contiguous range of numbers, while the matrix ops
-// take `matrix_view`. Every op is a template on the element type, and each
+// take `matrix_lens`. Every op is a template on the element type, and each
 // constrains it to what its arithmetic needs: the sums and products accept
 // any `Arithmetic` type, while the ops that divide or take a root require a
 // `Floating` one.
 //
-// Every op writes into a caller-owned range or view and honors the stride of
-// every view it is given. Shape mismatches are contract violations. The set
-// is what the consumers need, not a statistics library, so an op arrives
-// with its first caller.
+// Every op writes into a caller-owned range or lens and honors the stride of
+// every lens or view it is given. Shape mismatches are contract violations.
+// The set is what the consumers need, not a comprehensive statistics library,
+// so an op arrives with its first caller.
 namespace corvid::linalg {
 
 // The loop idiom of this file.
@@ -49,12 +49,12 @@ using std::views::zip;
 
 #pragma region Types
 
-// A read-only view of the element type an op deduced from its output.
+// A view of the element type an op deduced from its output.
 //
-// `std::type_identity_t` keeps it out of deduction, so a mutable view passed
-// as an input converts to it.
+// `std::type_identity_t` keeps it out of deduction, so a lens passed as an
+// input converts to it.
 template<typename T>
-using const_view_t = matrix_view<const std::type_identity_t<T>>;
+using matrix_view_t = matrix_view<std::type_identity_t<T>>;
 
 #pragma endregion
 #pragma region Reductions
@@ -211,8 +211,8 @@ add_scaled(A& acc, element_of_t<A> scale, const V& values) noexcept {
 // `out` must not overlap `in`, `weight`, or `bias`.
 template<Arithmetic T, ArithmeticRange B>
 requires std::same_as<element_of_t<B>, T>
-void linear_projection(matrix_view<T> out, const_view_t<T> in,
-    const_view_t<T> weight, const B& bias) noexcept {
+void linear_projection(matrix_lens<T> out, matrix_view_t<T> in,
+    matrix_view_t<T> weight, const B& bias) noexcept {
   assert(weight.row_extent() == in.col_extent());
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == weight.col_extent()));
@@ -271,7 +271,7 @@ void softmax(O& span_out, const I& span_in) noexcept {
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, adding in place, but must not otherwise overlap either.
 template<Arithmetic T>
-void add(matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) noexcept {
+void add(matrix_lens<T> out, matrix_view_t<T> a, matrix_view_t<T> b) noexcept {
   assert(a.extent() == b.extent());
   assert(out.extent() == a.extent());
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));
@@ -291,8 +291,8 @@ void add(matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) noexcept {
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, subtracting in place, but must not otherwise overlap either.
 template<Arithmetic T>
-void subtract(matrix_view<T> out, const_view_t<T> a,
-    const_view_t<T> b) noexcept {
+void subtract(matrix_lens<T> out, matrix_view_t<T> a,
+    matrix_view_t<T> b) noexcept {
   assert(a.extent() == b.extent());
   assert(out.extent() == a.extent());
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));

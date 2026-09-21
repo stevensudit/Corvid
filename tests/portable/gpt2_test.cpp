@@ -57,19 +57,19 @@ TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
       REQUIRE(token_count == 14);
 
       std::vector<float> out_storage(in.size());
-      const float_matrix_view out(out_storage, in.extent());
+      const float_matrix_lens out(out_storage, in.extent());
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
           n_hidden);
-      const auto acts = owned.views();
+      const auto acts = owned.lenses();
       std::vector<float> qkv_storage(token_count * n_qkv);
-      const float_matrix_view qkv(qkv_storage,
+      const float_matrix_lens qkv(qkv_storage,
           {.row_count = token_count, .col_count = n_qkv});
       engine.apply_block(out, in, n, acts, qkv);
 
       check_close(out, expected, 1e-4F, 1e-4F);
       struct dumped {
         const char* name;
-        const_float_matrix_view actual;
+        float_matrix_view actual;
         float tolerance;
       };
       for (const auto& [name, actual, tolerance] :
@@ -89,7 +89,7 @@ TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
       // arithmetic in the same order, so it matches bit for bit.
       std::vector<float> residual_storage(in.as_span().begin(),
           in.as_span().end());
-      const float_matrix_view residual(residual_storage, in.extent());
+      const float_matrix_lens residual(residual_storage, in.extent());
       auto in_place = acts;
       in_place.ln_2_in = residual;
       engine.apply_block(residual, residual, n, in_place, qkv);
@@ -113,10 +113,10 @@ TEST_CASE("Forward pass matches the oracle", "[Gpt2Test][oracle]") {
   const auto expected = matrix_of(oracle.activations, "ln_f/out", n_embd);
 
   std::vector<float> out_storage(token_count * n_embd);
-  const float_matrix_view out(out_storage, expected.extent());
+  const float_matrix_lens out(out_storage, expected.extent());
   gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden);
   gpt2_engine::kv_cache cache;
-  engine.forward(out, ids, owned.views(), cache);
+  engine.forward(out, ids, owned.lenses(), cache);
 
   check_close(out, expected, 1e-4F, 1e-4F);
   CHECK(cache.ids == ids);
@@ -144,9 +144,9 @@ TEST_CASE("Forward pass over a cache matches a full pass",
         storage.resize(new_ids.size() * n_embd);
         gpt2_engine::block_activation_buffers owned(new_ids.size(), n_embd,
             n_hidden, cache.ids.size());
-        engine.forward(float_matrix_view(storage,
+        engine.forward(float_matrix_lens(storage,
                            {.row_count = new_ids.size(), .col_count = n_embd}),
-            new_ids, owned.views(), cache);
+            new_ids, owned.lenses(), cache);
       };
 
   std::vector<float> full_storage;
@@ -185,15 +185,15 @@ TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
       REQUIRE(expected.row_extent() == token_count);
 
       std::vector<float> trunk_storage(token_count * n_embd);
-      const float_matrix_view trunk(trunk_storage,
+      const float_matrix_lens trunk(trunk_storage,
           {.row_count = token_count, .col_count = n_embd});
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
           n_hidden);
       gpt2_engine::kv_cache cache;
-      engine.forward(trunk, ids, owned.views(), cache);
+      engine.forward(trunk, ids, owned.lenses(), cache);
 
       std::vector<float> storage(expected.size());
-      const float_matrix_view out(storage, expected.extent());
+      const float_matrix_lens out(storage, expected.extent());
       compute_all_logits(out, trunk, model.wte);
 
       check_close(out, expected, 1e-4F, 1e-4F);

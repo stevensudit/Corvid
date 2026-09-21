@@ -97,7 +97,7 @@ struct oracle_dumps {
 
 // The fp32 tensor `name` of `file`, which must be two-dimensional with `cols`
 // columns, as a matrix view.
-inline const_float_matrix_view
+inline float_matrix_view
 matrix_of(const safetensors_file& file, std::string_view name, size_t cols) {
   INFO(name);
   const auto view = file.find_matrix<float>(name, {.col_count = cols});
@@ -145,8 +145,8 @@ struct closeness {
 };
 
 // Compare `actual` to `expected`, which must have the same extent.
-inline closeness compare(const_float_matrix_view actual,
-    const_float_matrix_view expected, float atol, float rtol) {
+inline closeness compare(float_matrix_view actual, float_matrix_view expected,
+    float atol, float rtol) {
   REQUIRE(actual.extent() == expected.extent());
   closeness result;
   for (const auto row : actual.row_indexes()) {
@@ -166,8 +166,8 @@ inline closeness compare(const_float_matrix_view actual,
 }
 
 // Check that `actual` is close to `expected`, reporting the largest errors.
-inline void check_close(const_float_matrix_view actual,
-    const_float_matrix_view expected, float atol, float rtol) {
+inline void check_close(float_matrix_view actual, float_matrix_view expected,
+    float atol, float rtol) {
   const auto result = compare(actual, expected, atol, rtol);
   INFO("max abs error "
        << result.max_abs_error << ", max rel error " << result.max_rel_error);

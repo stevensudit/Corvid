@@ -1217,6 +1217,27 @@ for bit. Next: the cache and prefix matching in the CPU engine, then the
 device twin (offset mask, rectangular batched attend), then the device
 argmax.
 
+Status (2026-09-21, lens and view): Steven's naming ruling, applied across
+the library and the tests. A view is read-only and a lens reads and writes,
+the pairing the ECS rows and the websocket frames already use, and the one
+`std::string_view` and `std::span` draw between them; "span" was passed over
+for a matrix because a strided rectangle is not a contiguous run. What was
+`matrix_view<T>` is `matrix_lens<T>`, and `matrix_view<T>` is now an alias
+for `matrix_lens<const T>`, so nothing spells `matrix_view<const float>` any
+more. The same split covers `matrix_lens_base`, `cuda_matrix_lens` and
+`cuda_matrix_view`, `kernel_matrix_lens` and `kernel_matrix_view`, and the
+aliases `float_matrix_lens` and `float_matrix_view` (formerly
+`float_matrix_view` and `const_float_matrix_view`). `cuda_matrix` has
+`as_lens()` beside a read-only `as_view()`, `DeviceMatrixLike` asks for
+`as_lens()`, the activation buffers hand out `lenses()`, and the device
+`const_view_t` went away as a plain synonym of `cuda_matrix_view`. In the
+same pass `subview` became `slice`, spelled `m[from, to]` or `m[from, size]`
+by preference, with the one-argument form named only since `m[from]` is an
+element; `matrix_extent` took `operator[](matrix_axis)` over `count`; and the
+host `const_view_t` became `matrix_view_t`, since every view is const. The
+header is still "matrix_view.h". Status paragraphs above this one keep the
+names of their day.
+
 Status (2026-09-21, KV cache, slice 2: the CPU engine): `gpt2_engine` gained
 a nested `kv_cache`, the cached token IDs plus one packed [M, 3C] store per
 block that grows by rows, which keeps every cached row in place because the

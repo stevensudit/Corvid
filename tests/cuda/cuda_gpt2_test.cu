@@ -42,18 +42,18 @@ namespace {
 #pragma region Helpers
 
 // Download `device` into a host vector, in row-major order.
-std::vector<float> download(cuda_matrix_view<const float> device) {
+std::vector<float> download(cuda_matrix_view<float> device) {
   std::vector<float> storage(device.row_extent() * device.col_extent());
-  REQUIRE(device.store(float_matrix_view(storage, device.extent())));
+  REQUIRE(device.store(float_matrix_lens(storage, device.extent())));
   return storage;
 }
 
 // Download `device` and check that it is close to `expected`.
-void check_device_close(cuda_matrix_view<const float> device,
-    const_float_matrix_view expected, float atol, float rtol) {
+void check_device_close(cuda_matrix_view<float> device,
+    float_matrix_view expected, float atol, float rtol) {
   const auto storage = download(device);
-  check_close(const_float_matrix_view(storage, device.extent()), expected,
-      atol, rtol);
+  check_close(float_matrix_view(storage, device.extent()), expected, atol,
+      rtol);
 }
 
 #pragma endregion
@@ -88,13 +88,13 @@ TEST_CASE("Device block matches the oracle", "[Gpt2Test][oracle][cuda]") {
       cuda_matrix<float> out(in_view.extent());
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
           n_hidden, n_head);
-      const auto acts = owned.views();
+      const auto acts = owned.lenses();
       REQUIRE(engine.apply_block(out, in, n, acts));
 
       check_device_close(out, expected, 1e-4F, 1e-4F);
       struct dumped {
         const char* name;
-        cuda_matrix_view<const float> actual;
+        cuda_matrix_view<float> actual;
         float tolerance;
       };
       for (const auto& [name, actual, tolerance] :
@@ -139,7 +139,7 @@ TEST_CASE("Device forward pass matches the oracle",
   cuda_matrix<float> out(expected.extent());
   gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden,
       n_head);
-  REQUIRE(engine.forward(out, ids, owned.views()));
+  REQUIRE(engine.forward(out, ids, owned.lenses()));
 
   check_device_close(out, expected, 1e-4F, 1e-4F);
 }
@@ -169,7 +169,7 @@ TEST_CASE("Device model matches the oracle on every prompt",
           {.row_count = token_count, .col_count = n_embd});
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
           n_hidden, n_head);
-      REQUIRE(engine.forward(trunk, ids, owned.views()));
+      REQUIRE(engine.forward(trunk, ids, owned.lenses()));
 
       cuda_matrix<float> logits(expected.extent());
       REQUIRE(cuda::llm::compute_logits(blas, logits, trunk, wte));

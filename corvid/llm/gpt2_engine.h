@@ -36,7 +36,7 @@
 // block over a residual, `forward` embeds the token IDs and runs every block
 // and the final layer norm over them, and `generate` picks greedily on top
 // of `forward`. The ops it composes live in "llm_ops.h", and the activations
-// of a block are caller-owned views, so every one of them can be inspected.
+// of a block are caller-owned lenses, so every one of them can be inspected.
 //
 // A token's keys and values never change once computed, so `forward` keeps
 // them in a `kv_cache` and runs only the tokens that are new.
@@ -57,7 +57,7 @@ class gpt2_engine {
 public:
 #pragma region block_activations
 
-  // The intermediate activations of `apply_block`, as caller-owned views.
+  // The intermediate activations of `apply_block`, as caller-owned lenses.
   //
   // For N new tokens after M cached ones, of width C and MLP width F, in the
   // order written:
@@ -80,13 +80,13 @@ public:
   //
   // Note that the `const` on this struct is shallow.
   struct block_activations {
-    float_matrix_view ln_1_out;
-    float_matrix_view heads_out;
-    float_matrix_view attn_out;
-    float_matrix_view ln_2_in;
-    float_matrix_view ln_2_out;
-    float_matrix_view hidden;
-    float_matrix_view mlp_out;
+    float_matrix_lens ln_1_out;
+    float_matrix_lens heads_out;
+    float_matrix_lens attn_out;
+    float_matrix_lens ln_2_in;
+    float_matrix_lens ln_2_out;
+    float_matrix_lens hidden;
+    float_matrix_lens mlp_out;
     float_col_span scores;
   };
 
@@ -114,10 +114,10 @@ public:
           mlp_out(new_count * width), scores(cached_count + new_count),
           new_count{new_count}, width{width}, hidden_width{hidden_width} {}
 
-    // The views `apply_block` takes.
-    [[nodiscard]] block_activations views() noexcept {
+    // The lenses `apply_block` takes.
+    [[nodiscard]] block_activations lenses() noexcept {
       const auto rows = [&](std::vector<float>& storage, size_t cols) {
-        return float_matrix_view(storage,
+        return float_matrix_lens(storage,
             {.row_count = new_count, .col_count = cols});
       };
       return {
@@ -195,14 +195,14 @@ public:
   // added to.
   //
   // Note that the `const` on `acts` is shallow.
-  void apply_block(float_matrix_view out, const_float_matrix_view in,
+  void apply_block(float_matrix_lens out, float_matrix_view in,
       size_t block_index, const block_activations& acts,
-      float_matrix_view qkv) const noexcept {
+      float_matrix_lens qkv) const noexcept {
     const auto& params = model_.blocks[block_index];
     assert(qkv.row_extent() >= in.row_extent());
     const auto cached_count = qkv.row_extent() - in.row_extent();
-    const auto new_qkv = qkv.subview({row_ndx{cached_count}, col_ndx{0}},
-        {.row_count = in.row_extent(), .col_count = qkv.col_extent()});
+    const auto new_qkv = qkv[{row_ndx{cached_count}, col_ndx{0}},
+        {.row_count = in.row_extent(), .col_count = qkv.col_extent()}];
     // Each of these four writes is followed by an add that reads the residual
     // it would have destroyed; the ops' same-or-disjoint checks allow all
     // four, and the ops catch every other overlap.
@@ -256,7 +256,7 @@ public:
   // model's width. `acts` is reused by every block, so it holds the last
   // block's activations on return; its `ln_2_in` may be `out`, the in-place
   // form, but no other buffer may overlap `out`.
-  void forward(float_matrix_view out, std::span<const token_id> new_ids,
+  void forward(float_matrix_lens out, std::span<const token_id> new_ids,
       const block_activations& acts, kv_cache& cache) const {
     const auto cached_count = cache.ids.size();
     const auto total_count = cached_count + new_ids.size();
@@ -274,12 +274,11 @@ public:
     for (const auto [block_index, storage] :
         std::views::enumerate(cache.blocks))
     {
-      // Rows are packed at a fixed width, so growing the storage keeps every
+      // Rows are packed at a fixed width, so resizing the storage keeps every
       // cached row where it was.
       storage.reserve(context_length * qkv_width);
-      if (storage.size() < total_count * qkv_width)
-        storage.resize(total_count * qkv_width);
-      const float_matrix_view qkv(storage,
+      storage.resize(total_count * qkv_width);
+      const float_matrix_lens qkv(storage,
           {.row_count = total_count, .col_count = qkv_width});
       apply_block(out, out, static_cast<size_t>(block_index), acts, qkv);
     }
@@ -319,11 +318,11 @@ public:
     const auto new_count = new_ids.size();
 
     std::vector<float> trunk_storage(new_count * width);
-    const float_matrix_view trunk(trunk_storage,
+    const float_matrix_lens trunk(trunk_storage,
         {.row_count = new_count, .col_count = width});
     block_activation_buffers buffers(new_count, width, model_.hidden_width(),
         cached_count);
-    forward(trunk, new_ids, buffers.views(), cache_);
+    forward(trunk, new_ids, buffers.lenses(), cache_);
 
     std::vector<float> logits_storage(model_.vocab_size());
     const float_row_span logits(logits_storage);

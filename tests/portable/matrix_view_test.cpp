@@ -28,11 +28,11 @@
 
 using namespace corvid;
 
-using view_t = matrix_view<float>;
-using row_ndx = view_t::row_ndx;
-using col_ndx = view_t::col_ndx;
-using coord = view_t::coord;
-using extent = view_t::extent_t;
+using lens_t = matrix_lens<float>;
+using row_ndx = lens_t::row_ndx;
+using col_ndx = lens_t::col_ndx;
+using coord = lens_t::coord;
+using extent = lens_t::extent_t;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -41,7 +41,7 @@ namespace {
 // A `rows` by `cols` matrix whose value is 10 * row + col.
 std::vector<float> make_storage(size_t rows, size_t cols) {
   std::vector<float> storage(rows * cols);
-  const view_t m(storage, {.row_count = rows, .col_count = cols});
+  const lens_t m(storage, {.row_count = rows, .col_count = cols});
   for (const auto r : m.row_indexes())
     for (const auto c : m.col_indexes())
       m[r, c] = static_cast<float>((10 * *r) + *c);
@@ -82,7 +82,7 @@ TEST_CASE("Index types", "[MatrixViewTest]") {
 
 TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   std::vector<float> storage(2UZ * 3);
-  view_t m(storage, {.row_count = 2, .col_count = 3});
+  lens_t m(storage, {.row_count = 2, .col_count = 3});
   REQUIRE(m.row_extent() == 2);
   REQUIRE(m.col_extent() == 3);
   REQUIRE(m.extent().row_count == 2);
@@ -118,7 +118,7 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
   CHECK(middle[col_ndx{0}] == storage[4]);
   CHECK(m.row_as_span(row_ndx{0}, col_ndx{3}).empty());
 
-  const view_t unset;
+  const lens_t unset;
   CHECK(unset.empty());
   CHECK(unset.size() == 0);
   CHECK(unset.row_indexes().empty());
@@ -127,35 +127,32 @@ TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
 }
 
 TEST_CASE("Element-type aliases", "[MatrixViewTest]") {
+  static_assert(std::is_same_v<float_matrix_lens, matrix_lens<float>>);
   static_assert(std::is_same_v<float_matrix_view, matrix_view<float>>);
-  static_assert(
-      std::is_same_v<const_float_matrix_view, matrix_view<const float>>);
+  static_assert(std::is_same_v<double_matrix_lens, matrix_lens<double>>);
   static_assert(std::is_same_v<double_matrix_view, matrix_view<double>>);
-  static_assert(
-      std::is_same_v<const_double_matrix_view, matrix_view<const double>>);
 }
 
 TEST_CASE("Mutable view converts to read-only", "[MatrixViewTest]") {
   std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
-  view_t m(storage, {.row_count = 2, .col_count = 2});
-  const matrix_view<const float> ro = m;
+  lens_t m(storage, {.row_count = 2, .col_count = 2});
+  const matrix_view<float> ro = m;
   CHECK(ro[row_ndx{1}, col_ndx{0}] == 3.0F);
   CHECK(ro.as_span().data() == m.as_span().data());
 
   const std::span<const float> bytes = storage;
-  const matrix_view deduced(bytes, {.row_count = 2, .col_count = 2});
-  static_assert(
-      std::is_same_v<decltype(deduced), const matrix_view<const float>>);
+  const matrix_lens deduced(bytes, {.row_count = 2, .col_count = 2});
+  static_assert(std::is_same_v<decltype(deduced), const matrix_view<float>>);
   CHECK(deduced[row_ndx{0}, col_ndx{1}] == 2.0F);
 }
 
-TEST_CASE("Subview keeps the stride", "[MatrixViewTest]") {
+TEST_CASE("Slice keeps the stride", "[MatrixViewTest]") {
   auto storage = make_storage(2, 6);
-  view_t m(storage, {.row_count = 2, .col_count = 6});
+  lens_t m(storage, {.row_count = 2, .col_count = 6});
 
   // A block of columns by extent.
   const auto block =
-      m.subview({row_ndx{0}, col_ndx{2}}, {.row_count = 2, .col_count = 3});
+      m[{row_ndx{0}, col_ndx{2}}, {.row_count = 2, .col_count = 3}];
   REQUIRE(block.row_extent() == 2);
   REQUIRE(block.col_extent() == 3);
   REQUIRE(block.stride() == 6);
@@ -170,15 +167,15 @@ TEST_CASE("Subview keeps the stride", "[MatrixViewTest]") {
   CHECK(m[row_ndx{1}, col_ndx{3}] == -1.0F);
 
   // Slicing a slice composes.
-  const auto inner = block.subview({row_ndx{0}, col_ndx{1}},
-      {.row_count = 2, .col_count = 1});
+  const auto inner =
+      block[{row_ndx{0}, col_ndx{1}}, {.row_count = 2, .col_count = 1}];
   CHECK(inner.col_extent() == 1);
   CHECK(inner[row_ndx{0}, col_ndx{0}] == 3.0F);
   CHECK(inner.stride() == 6);
 
   // Half-open corners trim both dimensions.
   const auto corner =
-      m.subview({row_ndx{1}, col_ndx{1}}, coord{row_ndx{2}, col_ndx{4}});
+      m[{row_ndx{1}, col_ndx{1}}, coord{row_ndx{2}, col_ndx{4}}];
   CHECK(corner.row_extent() == 1);
   CHECK(corner.col_extent() == 3);
   CHECK(corner[row_ndx{0}, col_ndx{0}] == 11.0F);
@@ -186,29 +183,42 @@ TEST_CASE("Subview keeps the stride", "[MatrixViewTest]") {
 
   // `coord::npos`, the default extent, and a half-specified extent all run to
   // the end.
-  const auto to_end = m.subview({row_ndx{1}, col_ndx{4}}, coord::npos);
+  const auto to_end = m[{row_ndx{1}, col_ndx{4}}, coord::npos];
   CHECK(to_end.row_extent() == 1);
   CHECK(to_end.col_extent() == 2);
   CHECK(to_end[row_ndx{0}, col_ndx{1}] == 15.0F);
-  const auto rest = m.subview({row_ndx{1}, col_ndx{4}});
+  const auto rest = m.slice({row_ndx{1}, col_ndx{4}});
   CHECK(rest.as_span().data() == to_end.as_span().data());
   CHECK(rest.col_extent() == 2);
-  const auto strip = m.subview({row_ndx{0}, col_ndx{3}}, {.row_count = 1});
+  const auto strip = m[{row_ndx{0}, col_ndx{3}}, {.row_count = 1}];
   CHECK(strip.row_extent() == 1);
   CHECK(strip.col_extent() == 3);
   CHECK(strip[row_ndx{0}, col_ndx{2}] == 5.0F);
 
+  // The named form is the same slice, by extent and by corner.
+  CHECK(m.slice({row_ndx{0}, col_ndx{2}}, {.row_count = 2, .col_count = 3})
+            .as_span()
+            .data() == block.as_span().data());
+  CHECK(m.slice({row_ndx{1}, col_ndx{1}}, coord{row_ndx{2}, col_ndx{4}})
+            .col_extent() == corner.col_extent());
+
+  // A lens slices to a lens, and a view to a view.
+  static_assert(std::is_same_v<decltype(block), const lens_t>);
+  const matrix_view<float> read_only{m};
+  static_assert(std::is_same_v<decltype(read_only[{row_ndx{0}, col_ndx{0}},
+                                   {.row_count = 1, .col_count = 1}]),
+      matrix_view<float>>);
+
   // Empty slices at either edge are fine.
-  CHECK(m.subview({row_ndx{2}, col_ndx{0}}).empty());
-  CHECK(m.subview({row_ndx{0}, col_ndx{6}}).empty());
-  CHECK(m.subview({row_ndx{0}, col_ndx{0}}, coord{row_ndx{0}, col_ndx{0}})
-          .empty());
+  CHECK(m.slice({row_ndx{2}, col_ndx{0}}).empty());
+  CHECK(m.slice({row_ndx{0}, col_ndx{6}}).empty());
+  CHECK(m[{row_ndx{0}, col_ndx{0}}, coord{row_ndx{0}, col_ndx{0}}].empty());
 }
 
 TEST_CASE("Strided view over a larger buffer", "[MatrixViewTest]") {
   // Three rows of four, viewed as three rows of two.
   auto storage = make_storage(3, 4);
-  const view_t m(storage, {.row_count = 3, .col_count = 2}, 4);
+  const lens_t m(storage, {.row_count = 3, .col_count = 2}, 4);
   CHECK(m.stride() == 4);
   CHECK(m.size() == 6);
   CHECK(m.as_span().size() == 10);
@@ -216,7 +226,7 @@ TEST_CASE("Strided view over a larger buffer", "[MatrixViewTest]") {
   CHECK(m[row_ndx{1}].size() == 2);
 
   // The buffer only has to reach the last element of the last row.
-  const view_t tight(std::span{storage}.first(10),
+  const lens_t tight(std::span{storage}.first(10),
       {.row_count = 3, .col_count = 2}, 4);
   CHECK(tight[row_ndx{2}, col_ndx{1}] == 21.0F);
 }
@@ -226,23 +236,23 @@ TEST_CASE("Packed view over the start of a larger buffer",
   std::vector<float> storage{0.0F, 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F};
 
   // The view takes the elements of its extent and leaves the rest.
-  const view_t m(storage, {.row_count = 2, .col_count = 3});
+  const lens_t m(storage, {.row_count = 2, .col_count = 3});
   CHECK(m.is_packed());
   CHECK(m.as_span().size() == 6);
   CHECK(m[row_ndx{1}, col_ndx{2}] == 5.0F);
 
   // A buffer of exactly the extent's size can say so.
-  const view_t exact(std::span{storage}.first(6),
+  const lens_t exact(std::span{storage}.first(6),
       {.row_count = 2, .col_count = 3}, matrix_types::exact_size);
   CHECK(exact.as_span().size() == 6);
 }
 
 TEST_CASE("Rows as a range", "[MatrixViewTest]") {
-  static_assert(std::ranges::random_access_range<decltype(view_t{}.rows())>);
-  static_assert(std::ranges::view<decltype(view_t{}.rows())>);
+  static_assert(std::ranges::random_access_range<decltype(lens_t{}.rows())>);
+  static_assert(std::ranges::view<decltype(lens_t{}.rows())>);
 
   std::vector<float> storage(3UZ * 4);
-  const view_t m(storage, {.row_count = 3, .col_count = 4});
+  const lens_t m(storage, {.row_count = 3, .col_count = 4});
 
   if (true) {
     // Each row comes in order, as a writable span of its columns.
@@ -259,11 +269,10 @@ TEST_CASE("Rows as a range", "[MatrixViewTest]") {
   }
 
   if (true) {
-    // The range of a temporary subview stays valid after the temporary is
-    // gone, and honors the subview's stride.
+    // The range of a temporary slice stays valid after the temporary is
+    // gone, and honors the slice's stride.
     const auto sub_rows =
-        m.subview({row_ndx{0}, col_ndx{2}}, {.row_count = 3, .col_count = 2})
-            .rows();
+        m[{row_ndx{0}, col_ndx{2}}, {.row_count = 3, .col_count = 2}].rows();
     for (auto row : sub_rows) row[col_ndx{1}] = 9.0F;
     CHECK(storage[3] == 9.0F);
     CHECK(storage[7] == 9.0F);
@@ -275,8 +284,8 @@ TEST_CASE("Rows as a range", "[MatrixViewTest]") {
     // Two views' rows walk together, and a read-only view yields read-only
     // rows.
     std::vector<float> copy_storage(storage.size());
-    const view_t copy(copy_storage, m.extent());
-    const matrix_view<const float> source = m;
+    const lens_t copy(copy_storage, m.extent());
+    const matrix_view<float> source = m;
     for (auto [out_row, in_row] : std::views::zip(copy.rows(), source.rows()))
       std::ranges::copy(in_row, out_row.begin());
     CHECK(copy_storage == storage);
@@ -289,8 +298,8 @@ TEST_CASE("Rows as a range", "[MatrixViewTest]") {
 TEST_CASE("Matrix view arithmetic in place", "[MatrixViewTest]") {
   std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
   std::vector<float> other_storage{10.0F, 20.0F, 30.0F, 40.0F};
-  const view_t m(storage, {.row_count = 2, .col_count = 2});
-  const matrix_view<const float> other(other_storage,
+  const lens_t m(storage, {.row_count = 2, .col_count = 2});
+  const matrix_view<float> other(other_storage,
       {.row_count = 2, .col_count = 2});
 
   m += other;
@@ -307,8 +316,8 @@ TEST_CASE("Matrix view arithmetic in place", "[MatrixViewTest]") {
 
   // A strided operand is walked by rows.
   std::vector<float> wide_storage{1.0F, -1.0F, 2.0F, -1.0F};
-  const view_t wide(wide_storage, {.row_count = 2, .col_count = 1}, 2);
-  const view_t narrow(storage, {.row_count = 2, .col_count = 1}, 2);
+  const lens_t wide(wide_storage, {.row_count = 2, .col_count = 1}, 2);
+  const lens_t narrow(storage, {.row_count = 2, .col_count = 1}, 2);
   narrow += wide;
   CHECK(storage == std::vector<float>{1.0F, 0.0F, 2.0F, 0.0F});
 }
@@ -323,12 +332,15 @@ TEST_CASE("Extent transposes", "[MatrixViewTest]") {
 TEST_CASE("Extent count along an axis", "[MatrixViewTest]") {
   using matrix_types::matrix_axis;
   constexpr extent wide{.row_count = 2, .col_count = 3};
-  STATIC_CHECK(wide.count(matrix_axis::rows) == 2);
+  STATIC_CHECK(wide[matrix_axis::rows] == 2);
+  STATIC_CHECK(wide[matrix_axis::cols] == 3);
+
+  // The named form is the same count.
   STATIC_CHECK(wide.count(matrix_axis::cols) == 3);
 
   // Through a mutable extent, the count is assignable.
   auto halved = wide;
-  halved.count(matrix_axis::rows) /= 2;
+  halved[matrix_axis::rows] /= 2;
   CHECK(halved == extent{.row_count = 1, .col_count = 3});
 }
 
