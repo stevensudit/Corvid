@@ -221,18 +221,19 @@ template<DeviceMatrixLike Out>
 //   table  [P, C]  a row per position
 //   out    [T, C]  a row per token, added to in place
 //
-// `out` must have the width of `table` and no more rows than it, and must
-// not overlap `table`. Returns false when the launch is refused, leaving
-// `out` unspecified.
+// `out` must have the width of `table`, its last row's position must be in
+// `table`, and it must not overlap `table`. Returns false when the launch is
+// refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
 requires Arithmetic<device_element_t<Out>>
-[[nodiscard]] bool embed_positions(Out&& out, input_view_t<Out> table) {
+[[nodiscard]] bool embed_positions(Out&& out, input_view_t<Out> table,
+    size_t first_position = 0) {
   const auto& out_view = out.as_view();
-  assert(out_view.row_extent() <= table.row_extent());
+  assert(first_position + out_view.row_extent() <= table.row_extent());
   assert(out_view.col_extent() == table.col_extent());
 
   return add(out, out_view,
-      table.subview({row_ndx{0}, col_ndx{0}}, out_view.extent()));
+      table.subview({row_ndx{first_position}, col_ndx{0}}, out_view.extent()));
 }
 
 #pragma endregion

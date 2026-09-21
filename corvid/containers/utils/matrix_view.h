@@ -93,6 +93,13 @@ inline constexpr coord coord::npos{row_ndx::npos, col_ndx::npos};
 // An axis of a matrix.
 enum class matrix_axis : uint8_t { rows, cols };
 
+// Tag that selects the view constructor requiring the span to hold exactly
+// the elements of the extent.
+struct exact_size_t {
+  explicit exact_size_t() = default;
+};
+inline constexpr exact_size_t exact_size{};
+
 // The size of a rectangle of elements, as row and column counts.
 struct matrix_extent {
   size_t row_count = dynamic_extent;
@@ -153,8 +160,14 @@ public:
 
   constexpr matrix_view_base() = default;
 
-  // Packed view over `data`, which must hold exactly the elements of `extent`.
+  // Packed view over the start of `data`, which must hold at least the
+  // elements of `extent`.
   constexpr matrix_view_base(span_t data, extent_t extent) noexcept
+      : matrix_view_base{data, extent, extent.col_count} {}
+
+  // Packed view over `data`, which must hold exactly the elements of `extent`.
+  constexpr matrix_view_base(span_t data, extent_t extent,
+      matrix_types::exact_size_t) noexcept
       : matrix_view_base{data, extent, extent.col_count} {
     assert(data.size() == extent.row_count * extent.col_count);
   }

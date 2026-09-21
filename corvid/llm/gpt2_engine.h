@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <ranges>
 #include <span>
 #include <vector>
 
@@ -240,13 +241,12 @@ public:
   // step             |  reads               |  produces
   // -----------------+----------------------+-------------------
   // embed_tokens     |  new_ids [N]         |  out [N, 768]
-  // embed_positions  |  out, wpe [M:M + N]  |  out, in place
+  // embed_positions  |  out, wpe, M         |  out, in place
   // block, x 12      |  out, cache          |  out, in place
   // ln_f             |  out                 |  out, in place
   //
-  // where `wpe [M:M + N]` is the rows of the position table for the new
-  // tokens, so there must be no more tokens, cached and new, than the context
-  // holds.
+  // where M is the position of the first new token, so there must be no more
+  // tokens, cached and new, than the context holds.
   //
   // Only the new tokens are run. Each block reads the cached tokens' keys and
   // values from `cache`, which on return holds the new tokens as well. An
@@ -264,21 +264,24 @@ public:
     const auto qkv_width = 3 * model_.width();
 
     embed_tokens(out, new_ids, model_.wte);
-    embed_positions(out,
-        model_.wpe.subview({row_ndx{cached_count}, col_ndx{0}},
-            {.row_count = new_ids.size(), .col_count = model_.width()}));
+    embed_positions(out, model_.wpe, cached_count);
 
+    // Reserving the whole context up front means that no later pass
+    // reallocates, and a repeated reserve does nothing.
+    const auto context_length = model_.context_length();
+    cache.ids.reserve(context_length);
     cache.blocks.resize(model_.blocks.size());
-    for (const auto block_index : iota(model_.blocks.size())) {
+    for (const auto [block_index, storage] :
+        std::views::enumerate(cache.blocks))
+    {
       // Rows are packed at a fixed width, so growing the storage keeps every
       // cached row where it was.
-      auto& storage = cache.blocks[block_index];
+      storage.reserve(context_length * qkv_width);
       if (storage.size() < total_count * qkv_width)
         storage.resize(total_count * qkv_width);
-      const float_matrix_view qkv(
-          std::span(storage).first(total_count * qkv_width),
+      const float_matrix_view qkv(storage,
           {.row_count = total_count, .col_count = qkv_width});
-      apply_block(out, out, block_index, acts, qkv);
+      apply_block(out, out, static_cast<size_t>(block_index), acts, qkv);
     }
     layer_norm(out, out, model_.ln_f_weight, model_.ln_f_bias,
         gpt2_model::layer_norm_eps);

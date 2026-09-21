@@ -328,20 +328,21 @@ inline void embed_tokens(float_matrix_view out, std::span<const token_id> ids,
 
 // Add each row's position embedding from `table`, writing into `out`.
 //
-// Row t of `out` holds the token at position t, so it takes row t of
-// `table`. With T tokens, a context of P positions, and width C:
+// Row t of `out` holds the token at position `first_position` + t, so it
+// takes that row of `table`. With T tokens, a context of P positions, and
+// width C:
 //
 //   table  [P, C]  a row per position
 //   out    [T, C]  a row per token, added to in place
 //
-// `out` must have the width of `table` and no more rows than it, and must
-// not overlap `table`.
+// `out` must have the width of `table`, its last row's position must be in
+// `table`, and it must not overlap `table`.
 inline void embed_positions(float_matrix_view out,
-    const_float_matrix_view table) noexcept {
-  assert(out.row_extent() <= table.row_extent());
+    const_float_matrix_view table, size_t first_position = 0) noexcept {
+  assert(first_position + out.row_extent() <= table.row_extent());
   assert(out.col_extent() == table.col_extent());
 
-  out += table.subview({row_ndx{0}, col_ndx{0}}, out.extent());
+  out += table.subview({row_ndx{first_position}, col_ndx{0}}, out.extent());
 }
 
 #pragma endregion
