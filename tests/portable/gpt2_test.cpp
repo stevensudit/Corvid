@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <array>
+#include <algorithm>
 #include <cstddef>
 #include <format>
 #include <span>
@@ -60,7 +61,10 @@ TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
           n_hidden);
       const auto acts = owned.views();
-      engine.apply_block(out, in, n, acts);
+      std::vector<float> qkv_storage(token_count * n_qkv);
+      const float_matrix_view qkv(qkv_storage,
+          {.row_count = token_count, .col_count = n_qkv});
+      engine.apply_block(out, in, n, acts, qkv);
 
       check_close(out, expected, 1e-4F, 1e-4F);
       struct dumped {
@@ -88,7 +92,7 @@ TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
       const float_matrix_view residual(residual_storage, in.extent());
       auto in_place = acts;
       in_place.ln_2_in = residual;
-      engine.apply_block(residual, residual, n, in_place);
+      engine.apply_block(residual, residual, n, in_place, qkv);
       CHECK(residual_storage == out_storage);
     }
   }
@@ -111,9 +115,57 @@ TEST_CASE("Forward pass matches the oracle", "[Gpt2Test][oracle]") {
   std::vector<float> out_storage(token_count * n_embd);
   const float_matrix_view out(out_storage, expected.extent());
   gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden);
-  engine.forward(out, ids, owned.views());
+  gpt2_engine::kv_cache cache;
+  engine.forward(out, ids, owned.views(), cache);
 
   check_close(out, expected, 1e-4F, 1e-4F);
+  CHECK(cache.ids == ids);
+}
+
+TEST_CASE("Forward pass over a cache matches a full pass",
+    "[Gpt2Test][oracle]") {
+  auto oracle = oracle_dumps::load();
+
+  // The bisect prompt in one pass, then again as nine tokens followed by the
+  // other five. Each row's arithmetic is the same either way, so the five rows
+  // match the full pass bit for bit.
+  const auto ids =
+      ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
+  const auto total_count = ids.size();
+  REQUIRE(total_count == 14);
+  constexpr auto cached_count = 9UZ;
+  const auto new_count = total_count - cached_count;
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const gpt2_engine engine(model);
+
+  const auto run =
+      [&](std::vector<float>& storage, std::span<const token_id> new_ids,
+          gpt2_engine::kv_cache& cache) {
+        storage.resize(new_ids.size() * n_embd);
+        gpt2_engine::block_activation_buffers owned(new_ids.size(), n_embd,
+            n_hidden, cache.ids.size());
+        engine.forward(float_matrix_view(storage,
+                           {.row_count = new_ids.size(), .col_count = n_embd}),
+            new_ids, owned.views(), cache);
+      };
+
+  std::vector<float> full_storage;
+  gpt2_engine::kv_cache full_cache;
+  run(full_storage, ids, full_cache);
+
+  std::vector<float> first_storage;
+  std::vector<float> rest_storage;
+  gpt2_engine::kv_cache cache;
+  run(first_storage, std::span{ids}.first(cached_count), cache);
+  CHECK(cache.ids.size() == cached_count);
+  run(rest_storage, std::span{ids}.subspan(cached_count), cache);
+  CHECK(cache.ids == ids);
+
+  const auto rest_of_full =
+      std::span{full_storage}.subspan(cached_count * n_embd);
+  REQUIRE(rest_storage.size() == new_count * n_embd);
+  CHECK(std::ranges::equal(rest_storage, rest_of_full));
+  CHECK(cache.blocks == full_cache.blocks);
 }
 
 TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
@@ -137,7 +189,8 @@ TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
           {.row_count = token_count, .col_count = n_embd});
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
           n_hidden);
-      engine.forward(trunk, ids, owned.views());
+      gpt2_engine::kv_cache cache;
+      engine.forward(trunk, ids, owned.views(), cache);
 
       std::vector<float> storage(expected.size());
       const float_matrix_view out(storage, expected.extent());
@@ -152,9 +205,9 @@ TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
   auto oracle = oracle_dumps::load();
 
   // The manifest records the oracle's greedy continuation of one prompt: the
-  // twenty IDs it appended, and their text. Each step runs the whole model
-  // over the IDs so far and appends the most likely next token, so one wrong
-  // pick would derail every later one.
+  // twenty IDs it appended, and their text. Each step appends the most likely
+  // next token, running only the token the step before appended, so one wrong
+  // pick or one bad cached row would derail every later one.
   const auto expected = read_greedy_continuation();
   REQUIRE(expected.ids.size() == 20);
 
@@ -174,6 +227,17 @@ TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
   // Nothing follows no tokens.
   token_id next{};
   CHECK(!engine.next_token(next, {}));
+
+  // An unrelated list replaces the cached one, and the prompt, run again from
+  // nothing, still gets the first pick. So does the same prompt asked twice,
+  // which has every token but the last cached.
+  const auto prompt = std::span{ids}.first(prompt_count);
+  const std::vector<token_id> unrelated{gpt2_model::end_of_text};
+  REQUIRE(engine.next_token(next, unrelated));
+  REQUIRE(engine.next_token(next, prompt));
+  CHECK(next == expected.ids.front());
+  REQUIRE(engine.next_token(next, prompt));
+  CHECK(next == expected.ids.front());
 }
 
 TEST_CASE("Model rejects a file without the weights", "[Gpt2Test]") {
