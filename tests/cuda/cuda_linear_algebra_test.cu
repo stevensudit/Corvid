@@ -295,6 +295,49 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
   CHECK(wide_storage == std::vector<T>{T{6}, T{8}, T{9}, T{15}, T{17}, T{9}});
 }
 
+TEMPLATE_TEST_CASE("Device batched gemm over both axes",
+    "[LinearAlgebraTest][cuda]", float, double) {
+  using T = TestType;
+  using cuda::linalg::batch_axis;
+  const cublas_handle blas;
+
+  // Two instances. Instance 0 is column 0 of `a` and of `b`, instance 1 is
+  // column 1, and each product is a column times a transposed column:
+  // [1, 3]^T * [5, 7] and [2, 4]^T * [6, 8], stacked as the rows of `outer`.
+  const std::vector<T> a_storage{T{1}, T{2}, T{3}, T{4}};
+  const std::vector<T> b_storage{T{5}, T{6}, T{7}, T{8}};
+  const cuda_matrix<T> a(
+      matrix_view<const T>(a_storage, {.row_count = 2, .col_count = 2}));
+  const cuda_matrix<T> b(
+      matrix_view<const T>(b_storage, {.row_count = 2, .col_count = 2}));
+  cuda_matrix<T> outer({.row_count = 4, .col_count = 2});
+  REQUIRE(cuda::linalg::gemm_batched(blas, outer, a, b,
+      {.count = 2,
+          .a = batch_axis::cols,
+          .b = batch_axis::cols,
+          .out = batch_axis::rows},
+      {.op_b = cublas_operation::transpose}));
+
+  std::vector<T> outer_storage(outer.size());
+  REQUIRE(
+      outer.as_view().store(matrix_view<T>(outer_storage, outer.extent())));
+  CHECK(outer_storage ==
+        std::vector<T>{T{5}, T{7}, T{15}, T{21}, T{12}, T{16}, T{24}, T{32}});
+
+  // Each stacked square times its column of `a`, [[5, 7], [15, 21]] * [1, 3]^T
+  // and [[12, 16], [24, 32]] * [2, 4]^T, writing interleaved columns of `out`.
+  cuda_matrix<T> out({.row_count = 2, .col_count = 2});
+  REQUIRE(cuda::linalg::gemm_batched(blas, out, outer, a,
+      {.count = 2,
+          .a = batch_axis::rows,
+          .b = batch_axis::cols,
+          .out = batch_axis::cols}));
+
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.as_view().store(matrix_view<T>(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<T>{T{26}, T{88}, T{78}, T{176}});
+}
+
 #pragma endregion
 #pragma region add
 

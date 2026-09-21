@@ -357,6 +357,20 @@ TEST_CASE("Device causal mask blanks the columns after the diagonal",
                        1.0F, 1.0F, 1.0F});
 }
 
+TEST_CASE("Device causal mask blanks each square of a stack on its own",
+    "[LlmOpsTest][cuda]") {
+  const std::vector<float> ones(4UZ * 2, 1.0F);
+  cuda_matrix<float> scores(
+      const_float_matrix_view(ones, {.row_count = 4, .col_count = 2}));
+  REQUIRE(cuda::llm::causal_mask(scores));
+
+  std::vector<float> storage(scores.size());
+  REQUIRE(scores.as_view().store(float_matrix_view(storage, scores.extent())));
+  constexpr auto blank = -std::numeric_limits<float>::infinity();
+  CHECK(storage ==
+        std::vector<float>{1.0F, blank, 1.0F, 1.0F, 1.0F, blank, 1.0F, 1.0F});
+}
+
 TEST_CASE("Device attention on three tokens of width two",
     "[LlmOpsTest][cuda]") {
   // The CPU test's napkin example, starting from its `qkv`. There, q and k
@@ -368,12 +382,12 @@ TEST_CASE("Device attention on three tokens of width two",
       const_float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
   const cublas_handle blas;
   cuda_matrix<float> out({.row_count = 3, .col_count = 2});
-  cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
   std::vector<float> out_storage(out.size());
   const float_matrix_view out_view(out_storage, out.extent());
   constexpr auto tolerance = 1e-5;
 
   SECTION("one head of width two") {
+    cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
     REQUIRE(cuda::llm::attend(blas, out, qkv, 1, scores));
     REQUIRE(out.as_view().store(out_view));
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
@@ -385,6 +399,7 @@ TEST_CASE("Device attention on three tokens of width two",
   }
 
   SECTION("two heads of width one") {
+    cuda_matrix<float> scores({.row_count = 2UZ * 3, .col_count = 3});
     REQUIRE(cuda::llm::attend(blas, out, qkv, 2, scores));
     REQUIRE(out.as_view().store(out_view));
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
@@ -430,7 +445,7 @@ TEST_CASE("Device attention path matches the oracle",
       cuda_matrix<float> qkv({.row_count = token_count, .col_count = n_qkv});
       cuda_matrix<float> heads_out(in_view.extent());
       cuda_matrix<float> scores(
-          {.row_count = token_count, .col_count = token_count});
+          {.row_count = n_head * token_count, .col_count = token_count});
       cuda_matrix<float> out(in_view.extent());
       std::vector<float> out_storage(out.size());
       const float_matrix_view out_view(out_storage, out.extent());

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <type_traits>
@@ -112,6 +113,13 @@ fill_rows(kernel_matrix_view<T> out, matrix_extent extent, const T* bias) {
   if (const kernel_coord at; at.is_within(extent)) out[at] = bias[at.col];
 }
 
+// The extent of `op(x)`.
+template<typename T>
+[[nodiscard]] matrix_extent
+op_extent(cuda_matrix_view<T> x, cublas_operation op) noexcept {
+  return (op == cublas_operation::none) ? x.extent() : x.extent().transposed();
+}
+
 } // namespace details
 
 // The scalars and transpose flags of a `gemm`, named at the call site.
@@ -162,14 +170,9 @@ gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
     input_view_t<Out> b, gemm_options<device_element_t<Out>> options = {},
     input_view_t<Out> addend = {}) {
   const auto& out_view = out.as_view();
-  // The extent of `op(x)`.
-  const auto op_extent = [](const auto& x, cublas_operation op) {
-    return (op == cublas_operation::none)
-               ? x.extent()
-               : x.extent().transposed();
-  };
-  const auto op_a_extent = op_extent(a, options.op_a);
-  [[maybe_unused]] const auto op_b_extent = op_extent(b, options.op_b);
+  const auto op_a_extent = details::op_extent(a, options.op_a);
+  [[maybe_unused]] const auto op_b_extent =
+      details::op_extent(b, options.op_b);
   assert((out_view.row_extent() == op_a_extent.row_count) &&
          (out_view.col_extent() == op_b_extent.col_count));
   assert(op_a_extent.col_count == op_b_extent.row_count);
@@ -227,6 +230,116 @@ requires GemmElement<device_element_t<Out>>
   if (!cuda_last_status{}) return false;
 
   return gemm(blas, out_view, a, b, options, out_view);
+}
+
+#pragma endregion
+#pragma region gemm_batched
+
+// The axis along which a matrix divides into the equal pieces that a batched
+// op takes one at a time.
+//
+// Under `rows`, a matrix of B * R rows is B pieces of R rows each, stacked.
+// Under `cols`, a matrix of B * C columns is B pieces of C columns each, side
+// by side.
+enum class batch_axis : uint8_t { rows, cols };
+
+// How the operands of a `gemm_batched` divide into instances.
+//
+// `count` is how many instances there are, and must divide the extent of each
+// operand along its axis.
+struct gemm_batch {
+  size_t count{};
+  batch_axis a = batch_axis::rows;
+  batch_axis b = batch_axis::rows;
+  batch_axis out = batch_axis::rows;
+};
+
+namespace details {
+
+// A batched operand, as a view of instance 0 and the element distance from
+// each instance to the next.
+template<typename T>
+struct batch_pieces {
+  cuda_matrix_view<T> first;
+  size_t stride{};
+};
+
+// Divide `whole` into `count` equal pieces along `axis`.
+//
+// `count` must divide the extent of `whole` along `axis`.
+template<typename T>
+[[nodiscard]] batch_pieces<T>
+split_batch(cuda_matrix_view<T> whole, batch_axis axis, size_t count) {
+  using matrix_types::col_ndx;
+  using matrix_types::row_ndx;
+  auto piece = whole.extent();
+  auto& divided =
+      (axis == batch_axis::rows) ? piece.row_count : piece.col_count;
+  assert(count && (divided % count == 0));
+  divided /= count;
+
+  // Stacked pieces are a piece's worth of stored rows apart. Side-by-side
+  // pieces are a piece's width apart, and share the stride of `whole` as their
+  // leading dimension.
+  const auto stride =
+      (axis == batch_axis::rows)
+          ? piece.row_count * whole.stride()
+          : piece.col_count;
+  return {whole.subview({row_ndx{0}, col_ndx{0}}, piece), stride};
+}
+
+} // namespace details
+
+// Batched GEMM over row-major matrices. For each instance `i`, the formula is:
+//
+// `out[i] = scale * op(a[i]) * op(b[i])`
+//
+// where `op(x)` is `x` or its transpose, as the options select.
+//
+// Each operand is one matrix holding every instance as an equal piece, divided
+// along the axis that `batch` names for it. The pieces of one operand share an
+// extent, and the shapes of the pieces must agree as the operands of `gemm`
+// do.
+//
+// There is no addend, so `addend_scale` is unused.
+//
+// `out` must not overlap `a` or `b`. Returns false when the launch is refused,
+// leaving `out` unspecified.
+template<DeviceMatrixLike Out>
+requires GemmElement<device_element_t<Out>>
+[[nodiscard]] bool gemm_batched(const cublas_handle& blas, Out&& out,
+    input_view_t<Out> a, input_view_t<Out> b, gemm_batch batch,
+    gemm_options<device_element_t<Out>> options = {}) {
+  const auto& out_view = out.as_view();
+  assert(is_disjoint(out_view.as_span(), a.as_span()));
+  assert(is_disjoint(out_view.as_span(), b.as_span()));
+  const auto out_pieces =
+      details::split_batch(out_view, batch.out, batch.count);
+  const auto a_pieces = details::split_batch(a, batch.a, batch.count);
+  const auto b_pieces = details::split_batch(b, batch.b, batch.count);
+
+  const auto op_a_extent = details::op_extent(a_pieces.first, options.op_a);
+  [[maybe_unused]] const auto op_b_extent =
+      details::op_extent(b_pieces.first, options.op_b);
+  assert((out_pieces.first.row_extent() == op_a_extent.row_count) &&
+         (out_pieces.first.col_extent() == op_b_extent.col_count));
+  assert(op_a_extent.col_count == op_b_extent.row_count);
+
+  // Each leading dimension is the stride of the whole operand, which its
+  // pieces inherit.
+  const auto m = static_cast<int>(out_pieces.first.row_extent());
+  const auto n = static_cast<int>(out_pieces.first.col_extent());
+  const auto k = static_cast<int>(op_a_extent.col_count);
+  const auto lda = static_cast<int>(a.stride());
+  const auto ldb = static_cast<int>(b.stride());
+  const auto ldc = static_cast<int>(out_view.stride());
+  return blas
+      .multiply_batched_row_major(m, n, k, options.scale, a.get(), lda,
+          static_cast<long long>(a_pieces.stride), b.get(), ldb,
+          static_cast<long long>(b_pieces.stride), device_element_t<Out>{},
+          out_view.get(), ldc, static_cast<long long>(out_pieces.stride),
+          static_cast<int>(batch.count), options.op_a, options.op_b)
+      .ok();
 }
 
 #pragma endregion

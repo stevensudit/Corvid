@@ -87,7 +87,7 @@ TEST_CASE("Device block matches the oracle", "[Gpt2Test][oracle][cuda]") {
       const cuda_matrix<float> in(in_view);
       cuda_matrix<float> out(in_view.extent());
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
-          n_hidden);
+          n_hidden, n_head);
       const auto acts = owned.views();
       REQUIRE(engine.apply_block(out, in, n, acts));
 
@@ -137,7 +137,8 @@ TEST_CASE("Device forward pass matches the oracle",
 
   const cuda_buffer<token_id> ids(id_storage);
   cuda_matrix<float> out(expected.extent());
-  gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden);
+  gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden,
+      n_head);
   REQUIRE(engine.forward(out, ids, owned.views()));
 
   check_device_close(out, expected, 1e-4F, 1e-4F);
@@ -167,7 +168,7 @@ TEST_CASE("Device model matches the oracle on every prompt",
       cuda_matrix<float> trunk(
           {.row_count = token_count, .col_count = n_embd});
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
-          n_hidden);
+          n_hidden, n_head);
       REQUIRE(engine.forward(trunk, ids, owned.views()));
 
       cuda_matrix<float> logits(expected.extent());
