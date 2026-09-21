@@ -285,7 +285,7 @@ inline void attend(float_matrix_lens out, float_matrix_view qkv,
   const auto k = one_third(1);
   const auto v = one_third(2);
 
-  for (size_t head = 0; head < head_count; ++head) {
+  for (const auto head : iota(head_count)) {
     // Every row of `m`, which has its own count, and the head's columns.
     const auto slice = [&](const auto& m) {
       return m[{row_ndx{0}, col_ndx{head * head_width}},

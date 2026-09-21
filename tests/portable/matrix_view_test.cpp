@@ -187,7 +187,7 @@ TEST_CASE("Slice keeps the stride", "[MatrixViewTest]") {
   CHECK(to_end.row_extent() == 1);
   CHECK(to_end.col_extent() == 2);
   CHECK(to_end[row_ndx{0}, col_ndx{1}] == 15.0F);
-  const auto rest = m.slice({row_ndx{1}, col_ndx{4}});
+  const auto rest = m[{row_ndx{1}, col_ndx{4}}, extent::npos];
   CHECK(rest.as_span().data() == to_end.as_span().data());
   CHECK(rest.col_extent() == 2);
   const auto strip = m[{row_ndx{0}, col_ndx{3}}, {.row_count = 1}];
@@ -195,12 +195,14 @@ TEST_CASE("Slice keeps the stride", "[MatrixViewTest]") {
   CHECK(strip.col_extent() == 3);
   CHECK(strip[row_ndx{0}, col_ndx{2}] == 5.0F);
 
-  // The named form is the same slice, by extent and by corner.
+  // The named form is the same slice, by extent, by corner, and to the end.
   CHECK(m.slice({row_ndx{0}, col_ndx{2}}, {.row_count = 2, .col_count = 3})
             .as_span()
             .data() == block.as_span().data());
   CHECK(m.slice({row_ndx{1}, col_ndx{1}}, coord{row_ndx{2}, col_ndx{4}})
             .col_extent() == corner.col_extent());
+  CHECK(m.slice({row_ndx{1}, col_ndx{4}}).as_span().data() ==
+        rest.as_span().data());
 
   // A lens slices to a lens, and a view to a view.
   static_assert(std::is_same_v<decltype(block), const lens_t>);
@@ -210,8 +212,8 @@ TEST_CASE("Slice keeps the stride", "[MatrixViewTest]") {
       matrix_view<float>>);
 
   // Empty slices at either edge are fine.
-  CHECK(m.slice({row_ndx{2}, col_ndx{0}}).empty());
-  CHECK(m.slice({row_ndx{0}, col_ndx{6}}).empty());
+  CHECK(m[{row_ndx{2}, col_ndx{0}}, extent::npos].empty());
+  CHECK(m[{row_ndx{0}, col_ndx{6}}, extent::npos].empty());
   CHECK(m[{row_ndx{0}, col_ndx{0}}, coord{row_ndx{0}, col_ndx{0}}].empty());
 }
 

@@ -215,12 +215,6 @@ public:
   [[nodiscard]] constexpr size_t col_extent() const noexcept {
     return extent_.col_count;
   }
-  [[nodiscard]] constexpr row_ndx row_extent_as_enum() const noexcept {
-    return row_ndx{extent_.row_count};
-  }
-  [[nodiscard]] constexpr col_ndx col_extent_as_enum() const noexcept {
-    return col_ndx{extent_.col_count};
-  }
   [[nodiscard]] constexpr extent_t extent() const noexcept { return extent_; }
   [[nodiscard]] constexpr size_t size() const noexcept {
     return extent_.row_count * extent_.col_count;
@@ -273,8 +267,9 @@ public:
   // stride. Prefer the subscript, `m[from, size]`.
   //
   // A count of `size` at its `npos` means the rest of that dimension, so the
-  // default takes everything from `from` on. That form has no subscript,
-  // since `m[from]` is an element.
+  // default takes everything from `from` on. A subscript has no default, and
+  // `m[from]` is an element, so the subscript for that names the extent, as
+  // `m[from, matrix_extent::npos]`.
   //
   // The rectangle must lie within this one.
   template<typename Self>

@@ -31,6 +31,7 @@
 
 #include "../containers/core/opt_find.h"
 #include "../containers/core/transparent.h"
+#include "../containers/utils/interval.h"
 #include "../enums/sequence_enum.h"
 #include "../strings/conversion.h"
 #include "../strings/token_parser.h"
@@ -100,7 +101,7 @@ inline constexpr auto max_escaped_byte =
 // `unescape_byte` tells the two apart.
 [[nodiscard]] consteval auto make_unescaped_bytes_lookup() {
   std::array<uint8_t, max_escaped_byte + 1> table{};
-  for (auto byte = 0; byte < 256; ++byte)
+  for (const auto byte : iota(256))
     table[escaped_bytes_lookup[byte]] = static_cast<uint8_t>(byte);
   return table;
 }
@@ -109,7 +110,7 @@ inline constexpr auto unescaped_bytes_lookup = make_unescaped_bytes_lookup();
 // The count of bytes that are their own escaped form.
 [[nodiscard]] consteval uint32_t count_printable_latin1() {
   uint32_t count{};
-  for (auto byte = 0; byte < 256; ++byte)
+  for (const auto byte : iota(256))
     if (is_printable_latin1(static_cast<uint8_t>(byte))) ++count;
   return count;
 }
@@ -126,7 +127,7 @@ inline constexpr auto unescaped_bytes_lookup = make_unescaped_bytes_lookup();
   auto next_other = count_printable_latin1();
   // Assigns a `token_id` to each byte, with printable Latin-1 bytes first and
   // the rest following.
-  for (auto byte = 0; byte < 256; ++byte) {
+  for (const auto byte : iota(256)) {
     ids[byte] = token_id{
         is_printable_latin1(static_cast<uint8_t>(byte))
             ? next_printable++
@@ -140,7 +141,7 @@ inline constexpr auto byte_ids_lookup = make_byte_ids_lookup();
 // byte.
 [[nodiscard]] consteval std::array<uint8_t, 256> make_id_bytes_lookup() {
   std::array<uint8_t, 256> bytes{};
-  for (auto byte = 0; byte < 256; ++byte)
+  for (const auto byte : iota(256))
     bytes[*byte_ids_lookup[byte]] = static_cast<uint8_t>(byte);
   return bytes;
 }
@@ -314,7 +315,7 @@ public:
     };
 
     // The first 256 pieces are the single bytes, in ID order.
-    for (auto ndx = 0U; ndx < 256; ++ndx) {
+    for (const auto ndx : iota(256)) {
       token_id id{};
       const auto byte = static_cast<char8_t>(details::id_bytes_lookup[ndx]);
       (void)add_piece(id, std::u8string_view(&byte, 1));
