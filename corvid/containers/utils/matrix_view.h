@@ -47,8 +47,8 @@
 //   using view_t = matrix_view<float>;
 //   std::vector<float> storage(rows * cols);
 //   view_t m(storage, {.row_count = rows, .col_count = cols});
-//   for (const auto r : m.row_interval())
-//     for (const auto c : m.col_interval()) m[r, c] = 1.0F;
+//   for (const auto r : m.row_indexes())
+//     for (const auto c : m.col_indexes()) m[r, c] = 1.0F;
 //   for (const auto value : m[r]) ...
 //
 // Walking the rows of two views together:
@@ -211,11 +211,11 @@ public:
   }
 
   // The row or column indexes as a closed interval, for ranged-for:
-  //   for (const auto r : m.row_interval())
-  [[nodiscard]] constexpr auto row_interval() const noexcept {
+  //   for (const auto r : m.row_indexes())
+  [[nodiscard]] constexpr auto row_indexes() const noexcept {
     return interval<row_ndx>::iota(extent_.row_count);
   }
-  [[nodiscard]] constexpr auto col_interval() const noexcept {
+  [[nodiscard]] constexpr auto col_indexes() const noexcept {
     return interval<col_ndx>::iota(extent_.col_count);
   }
 

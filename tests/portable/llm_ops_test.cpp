@@ -256,6 +256,20 @@ TEST_CASE("Embed tokens on hand-computed rows", "[LlmOpsTest]") {
   CHECK(storage == std::vector<float>{100.0F, 200.0F, 1.0F, 2.0F});
 }
 
+TEST_CASE("Embed positions on hand-computed rows", "[LlmOpsTest]") {
+  // A context of three positions, width two, under two tokens.
+  const std::vector<float> table_storage{1.0F, 2.0F, 10.0F, 20.0F, 100.0F,
+      200.0F};
+  const const_float_matrix_view table(table_storage,
+      {.row_count = 3, .col_count = 2});
+
+  std::vector<float> storage{0.5F, 0.25F, -10.0F, 5.0F};
+  const float_matrix_view out(storage, {.row_count = 2, .col_count = 2});
+  embed_positions(out, table);
+
+  CHECK(storage == std::vector<float>{1.5F, 2.25F, 0.0F, 25.0F});
+}
+
 TEST_CASE("Logits on hand-computed rows", "[LlmOpsTest]") {
   // Two tokens of width two against a three-entry vocabulary.
   const std::vector<float> wte_storage{1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F};
@@ -280,8 +294,7 @@ TEST_CASE("Greedy picks the largest logit", "[LlmOpsTest]") {
 }
 
 TEST_CASE("Layer norm matches the oracle", "[LlmOpsTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // Every layer norm in the model, fed its own dumped input, so no error in
   // an earlier op can reach it.
@@ -315,8 +328,7 @@ TEST_CASE("Layer norm matches the oracle", "[LlmOpsTest][oracle]") {
 }
 
 TEST_CASE("MLP path matches the oracle", "[LlmOpsTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // Every block's MLP, fed its own dumped `ln_2/out` and compared against its
   // dumped `mlp/out`, which is the first point after `c_fc`, `gelu_new`, and
@@ -356,8 +368,7 @@ TEST_CASE("MLP path matches the oracle", "[LlmOpsTest][oracle]") {
 }
 
 TEST_CASE("Attention path matches the oracle", "[LlmOpsTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // Every block's attention, fed its own dumped `ln_1/out` and compared
   // against its dumped `attn/out`, which is the first point after `c_attn`,
@@ -400,8 +411,7 @@ TEST_CASE("Attention path matches the oracle", "[LlmOpsTest][oracle]") {
 }
 
 TEST_CASE("Residual adds match the oracle", "[LlmOpsTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // Both adds of every block, each fed its own dumped operands. Adding two
   // fp32 values is the same IEEE operation here and in the oracle, so the
@@ -440,8 +450,7 @@ TEST_CASE("Residual adds match the oracle", "[LlmOpsTest][oracle]") {
 }
 
 TEST_CASE("Embed matches the oracle", "[LlmOpsTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // The bisect prompt's IDs come from the logits dump, the only place the
   // oracle wrote them. As with the residual add, the sum of two fp32 rows is
@@ -458,15 +467,13 @@ TEST_CASE("Embed matches the oracle", "[LlmOpsTest][oracle]") {
   std::vector<float> storage(ids.size() * n_embd);
   const float_matrix_view out(storage, expected.extent());
   embed_tokens(out, ids, wte);
-  out += wpe.subview({row_ndx{0}, col_ndx{0}},
-      {.row_count = ids.size(), .col_count = n_embd});
+  embed_positions(out, wpe);
 
   check_close(out, expected, 0.0F, 0.0F);
 }
 
 TEST_CASE("Logits match the oracle", "[LlmOpsTest][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // The head alone, fed the dumped `ln_f/out`, against the dumped logits of
   // the bisect prompt.

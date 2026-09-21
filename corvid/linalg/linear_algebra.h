@@ -266,7 +266,7 @@ void softmax(O& span_out, const I& span_in) noexcept {
 #pragma endregion
 #pragma region add
 
-// Add `a` and `b` elementwise, into `out`.
+// Add `a` and `b` elementwise, writing into `out`.
 //
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, adding in place, but must not otherwise overlap either.
@@ -286,7 +286,7 @@ void add(matrix_view<T> out, const_view_t<T> a, const_view_t<T> b) noexcept {
 #pragma endregion
 #pragma region subtract
 
-// Subtract `b` from `a` elementwise, into `out`.
+// Subtract `b` from `a` elementwise, writing into `out`.
 //
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, subtracting in place, but must not otherwise overlap either.

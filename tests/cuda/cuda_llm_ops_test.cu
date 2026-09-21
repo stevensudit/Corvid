@@ -92,8 +92,7 @@ TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
 
 TEST_CASE("Device layer norm matches the oracle",
     "[LlmOpsTest][oracle][cuda]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // Every layer norm in the model, both per block and the final one, each fed
   // its own dumped input and compared against its dumped output, as the CPU
@@ -139,8 +138,7 @@ TEST_CASE("Device layer norm matches the oracle",
 
 TEST_CASE("Device residual adds match the oracle",
     "[LlmOpsTest][oracle][cuda]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // Both adds of every block, each fed its own dumped operands. Adding two
   // fp32 values is the same IEEE operation on the device and in the oracle,
@@ -222,8 +220,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
 #pragma region MLP
 
 TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
   const cublas_handle blas;
 
   // Every block's MLP, fed its own dumped `ln_2/out` and compared against its
@@ -292,18 +289,33 @@ TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
   CHECK(out_storage == std::vector<T>{T{100}, T{200}, T{1}, T{2}});
 }
 
+TEMPLATE_TEST_CASE("Device embed positions on hand-computed rows",
+    "[LlmOpsTest][cuda]", float, double) {
+  using T = TestType;
+  // A context of three positions, width two, under two tokens, as the CPU
+  // test has them.
+  const std::vector<T> table_storage{T{1}, T{2}, T{10}, T{20}, T{100}, T{200}};
+  const cuda_matrix<T> table(
+      matrix_view<const T>(table_storage, {.row_count = 3, .col_count = 2}));
+  const std::vector<T> in_storage{T{0.5}, T{0.25}, T{-10}, T{5}};
+  cuda_matrix<T> out(
+      matrix_view<const T>(in_storage, {.row_count = 2, .col_count = 2}));
+
+  REQUIRE(cuda::llm::embed_positions(out, table));
+
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.as_view().store(matrix_view<T>(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<T>{T{1.5}, T{2.25}, T{0}, T{25}});
+}
+
 TEST_CASE("Device embed tokens match the oracle",
     "[LlmOpsTest][oracle][cuda]") {
-  using view_t = cuda_matrix<float>::view_t;
-  using row_ndx = view_t::row_ndx;
-  using col_ndx = view_t::col_ndx;
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // The bisect prompt's IDs come from the logits dump, the only place the
   // oracle wrote them. The dumped `embed/out` is the token embedding plus the
-  // position embedding, so the device add supplies the second half, and both
-  // halves are exact.
+  // position embedding, so `embed_positions` supplies the second half, and
+  // both halves are exact.
   const auto id_storage =
       ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
   REQUIRE(id_storage.size() == 14);
@@ -322,8 +334,7 @@ TEST_CASE("Device embed tokens match the oracle",
   const float_matrix_view out_view(out_storage, out.extent());
 
   REQUIRE(cuda::llm::embed_tokens(out, ids, wte));
-  REQUIRE(cuda::linalg::add(out, out,
-      wpe.subview({row_ndx{0}, col_ndx{0}}, out.extent())));
+  REQUIRE(cuda::llm::embed_positions(out, wpe));
   REQUIRE(out.as_view().store(out_view));
 
   check_close(out_view, expected, 0.0F, 0.0F);
@@ -387,8 +398,7 @@ TEST_CASE("Device attention on three tokens of width two",
 
 TEST_CASE("Device attention path matches the oracle",
     "[LlmOpsTest][oracle][cuda]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
   const cublas_handle blas;
 
   // Every block's attention, fed its own dumped `ln_1/out` and compared

@@ -3,7 +3,8 @@
 The steps of one forward pass through GPT-2 (the 124M-parameter "gpt2"
 checkpoint), with the shape of every input and output and the name of every
 tensor read from the weights file. It is a lookup table for reading and writing
-the ops in "linear_algebra.h", "llm_ops.h", and "gpt2.h", not a tutorial; the
+the ops in "linear_algebra.h", "llm_ops.h", and "gpt2_engine.h", and the
+model in "gpt2.h", not a tutorial; the
 roadmap has the plan and the status, and the doc blocks in the header have the
 formulas.
 
@@ -79,7 +80,7 @@ transposed, with no bias.
 | step | reads | looks up | produces | Corvid |
 |---|---|---|---|---|
 | tokenize | text | vocab, merges | ids [T] | `gpt2_tokenizer.h` |
-| embed | ids [T] | `wte.weight` row per ID, `wpe.weight` row per position | residual [T, C] | `embed_tokens`, then `add` of the first T rows of `wpe.weight` |
+| embed | ids [T] | `wte.weight` row per ID, `wpe.weight` row per position | residual [T, C] | `embed_tokens`, then `embed_positions` over the first T rows of `wpe.weight` |
 
 The embedding is `wte[id[t]] + wpe[t]` for each position `t`. Positions
 past n_ctx have no row, so a longer prompt is refused, not wrapped. After

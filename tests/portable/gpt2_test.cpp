@@ -14,13 +14,16 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <array>
 #include <cstddef>
 #include <format>
 #include <span>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "corvid/llm/gpt2.h"
+#include "corvid/llm/gpt2_engine.h"
 #include "catch2_main.h"
 #include "gpt2_oracle.h"
 
@@ -28,62 +31,12 @@ using namespace corvid;
 using namespace corvid::llm;
 using namespace corvid::tests::gpt2;
 
-using row_ndx = float_matrix_view::row_ndx;
-
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-namespace {
-
-#pragma region Block
-
-// Owned storage for every activation of `block`, all distinct, sized for
-// `token_count` tokens of the model's widths.
-struct owned_block_activations {
-  std::vector<float> ln_1_out;
-  std::vector<float> qkv;
-  std::vector<float> heads_out;
-  std::vector<float> attn_out;
-  std::vector<float> ln_2_in;
-  std::vector<float> ln_2_out;
-  std::vector<float> hidden;
-  std::vector<float> mlp_out;
-  std::vector<float> scores;
-  size_t token_count{};
-
-  explicit owned_block_activations(size_t token_count)
-      : ln_1_out(token_count * n_embd), qkv(token_count * n_qkv),
-        heads_out(token_count * n_embd), attn_out(token_count * n_embd),
-        ln_2_in(token_count * n_embd), ln_2_out(token_count * n_embd),
-        hidden(token_count * n_hidden), mlp_out(token_count * n_embd),
-        scores(token_count), token_count{token_count} {}
-
-  // The views `block` takes.
-  block_activations views() {
-    const auto rows = [&](std::vector<float>& storage, size_t cols) {
-      return float_matrix_view(storage,
-          {.row_count = token_count, .col_count = cols});
-    };
-    return {
-        .ln_1_out = rows(ln_1_out, n_embd),
-        .qkv = rows(qkv, n_qkv),
-        .heads_out = rows(heads_out, n_embd),
-        .attn_out = rows(attn_out, n_embd),
-        .ln_2_in = rows(ln_2_in, n_embd),
-        .ln_2_out = rows(ln_2_out, n_embd),
-        .hidden = rows(hidden, n_hidden),
-        .mlp_out = rows(mlp_out, n_embd),
-        .scores = scores,
-    };
-  }
-};
-
-#pragma endregion
-
-} // namespace
-
 TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const gpt2_engine engine(model);
 
   // Every block, fed its own dumped residual. The residual that leaves it is
   // the next block's `ln_1/in` or, for the last block, `ln_f/in`, and the
@@ -99,15 +52,15 @@ TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
               ? std::format("block_{}/ln_1/in", n + 1)
               : std::string{"ln_f/in"};
       const auto expected = matrix_of(oracle.activations, exit, n_embd);
-      const auto params = block_params_of(oracle, n);
       const auto token_count = in.row_extent();
       REQUIRE(token_count == 14);
 
       std::vector<float> out_storage(in.size());
       const float_matrix_view out(out_storage, in.extent());
-      owned_block_activations owned(token_count);
+      gpt2_engine::block_activation_buffers owned(token_count, n_embd,
+          n_hidden);
       const auto acts = owned.views();
-      block(out, in, params, acts, n_head);
+      engine.apply_block(out, in, n, acts);
 
       check_close(out, expected, 1e-4F, 1e-4F);
       struct dumped {
@@ -135,15 +88,14 @@ TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
       const float_matrix_view residual(residual_storage, in.extent());
       auto in_place = acts;
       in_place.ln_2_in = residual;
-      block(residual, residual, params, in_place, n_head);
+      engine.apply_block(residual, residual, n, in_place);
       CHECK(residual_storage == out_storage);
     }
   }
 }
 
 TEST_CASE("Forward pass matches the oracle", "[Gpt2Test][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // The bisect prompt from its IDs through every block to `ln_f/out`, the
   // last dump before the head. Nothing here is fed a dumped intermediate, so
@@ -152,24 +104,25 @@ TEST_CASE("Forward pass matches the oracle", "[Gpt2Test][oracle]") {
       ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
   const auto token_count = ids.size();
   REQUIRE(token_count == 14);
-  const oracle_params model(oracle);
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const gpt2_engine engine(model);
   const auto expected = matrix_of(oracle.activations, "ln_f/out", n_embd);
 
   std::vector<float> out_storage(token_count * n_embd);
   const float_matrix_view out(out_storage, expected.extent());
-  owned_block_activations owned(token_count);
-  forward(out, ids, model.params, owned.views(), n_head);
+  gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden);
+  engine.forward(out, ids, owned.views());
 
   check_close(out, expected, 1e-4F, 1e-4F);
 }
 
 TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // The whole model, IDs to logits, on each of the manifest's prompts. The
   // logits dump holds all five; only the bisect prompt has activations.
-  const oracle_params model(oracle);
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const gpt2_engine engine(model);
   for (auto n = 0UZ; n < 5; ++n) {
     DYNAMIC_SECTION("prompt_" << n) {
       const auto prefix = std::format("prompt_{}", n);
@@ -182,12 +135,13 @@ TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
       std::vector<float> trunk_storage(token_count * n_embd);
       const float_matrix_view trunk(trunk_storage,
           {.row_count = token_count, .col_count = n_embd});
-      owned_block_activations owned(token_count);
-      forward(trunk, ids, model.params, owned.views(), n_head);
+      gpt2_engine::block_activation_buffers owned(token_count, n_embd,
+          n_hidden);
+      engine.forward(trunk, ids, owned.views());
 
       std::vector<float> storage(expected.size());
       const float_matrix_view out(storage, expected.extent());
-      compute_all_logits(out, trunk, model.params.wte);
+      compute_all_logits(out, trunk, model.wte);
 
       check_close(out, expected, 1e-4F, 1e-4F);
     }
@@ -195,39 +149,40 @@ TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
 }
 
 TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
-  oracle_dumps oracle;
-  oracle.load();
+  auto oracle = oracle_dumps::load();
 
   // The manifest records the oracle's greedy continuation of one prompt: the
-  // twenty IDs it appended, and their text. Each step here runs the whole
-  // model over the IDs so far and appends the most likely next token, so
-  // one wrong pick would derail every later one.
+  // twenty IDs it appended, and their text. Each step runs the whole model
+  // over the IDs so far and appends the most likely next token, so one wrong
+  // pick would derail every later one.
   const auto expected = read_greedy_continuation();
   REQUIRE(expected.ids.size() == 20);
 
-  const oracle_params model(oracle);
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const gpt2_engine engine(model);
   auto ids = ids_of(oracle.logits,
       std::format("prompt_{}/input_ids", expected.prompt));
   const auto prompt_count = ids.size();
-  std::vector<float> logits_storage(n_vocab);
-  const float_row_span next_logits(logits_storage);
-  for (auto step = 0UZ; step < expected.ids.size(); ++step) {
-    const auto token_count = ids.size();
-    std::vector<float> trunk_storage(token_count * n_embd);
-    const float_matrix_view trunk(trunk_storage,
-        {.row_count = token_count, .col_count = n_embd});
-    owned_block_activations owned(token_count);
-    forward(trunk, ids, model.params, owned.views(), n_head);
-    compute_token_logits(next_logits, trunk[row_ndx{token_count - 1}],
-        model.params.wte);
-    ids.push_back(pick_greedy(next_logits));
-  }
+  REQUIRE(engine.generate(ids, expected.ids.size()));
   const auto appended = std::span{ids}.subspan(prompt_count);
   const std::vector<token_id> generated(appended.begin(), appended.end());
   CHECK(generated == expected.ids);
 
   // And as text, through the tokenizer.
   CHECK(decode_ids(generated) == expected.text);
+
+  // Nothing follows no tokens.
+  token_id next{};
+  CHECK(!engine.next_token(next, {}));
+}
+
+TEST_CASE("Model rejects a file without the weights", "[Gpt2Test]") {
+  // A valid file with no tensors: the 8-byte header length, then `{}`.
+  constexpr std::array image{std::byte{2}, std::byte{}, std::byte{},
+      std::byte{}, std::byte{}, std::byte{}, std::byte{}, std::byte{},
+      std::byte{'{'}, std::byte{'}'}};
+  CHECK_THROWS_AS(gpt2_model::load(safetensors_file::parse(image)),
+      std::runtime_error);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
