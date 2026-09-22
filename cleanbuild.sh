@@ -31,11 +31,13 @@ set -e
 # without building or running anything; also standalone. The default is clang
 # with `libcxx`, no tidy, no sanitizer, no coverage, no scan.
 #
-# CUDA: when nvcc and g++-15 are installed and the mode is plain (no sanitizer,
-# coverage, or scan), the *.cu sources in tests/ build alongside the *.cpp
-# suite as their own nvcc/libstdc++ executables, regardless of the compiler and
-# standard library chosen for the C++ files. Pass a *.cu filename to build and
-# run just one.
+# CUDA: when the CUDA toolkit and clang++ are installed and the mode is plain
+# (no sanitizer, coverage, or scan), the *.cu sources in tests/ build alongside
+# the *.cpp suite as their own clang++/libstdc++ executables, regardless of the
+# compiler and standard library chosen for the C++ files. Pass a *.cu filename
+# to build and run just one. Pass "nvcc" to compile the CUDA bucket with nvcc
+# and its g++-15 host instead; that leg is kept for bug reports and is known
+# not to build (see crossplatform.md, section 3).
 #
 # Pass "clean-all" to delete the buildable outputs and stop: the release tree
 # (tests/build), the IDE debug tree (tests/build-debug), any legacy in-source
@@ -58,6 +60,7 @@ set -e
 
 choice=""
 compiler=""
+cuda_compiler="clang"
 use_tidy=false
 sanitizer=""
 use_coverage=false
@@ -67,7 +70,7 @@ use_clean=false
 test_name=""
 target_name=""
 
-usage="Usage: $0 [all | reconfigure | clean-all | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [clean] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
+usage="Usage: $0 [all | reconfigure | clean-all | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [nvcc] [clean] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
 # Enforce the core/utils band layering before any build (fast, static, and
 # build-independent). See corvid/deps.md.
@@ -126,7 +129,7 @@ if [[ "${1:-}" == "clean-all" ]]; then
 fi
 
 if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \
-      && "$1" != "clang" && "$1" != "gcc" \
+      && "$1" != "clang" && "$1" != "gcc" && "$1" != "nvcc" \
       && "$1" != "tidy" && "$1" != "--tidy" \
       && "$1" != "asan" && "$1" != "tsan" && "$1" != "ubsan" \
       && "$1" != "msan" && "$1" != "coverage" && "$1" != "scan" \
@@ -148,6 +151,9 @@ for arg in "$@"; do
       ;;
     clang|gcc)
       compiler="$arg"
+      ;;
+    nvcc)
+      cuda_compiler="nvcc"
       ;;
     tidy|--tidy)
       use_tidy=true
@@ -208,22 +214,50 @@ if $use_reconfigure; then
   fi
 fi
 
-# CUDA (.cu) targets build automatically in plain modes when the toolchain is
-# present, independently of the compiler/stdlib chosen for the .cpp files: each
-# .cu is its own single-source executable (nvcc, g++-15 host, libstdc++) and
-# shares no link line with a .cpp binary. nvcc rejects gcc newer than 15, so we
-# pin its host compiler to g++-15 and target the build host's GPU (native).
-# Skip CUDA under sanitizers/coverage/scan: clang's instrumentation does not
-# apply to nvcc, and those flags would break the g++-15-driven CUDA link.
+# CUDA (.cu) targets build automatically in plain modes when the toolkit is
+# present (nvcc on PATH stands for the toolkit), independently of the
+# compiler/stdlib chosen for the .cpp files: each .cu is its own single-source
+# executable that shares no link line with a .cpp binary. The CUDA compiler is
+# clang++ (its unified frontend compiles host and device together), against
+# libstdc++ because the toolkit's headers refuse libc++ on x86 Linux. As on
+# Windows, the GPU architecture is resolved explicitly from nvidia-smi
+# (8.9 -> sm_89), since clang-CUDA has no `native`. Skip CUDA under
+# sanitizers/coverage/scan: the sanitizer runtime is a .cpp-suite concern that
+# would not match the CUDA link.
+#
+# The "nvcc" word swaps in nvcc with a g++-15 host (nvcc rejects gcc newer than
+# 15) and lets nvcc pick the architecture (`native`). It is the toolkit's own
+# compiler, kept as a bug-report leg; it does not build the bucket today
+# (crossplatform.md, section 3).
 CUDA_OPTION=""
 if [[ -z "$sanitizer" ]] && ! $use_coverage && ! $use_scan; then
   if command -v nvcc >/dev/null 2>&1; then
-    if command -v g++-15 >/dev/null 2>&1; then
-      CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+    if [[ "$cuda_compiler" == "nvcc" ]]; then
+      if command -v g++-15 >/dev/null 2>&1; then
+        CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_COMPILER=$(command -v nvcc) -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+      else
+        echo "$0: 'nvcc' needs g++-15 as the nvcc host compiler" >&2
+        exit 1
+      fi
     else
-      # nvcc without its host compiler means a broken container image, not a
-      # non-CUDA machine, so say so rather than dropping the bucket silently.
-      echo "$0: warning: nvcc found but g++-15 is missing; skipping CUDA targets" >&2
+      clangxx_for_cuda="$(command -v clang++ || true)"
+      cuda_arch="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '. ')"
+      # Identifying clang++ as the CUDA compiler needs CMake 4: 3.28 probes
+      # clang with sm_52/30/20, which the 13.3 ptxas rejects, and the configure
+      # dies with "CUDA compiler identification is unknown". The devcontainer
+      # installs the PyPI wheel ahead of Ubuntu's package.
+      cmake_major="$(cmake --version 2>/dev/null | sed -n 's/^cmake version \([0-9]*\).*/\1/p')"
+      if [[ -z "$clangxx_for_cuda" ]]; then
+        # The toolkit without clang++ means a broken container image, not a
+        # non-CUDA machine, so say so rather than dropping the bucket silently.
+        echo "$0: warning: CUDA toolkit found but clang++ is missing; skipping CUDA targets" >&2
+      elif [[ -z "$cuda_arch" ]]; then
+        echo "$0: warning: CUDA toolkit found but no GPU arch from nvidia-smi; skipping CUDA targets" >&2
+      elif [[ "${cmake_major:-0}" -lt 4 ]]; then
+        echo "$0: warning: CUDA with clang++ needs CMake 4 (found ${cmake_major:-none}); skipping CUDA targets" >&2
+      else
+        CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_COMPILER=$clangxx_for_cuda -DCMAKE_CUDA_ARCHITECTURES=$cuda_arch"
+      fi
     fi
   fi
 fi
@@ -231,7 +265,7 @@ fi
 # A requested .cu source needs that toolchain and a plain mode; fail clearly
 # rather than configuring a build that silently produces no target.
 if [[ "$test_name" == *.cu && -z "$CUDA_OPTION" ]]; then
-  echo "$0: '$test_name' needs CUDA (nvcc + g++-15) in a plain build mode (no sanitizer/coverage/scan)" >&2
+  echo "$0: '$test_name' needs the CUDA toolkit, clang++, and a GPU, in a plain build mode (no sanitizer/coverage/scan)" >&2
   exit 1
 fi
 

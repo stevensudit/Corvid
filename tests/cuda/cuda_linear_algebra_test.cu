@@ -26,6 +26,14 @@
 #include "catch2/catch_template_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 
+// The whole test sits in a named namespace: a `using namespace corvid;` at
+// global scope would make `cuda` (libcu++'s namespace against corvid::cuda)
+// and `log` (corvid::infra::log against the C math function) ambiguous in the
+// host code nvcc appends after the translation unit, and clang sees the same
+// ambiguity wherever the test spells `cuda::`, which is why it is spelled
+// `corvid::cuda::` throughout.
+namespace corvid_tests {
+
 using namespace corvid;
 using Catch::Matchers::WithinAbs;
 using corvid::cuda::cublas_handle;
@@ -34,14 +42,16 @@ using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::cuda::cuda_matrix_lens;
 using corvid::cuda::cuda_matrix_view;
+using corvid::cuda::DeviceMatrixLike;
 using corvid::cuda::kernel_col_range;
+using corvid::matrix_types::matrix_axis;
 
 namespace {
 
 // Each thread walks its columns of a `cols`-wide row and records how many it
 // visited and their sum, so the test can pin which columns each thread owns.
 __global__ void walk_columns(unsigned* count, unsigned* sum, size_t cols) {
-  const auto thread = cuda::cuda_kernel::x_thread();
+  const auto thread = corvid::cuda::cuda_kernel::x_thread();
   const kernel_col_range columns{cols};
   auto visited = 0U;
   auto total = 0U;
@@ -61,7 +71,6 @@ __global__ void walk_columns(unsigned* count, unsigned* sum, size_t cols) {
 
 TEST_CASE("DeviceMatrixLike admits only writable outputs",
     "[LinearAlgebraTest][cuda]") {
-  using corvid::cuda::DeviceMatrixLike;
   // A matrix, a mutable view, and a const mutable view (shallow const) are
   // writable. A const matrix (deep const) and a view of const elements are
   // not.
@@ -105,18 +114,18 @@ TEST_CASE("Kernel column range strides by the block width",
 TEST_CASE("Grid for an extent", "[LinearAlgebraTest][cuda]") {
   // Columns fill 256-thread blocks along x, and each row is a block along y.
   const cuda_matrix<float> m({.row_count = 14, .col_count = 768});
-  const auto grid = cuda::linalg::grid_for(m);
+  const auto grid = corvid::cuda::linalg::grid_for(m);
   CHECK(grid.x == 3);
   CHECK(grid.y == 14);
   CHECK(grid.z == 1);
 
   // A view of it, and a bare extent, give the same grid, with a partial block
   // rounding up.
-  const auto narrow =
-      cuda::linalg::grid_for(m[{}, {.row_count = 2, .col_count = 257}]);
+  const auto narrow = corvid::cuda::linalg::grid_for(
+      m[{}, {.row_count = 2, .col_count = 257}]);
   CHECK(narrow.x == 2);
   CHECK(narrow.y == 2);
-  const auto bare = cuda::linalg::grid_for(
+  const auto bare = corvid::cuda::linalg::grid_for(
       matrix_lens<float>::extent_t{.row_count = 1, .col_count = 1});
   CHECK(bare.x == 1);
   CHECK(bare.y == 1);
@@ -144,7 +153,8 @@ TEMPLATE_TEST_CASE("Device linear on hand-computed rows",
   REQUIRE(bias.load(bias_storage));
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
 
-  REQUIRE(cuda::linalg::linear_projection(blas, out, in, weight, bias));
+  REQUIRE(
+      corvid::cuda::linalg::linear_projection(blas, out, in, weight, bias));
 
   std::vector<T> out_storage(out.size());
   REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
@@ -172,28 +182,29 @@ TEMPLATE_TEST_CASE("Device gemm product, scale, and addends",
   const matrix_lens<T> out_lens(out_storage, out.extent());
 
   // The plain product reads nothing from `out`.
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b));
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b));
   REQUIRE(out.as_view().store(out_lens));
   CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
 
   // Twice the product, accumulated onto ones.
   const std::vector<T> ones_storage(out.size(), T{1});
   REQUIRE(out.as_lens().load(matrix_view<T>(ones_storage, out.extent())));
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {.scale = 2}, out));
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b, {.scale = 2}, out));
   REQUIRE(out.as_view().store(out_lens));
   CHECK(out_storage == std::vector<T>{T{9}, T{11}, T{21}, T{23}});
 
   // The product plus a separate addend, which is left untouched.
   const std::vector<T> addend_storage{T{100}, T{200}, T{300}, T{400}};
   const cuda_matrix<T> addend(matrix_view<T>(addend_storage, out.extent()));
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {}, addend));
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b, {}, addend));
   REQUIRE(out.as_view().store(out_lens));
   CHECK(out_storage == std::vector<T>{T{104}, T{205}, T{310}, T{411}});
   REQUIRE(addend.as_view().store(out_lens));
   CHECK(out_storage == addend_storage);
 
   // A zero addend scale drops the addend, copy and all.
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {.addend_scale = 0}, addend));
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b, {.addend_scale = 0},
+      addend));
   REQUIRE(out.as_view().store(out_lens));
   CHECK(out_storage == std::vector<T>{T{4}, T{5}, T{10}, T{11}});
 
@@ -201,7 +212,8 @@ TEMPLATE_TEST_CASE("Device gemm product, scale, and addends",
   constexpr std::array bias_storage{T{10}, T{20}};
   cuda_buffer<T> bias(bias_storage.size());
   REQUIRE(bias.load(bias_storage));
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, bias, {.addend_scale = 2}));
+  REQUIRE(
+      corvid::cuda::linalg::gemm(blas, out, a, b, bias, {.addend_scale = 2}));
   REQUIRE(out.as_view().store(out_lens));
   CHECK(out_storage == std::vector<T>{T{24}, T{45}, T{30}, T{51}});
 }
@@ -221,7 +233,7 @@ TEMPLATE_TEST_CASE("Device gemm on a transposed operand",
       matrix_view<T>(b_storage, {.row_count = 3, .col_count = 2}));
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
 
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b,
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b,
       {.op_a = cublas_operation::transpose}));
 
   std::vector<T> out_storage(out.size());
@@ -264,7 +276,7 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
   const matrix_lens<T> wide_lens(wide_storage, out_wide.extent());
 
   // The product lands in the window, and the column beside it keeps its 9s.
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b));
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b));
   REQUIRE(out_wide.as_view().store(wide_lens));
   CHECK(wide_storage == std::vector<T>{T{4}, T{5}, T{9}, T{10}, T{11}, T{9}});
 
@@ -272,7 +284,7 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
   constexpr std::array bias_storage{T{10}, T{20}};
   cuda_buffer<T> bias(bias_storage.size());
   REQUIRE(bias.load(bias_storage));
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, bias));
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b, bias));
   REQUIRE(out_wide.as_view().store(wide_lens));
   CHECK(
       wide_storage == std::vector<T>{T{14}, T{25}, T{9}, T{20}, T{31}, T{9}});
@@ -289,7 +301,7 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
 
   // A strided addend, copied device to device: columns 1 and 2 of `a_wide`.
   const auto addend = a_wide[{row_ndx{0}, col_ndx{1}}, out.extent()];
-  REQUIRE(cuda::linalg::gemm(blas, out, a, b, {}, addend));
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b, {}, addend));
   REQUIRE(out_wide.as_view().store(wide_lens));
   CHECK(wide_storage == std::vector<T>{T{6}, T{8}, T{9}, T{15}, T{17}, T{9}});
 }
@@ -297,7 +309,6 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
 TEMPLATE_TEST_CASE("Device batched gemm over both axes",
     "[LinearAlgebraTest][cuda]", float, double) {
   using T = TestType;
-  using matrix_types::matrix_axis;
   const cublas_handle blas;
 
   // Two instances. Instance 0 is column 0 of `a` and of `b`, instance 1 is
@@ -310,7 +321,7 @@ TEMPLATE_TEST_CASE("Device batched gemm over both axes",
   const cuda_matrix<T> b(
       matrix_view<T>(b_storage, {.row_count = 2, .col_count = 2}));
   cuda_matrix<T> outer({.row_count = 4, .col_count = 2});
-  REQUIRE(cuda::linalg::gemm_batched(blas, outer, a, b,
+  REQUIRE(corvid::cuda::linalg::gemm_batched(blas, outer, a, b,
       {.count = 2,
           .a = matrix_axis::cols,
           .b = matrix_axis::cols,
@@ -326,7 +337,7 @@ TEMPLATE_TEST_CASE("Device batched gemm over both axes",
   // Each stacked square times its column of `a`, [[5, 7], [15, 21]] * [1, 3]^T
   // and [[12, 16], [24, 32]] * [2, 4]^T, writing interleaved columns of `out`.
   cuda_matrix<T> out({.row_count = 2, .col_count = 2});
-  REQUIRE(cuda::linalg::gemm_batched(blas, out, outer, a,
+  REQUIRE(corvid::cuda::linalg::gemm_batched(blas, out, outer, a,
       {.count = 2,
           .a = matrix_axis::rows,
           .b = matrix_axis::cols,
@@ -359,19 +370,19 @@ TEMPLATE_TEST_CASE("Device add on hand-computed rows",
 
   SECTION("into a separate matrix") {
     cuda_matrix<T> out(a.extent());
-    REQUIRE(cuda::linalg::add(out, a, b));
+    REQUIRE(corvid::cuda::linalg::add(out, a, b));
     REQUIRE(out.as_view().store(out_lens));
     CHECK(storage == expected);
   }
 
   SECTION("in place on the left") {
-    REQUIRE(cuda::linalg::add(a, a, b));
+    REQUIRE(corvid::cuda::linalg::add(a, a, b));
     REQUIRE(a.as_view().store(out_lens));
     CHECK(storage == expected);
   }
 
   SECTION("in place on the right") {
-    REQUIRE(cuda::linalg::add(b, a, b));
+    REQUIRE(corvid::cuda::linalg::add(b, a, b));
     REQUIRE(b.as_view().store(out_lens));
     CHECK(storage == expected);
   }
@@ -394,7 +405,8 @@ TEMPLATE_TEST_CASE("Device add on hand-computed rows",
     const auto out = out_wide[{row_ndx{0}, col_ndx{0}}, window];
     CHECK(!out.is_packed());
 
-    REQUIRE(cuda::linalg::add(out, a_wide[{row_ndx{0}, col_ndx{0}}, window],
+    REQUIRE(corvid::cuda::linalg::add(out,
+        a_wide[{row_ndx{0}, col_ndx{0}}, window],
         b_wide[{row_ndx{0}, col_ndx{0}}, window]));
 
     std::vector<T> wide_storage(out_wide.size());
@@ -423,19 +435,19 @@ TEMPLATE_TEST_CASE("Device subtract on hand-computed rows",
 
   SECTION("into a separate matrix") {
     cuda_matrix<T> out(a.extent());
-    REQUIRE(cuda::linalg::subtract(out, a, b));
+    REQUIRE(corvid::cuda::linalg::subtract(out, a, b));
     REQUIRE(out.as_view().store(out_lens));
     CHECK(storage == expected);
   }
 
   SECTION("in place on the left") {
-    REQUIRE(cuda::linalg::subtract(a, a, b));
+    REQUIRE(corvid::cuda::linalg::subtract(a, a, b));
     REQUIRE(a.as_view().store(out_lens));
     CHECK(storage == expected);
   }
 
   SECTION("in place on the right") {
-    REQUIRE(cuda::linalg::subtract(b, a, b));
+    REQUIRE(corvid::cuda::linalg::subtract(b, a, b));
     REQUIRE(b.as_view().store(out_lens));
     CHECK(storage == expected);
   }
@@ -474,7 +486,7 @@ TEMPLATE_TEST_CASE("Device softmax on hand-computed rows",
 
   SECTION("into a separate matrix") {
     cuda_matrix<T> out(in.extent());
-    REQUIRE(cuda::linalg::softmax(out, in));
+    REQUIRE(corvid::cuda::linalg::softmax(out, in));
     std::vector<T> storage(out.size());
     REQUIRE(out.as_view().store(matrix_lens<T>(storage, out.extent())));
     check_rows(storage);
@@ -482,7 +494,7 @@ TEMPLATE_TEST_CASE("Device softmax on hand-computed rows",
 
   SECTION("in place") {
     cuda_matrix<T> same(in_view);
-    REQUIRE(cuda::linalg::softmax(same, same));
+    REQUIRE(corvid::cuda::linalg::softmax(same, same));
     std::vector<T> storage(same.size());
     REQUIRE(same.as_view().store(matrix_lens<T>(storage, same.extent())));
     check_rows(storage);
@@ -499,7 +511,7 @@ TEMPLATE_TEST_CASE("Device softmax on hand-computed rows",
     const extent_t window{.row_count = 3, .col_count = 2};
     const auto out = wide[{row_ndx{0}, col_ndx{0}}, window];
     CHECK(!out.is_packed());
-    REQUIRE(cuda::linalg::softmax(out, out));
+    REQUIRE(corvid::cuda::linalg::softmax(out, out));
 
     std::vector<T> storage(wide.size());
     REQUIRE(wide.as_view().store(matrix_lens<T>(storage, wide.extent())));
@@ -525,7 +537,7 @@ TEST_CASE("Device softmax over a row wider than a block",
   const cuda_matrix<float> in(
       float_matrix_view(in_storage, {.row_count = 1, .col_count = cols}));
   cuda_matrix<float> out(in.extent());
-  REQUIRE(cuda::linalg::softmax(out, in));
+  REQUIRE(corvid::cuda::linalg::softmax(out, in));
 
   std::vector<float> weights(cols);
   REQUIRE(out.as_view().store(float_matrix_lens(weights, out.extent())));
@@ -540,5 +552,7 @@ TEST_CASE("Device softmax over a row wider than a block",
 }
 
 #pragma endregion
+
+} // namespace corvid_tests
 
 // NOLINTEND(readability-function-cognitive-complexity)

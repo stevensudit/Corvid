@@ -64,17 +64,22 @@ CompileFlags:
 # supports" the newest CUDA), so --no-cuda-version-check silences the
 # version-mismatch warning; parsing is unaffected.
 #
-# A .cu file (unlike a header) has an nvcc entry in compile_commands.json.
-# clangd runs that command through its embedded clang, which rejects nvcc-only
-# flags as "unknown argument", so strip them: -forward-unknown-to-host-compiler,
-# -ccbin=..., and -arch=... (clang gets its arch via the default sm_52, which is
-# fine for parsing).
+# A .cu file (unlike a header) has a clang++ entry in compile_commands.json,
+# which clangd's embedded clang takes as is. The opt-in nvcc leg
+# (`cleanbuild.sh nvcc`) writes nvcc entries instead, and clang rejects the
+# nvcc-only flags as "unknown argument", so strip those:
+# -forward-unknown-to-host-compiler, -ccbin=..., and -arch=... (clang then
+# parses against the default sm_52, which is fine for parsing).
+#
+# libcu++ (<cuda/std/...>) lives under include/cccl, which clang does not
+# search on its own; the build adds it per target, and a .cuh header, which
+# has no compile command, needs it from here.
 If:
   PathMatch: [.*\.cu, .*\.cuh]
 CompileFlags:
   Compiler: /usr/bin/clang++
   Remove: [-forward-unknown-to-host-compiler, -ccbin=*, -arch=*]
-  Add: [-xcuda, --cuda-path=/usr/local/cuda, --no-cuda-version-check, -std=c++23]
+  Add: [-xcuda, --cuda-path=/usr/local/cuda, --no-cuda-version-check, -std=c++23, -isystem, /usr/local/cuda/include/cccl]
 
 ---
 # Test headers (tests/*.h). They sit beside no source file, so the proxy TU

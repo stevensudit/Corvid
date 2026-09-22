@@ -36,17 +36,19 @@ if [[ -z "$CC" || -z "$CXX" ]]; then
 fi
 export CC CXX
 
-# CUDA (.cu) targets compile with nvcc (g++-15 host); mirror cleanbuild.sh.
-# Enabling CUDA whenever the toolchain is present keeps the configure signature
-# stable across .cpp and .cu files, so switching files never forces a
-# reconfigure.
+# CUDA (.cu) targets compile with clang++ against libstdc++, the GPU
+# architecture resolved from nvidia-smi; mirror cleanbuild.sh (nvcc on PATH
+# stands for the toolkit). Enabling CUDA whenever the toolchain is present keeps
+# the configure signature stable across .cpp and .cu files, so switching files
+# never forces a reconfigure.
 cudaArgs=()
-if command -v nvcc >/dev/null 2>&1 && command -v g++-15 >/dev/null 2>&1; then
+cudaArch="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '. ')"
+if command -v nvcc >/dev/null 2>&1 && command -v clang++ >/dev/null 2>&1 && [[ -n "$cudaArch" ]]; then
   cudaArgs=(-DCORVID_ENABLE_CUDA=ON
-    -DCMAKE_CUDA_HOST_COMPILER="$(command -v g++-15)"
-    -DCMAKE_CUDA_ARCHITECTURES=native)
+    -DCMAKE_CUDA_COMPILER="$(command -v clang++)"
+    -DCMAKE_CUDA_ARCHITECTURES="$cudaArch")
 elif [[ "$src" == *.cu ]]; then
-  echo "$0: '$src' is a .cu file but CUDA (nvcc + g++-15) was not found" >&2
+  echo "$0: '$src' is a .cu file but CUDA (toolkit + clang++ + a GPU) was not found" >&2
   exit 1
 fi
 

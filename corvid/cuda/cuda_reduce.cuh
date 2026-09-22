@@ -16,12 +16,13 @@
 // limitations under the License.
 #pragma once
 
-#include <algorithm>
 #include <cstdint>
-#include <functional>
-#include <limits>
 
 #include <cuda_runtime.h>
+
+#include <cuda/functional>
+#include <cuda/std/functional>
+#include <cuda/std/limits>
 
 #include "./cuda_block.cuh"
 #include "./cuda_warp.cuh"
@@ -47,7 +48,7 @@ public:
   // rather than the active lanes.
   template<typename T>
   __device__ static T warp_sum(T value, uint32_t mask = cuda_warp::all_mask) {
-    return warp_reduce(value, std::plus<>{}, mask);
+    return warp_reduce(value, ::cuda::std::plus<>{}, mask);
   }
 
   // The largest `value` over the lanes of `mask`, returned to every one of
@@ -57,7 +58,7 @@ public:
   // rather than the active lanes.
   template<typename T>
   __device__ static T warp_max(T value, uint32_t mask = cuda_warp::all_mask) {
-    return warp_reduce(value, std::ranges::max, mask);
+    return warp_reduce(value, ::cuda::maximum<>{}, mask);
   }
 
   // The sum of `value` over every thread of the block, returned to every one
@@ -67,7 +68,7 @@ public:
   // and a multiple of `warpSize`.
   template<typename T>
   __device__ static T block_sum(T value) {
-    return block_reduce(value, std::plus<>{}, T{});
+    return block_reduce(value, ::cuda::std::plus<>{}, T{});
   }
 
   // The largest `value` over every thread of the block, returned to every one
@@ -77,8 +78,8 @@ public:
   // and a multiple of `warpSize`.
   template<typename T>
   __device__ static T block_max(T value) {
-    return block_reduce(value, std::ranges::max,
-        std::numeric_limits<T>::lowest());
+    return block_reduce(value, ::cuda::maximum<>{},
+        ::cuda::std::numeric_limits<T>::lowest());
   }
 
 private:

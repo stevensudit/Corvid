@@ -78,15 +78,18 @@ RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test
 # Node.js was the base image; on the CUDA base it's an install step.
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 
-# Basic development tools, toolchain, and iptables/ipset. gcc-15 is the nvcc
-# host compiler (nvcc 13.3 rejects gcc newer than 15; see cleanbuild.sh). The
-# PPA's gcc-16 snapshot contributes only libstdc++-16-dev, which the clang +
-# libstdc++ leg picks up from /usr/lib/gcc (its <format> gets a local patch
-# below); its compilers are not installed, so the only gcc 16 is the 16.2
-# built in the gcc-build stage. catch2
-# is the system libstdc++ Catch2 that the
-# CUDA tests link against (tests/CMakeLists.txt requires it once nvcc and
-# g++-15 are both present; the .cpp suite uses its own FetchContent Catch2).
+# Basic development tools, toolchain, and iptables/ipset. gcc-15 is the host
+# compiler of the opt-in nvcc leg (`cleanbuild.sh nvcc`; nvcc 13.3 rejects gcc
+# newer than 15). The PPA's gcc-16 snapshot contributes only libstdc++-16-dev,
+# which the clang + libstdc++ legs (the .cpp suite's libstdcpp mode and the
+# CUDA bucket, whose toolkit headers refuse libc++) pick up from /usr/lib/gcc
+# (its <format> gets a local patch below); its compilers are not installed, so
+# the only gcc 16 is the 16.2 built in the gcc-build stage. catch2 is the
+# system libstdc++ Catch2 that the CUDA tests link against
+# (tests/CMakeLists.txt requires it once the toolkit and clang++ are both
+# present; the .cpp suite uses its own FetchContent Catch2). Ubuntu's cmake
+# package (3.28) is installed for its dependencies only; the CMake that runs is
+# the PyPI wheel installed below, see there.
 RUN apt-get update && apt-get install -y --no-install-recommends \
   less \
   git \
@@ -130,6 +133,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-pip python3-venv html2text \
   python3-unidiff python3-termcolor python3-dateutil \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# CMake 4 from the PyPI wheel, ahead of Ubuntu's 3.28 on PATH. Identifying
+# clang++ as the CUDA compiler needs it: 3.28 probes clang with sm_52/30/20,
+# which the 13.3 ptxas rejects, so the configure fails with "CUDA compiler
+# identification is unknown"; CMake 4 tries sm_75 first for a 13.x toolkit.
+# The wheel rather than apt.kitware.com because the container's network
+# allowlist does not include the latter (see crossplatform.md, section 3).
+# Sits after the apt step above because `python3 -m venv` needs python3-venv.
+RUN python3 -m venv /opt/cmake && /opt/cmake/bin/pip install --no-cache-dir cmake \
+  && ln -s /opt/cmake/bin/cmake /opt/cmake/bin/ctest /opt/cmake/bin/cpack /usr/local/bin/
 
 # gcc 16.2 from the gcc-build stage. gcc adds no rpath, so binaries it links
 # find its libstdc++ through ld.so.conf; the 000- name sorts ahead of the

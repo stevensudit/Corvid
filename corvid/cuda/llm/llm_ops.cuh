@@ -19,10 +19,11 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
-#include <limits>
 #include <type_traits>
 
 #include <cuda_runtime.h>
+
+#include <cuda/std/limits>
 
 #include "../../linalg/linear_algebra.h"
 #include "../../llm/llm_ops.h"
@@ -251,7 +252,7 @@ __global__ void
 apply_causal_mask(kernel_matrix_lens<T> scores, matrix_extent extent) {
   if (const kernel_coord at;
       at.is_within(extent) && (at.col > at.row % extent.col_count))
-    scores[at] = -std::numeric_limits<T>::infinity();
+    scores[at] = -::cuda::std::numeric_limits<T>::infinity();
 }
 
 } // namespace details

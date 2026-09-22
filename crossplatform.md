@@ -12,7 +12,7 @@ registered `.cu` pass on the GPU, plus the cuBLAS tutorials); device
 correctness runs via `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and
 device debugging via Nsight Visual Studio Edition, and `./cleanbuild.ps1 tidy`
 is clean. The full Linux suite (portable plus linux buckets, plus CUDA under
-nvcc) stays green. Two Windows-only buckets now hold the new GPU work:
+clang++) stays green. Two Windows-only buckets now hold the new GPU work:
 `tests/windows/` (plain-C++ tests for the SDL3 and D3D11 wrappers) and
 `tests/cuda/windows/` (the CUDA-D3D11 interop test plus the fractal, raymarch,
 and voxel viewers). These grow a new graphics substrate under `corvid/sdl/` and
@@ -82,10 +82,10 @@ deep the file sits, so moving a test between buckets is free. The shared
 
 ## 3. Toolchains
 
-| Platform | Portable suite          | CUDA bucket    |
-|----------|-------------------------|----------------|
-| Linux    | clang + libc++          | nvcc + g++-15  |
-| Windows  | clang++ (default), cl   | clang++        |
+| Platform | Portable suite          | CUDA bucket         |
+|----------|-------------------------|---------------------|
+| Linux    | clang + libc++          | clang++ + libstdc++ |
+| Windows  | clang++ (default), cl   | clang++             |
 
 On Windows the portable suite builds with clang++ by default: the same
 GNU-style LLVM driver used on Linux, but targeting the MSVC ABI against the
@@ -94,17 +94,61 @@ sanitizers. MSVC cl is supported as a second compiler, mirroring the clang/gcc
 choice on Linux; cl is genuinely different from clang and catches real
 conformance divergences (see section 6).
 
-The CUDA bucket on Windows also builds with clang++ (clang's CUDA frontend),
-*not* nvcc. This is forced, not a preference: nvcc 13.3's MSVC device frontend
-(`cudafe++`/`cicc`) has no C++23 dialect. Its highest `--ms_c++NN` is
-`--ms_c++20`; asked for `-std=c++23` with an MSVC host it prints "not supported
-with the configured host compiler" and silently falls back to `--ms_c++14`
-(confirmed via `nvcc --dryrun`). Corvid is a C++23 library (it uses
-`std::is_scoped_enum_v`, `std::forward_like`, `std::range_format`, deducing
-this), so the `.cu` tests cannot compile under nvcc on Windows. clang's unified
-C++23 frontend compiles host and device together and has no such gap. This is a
-host-specific nvcc limitation: on Linux, nvcc + g++-15 builds the same `.cu` at
-C++23 fine (the EDG GNU dialect does support C++23), so Linux keeps nvcc.
+The CUDA bucket builds with clang++ (clang's CUDA frontend) on both platforms,
+*not* nvcc. This is forced, not a preference. On Windows, nvcc 13.3's MSVC
+device frontend (`cudafe++`/`cicc`) has no C++23 dialect. Its highest
+`--ms_c++NN` is `--ms_c++20`; asked for `-std=c++23` with an MSVC host it
+prints "not supported with the configured host compiler" and silently falls
+back to `--ms_c++14` (confirmed via `nvcc --dryrun`). Corvid is a C++23 library
+(it uses `std::is_scoped_enum_v`, `std::forward_like`, `std::range_format`,
+deducing this), so the `.cu` tests cannot compile under nvcc on Windows. On
+Linux, nvcc + g++-15 accepts `-std=c++23` (the EDG GNU dialect does support
+it), and that pairing was the Linux CUDA leg until 2026-09-21, when it turned
+out that nvcc's frontend silently drops the second argument of a C++23
+multidimensional `operator[]` in any dependent context (a function template, a
+generic lambda, a host-device template), so `m[from, extent]` came out as
+`m[from]`: an element where a view was meant. Device code and plain functions
+are unaffected. clang's unified C++23 frontend compiles host and device
+together and has neither gap, and the switch also lifts the g++-15 pin that
+nvcc's host-compiler check imposed. The nvcc + g++-15 pairing survives as an
+opt-in bug-report leg, `./cleanbuild.sh nvcc`, known not to build: besides the
+subscript drop it needs `--expt-relaxed-constexpr` to call `constexpr` host
+functions from device code, and under that flag it hoists a defaulted
+`basic_delim` argument into device storage and fails on the host variable it
+points at. The corvid-free repro is in section 3's "nvcc subscript repro"
+below.
+
+Two constraints of clang-CUDA on Linux. The toolkit's headers refuse libc++ on
+x86 Linux (`host_defines.h`: "libc++ is not supported on x86 system"), so the
+`.cu` bucket links libstdc++ and the system libstdc++ Catch2 even when the
+`.cpp` suite is libc++; the standard library, not the compiler, is what still
+differs between the two platforms' CUDA legs (MSVC STL on Windows). And
+identifying clang as a CUDA compiler needs CMake 4 (4.4 verified): Ubuntu
+24.04's CMake 3.28 probes clang with `sm_52`, `sm_30`, `sm_20`, none of which
+the 13.3 `ptxas` accepts, so the configure fails with "CUDA compiler
+identification is unknown"; CMake 4 tries `sm_75` first for a 13.x toolkit.
+The Dockerfile installs the `cmake` wheel from PyPI for that reason (the
+Kitware apt repository is outside the container's allowlist).
+
+#### nvcc subscript repro
+
+```cpp
+struct block { int rows; };
+struct grid {
+  int operator[](int r) const { return r; }                       // element
+  block operator[](int r, int rows) const { return block{rows}; } // C++23
+};
+template<typename M> auto f(const M& m) {
+  auto s = m[1, 3];
+  static_assert(std::same_as<decltype(s), block>, "dropped");  // fires
+  return s;
+}
+```
+
+`nvcc -std=c++23 -ccbin g++-15 -c repro.cu` fails the `static_assert`; the same
+file compiles under `g++-15 -std=c++23` and under `clang++ -std=c++23 -xcuda`.
+The host-side `.cudafe1.cpp` shows the rewritten call as `m[1]`. Spelling the
+call `m.operator[](1, 3)` or as a named method sidesteps it.
 
 Two consequences of the clang++/CUDA choice, both enforced by `cleanbuild.ps1`:
 
@@ -133,7 +177,9 @@ installer (23.1.1), kept at the same major as the Linux Dockerfile pins, which
 also gates the image build on clang-format 23.1.1 or later so that both
 formatters agree; MSVC STL 14.51 and Windows SDK via VS 2026 (MSVC `_MSC_VER`
 1951); CMake 4.3, Ninja, nvcc 13.3 (toolkit headers/libs and `ptxas`; the
-compiler driver is clang++).
+compiler driver is clang++). Linux: clang 23 from the LLVM apt repository,
+CMake 4.4 from the PyPI wheel, the same 13.3 toolkit from the nvidia/cuda base
+image.
 
 ## 4. Building
 
@@ -144,8 +190,9 @@ build-and-test skill.
 The `.cpp` suite builds as C++26 where the toolchain allows (clang with
 libc++, gcc, and both Windows compilers), while the code stays C++23: C++26
 features are permitted only behind their feature-test gates. One leg stays
-at C++23: the `.cu` bucket, because `c++23` is the top of nvcc 13.3's `--std`
-list.
+at C++23: the `.cu` bucket, so that the toolkit's headers are used the way
+they are validated and the opt-in nvcc leg, whose `--std` list tops out at
+`c++23`, keeps a chance of building.
 
 The gcc leg also builds with `-freflection` (gcc 16 or newer), which opens
 the C++26 reflection layer of the proxy system,
@@ -257,7 +304,8 @@ layering check was until it was ported.
 | `all` config sweep     | yes              | no      | comprehensive.cmake driver   |
 | second compiler        | `gcc`            | `cl`    | different roles, section 3   |
 | standard library       | libc++, libstdc++| no      | MSVC STL only                |
-| CUDA bucket            | nvcc plus g++-15 | clang++ | section 3                    |
+| CUDA bucket            | clang++          | clang++ | section 3                    |
+| `nvcc` bug-report leg  | opt-in           | no      | section 3                    |
 | `cudacheck`            | no               | yes     | not ported yet               |
 
 The Linux-only analysis modes (libc++/libstdc++ choice, msan/tsan,
@@ -293,11 +341,11 @@ that fires on the deliberate partial designated-init idiom for C DESC structs
 (the positional `-Wmissing-field-initializers` stays on, like the cl `/wd`
 codes). Plus `-std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the
 last silences the note that CUDA 13.3 is newer than clang's last fully
-supported toolkit) and `-gline-tables-only` (section 8). On Linux the nvcc form
-is `-std=c++23 -O3 -lineinfo`; raising its host warnings to `-Wextra` (via nvcc
-`-Xcompiler`) is a separate follow-up. The `.cu` bucket stays at C++23 on both
-platforms while the `.cpp` suite builds as C++26, because `c++23` is the top
-of nvcc 13.3's `--std` list.
+supported toolkit) and `-gline-tables-only` (section 8). Linux takes the same
+clang set minus `-fms-runtime-lib=dll`, plus an explicit `-O3` because the
+Linux configure carries no build type. The opt-in nvcc leg keeps its old form,
+`-std=c++23 -O3 -lineinfo`. The `.cu` bucket stays at C++23 on both platforms
+while the `.cpp` suite builds as C++26 (section 4).
 
 ### Deferred: `-fno-math-errno`
 
@@ -481,8 +529,8 @@ not a fault.
   asserts live, forces a `.exe` suffix so one path template serves both
   platforms, and routes output to `debug_bin/`. The first build pays a one-time
   configure plus Catch2 build; later builds reuse the configured tree and
-  relink just the named target. A `.cu` builds the same way (clang++ on
-  Windows, nvcc/g++-15 on Linux) and also produces a PDB.
+  relink just the named target. A `.cu` builds the same way (clang++ on both
+  platforms) and on Windows also produces a PDB.
 - The `.cu` clangd block in `.clangd.win.in` puts clangd into `-xcuda` mode
   with the toolkit path (substituted from nvcc at configure time), so
   `.cu`/`.cuh` parse without flagging `__global__` or `<<<...>>>`.
