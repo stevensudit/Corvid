@@ -316,8 +316,17 @@ if ($tidy) {
 # so .cu TUs and the CUDA-only headers they pull in (corvid/cuda/**) would
 # otherwise be a tidy blind spot. Run a standalone pass over the .cu sources from
 # the compile DB (which carries their clang-CUDA commands) and append it to the
-# same log, so the summary below includes the CUDA findings. Sequential: clang's
-# CUDA frontend parses each TU twice (host + device), so this adds time.
+# same log, so the summary below includes the CUDA findings.
+#
+# Host-only: clang-tidy analyzes the driver's first job, which for CUDA is the
+# device compilation, where the MSVC STL under __CUDA_ARCH__ raises false
+# dynamic-initialization findings on host-only statics. The host compilation
+# still parses every kernel and device function, so device-code findings
+# survive; only the device-side view of the standard library goes.
+#
+# Parallel: one clang-tidy process per file, at ~1.2 GB and ~20 s for the LLM
+# tests, throttled to the physical core count. Each file's output is gathered
+# as one string so files do not interleave in the log.
 if ($tidy -and $cudaArgs) {
   $db = Join-Path $bldDir 'compile_commands.json'
   $cuSources = @((Get-Content $db -Raw | ConvertFrom-Json) |
@@ -330,9 +339,9 @@ if ($tidy -and $cudaArgs) {
   }
   if ($cuSources.Count) {
     Write-Host "Running clang-tidy on $($cuSources.Count) CUDA source(s) (the build launcher skips .cu)..."
-    foreach ($src in $cuSources) {
-      & $clangTidy -p $bldDir --quiet $src 2>&1 | Add-Content $tidyLog
-    }
+    $cuSources | ForEach-Object -Parallel {
+      & $using:clangTidy -p $using:bldDir --quiet --extra-arg=--cuda-host-only $_ 2>&1 | Out-String
+    } -ThrottleLimit ([Math]::Max(1, [int]([Environment]::ProcessorCount / 2))) | Add-Content $tidyLog
   }
 }
 

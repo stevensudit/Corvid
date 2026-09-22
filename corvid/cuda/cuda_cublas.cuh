@@ -199,6 +199,8 @@ public:
       const T* A, int lda, const T* B, int ldb, std::type_identity_t<T> beta,
       T* C, int ldc, cublas_operation op_a = cublas_operation::none,
       cublas_operation op_b = cublas_operation::none) const {
+    // The swap is deliberate, as the doc block explains.
+    // NOLINTNEXTLINE(readability-suspicious-call-argument)
     return multiply(n, m, k, alpha, B, ldb, A, lda, beta, C, ldc, op_b, op_a);
   }
 
@@ -256,6 +258,8 @@ public:
       std::type_identity_t<T> beta, T* C, int ldc, long long stride_c,
       int batch_count, cublas_operation op_a = cublas_operation::none,
       cublas_operation op_b = cublas_operation::none) const {
+    // The swap is deliberate, as the doc block explains.
+    // NOLINTNEXTLINE(readability-suspicious-call-argument)
     return multiply_batched(n, m, k, alpha, B, ldb, stride_b, A, lda, stride_a,
         beta, C, ldc, stride_c, batch_count, op_b, op_a);
   }

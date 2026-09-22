@@ -129,6 +129,11 @@ template<TensorElement T>
 // exactly with no gaps or overlaps (as the reference implementation requires),
 // every range's size matches its shape and dtype, and names are unique. A file
 // that fails any of it is a throw.
+//
+// The implicit move constructor is not no-throw on MSVC, whose unordered_map
+// move constructor allocates a minimal bucket array to leave in the moved-from
+// map.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 class safetensors_file {
 public:
 #pragma region tensor
