@@ -84,10 +84,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 # which the clang + libstdc++ legs (the .cpp suite's libstdcpp mode and the
 # CUDA bucket, whose toolkit headers refuse libc++) pick up from /usr/lib/gcc
 # (its <format> gets a local patch below); its compilers are not installed, so
-# the only gcc 16 is the 16.2 built in the gcc-build stage. catch2 is the
-# system libstdc++ Catch2 that the CUDA tests link against
-# (tests/CMakeLists.txt requires it once the toolkit and clang++ are both
-# present; the .cpp suite uses its own FetchContent Catch2). Ubuntu's cmake
+# the only gcc 16 is the 16.2 built in the gcc-build stage. Ubuntu's cmake
 # package (3.28) is installed for its dependencies only; the CMake that runs is
 # the PyPI wheel installed below, see there.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -115,7 +112,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
   llvm-23 \
   ccache strace patch \
-  gcc-15 g++-15 libstdc++-16-dev catch2 \
+  gcc-15 g++-15 libstdc++-16-dev \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
