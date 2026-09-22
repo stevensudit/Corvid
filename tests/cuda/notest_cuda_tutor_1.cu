@@ -96,7 +96,8 @@ int main() {
 
   // Check for errors (all values should be 3.0f)
   float maxError = 0.0F;
-  for (auto i = 0; i < n; ++i) maxError = fmax(maxError, fabs(h_C[i] - 3.0F));
+  for (auto i = 0; i < n; ++i)
+    maxError = std::fmax(maxError, std::fabs(h_C[i] - 3.0F));
   std::println("Max error: {}", maxError);
 
   return 0;
