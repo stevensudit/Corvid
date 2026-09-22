@@ -30,6 +30,14 @@
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 #include "gpt2_oracle.h"
 
+// The whole test sits in a named namespace: a `using namespace corvid;` at
+// global scope would make `cuda` (libcu++'s namespace against corvid::cuda)
+// and `log` (corvid::infra::log against the C math function) ambiguous in the
+// host code nvcc appends after the translation unit, and clang sees the same
+// ambiguity wherever the test spells `cuda::`, which is why it is spelled
+// `corvid::cuda::` throughout.
+namespace corvid_tests {
+
 using namespace corvid;
 using namespace corvid::tests::gpt2;
 using Catch::Matchers::WithinAbs;
@@ -64,7 +72,7 @@ TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
   REQUIRE(bias.load(bias_storage));
   cuda_matrix<T> out(in.extent());
 
-  REQUIRE(cuda::llm::layer_norm(out, in, weight, bias, eps));
+  REQUIRE(corvid::cuda::llm::layer_norm(out, in, weight, bias, eps));
 
   std::vector<T> out_storage(out.size());
   REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
@@ -83,7 +91,7 @@ TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
 
   // In place gives the same values.
   cuda_matrix<T> same(in_view);
-  REQUIRE(cuda::llm::layer_norm(same, same, weight, bias, eps));
+  REQUIRE(corvid::cuda::llm::layer_norm(same, same, weight, bias, eps));
   std::vector<T> same_storage(same.size());
   REQUIRE(same.as_view().store(matrix_lens<T>(same_storage, same.extent())));
   CHECK(same_storage == out_storage);
@@ -124,7 +132,7 @@ TEST_CASE("Device layer norm matches the oracle",
       std::vector<float> out_storage(out.size());
       const float_matrix_lens out_lens(out_storage, out.extent());
 
-      REQUIRE(cuda::llm::layer_norm(out, in, weight, bias, eps));
+      REQUIRE(corvid::cuda::llm::layer_norm(out, in, weight, bias, eps));
       REQUIRE(out.as_view().store(out_lens));
 
       check_close(out_lens, expected, 1e-5F, 1e-5F);
@@ -172,7 +180,7 @@ TEST_CASE("Device residual adds match the oracle",
       std::vector<float> out_storage(out.size());
       const float_matrix_lens out_lens(out_storage, out.extent());
 
-      REQUIRE(cuda::linalg::add(out, a, b));
+      REQUIRE(corvid::cuda::linalg::add(out, a, b));
       REQUIRE(out.as_view().store(out_lens));
 
       check_close(out_lens, expected, 0.0F, 0.0F);
@@ -193,7 +201,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   const cuda_matrix<float> in(in_view);
   cuda_matrix<float> out(in.extent());
 
-  REQUIRE(cuda::llm::gelu_new(out, in));
+  REQUIRE(corvid::cuda::llm::gelu_new(out, in));
 
   std::vector<float> out_storage(out.size());
   REQUIRE(out.as_view().store(float_matrix_lens(out_storage, out.extent())));
@@ -208,7 +216,7 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
 
   // In place gives the same values.
   cuda_matrix<float> same(in_view);
-  REQUIRE(cuda::llm::gelu_new(same, same));
+  REQUIRE(corvid::cuda::llm::gelu_new(same, same));
   std::vector<float> same_storage(same.size());
   REQUIRE(
       same.as_view().store(float_matrix_lens(same_storage, same.extent())));
@@ -252,11 +260,11 @@ TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
       std::vector<float> out_storage(out.size());
       const float_matrix_lens out_lens(out_storage, out.extent());
 
-      REQUIRE(cuda::linalg::linear_projection(blas, hidden, in, fc_weight,
-          fc_bias));
-      REQUIRE(cuda::llm::gelu_new(hidden, hidden));
-      REQUIRE(cuda::linalg::linear_projection(blas, out, hidden, proj_weight,
-          proj_bias));
+      REQUIRE(corvid::cuda::linalg::linear_projection(blas, hidden, in,
+          fc_weight, fc_bias));
+      REQUIRE(corvid::cuda::llm::gelu_new(hidden, hidden));
+      REQUIRE(corvid::cuda::linalg::linear_projection(blas, out, hidden,
+          proj_weight, proj_bias));
       REQUIRE(out.as_view().store(out_lens));
 
       check_close(out_lens, expected, 1e-4F, 1e-4F);
@@ -281,7 +289,7 @@ TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
   REQUIRE(ids.load(id_storage));
   cuda_matrix<T> out({.row_count = id_storage.size(), .col_count = 2});
 
-  REQUIRE(cuda::llm::embed_tokens(out, ids, table));
+  REQUIRE(corvid::cuda::llm::embed_tokens(out, ids, table));
 
   std::vector<T> out_storage(out.size());
   REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
@@ -300,7 +308,7 @@ TEMPLATE_TEST_CASE("Device embed positions on hand-computed rows",
   cuda_matrix<T> out(
       matrix_view<T>(in_storage, {.row_count = 2, .col_count = 2}));
 
-  REQUIRE(cuda::llm::embed_positions(out, table));
+  REQUIRE(corvid::cuda::llm::embed_positions(out, table));
 
   std::vector<T> out_storage(out.size());
   REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
@@ -332,8 +340,8 @@ TEST_CASE("Device embed tokens match the oracle",
   std::vector<float> out_storage(out.size());
   const float_matrix_lens out_lens(out_storage, out.extent());
 
-  REQUIRE(cuda::llm::embed_tokens(out, ids, wte));
-  REQUIRE(cuda::llm::embed_positions(out, wpe));
+  REQUIRE(corvid::cuda::llm::embed_tokens(out, ids, wte));
+  REQUIRE(corvid::cuda::llm::embed_positions(out, wpe));
   REQUIRE(out.as_view().store(out_lens));
 
   check_close(out_lens, expected, 0.0F, 0.0F);
@@ -347,7 +355,7 @@ TEST_CASE("Device causal mask blanks the columns after the diagonal",
   const std::vector<float> ones(3UZ * 3, 1.0F);
   cuda_matrix<float> scores(
       float_matrix_view(ones, {.row_count = 3, .col_count = 3}));
-  REQUIRE(cuda::llm::causal_mask(scores));
+  REQUIRE(corvid::cuda::llm::causal_mask(scores));
 
   std::vector<float> storage(scores.size());
   REQUIRE(scores.as_view().store(float_matrix_lens(storage, scores.extent())));
@@ -361,7 +369,7 @@ TEST_CASE("Device causal mask blanks each square of a stack on its own",
   const std::vector<float> ones(4UZ * 2, 1.0F);
   cuda_matrix<float> scores(
       float_matrix_view(ones, {.row_count = 4, .col_count = 2}));
-  REQUIRE(cuda::llm::causal_mask(scores));
+  REQUIRE(corvid::cuda::llm::causal_mask(scores));
 
   std::vector<float> storage(scores.size());
   REQUIRE(scores.as_view().store(float_matrix_lens(storage, scores.extent())));
@@ -387,7 +395,7 @@ TEST_CASE("Device attention on three tokens of width two",
 
   SECTION("one head of width two") {
     cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
-    REQUIRE(cuda::llm::attend(blas, out, qkv, 1, scores));
+    REQUIRE(corvid::cuda::llm::attend(blas, out, qkv, 1, scores));
     REQUIRE(out.as_view().store(out_lens));
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
     CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
@@ -399,7 +407,7 @@ TEST_CASE("Device attention on three tokens of width two",
 
   SECTION("two heads of width one") {
     cuda_matrix<float> scores({.row_count = 2UZ * 3, .col_count = 3});
-    REQUIRE(cuda::llm::attend(blas, out, qkv, 2, scores));
+    REQUIRE(corvid::cuda::llm::attend(blas, out, qkv, 2, scores));
     REQUIRE(out.as_view().store(out_lens));
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
     CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
@@ -449,10 +457,10 @@ TEST_CASE("Device attention path matches the oracle",
       std::vector<float> out_storage(out.size());
       const float_matrix_lens out_lens(out_storage, out.extent());
 
-      REQUIRE(cuda::linalg::linear_projection(blas, qkv, in, attn_weight,
-          attn_bias));
-      REQUIRE(cuda::llm::attend(blas, heads_out, qkv, n_head, scores));
-      REQUIRE(cuda::linalg::linear_projection(blas, out, heads_out,
+      REQUIRE(corvid::cuda::linalg::linear_projection(blas, qkv, in,
+          attn_weight, attn_bias));
+      REQUIRE(corvid::cuda::llm::attend(blas, heads_out, qkv, n_head, scores));
+      REQUIRE(corvid::cuda::linalg::linear_projection(blas, out, heads_out,
           proj_weight, proj_bias));
       REQUIRE(out.as_view().store(out_lens));
 
@@ -462,5 +470,7 @@ TEST_CASE("Device attention path matches the oracle",
 }
 
 #pragma endregion
+
+} // namespace corvid_tests
 
 // NOLINTEND(readability-function-cognitive-complexity)

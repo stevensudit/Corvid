@@ -576,45 +576,36 @@ if(USE_CLANG_TIDY)
     endif()
 endif()
 
-# CUDA (.cu) targets. The cleanbuild driver sets CORVID_ENABLE_CUDA=ON (and
-# passes the CUDA compiler + architecture) whenever the toolkit is present and
-# the build is a plain one (no sanitizer/coverage/scan). The CUDA compiler
-# differs by platform: nvcc with a g++-15 host on Linux (nvcc rejects gcc newer
-# than 15), and clang (clang++) on Windows, because nvcc 13.3's MSVC device
-# frontend has no C++23 dialect (see the flag block below). The .cu targets are
-# independent single-source executables that share no link line with a .cpp
-# binary, so they coexist with whatever compiler/stdlib the .cpp suite uses; the
-# libc++ link flags above are CXX-only and never reach this link line.
+# CUDA (.cu) targets. The cleanbuild driver sets CORVID_ENABLE_CUDA=ON and
+# passes the CUDA compiler and architecture whenever the toolkit is present and
+# the build is a plain one (no sanitizer/coverage/scan). The CUDA compiler is
+# clang (clang++) on both platforms: its unified C++23 frontend compiles host
+# and device together, where nvcc 13.3 cannot build the bucket on either (its
+# MSVC device frontend has no C++23 dialect, and its EDG frontend drops the
+# second argument of a C++23 multidimensional subscript in host templates; see
+# crossplatform.md, section 3). The nvcc + g++-15 pairing survives as an
+# opt-in bug-report leg (`cleanbuild.sh nvcc`), so the flag blocks below branch
+# on the compiler ID, not the platform. The .cu targets are independent
+# single-source executables that share no link line with a .cpp binary, so
+# they coexist with whatever compiler/stdlib the .cpp suite uses; the libc++
+# link flags above are CXX-only and never reach this link line.
 if(CORVID_ENABLE_CUDA)
     enable_language(CUDA)
     if(NOT CMAKE_CUDA_ARCHITECTURES)
-        # `native` resolves to the build host's GPU (sm_89 on an RTX 4090) under
-        # nvcc on Linux. On Windows the cleanbuild driver passes an explicit
-        # sm_NN: clang-CUDA's `native` detection does not work there.
+        # The cleanbuild drivers pass an explicit sm_NN resolved from nvidia-smi
+        # (clang-CUDA has no `native`); this fallback serves the nvcc leg, where
+        # `native` resolves to the build host's GPU.
         set(CMAKE_CUDA_ARCHITECTURES native)
     endif()
-    # The .cu bucket stays at C++23 while the .cpp suite builds as C++26:
-    # c++23 is the top of nvcc 13.3's --std list. CMake 3.28 cannot map
-    # CUDA_STANDARD 23 (it rejects the dialect as unsupported by nvcc), though
-    # nvcc 13.3 accepts -std=c++23. Clear CMake's default standard flag and
-    # pass c++23 ourselves so the compiler command carries a single -std (no
-    # "incompatible redefinition for option 'std'").
+    # The .cu bucket stays at C++23 while the .cpp suite builds as C++26: the
+    # toolkit's own headers are validated no further, and c++23 is the top of
+    # nvcc 13.3's --std list, which the opt-in nvcc leg still needs. CMake 3.28
+    # cannot map CUDA_STANDARD 23 (it rejects the dialect as unsupported by
+    # nvcc), though nvcc 13.3 accepts -std=c++23. Clear CMake's default
+    # standard flag and pass c++23 ourselves so the compiler command carries a
+    # single -std (no "incompatible redefinition for option 'std'").
     set(CMAKE_CUDA_STANDARD_DEFAULT "")
-    if(WIN32)
-        # Windows compiles the CUDA bucket with clang (clang++), not nvcc: nvcc
-        # 13.3's MSVC device frontend has no C++23 dialect (its -std=c++23 maps
-        # to --ms_c++14 and is dropped), so it cannot build Corvid's C++23
-        # headers, whereas clang's unified C++23 frontend compiles host and
-        # device together. -fms-runtime-lib=dll picks the dynamic (/MD) CRT to
-        # match the FetchContent Catch2 (clang defaults to the static /MT one);
-        # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
-        # than clang's last fully supported toolkit (codegen is unaffected).
-        # -gline-tables-only is the clang analog of the Linux side's -lineinfo:
-        # it embeds the SASS<->source line mapping (.nv_debug_line_sass) that
-        # compute-sanitizer (./cleanbuild.ps1 cudacheck) and Nsight attribute
-        # results from, while keeping device optimization intact. Release
-        # supplies the optimization (-O3 -DNDEBUG). See crossplatform.md.
-        #
+    if(CMAKE_CUDA_COMPILER_ID STREQUAL "Clang")
         # -Wall -Wextra -Werror brings the .cu bucket to the same rigor as the
         # .cpp suite. -Wno-missing-designated-field-initializers opts out of the
         # one -Wextra check that fires on the deliberate partial designated-init
@@ -622,15 +613,29 @@ if(CORVID_ENABLE_CUDA)
         # omitted fields zero-init as intended); the positional
         # -Wmissing-field-initializers stays on. Mirrors the cl /wd codes for
         # warnings that fire on correct, intentional code.
+        # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
+        # than clang's last fully supported toolkit (codegen is unaffected).
+        # -gline-tables-only embeds the SASS<->source line mapping
+        # (.nv_debug_line_sass) that compute-sanitizer (./cleanbuild.ps1
+        # cudacheck) and Nsight attribute results from, while keeping device
+        # optimization intact. See crossplatform.md.
         string(APPEND CMAKE_CUDA_FLAGS
-            " -std=c++23 -fms-runtime-lib=dll -Wall -Wextra -Werror"
+            " -std=c++23 -Wall -Wextra -Werror"
             " -Wno-missing-designated-field-initializers"
             " -Wno-unknown-cuda-version -gline-tables-only")
+        if(WIN32)
+            # -fms-runtime-lib=dll picks the dynamic (/MD) CRT to match the
+            # FetchContent Catch2 (clang defaults to the static /MT one).
+            # Release supplies the optimization (-O3 -DNDEBUG).
+            string(APPEND CMAKE_CUDA_FLAGS " -fms-runtime-lib=dll")
+        else()
+            # Linux configures without a build type, so the optimization is
+            # explicit, matching the .cpp suite's -O3.
+            string(APPEND CMAKE_CUDA_FLAGS " -O3")
+        endif()
     else()
-        # Linux uses nvcc (g++-15 host). -lineinfo adds source-line correlation
-        # to the optimized SASS so Nsight (and compute-sanitizer) can attribute
-        # results to source lines; unlike -G it leaves device optimization
-        # intact, so the runtime cost is negligible.
+        # The nvcc leg (g++-15 host). -lineinfo is nvcc's -gline-tables-only:
+        # source-line correlation in the optimized SASS without -G's cost.
         string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3 -lineinfo")
     endif()
     # Optional ptxas register/spill report (perf diagnostic), off by default so
@@ -640,7 +645,7 @@ if(CORVID_ENABLE_CUDA)
     # -Xcuda-ptxas; nvcc takes -Xptxas directly.
     option(CORVID_CUDA_PTXAS_VERBOSE "Report CUDA register/spill usage" OFF)
     if(CORVID_CUDA_PTXAS_VERBOSE)
-        if(WIN32)
+        if(CMAKE_CUDA_COMPILER_ID STREQUAL "Clang")
             string(APPEND CMAKE_CUDA_FLAGS " -Xcuda-ptxas -v")
         else()
             string(APPEND CMAKE_CUDA_FLAGS " -Xptxas -v")
@@ -890,8 +895,8 @@ foreach(SOURCE_FILE ${SOURCES})
 endforeach()
 
 # CUDA (.cu) test executables, the same single-source-per-executable model as
-# the .cpp suite above but compiled by the CUDA compiler (nvcc + g++-15 host on
-# Linux, clang++ on Windows). They use Catch2 like the rest of the suite; the
+# the .cpp suite above but compiled by the CUDA compiler (clang++ on both
+# platforms). They use Catch2 like the rest of the suite; the
 # Catch2 it links
 # differs by platform (see the CUDA_CATCH2_TARGET split below). notest_* opt out
 # of Catch2 and CTest, as in the .cpp loop. A .cu file reaches its headers
@@ -925,10 +930,11 @@ if(CORVID_ENABLE_CUDA)
             # while the .cu targets are libstdc++; no such ABI divergence here.
             set(CUDA_CATCH2_TARGET Catch2::Catch2)
         else()
-            # On Linux the .cu targets are libstdc++ (nvcc + g++-15 host), so
-            # they need the system (apt) libstdc++ Catch2 rather than the libc++
-            # FetchContent build the .cpp suite may be using (mixing ABIs gives
-            # unresolved std::__1 / std::__cxx11 symbols at link).
+            # On Linux the .cu targets are libstdc++ (the toolkit's headers
+            # refuse libc++ on x86 Linux), so they need the system (apt)
+            # libstdc++ Catch2 rather than the libc++ FetchContent build the
+            # .cpp suite may be using (mixing ABIs gives unresolved std::__1 /
+            # std::__cxx11 symbols at link).
             find_path(CUDA_CATCH2_INCLUDE_DIR catch2/catch_test_macros.hpp)
             find_library(CUDA_CATCH2_LIBRARY NAMES Catch2)
             if(NOT CUDA_CATCH2_INCLUDE_DIR OR NOT CUDA_CATCH2_LIBRARY)
@@ -964,6 +970,17 @@ if(CORVID_ENABLE_CUDA)
         # bare-name "catch2_main.h", as in the CXX loop above.
         target_include_directories(${EXECUTABLE_NAME} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}")
+        # libcu++ (<cuda/std/...>, <cuda/functional>), which the device code
+        # uses for its std vocabulary (numeric_limits, plus, max): the device
+        # twins of the host types, and the only ones nvcc accepts in device
+        # code. CUDA 13 ships it under include/cccl: nvcc searches that
+        # directory on its own, clang does not, so name it for both, as SYSTEM
+        # to keep its diagnostics out of -Werror.
+        list(GET CUDAToolkit_INCLUDE_DIRS 0 _corvid_cuda_include)
+        if(EXISTS "${_corvid_cuda_include}/cccl")
+            target_include_directories(${EXECUTABLE_NAME} SYSTEM PRIVATE
+                "${_corvid_cuda_include}/cccl")
+        endif()
         # Auto-link cuBLAS for sources that use it, matching `nvcc ... -lcublas`.
         file(STRINGS ${SOURCE_FILE} CUDA_USES_CUBLAS REGEX "cublas")
         if(CUDA_USES_CUBLAS)
@@ -1020,8 +1037,11 @@ if(WIN32)
     if(_corvid_nvcc)
         get_filename_component(_corvid_cuda_bin "${_corvid_nvcc}" DIRECTORY)
         get_filename_component(_corvid_cuda_root "${_corvid_cuda_bin}/.." ABSOLUTE)
+        # include/cccl is libcu++ (<cuda/std/...>), which clang does not
+        # search on its own; the build adds it per .cu target, and this covers
+        # the .cuh headers, which have no compile command.
         set(CORVID_CLANGD_CUDA_FLAGS
-            "-xcuda, --cuda-path=${_corvid_cuda_root}, --no-cuda-version-check, -std=c++23")
+            "-xcuda, --cuda-path=${_corvid_cuda_root}, --no-cuda-version-check, -std=c++23, -isystem, ${_corvid_cuda_root}/include/cccl")
     else()
         set(CORVID_CLANGD_CUDA_FLAGS "-xcuda, --no-cuda-version-check, -std=c++23")
     endif()

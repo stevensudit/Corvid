@@ -32,7 +32,7 @@ namespace corvid { inline namespace meta { inline namespace enum_utils {
 // Similar to `std::to_underlying` in C++23, but more forgiving. If `E` is
 // not an enum, just passes the value through unchanged.
 template<typename E>
-[[nodiscard]] constexpr auto as_underlying(E v) noexcept {
+[[nodiscard]] constexpr CUDA_HOST_DEVICE auto as_underlying(E v) noexcept {
   if constexpr (std::is_enum_v<E>) {
     return static_cast<std::underlying_type_t<E>>(v);
   } else {

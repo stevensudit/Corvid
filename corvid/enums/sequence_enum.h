@@ -233,7 +233,7 @@ inline namespace ops {
 //
 // The precedent for this is `std::optional`.
 template<SequentialEnum E>
-[[nodiscard]] constexpr auto operator*(E v) noexcept {
+[[nodiscard]] constexpr CUDA_HOST_DEVICE auto operator*(E v) noexcept {
   return as_underlying<E>(v);
 }
 

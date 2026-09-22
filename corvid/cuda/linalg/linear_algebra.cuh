@@ -16,16 +16,17 @@
 // limitations under the License.
 #pragma once
 
-#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <concepts>
 #include <cstddef>
-#include <functional>
-#include <limits>
 #include <type_traits>
 
 #include <cuda_runtime.h>
+
+#include <cuda/std/algorithm>
+#include <cuda/std/functional>
+#include <cuda/std/limits>
 
 #include "../../containers/utils/matrix_view.h"
 #include "../../meta/concepts.h"
@@ -398,7 +399,7 @@ template<typename T, typename Op>
 template<DeviceMatrixLike Out>
 requires Arithmetic<device_element_t<Out>>
 [[nodiscard]] bool add(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
-  return details::combine(out.as_lens(), a, b, std::plus<>{});
+  return details::combine(out.as_lens(), a, b, ::cuda::std::plus<>{});
 }
 
 // Subtract `b` from `a` elementwise, writing into `out`.
@@ -410,7 +411,7 @@ template<DeviceMatrixLike Out>
 requires Arithmetic<device_element_t<Out>>
 [[nodiscard]] bool
 subtract(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
-  return details::combine(out.as_lens(), a, b, std::minus<>{});
+  return details::combine(out.as_lens(), a, b, ::cuda::std::minus<>{});
 }
 
 #pragma endregion
@@ -435,8 +436,8 @@ __global__ void apply_softmax(kernel_matrix_lens<T> out,
 
   // Shifting every value by the same amount leaves the weights unchanged, and
   // shifting by the maximum keeps `exp` at or below 1.
-  auto peak = std::numeric_limits<T>::lowest();
-  for (const auto c : columns) peak = std::max(peak, in[row, c]);
+  auto peak = ::cuda::std::numeric_limits<T>::lowest();
+  for (const auto c : columns) peak = ::cuda::std::max(peak, in[row, c]);
   peak = cuda_reduce::block_max(peak);
 
   T total{};

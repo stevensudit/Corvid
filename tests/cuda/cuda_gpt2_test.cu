@@ -25,6 +25,14 @@
 #include "catch2_main.h"
 #include "gpt2_oracle.h"
 
+// The whole test sits in a named namespace: a `using namespace corvid;` at
+// global scope would make `cuda` (libcu++'s namespace against corvid::cuda)
+// and `log` (corvid::infra::log against the C math function) ambiguous in the
+// host code nvcc appends after the translation unit, and clang sees the same
+// ambiguity wherever the test spells `cuda::`, which is why it is spelled
+// `corvid::cuda::` throughout.
+namespace corvid_tests {
+
 using namespace corvid;
 using namespace corvid::tests::gpt2;
 using corvid::cuda::cublas_handle;
@@ -172,7 +180,7 @@ TEST_CASE("Device model matches the oracle on every prompt",
       REQUIRE(engine.forward(trunk, ids, owned.lenses()));
 
       cuda_matrix<float> logits(expected.extent());
-      REQUIRE(cuda::llm::compute_logits(blas, logits, trunk, wte));
+      REQUIRE(corvid::cuda::llm::compute_logits(blas, logits, trunk, wte));
 
       check_device_close(logits, expected, 1e-4F, 1e-4F);
     }
@@ -207,5 +215,7 @@ TEST_CASE("Device greedy decoding reproduces the manifest",
 }
 
 #pragma endregion
+
+} // namespace corvid_tests
 
 // NOLINTEND(readability-function-cognitive-complexity)
