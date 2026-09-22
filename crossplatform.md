@@ -120,15 +120,16 @@ below.
 
 Two constraints of clang-CUDA on Linux. The toolkit's headers refuse libc++ on
 x86 Linux (`host_defines.h`: "libc++ is not supported on x86 system"), so the
-`.cu` bucket links libstdc++ and the system libstdc++ Catch2 even when the
-`.cpp` suite is libc++; the standard library, not the compiler, is what still
-differs between the two platforms' CUDA legs (MSVC STL on Windows). And
-identifying clang as a CUDA compiler needs CMake 4 (4.4 verified): Ubuntu
-24.04's CMake 3.28 probes clang with `sm_52`, `sm_30`, `sm_20`, none of which
-the 13.3 `ptxas` accepts, so the configure fails with "CUDA compiler
-identification is unknown"; CMake 4 tries `sm_75` first for a 13.x toolkit.
-The Dockerfile installs the `cmake` wheel from PyPI for that reason (the
-Kitware apt repository is outside the container's allowlist).
+`.cu` bucket links libstdc++ and its own libstdc++ Catch2 (an ExternalProject
+under `tests/.local/`, the same tag as the `.cpp` suite's FetchContent build)
+even when the `.cpp` suite is libc++; the standard library, not the compiler,
+is what still differs between the two platforms' CUDA legs (MSVC STL on
+Windows). And identifying clang as a CUDA compiler needs CMake 4 (4.4
+verified): Ubuntu 24.04's CMake 3.28 probes clang with `sm_52`, `sm_30`,
+`sm_20`, none of which the 13.3 `ptxas` accepts, so the configure fails with
+"CUDA compiler identification is unknown"; CMake 4 tries `sm_75` first for a
+13.x toolkit. The Dockerfile installs the `cmake` wheel from PyPI for that
+reason (the Kitware apt repository is outside the container's allowlist).
 
 #### nvcc subscript repro
 

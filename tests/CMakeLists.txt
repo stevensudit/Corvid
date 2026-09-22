@@ -352,35 +352,27 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
 endif()
 
-# Catch2 v3. Under libstdc++, prefer a system install (apt install catch2),
-# since Ubuntu's package is built against libstdc++ and links cleanly. Under
-# libc++ we must build Catch2 from source against the same standard library
+# Catch2 v3, built from source by FetchContent so its objects carry the
+# suite's exact flags: the standard library (libc++ or libstdc++), sanitizer,
+# coverage. A Catch2 is usable only by a consumer on the same standard library
 # (mixing the two produces unresolved std::__cxx11 / std::__1 symbols at link
-# time), so we always go through FetchContent there.
-set(_have_catch2 FALSE)
-if(USE_LIBSTDCPP)
-    find_package(Catch2 3 QUIET)
-    if(Catch2_FOUND)
-        message(STATUS "Using system Catch2 ${Catch2_VERSION} (libstdc++)")
-        set(_have_catch2 TRUE)
-    endif()
-endif()
-if(NOT _have_catch2)
-    # Persist the FetchContent cache outside the build dir so cleanbuild.sh's
-    # `rm -rf tests/build/` doesn't trigger a full Catch2 rebuild every run.
-    # Skip update checks once the source is populated for faster reconfigures.
-    set(FETCHCONTENT_BASE_DIR "${CMAKE_CURRENT_LIST_DIR}/.fetchcontent"
-        CACHE PATH "FetchContent cache (persisted across builds)")
-    set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
-    message(STATUS "Fetching Catch2 v3.6.0 via FetchContent (cache: ${FETCHCONTENT_BASE_DIR})")
-    include(FetchContent)
-    FetchContent_Declare(
-        Catch2
-        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG        v3.6.0
-    )
-    FetchContent_MakeAvailable(Catch2)
-endif()
+# time), so the Linux .cu bucket, always libstdc++, gets its own build in the
+# CUDA section below. One tag pins both builds.
+set(CORVID_CATCH2_TAG v3.6.0)
+# Persist the FetchContent cache outside the build dir so cleanbuild.sh's
+# `rm -rf tests/build/` doesn't trigger a full Catch2 rebuild every run.
+# Skip update checks once the source is populated for faster reconfigures.
+set(FETCHCONTENT_BASE_DIR "${CMAKE_CURRENT_LIST_DIR}/.fetchcontent"
+    CACHE PATH "FetchContent cache (persisted across builds)")
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+message(STATUS "Fetching Catch2 ${CORVID_CATCH2_TAG} via FetchContent (cache: ${FETCHCONTENT_BASE_DIR})")
+include(FetchContent)
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        ${CORVID_CATCH2_TAG}
+)
+FetchContent_MakeAvailable(Catch2)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 # QUIC dependency: ngtcp2 (ExternalProject) linked against a preflight-built
@@ -925,29 +917,73 @@ if(CORVID_ENABLE_CUDA)
         if(WIN32)
             # clang++ targets the MSVC ABI on Windows, so the .cu objects match
             # the clang-cl/cl .cpp suite's FetchContent Catch2 (also MSVC ABI).
-            # Reuse it directly. The Linux split below (a separate system
-            # Catch2) exists only because the .cpp suite there may be libc++
-            # while the .cu targets are libstdc++; no such ABI divergence here.
+            # Reuse it directly. The Linux split below (a separate libstdc++
+            # Catch2 build) exists only because the .cpp suite there may be
+            # libc++ while the .cu targets are libstdc++; no such ABI
+            # divergence here.
             set(CUDA_CATCH2_TARGET Catch2::Catch2)
         else()
             # On Linux the .cu targets are libstdc++ (the toolkit's headers
-            # refuse libc++ on x86 Linux), so they need the system (apt)
-            # libstdc++ Catch2 rather than the libc++ FetchContent build the
-            # .cpp suite may be using (mixing ABIs gives unresolved std::__1 /
-            # std::__cxx11 symbols at link).
-            find_path(CUDA_CATCH2_INCLUDE_DIR catch2/catch_test_macros.hpp)
-            find_library(CUDA_CATCH2_LIBRARY NAMES Catch2)
-            if(NOT CUDA_CATCH2_INCLUDE_DIR OR NOT CUDA_CATCH2_LIBRARY)
-                message(FATAL_ERROR
-                    "CUDA tests use Catch2 but the system libstdc++ Catch2 was "
-                    "not found (apt install catch2).")
+            # refuse libc++ on x86 Linux), so they cannot link the FetchContent
+            # Catch2 when the .cpp suite is libc++ (mixing ABIs gives
+            # unresolved std::__1 / std::__cxx11 symbols at link). Build a
+            # libstdc++ Catch2 of the same tag as an ExternalProject, the
+            # ngtcp2/nghttp3 pattern: a separate CMake invocation whose
+            # install under tests/.local/ survives the build-dir wipe, so it
+            # builds once per checkout. Not Ubuntu's catch2 package: that is
+            # 3.4, and 3.5 is where Catch2 put the NOLINT on its assertion
+            # decomposition (`Decomposer() <= expr`), without which clang-tidy
+            # reports bugprone-chained-comparison on every CHECK.
+            #
+            # The sub-build takes the suite's C++ compiler but none of its
+            # flags (a fresh cache), so it lands on the compiler's default
+            # standard library, libstdc++ on Linux for clang and gcc alike;
+            # `-stdlib=libstdc++` spells that out for clang. The suite's
+            # dialect and warning flags do not apply to Catch2's own sources,
+            # and Release is right for a test harness.
+            include(ExternalProject)
+            set(CUDA_CATCH2_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/catch2-external")
+            set(CUDA_CATCH2_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/catch2")
+            set(CUDA_CATCH2_LIB_DIR     "${CUDA_CATCH2_INSTALL_DIR}/lib")
+            set(CUDA_CATCH2_INCLUDE_DIR "${CUDA_CATCH2_INSTALL_DIR}/include")
+            set(_cuda_catch2_cxx_flags "")
+            if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+                set(_cuda_catch2_cxx_flags "-DCMAKE_CXX_FLAGS=-stdlib=libstdc++")
             endif()
+            # `CMAKE_INSTALL_LIBDIR=lib` pins a flat `lib/` (see ngtcp2), so
+            # the IMPORTED_LOCATION below is stable. Docs and extras are the
+            # CMake helper scripts and debugger pretty-printers; the tests
+            # need neither.
+            ExternalProject_Add(cuda_catch2_external
+                PREFIX            "${CUDA_CATCH2_PREFIX_DIR}"
+                GIT_REPOSITORY    https://github.com/catchorg/Catch2.git
+                GIT_TAG           ${CORVID_CATCH2_TAG}
+                GIT_SHALLOW       TRUE
+                UPDATE_DISCONNECTED TRUE
+                INSTALL_DIR       "${CUDA_CATCH2_INSTALL_DIR}"
+                CMAKE_GENERATOR   "Ninja"
+                CMAKE_ARGS
+                    -DCMAKE_INSTALL_PREFIX=${CUDA_CATCH2_INSTALL_DIR}
+                    -DCMAKE_INSTALL_LIBDIR=lib
+                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                    ${_cuda_catch2_cxx_flags}
+                    -DCATCH_INSTALL_DOCS=OFF
+                    -DCATCH_INSTALL_EXTRAS=OFF
+                BUILD_BYPRODUCTS
+                    "${CUDA_CATCH2_LIB_DIR}/libCatch2.a"
+            )
+            # As with ngtcp2: the include dir must exist at configure time for
+            # the IMPORTED target property below; the first build populates
+            # it.
+            file(MAKE_DIRECTORY "${CUDA_CATCH2_INCLUDE_DIR}")
             # The catch2_main.h that each test includes supplies main() via
             # Catch::Session, so only libCatch2 is needed (not libCatch2Main).
-            add_library(cuda_catch2 UNKNOWN IMPORTED)
+            add_library(cuda_catch2 STATIC IMPORTED)
             set_target_properties(cuda_catch2 PROPERTIES
-                IMPORTED_LOCATION "${CUDA_CATCH2_LIBRARY}"
+                IMPORTED_LOCATION "${CUDA_CATCH2_LIB_DIR}/libCatch2.a"
                 INTERFACE_INCLUDE_DIRECTORIES "${CUDA_CATCH2_INCLUDE_DIR}")
+            add_dependencies(cuda_catch2 cuda_catch2_external)
             set(CUDA_CATCH2_TARGET cuda_catch2)
         endif()
 
