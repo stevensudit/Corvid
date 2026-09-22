@@ -148,7 +148,10 @@ template<typename M> auto f(const M& m) {
 `nvcc -std=c++23 -ccbin g++-15 -c repro.cu` fails the `static_assert`; the same
 file compiles under `g++-15 -std=c++23` and under `clang++ -std=c++23 -xcuda`.
 The host-side `.cudafe1.cpp` shows the rewritten call as `m[1]`. Spelling the
-call `m.operator[](1, 3)` or as a named method sidesteps it.
+call `m.operator[](1, 3)` or as a named method sidesteps it. Filed with NVIDIA
+on 2026-09-21 as bug 6818043 (the developer bug tracker; the page needs a
+Developer Program login, so there is no public link). Retire the nvcc leg's
+"known broken" note, or the leg itself, when a toolkit ships the fix.
 
 Two consequences of the clang++/CUDA choice, both enforced by `cleanbuild.ps1`:
 
