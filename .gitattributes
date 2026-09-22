@@ -1,3 +1,8 @@
+# Every text file checks out as LF on every platform; the working tree
+# otherwise mixes CRLF (autocrlf checkouts) with LF (edits from the Linux
+# devcontainer). Later lines win, so the fixture exception below still holds.
+* text=auto eol=lf
+
 # Documentation files
 .clinerules linguist-documentation
 *.md linguist-documentation

@@ -1,4 +1,5 @@
 {
+    "files.eol": "\n",
     "editor.formatOnSave": true,
     "[cpp]": {
         "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
