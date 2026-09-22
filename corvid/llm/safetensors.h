@@ -283,15 +283,13 @@ private:
     std::vector<tensor> tensors;
     string_unordered_map<size_t> index;
     string_map<std::string> metadata;
-    std::string key;
     for (const auto [key_view, value] : root.as_object()) {
-      if (!key_view.decode_string(key)) return false;
-      if (key == "__metadata__") {
+      tensor entry;
+      if (!key_view.decode_string(entry.name)) return false;
+      if (entry.name == "__metadata__") {
         if (!parse_metadata(metadata, value)) return false;
         continue;
       }
-      tensor entry;
-      entry.name = std::move(key);
       if (!parse_tensor(entry, value, buffer)) return false;
       if (!index.emplace(entry.name, tensors.size()).second) return false;
       tensors.push_back(std::move(entry));
