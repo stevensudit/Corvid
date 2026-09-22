@@ -34,8 +34,9 @@
 #   ./cleanbuild.ps1 cl                  portable suite via MSVC cl (no CUDA;
 #                                        builds in tests/build-cl)
 #   ./cleanbuild.ps1 asan                ASAN (+UBSAN) build + ctest (clang++ only)
-#   ./cleanbuild.ps1 tidy                run clang-tidy during the build, then a
-#                                        warning summary (clang++ only)
+#   ./cleanbuild.ps1 tidy                run clang-tidy during the build, in its
+#                                        own incremental tree (tests/build-tidy),
+#                                        then a warning summary (clang++ only)
 #   ./cleanbuild.ps1 cudacheck           CUDA tests under compute-sanitizer (the
 #                                        device analog of asan; memcheck etc.)
 [CmdletBinding()]
@@ -82,8 +83,9 @@ foreach ($a in $Rest) {
 }
 
 # "clean-all" deletes the buildable outputs and stops: the release tree
-# (tests/build), the cl tree (tests/build-cl), the IDE debug tree
-# (tests/build-debug), any legacy in-source strays at the repo root, and the
+# (tests/build), the cl tree (tests/build-cl), the tidy tree (tests/build-tidy),
+# the IDE debug tree (tests/build-debug), any legacy in-source strays at the
+# repo root, and the
 # Catch2 build dirs inside the dependency caches (Catch2 objects are not
 # mode-keyed, so a stale sanitizer mode's objects could otherwise poison later
 # links). Standalone; builds nothing. The downloaded sources and prebuilt deps
@@ -96,7 +98,8 @@ if ($cleanAll) {
   }
   foreach ($target in 'CMakeCache.txt', 'cmake_install.cmake',
     'ClangExeProject.sln', 'build.ninja', 'CMakeFiles', '.ninja_deps',
-    '.ninja_log', 'tests/build', 'tests/build-cl', 'tests/build-debug',
+    '.ninja_log', 'tests/build', 'tests/build-cl', 'tests/build-tidy',
+    'tests/build-debug',
     'tests/.fetchcontent/catch2-build',
     'tests/.fetchcontent-debug/catch2-build') {
     $path = Join-Path $repo $target
@@ -105,9 +108,9 @@ if ($cleanAll) {
       throw "clean-all: failed to remove '$path' (open handle? close clangd/IDE and retry)"
     }
   }
-  Write-Host ('Removed tests/build, tests/build-cl, tests/build-debug, and ' +
-    'the Catch2 object caches (downloaded sources and prebuilt deps ' +
-    'preserved).')
+  Write-Host ('Removed tests/build, tests/build-cl, tests/build-tidy, ' +
+    'tests/build-debug, and the Catch2 object caches (downloaded sources ' +
+    'and prebuilt deps preserved).')
   exit 0
 }
 if ($sanitizer -and $compiler -eq 'cl') {
@@ -146,6 +149,13 @@ if ($compiler -eq 'clang') {
 } else {
   $cxx = 'cl'
   $bldDir = Join-Path $repo 'tests/build-cl'
+}
+# tidy gets its own tree too: every object in it was compiled under clang-tidy,
+# so an incremental build there re-analyzes exactly the TUs whose sources or
+# headers changed, while the plain tree's objects and compile_commands.json
+# stay untouched (tidy keeps asserts live, so the two configurations differ).
+if ($tidy) {
+  $bldDir = Join-Path $repo 'tests/build-tidy'
 }
 
 # Bring in the MSVC environment (INCLUDE/LIB, and cl/link on PATH) unless we are
@@ -246,14 +256,19 @@ Write-Host "Compiler: $compiler   Mode: $mode ($cfgLabel)$(if ($testName) { "   
 # and let ninja rebuild incrementally. A changed option, a first run, or an
 # explicit `clean` falls through to the fresh configure, which wipes
 # CMakeFiles/ (where ninja keeps every object file) and so recompiles
-# everything. tidy always takes the fresh path: clang-tidy runs as part of
-# compilation, so an incremental no-op build would analyze nothing and report
-# a falsely clean summary. reconfigure always configures (that is its job).
-# Editing CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake when
-# the lists file is newer than the cache. Mirrors cleanbuild.sh.
+# everything. reconfigure always configures (that is its job). Editing
+# CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake when the
+# lists file is newer than the cache. Mirrors cleanbuild.sh.
+#
+# tidy reuses its tree like any other mode. clang-tidy runs as part of each
+# compilation, so an incremental build analyzes the TUs ninja rebuilds and no
+# others; the summary therefore covers this run's TUs, and a finding left
+# unfixed in an untouched TU was reported by the run that last compiled it.
+# ninja does not know .clang-tidy is an input, so pass `clean` after editing
+# it to re-analyze everything.
 $sigFile = Join-Path $bldDir '.cleanbuild-config'
 $configSig = ($cfg -join '|')
-$reuse = -not ($clean -or $tidy -or $reconfigure) -and (Test-Path $sigFile) -and
+$reuse = -not ($clean -or $reconfigure) -and (Test-Path $sigFile) -and
   (Test-Path (Join-Path $bldDir 'CMakeCache.txt')) -and
   ((Get-Content $sigFile -Raw).Trim() -eq $configSig)
 
@@ -326,7 +341,9 @@ if ($tidy) {
 #
 # Parallel: one clang-tidy process per file, at ~1.2 GB and ~20 s for the LLM
 # tests, throttled to the physical core count. Each file's output is gathered
-# as one string so files do not interleave in the log.
+# as one string so files do not interleave in the log. Every .cu is
+# re-analyzed on every tidy run (the pass is outside ninja); it is a fraction
+# of a minute.
 if ($tidy -and $cudaArgs) {
   $db = Join-Path $bldDir 'compile_commands.json'
   $cuSources = @((Get-Content $db -Raw | ConvertFrom-Json) |

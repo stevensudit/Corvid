@@ -38,6 +38,7 @@
 # CMake
 build/
 build-cl/
+build-tidy/
 build-debug/
 build-tests/
 build-bench/

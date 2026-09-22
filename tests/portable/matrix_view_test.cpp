@@ -309,11 +309,11 @@ TEST_CASE("Matrix view arithmetic in place", "[MatrixViewTest]") {
   m -= other;
   CHECK(storage == std::vector<float>{1.0F, 2.0F, 3.0F, 4.0F});
 
-  // The named forms are the same operations, and a writable view converts
-  // to the read-only operand.
-  m.add(m);
+  // The named forms are the same operations returning the lens itself, and
+  // a writable view converts to the read-only operand.
+  CHECK(&m.add(m) == &m);
   CHECK(storage == std::vector<float>{2.0F, 4.0F, 6.0F, 8.0F});
-  m.subtract(m);
+  CHECK(&m.subtract(m) == &m);
   CHECK(storage == std::vector<float>{0.0F, 0.0F, 0.0F, 0.0F});
 
   // A strided operand is walked by rows.

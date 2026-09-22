@@ -269,7 +269,18 @@ configure and full recompile):
   empty one makes the GNU-clang platform pull the debug CRT, which then will
   not link the /MD Catch2), but the default `-DNDEBUG` is dropped via a
   `CMAKE_CXX_FLAGS_RELEASE` override. LLVM is not on PATH, so the clang-tidy
-  path is passed explicitly.
+  path is passed explicitly. Both scripts build tidy in its own tree,
+  `tests/build-tidy`, where every object was compiled under clang-tidy, so the
+  build is incremental: ninja rebuilds and clang-tidy re-analyzes exactly the
+  translation units whose sources or headers changed, and the plain tree is
+  never disturbed. CMake's clang-tidy launcher covers only C, C++, and
+  Objective-C, so the build analyzes no `.cu` file; both scripts follow the
+  build with their own pass over every `.cu` in the compile database, one
+  clang-tidy process per file in parallel, each with `--cuda-host-only`.
+  Without that flag clang-tidy analyzes the driver's first job, the device
+  compilation, where the standard library under `__CUDA_ARCH__` reports
+  host-only statics as dynamically initialized; the host compilation still
+  parses every kernel and device function.
 
 The script enters a VS Developer shell for INCLUDE/LIB (skipped if already
 inside one), configures Ninja with the chosen compiler, builds with `-k 0`, and
@@ -298,7 +309,7 @@ layering check was until it was ported.
 | single test by name    | yes              | yes     |                              |
 | `clean`                | yes              | yes     |                              |
 | `reconfigure`          | yes              | yes     |                              |
-| `tidy` plus summary    | yes              | yes     | Windows adds a `.cu` pass    |
+| `tidy` plus summary    | yes              | yes     | own tree, plus a `.cu` pass  |
 | `asan` (carries UBSAN) | yes              | yes     |                              |
 | `ubsan` alone          | yes              | no      | static-CRT runtime vs `/MD`  |
 | `tsan`, `msan`         | yes              | no      | no MSVC analog               |
