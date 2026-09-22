@@ -20,11 +20,8 @@
 
 #include <cuda_runtime.h>
 
-#include <cuda/functional>
-#include <cuda/std/functional>
-#include <cuda/std/limits>
-
 #include "./cuda_block.cuh"
+#include "./cuda_std.cuh"
 #include "./cuda_warp.cuh"
 
 // CUDA reductions across the lanes of a warp and the threads of a block.

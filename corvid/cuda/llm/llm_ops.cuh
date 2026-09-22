@@ -23,8 +23,6 @@
 
 #include <cuda_runtime.h>
 
-#include <cuda/std/limits>
-
 #include "../../linalg/linear_algebra.h"
 #include "../../llm/llm_ops.h"
 #include "../../llm/token_id.h"
@@ -34,6 +32,7 @@
 #include "../cuda_matrix.cuh"
 #include "../cuda_reduce.cuh"
 #include "../cuda_status.cuh"
+#include "../cuda_std.cuh"
 #include "../linalg/linear_algebra.cuh"
 
 // The transformer ops on the device, in fp32, one free function per op.
