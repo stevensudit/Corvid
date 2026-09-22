@@ -79,15 +79,15 @@ public:
 
   template<typename T = int>
   __device__ static T x_index() {
-    return static_cast<T>((blockIdx.x * blockDim.x) + threadIdx.x);
+    return (x_block<T>() * x_block_dim<T>()) + x_thread<T>();
   }
   template<typename T = int>
   __device__ static T y_index() {
-    return static_cast<T>((blockIdx.y * blockDim.y) + threadIdx.y);
+    return (y_block<T>() * y_block_dim<T>()) + y_thread<T>();
   }
   template<typename T = int>
   __device__ static T z_index() {
-    return static_cast<T>((blockIdx.z * blockDim.z) + threadIdx.z);
+    return (z_block<T>() * z_block_dim<T>()) + z_thread<T>();
   }
   template<typename T = int>
   __device__ static T index() {

@@ -448,12 +448,16 @@ public:
   // Add `other` to every element, in place. Prefer `operator+=`.
   //
   // The extents must match, and `other` must be this view or disjoint from it.
-  constexpr const matrix_lens& add(matrix_view<element_t> other) const noexcept
+  [[nodiscard]] constexpr const matrix_lens&
+  add(matrix_view<element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
   {
     assert((other.row_extent() == extent_.row_count) &&
            (other.col_extent() == extent_.col_count));
     assert(is_same_or_disjoint(data_, other.as_span()));
+    // The zip element is a prvalue tuple of two spans, so nothing is copied;
+    // the check fires only because MSVC's tuple is not trivially copyable.
+    // NOLINTNEXTLINE(performance-for-range-copy)
     for (auto [row, other_row] : std::views::zip(rows(), other.rows()))
       for (auto [value, other_value] : std::views::zip(row, other_row))
         value += other_value;
@@ -470,13 +474,15 @@ public:
   // Subtract `other` from every element, in place. Prefer `operator-=`.
   //
   // The extents must match, and `other` must be this view or disjoint from it.
-  constexpr const matrix_lens&
+  [[nodiscard]] constexpr const matrix_lens&
   subtract(matrix_view<element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
   {
     assert((other.row_extent() == extent_.row_count) &&
            (other.col_extent() == extent_.col_count));
     assert(is_same_or_disjoint(data_, other.as_span()));
+    // The same prvalue tuple as in `add`.
+    // NOLINTNEXTLINE(performance-for-range-copy)
     for (auto [row, other_row] : std::views::zip(rows(), other.rows()))
       for (auto [value, other_value] : std::views::zip(row, other_row))
         value -= other_value;

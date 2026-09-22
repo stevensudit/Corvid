@@ -14,9 +14,10 @@ set -e
 # (default) or "gcc" to pick the compiler. The standard library defaults to
 # match the compiler (clang -> libc++, gcc -> libstdc++); pass "libstdcpp" or
 # "libcxx" to override, except gcc + libc++ is rejected because the libc++ path
-# is clang-only. Add "tidy" to run clang-tidy during the
-# build. Add a sanitizer mode ("asan" [which includes ubsan], "tsan", "ubsan",
-# or "msan") to instrument the build with the corresponding LLVM sanitizer.
+# is clang-only. Add "tidy" to run clang-tidy during the build, in its own
+# tree (tests/build-tidy) so the analysis is incremental. Add a sanitizer mode
+# ("asan" [which includes ubsan], "tsan", "ubsan", or "msan") to instrument
+# the build with the corresponding LLVM sanitizer.
 # The "msan" mode self-installs its instrumented dependencies (libc++ and
 # OpenSSL) via the scripts/ helpers when missing, cloning from github.com; the
 # first run after a container rebuild takes ~15 minutes, later runs skip it.
@@ -40,7 +41,8 @@ set -e
 # not to build (see crossplatform.md, section 3).
 #
 # Pass "clean-all" to delete the buildable outputs and stop: the release tree
-# (tests/build), the IDE debug tree (tests/build-debug), any legacy in-source
+# (tests/build), the tidy tree (tests/build-tidy), the IDE debug tree
+# (tests/build-debug), any legacy in-source
 # strays at the repo root, and the compiled Catch2 objects inside the
 # dependency caches (they are not keyed by sanitizer mode, so a stale mode's
 # objects could otherwise survive into later links). Standalone; builds
@@ -122,9 +124,9 @@ if [[ "${1:-}" == "clean-all" ]]; then
   fi
   rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
   rm -rf CMakeFiles .ninja_deps .ninja_log
-  rm -rf tests/build tests/build-debug
+  rm -rf tests/build tests/build-tidy tests/build-debug
   rm -rf tests/.fetchcontent/catch2-build tests/.fetchcontent-debug/catch2-build
-  echo "Removed tests/build, tests/build-debug, and the Catch2 object caches (downloaded sources and prebuilt deps preserved)."
+  echo "Removed tests/build, tests/build-tidy, tests/build-debug, and the Catch2 object caches (downloaded sources and prebuilt deps preserved)."
   exit 0
 fi
 
@@ -398,8 +400,15 @@ else
   NDEBUG_OPTION=""
 fi
 
-# Define the build directory (assuming you're using an out-of-source build)
+# Define the build directory (assuming you're using an out-of-source build).
+# tidy gets its own tree: every object in it was compiled under clang-tidy, so
+# an incremental build there re-analyzes exactly the TUs whose sources or
+# headers changed, while the plain tree's objects and compile_commands.json
+# stay untouched (tidy keeps asserts live, so the two configurations differ).
 buildRoot="tests/build"
+if $use_tidy; then
+  buildRoot="tests/build-tidy"
+fi
 buildDir="$buildRoot/release_bin"
 sigFile="$buildRoot/.cleanbuild-config"
 
@@ -409,18 +418,23 @@ sigFile="$buildRoot/.cleanbuild-config"
 # nvcc/find_package probing that would only reproduce identical build files)
 # and let ninja rebuild incrementally. A changed option, a first run, or an
 # explicit "clean" falls through to the wipe-and-reconfigure path. Some modes
-# always take that path: tidy because clang-tidy runs as part of compilation,
-# so an incremental no-op build would analyze nothing and report a falsely
-# clean summary; msan because the ignorelist affects codegen but is not a
-# ninja dependency, so an incremental build would keep stale objects after an
-# ignorelist edit (CCACHE_EXTRAFILES only fixes ccache hits on recompiles, not
-# skipped recompiles); scan and reconfigure because they are configure-only.
-# Editing CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake
-# itself when the lists file is newer than the cache.
+# always take that path: msan because the ignorelist affects codegen but is
+# not a ninja dependency, so an incremental build would keep stale objects
+# after an ignorelist edit (CCACHE_EXTRAFILES only fixes ccache hits on
+# recompiles, not skipped recompiles); scan and reconfigure because they are
+# configure-only. Editing CMakeLists.txt still reconfigures: `cmake --build`
+# re-runs CMake itself when the lists file is newer than the cache.
+#
+# tidy reuses its tree like any other mode. clang-tidy runs as part of each
+# compilation, so an incremental build analyzes the TUs ninja rebuilds and no
+# others; the summary therefore covers this run's TUs, and a finding left
+# unfixed in an untouched TU was reported by the run that last compiled it.
+# ninja does not know .clang-tidy is an input, so pass "clean" after editing
+# it to re-analyze everything.
 configSig="$LIBSTD_OPTION|$TIDY_OPTION|$SAN_OPTION|$COV_OPTION|$CUDA_OPTION|$NDEBUG_OPTION|CC=$CC|CXX=$CXX"
 
 reuse=false
-if ! $use_clean && ! $use_tidy && ! $use_scan && ! $use_reconfigure &&
+if ! $use_clean && ! $use_scan && ! $use_reconfigure &&
   [[ "$sanitizer" != "msan" ]] &&
   [[ -f "$sigFile" && "$(cat "$sigFile")" == "$configSig" ]]; then
   reuse=true
@@ -524,6 +538,54 @@ else
     cmake --build "$buildRoot" --config Release --target "$target_name"
   else
     cmake --build "$buildRoot" --config Release
+  fi
+fi
+
+# CMake's clang-tidy launcher covers only C, CXX, OBJC, and OBJCXX, so the
+# build above analyzed no .cu TU, and the CUDA-only headers they pull in
+# (corvid/cuda/**) would otherwise be a tidy blind spot. Run a standalone pass
+# over the .cu sources in the compile DB (which carries their clang-CUDA
+# commands) and append it to the same log, so the summary below includes the
+# CUDA findings. Mirrors cleanbuild.ps1.
+#
+# Host-only: clang-tidy analyzes the driver's first job, which for CUDA is the
+# device compilation, where the standard library under __CUDA_ARCH__ raises
+# false dynamic-initialization findings on host-only statics. The host
+# compilation still parses every kernel and device function, so device-code
+# findings survive; only the device-side view of the standard library goes.
+#
+# Parallel: one clang-tidy process per file, at ~1.2 GB and ~20 s for the LLM
+# tests, throttled to half the logical cores. Each file writes its own log
+# under tidy-cu/, concatenated in name order so files do not interleave. Every
+# .cu is re-analyzed on every tidy run (the pass is outside ninja); it is a
+# fraction of a minute.
+if $use_tidy && [[ -n "$CUDA_OPTION" ]]; then
+  mapfile -t cu_sources < <(jq -r '.[].file | select(endswith(".cu"))' "$buildRoot/compile_commands.json" | sort -u)
+  # A named test scopes this pass too: just that file for a .cu, none for a
+  # .cpp (the compile DB always lists every .cu, since the configure is
+  # unfiltered).
+  if [[ -n "$test_name" ]]; then
+    if [[ "$test_name" == *.cu ]]; then
+      mapfile -t cu_sources < <(printf '%s\n' "${cu_sources[@]}" | grep -F "/$test_name" || true)
+    else
+      cu_sources=()
+    fi
+  fi
+  if [[ ${#cu_sources[@]} -gt 0 ]]; then
+    echo "Running clang-tidy on ${#cu_sources[@]} CUDA source(s) (the build launcher skips .cu)..."
+    cuLogDir="$buildRoot/tidy-cu"
+    rm -rf "$cuLogDir"
+    mkdir -p "$cuLogDir"
+    jobs=$(( $(nproc) / 2 ))
+    (( jobs < 1 )) && jobs=1
+    # clang-tidy exits nonzero on a compile error inside a TU; the log carries
+    # it and the summary shows it, so do not let set -e stop the script here.
+    printf '%s\0' "${cu_sources[@]}" \
+      | xargs -0 -n 1 -P "$jobs" sh -c \
+          'clang-tidy -p "$1" --quiet --extra-arg=--cuda-host-only "$3" > "$2/$(basename "$3").log" 2>&1' \
+          _ "$buildRoot" "$cuLogDir" \
+      || true
+    cat "$cuLogDir"/*.log >> "$tidyLogFile"
   fi
 fi
 
