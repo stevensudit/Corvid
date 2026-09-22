@@ -24,10 +24,6 @@
 
 #include <cuda_runtime.h>
 
-#include <cuda/std/algorithm>
-#include <cuda/std/functional>
-#include <cuda/std/limits>
-
 #include "../../containers/utils/matrix_view.h"
 #include "../../meta/concepts.h"
 #include "../../meta/containers.h"
@@ -37,6 +33,7 @@
 #include "../cuda_matrix.cuh"
 #include "../cuda_reduce.cuh"
 #include "../cuda_status.cuh"
+#include "../cuda_std.cuh"
 
 // Row and matrix arithmetic on the device, one free function per op.
 //

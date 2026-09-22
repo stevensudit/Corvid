@@ -971,11 +971,11 @@ if(CORVID_ENABLE_CUDA)
         target_include_directories(${EXECUTABLE_NAME} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}")
         # libcu++ (<cuda/std/...>, <cuda/functional>), which the device code
-        # uses for its std vocabulary (numeric_limits, plus, max): the device
-        # twins of the host types, and the only ones nvcc accepts in device
-        # code. CUDA 13 ships it under include/cccl: nvcc searches that
-        # directory on its own, clang does not, so name it for both, as SYSTEM
-        # to keep its diagnostics out of -Werror.
+        # uses through "cuda_std.cuh" for its std vocabulary (numeric_limits,
+        # plus, max): the device twins of the host types, and the only ones
+        # nvcc accepts in device code. CUDA 13 ships it under include/cccl:
+        # nvcc searches that directory on its own, clang does not, so name it
+        # for both, as SYSTEM to keep its diagnostics out of -Werror.
         list(GET CUDAToolkit_INCLUDE_DIRS 0 _corvid_cuda_include)
         if(EXISTS "${_corvid_cuda_include}/cccl")
             target_include_directories(${EXECUTABLE_NAME} SYSTEM PRIVATE
