@@ -50,7 +50,7 @@ __global__ void reduce_kernel(int* warp, int* first, int* second,
 // every thread is checked too.
 __global__ void max_element_kernel(const float* values, size_t* winner) {
   const auto thread = cuda_kernel::x_thread<size_t>();
-  const auto best = cuda_reduce::block_max_element(
+  const auto best = cuda_reduce::block_max(
       cuda_reduce::element<float>{values[thread], thread});
   winner[thread] = best.index;
 }

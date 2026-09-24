@@ -22,7 +22,8 @@
 // toolkit's include/cccl, which the build names as a SYSTEM include for every
 // .cu target and for clangd. Its `cuda::std` namespace holds the vocabulary
 // that kernels can use in place of `std` (`numeric_limits`, `plus`, `max`),
-// and `cuda` itself holds extras such as `maximum`.
+// and `cuda` itself holds extras such as `maximum` and the `cuda::device`
+// warp shuffles.
 //
 // Include this header rather than any <cuda/...> header directly. On Windows,
 // <cuda/functional> reaches libcu++'s driver wrapper, which includes
@@ -42,3 +43,4 @@
 #include <cuda/std/algorithm>
 #include <cuda/std/functional>
 #include <cuda/std/limits>
+#include <cuda/warp>

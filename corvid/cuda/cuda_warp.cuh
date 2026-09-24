@@ -31,6 +31,12 @@ namespace corvid::cuda {
 // Contains the calling thread's lane and warp, the active mask, and typed
 // wrappers over the `_sync` shuffle and sync intrinsics that default the mask
 // to the active lanes.
+//
+// The shuffles are the intrinsics' own overloads, so `T` is one of the scalar
+// types they take. For any other `T`, use libcu++'s
+// `cuda::device::warp_shuffle_idx`, `_up`, `_down`, and `_xor`, which move a
+// trivially copyable type by 32-bit words. Note that there is no penalty to
+// always using libcu++'s shuffles.
 class cuda_warp {
 public:
   // Lane ID within the warp (0..31).

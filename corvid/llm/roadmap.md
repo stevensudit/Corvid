@@ -1295,22 +1295,25 @@ argmax.
 Status (2026-09-24, KV cache, slice 4: the device argmax): the greedy pick
 runs on the device, so `next_token` downloads four bytes rather than the 200
 KB logits row. `cuda_reduce` gained `element<T>`, a value with its index,
-and `block_max_element`, a block reduction over such pairs that keeps the
-larger value and, on a tie, the lower index. That is the first-largest rule
-of `std::max_element`, and so of the CPU `pick_greedy`. The shuffle
-intrinsics take scalars only, so the butterfly shuffles the two members one
-at a time, and `element<T>::lowest()` is the identity. The device
-`pick_greedy(out, logits)` in "llm_ops.cuh" picks one ID per row of `logits`
-into a `cuda_buffer<token_id>`, one block per row in the row-kernel shape of
-`softmax` and `layer_norm`, so a [1, V] row is one block of 256 threads each
-walking about 200 columns. It is a plain function over `float` logits, as
-the CPU op is over a float span, so an owning matrix converts at the call,
-and the kernel under it is the usual template. Tests: the reduction on its
-own across one warp and eight (largest first, last, mid-block, tied, and
-falling throughout); five napkin rows wider than a block; every row of the
-five prompts' dumped logits against the host pick; and the twenty-ID greedy
-gate, now through the device pick. With this the KV-cache step is complete.
-Next: bf16, then tokens per second against llama.cpp.
+ordered so that a lower index ranks above an equal value, so `block_max`
+over elements, through `cuda::maximum`, returns the first largest, which is
+the rule of `std::max_element` and so of the CPU `pick_greedy`. The identity
+is the variable template `lowest<T>`, specialized for an element, so a max
+over a new type adds a specialization rather than a branch. The butterfly
+moves an `element<T>` whole through libcu++'s
+`cuda::device::warp_shuffle_xor`, which shuffles any trivially copyable
+type. The device `pick_greedy(out, logits)` in "llm_ops.cuh" picks one ID
+per row of `logits` into a `cuda_buffer<token_id>`, one block per row in the
+row-kernel shape of `softmax` and `layer_norm`, so a [1, V] row is one block
+of 256 threads each walking about 200 columns. It is a plain function over
+`float` logits, as the CPU op is over a float span, so an owning matrix
+converts at the call, and the kernel under it is the usual template. Tests:
+the reduction on its own across one warp and eight (largest first, last,
+mid-block, tied, and falling throughout); five napkin rows wider than a
+block; every row of the five prompts' dumped logits against the host pick;
+and the twenty-ID greedy gate, now through the device pick. With this the
+KV-cache step is complete. Next: bf16, then tokens per second against
+llama.cpp.
 
 ### 5. Backward pass and LoRA
 
