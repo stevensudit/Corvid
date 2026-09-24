@@ -324,6 +324,7 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
   assert(is_disjoint(out_lens.as_span(), qkv.as_span()));
   assert(is_disjoint(out_lens.as_span(), scores.as_span()));
   assert(is_disjoint(scores.as_span(), qkv.as_span()));
+  const auto cached_count = total_count - new_count;
   const auto head_width = width / head_count;
   const auto scale = T{1} / std::sqrt(static_cast<T>(head_width));
 
@@ -332,8 +333,8 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
         {.row_count = total_count, .col_count = width}];
   };
   // The queries are those of the new tokens, below the cached ones.
-  const auto q = one_third(0)[{row_ndx{total_count - new_count}, col_ndx{0}},
-      {.row_count = new_count, .col_count = width}];
+  const auto q =
+      one_third(0)[{row_ndx{cached_count}, col_ndx{0}}, matrix_extent::npos];
   const auto k = one_third(1);
   const auto v = one_third(2);
 
@@ -346,7 +347,7 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
               .out = matrix_axis::rows},
           {.scale = scale, .op_b = cublas_operation::transpose}))
     return false;
-  if (!causal_mask(scores, total_count - new_count)) return false;
+  if (!causal_mask(scores, cached_count)) return false;
   if (!softmax(scores, scores)) return false;
   return gemm_batched(blas, out, scores, v,
       {.count = head_count,
