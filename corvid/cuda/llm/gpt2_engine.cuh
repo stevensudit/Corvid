@@ -51,8 +51,7 @@ using corvid::llm::gpt2_model;
 //
 // Every parameter is uploaded at construction, so the model may be destroyed
 // afterward. Tokenizing text is `gpt2_tokenizer`'s job, so this takes and
-// produces token IDs alone, and the greedy pick itself runs on the host over
-// the downloaded logits.
+// produces token IDs alone.
 //
 //   const gpt2_engine engine(model);
 //   std::vector<token_id> ids = ...;
@@ -265,11 +264,10 @@ public:
   // Pick the token most likely to follow `ids`, writing into `out`.
   //
   // The engine caches the last list it ran, as the CPU
-  // `corvid::llm::gpt2_engine::next_token` describes, and the greedy pick
-  // runs on the host over the downloaded logits. The cache makes this one
-  // caller at a time, `const` notwithstanding. On failure (no IDs, more than
-  // the context holds, or a refused launch or transfer), returns false,
-  // leaving `out` untouched.
+  // `corvid::llm::gpt2_engine::next_token` describes, and downloads only the
+  // pick. The cache makes this one caller at a time, `const` notwithstanding.
+  // On failure (no IDs, more than the context holds, or a refused launch or
+  // transfer), returns false, leaving `out` untouched.
   [[nodiscard]] bool
   next_token(token_id& out, std::span<const token_id> ids) const {
     const auto total_count = ids.size();
@@ -297,11 +295,11 @@ public:
     const auto last_row =
         trunk[{row_ndx{new_count - 1}, col_ndx{0}}, matrix_extent::npos];
     if (!compute_logits(blas_, logits, last_row, wte_)) return false;
-    std::vector<float> logits_storage(vocab_size);
-    if (!logits.as_view().store(
-            float_matrix_lens(logits_storage, logits.extent())))
-      return false;
-    out = corvid::llm::pick_greedy(const_float_row_span(logits_storage));
+    cuda_buffer<token_id> device_pick;
+    if (!pick_greedy(device_pick, logits)) return false;
+    token_id pick{};
+    if (!device_pick.store(pick)) return false;
+    out = pick;
     return true;
   }
 

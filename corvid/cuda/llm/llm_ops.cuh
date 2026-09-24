@@ -19,6 +19,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 
 #include <cuda_runtime.h>
@@ -378,6 +379,54 @@ requires GemmElement<device_element_t<Out>>
 [[nodiscard]] bool compute_logits(const cublas_handle& blas, Out&& out,
     input_view_t<Out> in, input_view_t<Out> vocab) {
   return gemm(blas, out, in, vocab, {.op_b = cublas_operation::transpose});
+}
+
+#pragma endregion
+#pragma region pick_greedy
+
+namespace details {
+
+// Write the column of each row's largest element of `in`, `cols` wide, into
+// `out`, the first on a tie, one block per row.
+//
+// Each thread keeps the largest of its columns, the block reduces those to
+// the row's largest, and thread 0 writes its column.
+template<Arithmetic T>
+__global__ void
+pick_largest_column(token_id* out, kernel_matrix_view<T> in, size_t cols) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const kernel_col_range columns{cols};
+
+  auto best = cuda_reduce::element<T>::lowest();
+  for (const auto col : columns)
+    if (in[row, col] > best.value) best = {in[row, col], col};
+  best = cuda_reduce::block_max_element(best);
+
+  if (cuda_kernel::x_thread() == 0)
+    out[row] = token_id{static_cast<uint32_t>(best.index)};
+}
+
+} // namespace details
+
+// Pick the vocabulary entry with the largest logit in each row of `logits`,
+// the first on a tie, writing into `out`.
+//
+// The contract is that of the CPU `corvid::llm::pick_greedy`, applied to each
+// row. With T tokens and V vocabulary entries:
+//
+//   out     [T]     the ID picked for each row, written
+//   logits  [T, V]  a row per token
+//
+// `out` must have one ID per row of `logits`, which must have at least one
+// column. Returns false when the launch is refused, leaving `out` unspecified.
+[[nodiscard]] inline bool
+pick_greedy(cuda_buffer<token_id>& out, cuda_matrix_view<float> logits) {
+  assert(out.size() == logits.row_extent());
+  assert(logits.col_extent() > 0);
+
+  details::pick_largest_column<<<logits.row_extent(), threads_per_block>>>(
+      out.get(), kernel_matrix_view{logits}, logits.col_extent());
+  return cuda_last_status{}.ok();
 }
 
 #pragma endregion
