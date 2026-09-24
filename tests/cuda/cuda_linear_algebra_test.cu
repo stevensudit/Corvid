@@ -26,7 +26,7 @@
 #include "catch2/catch_template_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 
-// The whole test sits in a named namespace: a `using namespace corvid;` at
+// The whole test sits in a named namespace. A `using namespace corvid;` at
 // global scope would make `cuda` (libcu++'s namespace against corvid::cuda)
 // and `log` (corvid::infra::log against the C math function) ambiguous in the
 // host code nvcc appends after the translation unit, and clang sees the same

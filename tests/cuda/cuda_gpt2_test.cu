@@ -26,7 +26,7 @@
 #include "catch2_main.h"
 #include "gpt2_oracle.h"
 
-// The whole test sits in a named namespace: a `using namespace corvid;` at
+// The whole test sits in a named namespace. A `using namespace corvid;` at
 // global scope would make `cuda` (libcu++'s namespace against corvid::cuda)
 // and `log` (corvid::infra::log against the C math function) ambiguous in the
 // host code nvcc appends after the translation unit, and clang sees the same

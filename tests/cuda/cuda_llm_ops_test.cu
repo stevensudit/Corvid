@@ -19,9 +19,11 @@
 #include <cstddef>
 #include <format>
 #include <limits>
+#include <ranges>
 #include <string>
 #include <vector>
 
+#include "corvid/containers/utils/interval.h"
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/llm/llm_ops.cuh"
@@ -30,7 +32,7 @@
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 #include "gpt2_oracle.h"
 
-// The whole test sits in a named namespace: a `using namespace corvid;` at
+// The whole test sits in a named namespace. A `using namespace corvid;` at
 // global scope would make `cuda` (libcu++'s namespace against corvid::cuda)
 // and `log` (corvid::infra::log against the C math function) ambiguous in the
 // host code nvcc appends after the translation unit, and clang sees the same
@@ -543,6 +545,67 @@ TEST_CASE("Device attention path matches the oracle",
           heads_lens[{row_ndx{token_count - new_count}, col_ndx{0}},
               suffix_out.extent()],
           0.0F, 0.0F);
+    }
+  }
+}
+
+#pragma endregion
+#pragma region pick_greedy
+
+TEST_CASE("Device greedy picks the largest logit in each row",
+    "[LlmOpsTest][cuda]") {
+  // Five rows, each wider than a block of threads so that every thread walks
+  // several columns: the largest first, last, in the middle, tied (the first
+  // wins), and every value alike.
+  constexpr auto cols = 1000UZ;
+  struct row_case {
+    std::vector<size_t> peaks;
+    token_id expected;
+  };
+  const std::vector<row_case> rows{
+      {{0}, token_id{0}},
+      {{cols - 1}, token_id{cols - 1}},
+      {{500}, token_id{500}},
+      {{300, 700}, token_id{300}},
+      {{}, token_id{0}},
+  };
+  std::vector<float> storage(rows.size() * cols, -1.0F);
+  const float_matrix_lens logits_lens(storage,
+      {.row_count = rows.size(), .col_count = cols});
+  for (const auto [spec, logits_row] :
+      std::views::zip(rows, logits_lens.rows()))
+    for (const auto peak : spec.peaks) logits_row[col_ndx{peak}] = -0.5F;
+
+  const cuda_matrix<float> logits(
+      float_matrix_view(storage, logits_lens.extent()));
+  cuda_buffer<token_id> picks(rows.size());
+  REQUIRE(corvid::cuda::llm::pick_greedy(picks, logits));
+  std::vector<token_id> picked(rows.size());
+  REQUIRE(picks.store(picked));
+
+  for (const auto [spec, pick] : std::views::zip(rows, picked))
+    CHECK(pick == spec.expected);
+}
+
+TEST_CASE("Device greedy picks match the host on every prompt",
+    "[LlmOpsTest][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+
+  // Every row of each prompt's dumped logits, picked on the device and on the
+  // host.
+  for (const auto prompt : iota(5)) {
+    DYNAMIC_SECTION("prompt_" << prompt) {
+      const auto logits_view = matrix_of(oracle.logits,
+          std::format("prompt_{}/logits", prompt), n_vocab);
+      const cuda_matrix<float> logits(logits_view);
+      cuda_buffer<token_id> picks(logits_view.row_extent());
+      REQUIRE(corvid::cuda::llm::pick_greedy(picks, logits));
+      std::vector<token_id> picked(logits_view.row_extent());
+      REQUIRE(picks.store(picked));
+
+      for (const auto [pick, logits_row] :
+          std::views::zip(picked, logits_view.rows()))
+        CHECK(pick == corvid::llm::pick_greedy(logits_row));
     }
   }
 }

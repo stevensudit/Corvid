@@ -20,6 +20,7 @@
 
 #include <cuda_runtime.h>
 
+#include "../strings/string_literals.h"
 #include "./cuda_block.cuh"
 #include "./cuda_std.cuh"
 #include "./cuda_warp.cuh"
@@ -33,11 +34,27 @@ namespace corvid::cuda {
 //
 // Each thread brings one value, and every thread gets the result back. What a
 // value stands for is the caller's business. A thread with nothing to
-// contribute brings the identity, zero for a sum and the lowest `T` for a
-// max, and still takes part, since every reduction here synchronizes the
-// threads it runs over.
+// contribute brings the identity (zero for a sum, the lowest `T` for a max,
+// and `element<T>::lowest()` for a max element) and still takes part, since
+// every reduction here synchronizes the threads it runs over.
 class cuda_reduce {
 public:
+  // An element of a sequence, as its value and its index, for the max
+  // element reductions.
+  //
+  // Each thread brings the largest element it has seen, and the reduction
+  // returns the largest of those, the one with the lower index on a tie.
+  template<typename T>
+  struct element {
+    T value;
+    size_t index;
+
+    // The lowest value at `npos`, which every other element beats.
+    __device__ static element lowest() {
+      return {::cuda::std::numeric_limits<T>::lowest(), strings::npos};
+    }
+  };
+
   // The sum of `value` over the lanes of `mask`, returned to every one of
   // them.
   //
@@ -79,7 +96,40 @@ public:
         ::cuda::std::numeric_limits<T>::lowest());
   }
 
+  // The largest `value` over every thread of the block, the one with the
+  // lower index on a tie, returned to every one of them.
+  //
+  // Every thread of the block must call it. The block must be one-dimensional
+  // and a multiple of `warpSize`.
+  template<typename T>
+  __device__ static element<T> block_max_element(element<T> value) {
+    return block_reduce(value, first_maximum{}, element<T>::lowest());
+  }
+
 private:
+  // The larger of two elements, the one with the lower index on a tie.
+  struct first_maximum {
+    template<typename T>
+    __device__ element<T> operator()(element<T> a, element<T> b) const {
+      if (b.value > a.value) return b;
+      if ((b.value == a.value) && (b.index < a.index)) return b;
+      return a;
+    }
+  };
+
+  // `cuda_warp::shuffle_xor`, extended to an `element`, whose members are
+  // shuffled one at a time.
+  template<typename T>
+  __device__ static T shuffle_xor(T value, unsigned lane_mask, uint32_t mask) {
+    return cuda_warp::shuffle_xor(value, lane_mask, mask);
+  }
+  template<typename T>
+  __device__ static element<T>
+  shuffle_xor(element<T> value, unsigned lane_mask, uint32_t mask) {
+    return {cuda_warp::shuffle_xor(value.value, lane_mask, mask),
+        cuda_warp::shuffle_xor(value.index, lane_mask, mask)};
+  }
+
   // Fold `value` through `op` over the lanes of `mask`, returned to every one
   // of them.
   //
@@ -91,7 +141,7 @@ private:
   __device__ static T warp_reduce(T value, Op op, uint32_t mask) {
     const auto lanes = static_cast<unsigned>(warpSize);
     for (auto offset = lanes / 2; offset > 0; offset /= 2)
-      value = op(value, cuda_warp::shuffle_xor(value, offset, mask));
+      value = op(value, shuffle_xor(value, offset, mask));
 
     return value;
   }

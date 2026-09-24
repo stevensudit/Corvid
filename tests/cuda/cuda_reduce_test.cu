@@ -14,6 +14,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <ranges>
 #include <vector>
 
 #include "corvid/cuda/cuda_buffer.cuh"
@@ -42,6 +43,16 @@ __global__ void reduce_kernel(int* warp, int* first, int* second,
   second[thread] = cuda_reduce::block_sum(thread * 10);
   warp_top[thread] = cuda_reduce::warp_max(thread - 1000);
   block_top[thread] = cuda_reduce::block_max(thread - 1000);
+}
+
+// Each thread contributes `values[thread]` at its own index to a block max
+// element, and every thread records the winning index, so the broadcast to
+// every thread is checked too.
+__global__ void max_element_kernel(const float* values, size_t* winner) {
+  const auto thread = cuda_kernel::x_thread<size_t>();
+  const auto best = cuda_reduce::block_max_element(
+      cuda_reduce::element<float>{values[thread], thread});
+  winner[thread] = best.index;
 }
 
 } // namespace
@@ -89,6 +100,48 @@ TEST_CASE("cuda_reduce sums and maxes across one warp and across eight",
         CHECK(
             warp_top[thread] == static_cast<int>(lanes * (w + 1)) - 1 - 1000);
         CHECK(block_top[thread] == static_cast<int>(threads) - 1 - 1000);
+      }
+    }
+  }
+}
+
+TEST_CASE(
+    "cuda_reduce finds the first largest element across one warp and "
+    "across eight",
+    "[cuda]") {
+  for (const auto threads : {lanes, 8 * lanes}) {
+    DYNAMIC_SECTION(threads << " threads") {
+      // The values fall with the index, so the largest sits at index 0 until
+      // a peak is planted: at the last thread, in the middle of the block, or
+      // at two threads for a tie, which the lower index wins.
+      struct peak_case {
+        std::vector<size_t> peaks;
+        size_t expected;
+      };
+      const std::vector<peak_case> cases{
+          {{}, 0},
+          {{threads - 1}, threads - 1},
+          {{threads / 2 + 1}, threads / 2 + 1},
+          {{threads / 4, 3 * threads / 4}, threads / 4},
+      };
+      for (const auto& [peaks, expected] : cases) {
+        CAPTURE(expected);
+        std::vector<float> values(threads);
+        for (const auto [thread, value] : std::views::enumerate(values))
+          value = -static_cast<float>(thread);
+        for (const auto peak : peaks) values[peak] = 1.0F;
+
+        const cuda_buffer<float> d_values(values);
+        cuda_buffer<size_t> d_winner{threads};
+        max_element_kernel<<<1, threads>>>(d_values.get(), d_winner.get());
+        std::vector<size_t> winner(threads);
+        REQUIRE(d_winner.store(winner));
+        REQUIRE(cuda_last_status{}.ok());
+
+        for (const auto [thread, index] : std::views::enumerate(winner)) {
+          CAPTURE(thread);
+          CHECK(index == expected);
+        }
       }
     }
   }
