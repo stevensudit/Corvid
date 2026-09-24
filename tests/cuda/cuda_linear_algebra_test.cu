@@ -20,6 +20,7 @@
 #include <ranges>
 #include <vector>
 
+#include "corvid/containers/utils/interval.h"
 #include "corvid/cuda/bfloat16.cuh"
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
@@ -566,7 +567,7 @@ TEMPLATE_TEST_CASE("Device softmax on hand-computed rows",
   const cuda_matrix<T> in(in_view);
 
   const auto check_rows = [&](const std::vector<T>& storage) {
-    for (auto i = 0UZ; i < expected.size(); ++i) {
+    for (const auto i : iota(expected.size())) {
       CAPTURE(i);
       CHECK_THAT(storage[i], WithinAbs(expected[i], tolerance));
     }
@@ -603,7 +604,7 @@ TEMPLATE_TEST_CASE("Device softmax on hand-computed rows",
 
     std::vector<T> storage(wide.size());
     REQUIRE(wide.as_view().store(matrix_lens<T>(storage, wide.extent())));
-    for (auto r = 0UZ; r < 3; ++r) {
+    for (const auto r : iota(3)) {
       CAPTURE(r);
       CHECK_THAT(storage[(r * 3)], WithinAbs(expected[r * 2], tolerance));
       CHECK_THAT(storage[(r * 3) + 1],
@@ -620,8 +621,8 @@ TEST_CASE("Device softmax over a row wider than a block",
   // differ by a factor of exp(0.01), and the row sums to 1.
   constexpr auto cols = 1000UZ;
   std::vector<float> in_storage(cols);
-  for (auto c = 0UZ; c < cols; ++c)
-    in_storage[c] = static_cast<float>(c) * 0.01F;
+  for (const auto [c, score] : std::views::enumerate(in_storage))
+    score = static_cast<float>(c) * 0.01F;
   const cuda_matrix<float> in(
       float_matrix_view(in_storage, {.row_count = 1, .col_count = cols}));
   cuda_matrix<float> out(in.extent());
