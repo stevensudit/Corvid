@@ -397,10 +397,11 @@ pick_largest_column(token_id* out, kernel_matrix_view<T> in, size_t cols) {
   const auto row = cuda_kernel::x_block<size_t>();
   const kernel_col_range columns{cols};
 
-  auto best = cuda_reduce::element<T>::lowest();
+  auto best = cuda_reduce::lowest<cuda_reduce::element<T>>;
   for (const auto col : columns)
     if (in[row, col] > best.value) best = {in[row, col], col};
-  best = cuda_reduce::block_max_element(best);
+
+  best = cuda_reduce::block_max(best);
 
   if (cuda_kernel::x_thread() == 0)
     out[row] = token_id{static_cast<uint32_t>(best.index)};
