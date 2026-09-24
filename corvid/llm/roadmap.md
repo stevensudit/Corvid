@@ -1336,6 +1336,25 @@ negation, both finite), and a device round trip over 64 threads through
 two-byte type. Next: the cuBLAS traits for `cublasGemmEx`, then the ops and
 the engine over the new element type, then the gate and the measurement.
 
+Status (2026-09-24, bf16, slice 2: the cuBLAS traits): `GemmElement` is now
+a traits class, `gemm_traits<T>`, giving the cuBLAS data type an operand is
+declared as, the compute type the product accumulates in, and `scalar_t`,
+the type of `alpha` and `beta`. `float` and `double` accumulate in their own
+type; `bfloat16_t` is declared `CUDA_R_16BF`, accumulates in
+`CUBLAS_COMPUTE_32F`, and takes float scalars. The S and D overload pairs
+behind `multiply` and `multiply_batched` collapsed into one `cublasGemmEx`
+and one `cublasGemmStridedBatchedEx` call each, with `CUBLAS_GEMM_DEFAULT`
+and the handle's default math mode, so a float product still runs true fp32
+rather than TF32. `gemm_options` and the ops' `beta` take
+`gemm_scalar_t<T>`, which is where a bf16 GEMM's scalars stop being bf16.
+The fp32 gates are unchanged: the op tests and the twelve-block,
+five-prompt, and greedy engine gates pass at their old tolerances through
+the new routine. Tests: a bf16 product whose float partial sums are exact,
+checked as the float product narrowed once at the store (three of its four
+values need more than eight bits, so the rounding is visible), the same
+scaled and accumulated, and the batched product over both axes. Next: the
+ops and the engine over `bfloat16_t`.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
