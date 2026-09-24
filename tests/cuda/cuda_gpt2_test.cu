@@ -16,6 +16,7 @@
 // limitations under the License.
 #include <cstddef>
 #include <format>
+#include <ranges>
 #include <span>
 #include <string>
 #include <utility>
@@ -36,12 +37,14 @@ namespace corvid_tests {
 using namespace corvid;
 using namespace corvid::tests::gpt2;
 using corvid::cuda::cublas_handle;
-using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::cuda::cuda_matrix_view;
 using corvid::cuda::llm::gpt2_engine;
 using corvid::llm::gpt2_model;
 using corvid::llm::token_id;
+using matrix_types::col_ndx;
+using matrix_types::matrix_extent;
+using matrix_types::row_ndx;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -97,7 +100,8 @@ TEST_CASE("Device block matches the oracle", "[Gpt2Test][oracle][cuda]") {
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
           n_hidden, n_head);
       const auto acts = owned.lenses();
-      REQUIRE(engine.apply_block(out, in, n, acts));
+      cuda_matrix<float> qkv({.row_count = token_count, .col_count = n_qkv});
+      REQUIRE(engine.apply_block(out, in, n, acts, qkv));
 
       check_device_close(out, expected, 1e-4F, 1e-4F);
       struct dumped {
@@ -123,7 +127,7 @@ TEST_CASE("Device block matches the oracle", "[Gpt2Test][oracle][cuda]") {
       cuda_matrix<float> residual(in_view);
       auto in_place = acts;
       in_place.ln_2_in = residual;
-      REQUIRE(engine.apply_block(residual, residual, n, in_place));
+      REQUIRE(engine.apply_block(residual, residual, n, in_place, qkv));
       CHECK(download(residual) == download(out));
     }
   }
@@ -143,13 +147,67 @@ TEST_CASE("Device forward pass matches the oracle",
   const gpt2_engine engine(model);
   const auto expected = matrix_of(oracle.activations, "ln_f/out", n_embd);
 
-  const cuda_buffer<token_id> ids(id_storage);
   cuda_matrix<float> out(expected.extent());
   gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden,
       n_head);
-  REQUIRE(engine.forward(out, ids, owned.lenses()));
+  gpt2_engine::kv_cache cache;
+  REQUIRE(engine.forward(out, id_storage, owned.lenses(), cache));
 
   check_device_close(out, expected, 1e-4F, 1e-4F);
+  CHECK(cache.ids == id_storage);
+}
+
+TEST_CASE("Device forward pass over a cache matches a full pass",
+    "[Gpt2Test][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+
+  // The bisect prompt in one pass, then again as nine tokens followed by the
+  // other five, as the CPU test does. There the five rows match bit for bit;
+  // here a GEMM over a different row count may pick a different kernel, so
+  // the rows and the cached ones match within a tolerance.
+  const auto ids =
+      ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
+  const auto total_count = ids.size();
+  REQUIRE(total_count == 14);
+  constexpr auto cached_count = 9UZ;
+  const auto new_count = total_count - cached_count;
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const gpt2_engine engine(model);
+
+  const auto run =
+      [&](cuda_matrix<float>& out, std::span<const token_id> new_ids,
+          gpt2_engine::kv_cache& cache) {
+        gpt2_engine::block_activation_buffers owned(new_ids.size(), n_embd,
+            n_hidden, n_head, cache.ids.size());
+        REQUIRE(engine.forward(out, new_ids, owned.lenses(), cache));
+      };
+
+  cuda_matrix<float> full({.row_count = total_count, .col_count = n_embd});
+  gpt2_engine::kv_cache full_cache;
+  run(full, ids, full_cache);
+
+  cuda_matrix<float> first({.row_count = cached_count, .col_count = n_embd});
+  cuda_matrix<float> rest({.row_count = new_count, .col_count = n_embd});
+  gpt2_engine::kv_cache cache;
+  run(first, std::span{ids}.first(cached_count), cache);
+  CHECK(cache.ids.size() == cached_count);
+  run(rest, std::span{ids}.subspan(cached_count), cache);
+  CHECK(cache.ids == ids);
+
+  const auto rest_of_full =
+      download(full[{row_ndx{cached_count}, col_ndx{0}}, rest.extent()]);
+  check_device_close(rest, float_matrix_view(rest_of_full, rest.extent()),
+      1e-5F, 1e-5F);
+  REQUIRE(cache.blocks.size() == full_cache.blocks.size());
+  const matrix_extent in_use{.row_count = total_count, .col_count = n_qkv};
+  for (const auto [block, full_block] :
+      std::views::zip(cache.blocks, full_cache.blocks))
+  {
+    const auto full_rows =
+        download(full_block[{row_ndx{0}, col_ndx{0}}, in_use]);
+    check_device_close(block[{row_ndx{0}, col_ndx{0}}, in_use],
+        float_matrix_view(full_rows, in_use), 1e-5F, 1e-5F);
+  }
 }
 
 TEST_CASE("Device model matches the oracle on every prompt",
@@ -172,12 +230,12 @@ TEST_CASE("Device model matches the oracle on every prompt",
       const auto token_count = id_storage.size();
       REQUIRE(expected.row_extent() == token_count);
 
-      const cuda_buffer<token_id> ids(id_storage);
       cuda_matrix<float> trunk(
           {.row_count = token_count, .col_count = n_embd});
       gpt2_engine::block_activation_buffers owned(token_count, n_embd,
           n_hidden, n_head);
-      REQUIRE(engine.forward(trunk, ids, owned.lenses()));
+      gpt2_engine::kv_cache cache;
+      REQUIRE(engine.forward(trunk, id_storage, owned.lenses(), cache));
 
       cuda_matrix<float> logits(expected.extent());
       REQUIRE(corvid::cuda::llm::compute_logits(blas, logits, trunk, wte));
@@ -212,6 +270,17 @@ TEST_CASE("Device greedy decoding reproduces the manifest",
   // Nothing follows no tokens.
   token_id next{};
   CHECK(!engine.next_token(next, {}));
+
+  // An unrelated list replaces the cached one, and the prompt, run again from
+  // nothing, still gets the first pick. So does the same prompt asked twice,
+  // which has every token but the last cached.
+  const auto prompt = std::span{ids}.first(prompt_count);
+  const std::vector<token_id> unrelated{gpt2_model::end_of_text};
+  REQUIRE(engine.next_token(next, unrelated));
+  REQUIRE(engine.next_token(next, prompt));
+  CHECK(next == expected.ids.front());
+  REQUIRE(engine.next_token(next, prompt));
+  CHECK(next == expected.ids.front());
 }
 
 #pragma endregion

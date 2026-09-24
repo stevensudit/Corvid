@@ -1270,6 +1270,28 @@ activation buffers, the trunk, and the logits row. Next: the device twin
 (offset mask, rectangular batched attend, device cache), then the device
 argmax.
 
+Status (2026-09-22, KV cache, slice 3: the device twin): the device ops take
+the CPU's cached form. `causal_mask` takes a `cached_count`, defaulted to
+zero, since a stack of N x T blocks cannot tell N from its shape once it is
+not square, and row `i` keeps columns 0 through M + `i`. `attend` slices the
+new tokens' queries off the bottom of `qkv` and scores them against every
+key, so the batched GEMMs run over N x D and T x D pieces and `scores` is
+HN x T. The device engine mirrors the CPU one: `qkv` left
+`block_activations` and is an `apply_block` parameter, `forward(out,
+new_ids, acts, cache)` takes the new IDs as a host span and uploads them
+itself, since the cache keeps its IDs on the host for prefix matching, and
+`next_token` keeps its signature over a `mutable` cache. The device
+`kv_cache` differs in one way. `cuda_matrix` neither grows nor shrinks, so
+each block's store is allocated at the full context on the first pass and
+sliced to the rows in use, never reallocated or trimmed. The napkin and
+oracle attention tests gained the cached forms and match the full pass bit
+for bit, as on the CPU. The engine test's cache-versus-full comparison does
+not. The five rows run after nine cached differ from the full pass by up to
+6.1e-5 in the trunk and 8.6e-6 in the cached rows, since a GEMM over a
+different row count may pick a different kernel, so that check uses an
+absolute and relative tolerance of 1e-5, which it passes. Next: the device
+argmax.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention

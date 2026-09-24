@@ -241,35 +241,44 @@ requires Arithmetic<device_element_t<Out>>
 
 namespace details {
 
-// Set every element of `scores` after its row's diagonal to negative
-// infinity, over `extent`, one thread per element.
+// Set every element of `scores` after its row's token to negative infinity,
+// over `extent`, one thread per element.
 //
-// `scores` is a stack of square matrices, so a row's diagonal is at its index
-// within its own square.
+// `scores` is a stack of matrices of `new_count` rows each, and a row's token
+// is `cached_count` plus its index within its own matrix.
 template<Floating T>
-__global__ void
-apply_causal_mask(kernel_matrix_lens<T> scores, matrix_extent extent) {
+__global__ void apply_causal_mask(kernel_matrix_lens<T> scores,
+    matrix_extent extent, size_t cached_count, size_t new_count) {
   if (const kernel_coord at;
-      at.is_within(extent) && (at.col > at.row % extent.col_count))
+      at.is_within(extent) && (at.col > cached_count + (at.row % new_count)))
     scores[at] = -::cuda::std::numeric_limits<T>::infinity();
 }
 
 } // namespace details
 
-// Set every element of `scores` whose column exceeds its row to negative
-// infinity, so a softmax over the row gives the tokens after it no weight.
+// Set every element of `scores` whose column exceeds its row's token to
+// negative infinity, so a softmax over the row gives the tokens after it no
+// weight.
 //
-// `scores` is one square matrix or a stack of them, each masked on its own,
-// so its row count must be a multiple of its column count. Returns false when
-// the launch is refused, leaving `scores` unspecified.
+// `scores` has a row per new token and a column per token (cached and new)
+// with the cached ones first. With M cached tokens and N new ones, row `i` is
+// token M + `i` and keeps columns 0 through M + `i`. With nothing cached,
+// `scores` is square and the mask starts past its diagonal.
+//
+// `scores` is one such matrix or a stack of them, each masked on its own, so
+// its row count must be a multiple of N, which is its column count less
+// `cached_count`, and must not be zero. Returns false when the launch is
+// refused, leaving `scores` unspecified.
 template<DeviceMatrixLike Out>
 requires Floating<device_element_t<Out>>
-[[nodiscard]] bool causal_mask(Out&& scores) {
+[[nodiscard]] bool causal_mask(Out&& scores, size_t cached_count = 0) {
   const auto& scores_lens = scores.as_lens();
-  assert(scores_lens.col_extent() &&
-         (scores_lens.row_extent() % scores_lens.col_extent() == 0));
+  assert(cached_count < scores_lens.col_extent());
+  const auto new_count = scores_lens.col_extent() - cached_count;
+  assert(scores_lens.row_extent() % new_count == 0);
   details::apply_causal_mask<<<grid_for(scores_lens), threads_per_block>>>(
-      kernel_matrix_lens{scores_lens}, scores_lens.extent());
+      kernel_matrix_lens{scores_lens}, scores_lens.extent(), cached_count,
+      new_count);
   return cuda_last_status{}.ok();
 }
 
@@ -277,23 +286,25 @@ requires Floating<device_element_t<Out>>
 // heads, writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::attend`, which also holds the
-// worked explanation. For T tokens, width C, and H heads of width D = C / H:
+// worked explanation. For M cached tokens, N new ones, T = M + N, width C, and
+// H heads of width D = C / H:
 //
-//   out     T x C     a row per token, each head writing its D columns
-//   qkv     T x 3C    each token's queries, then keys, then values
-//   scores  HT x T    scratch, holding every head's T x T weights, stacked
+//   out     N x C     a row per new token, each head writing its D columns
+//   qkv     T x 3C    each token's queries, then keys, then values, the
+//                     cached tokens first
+//   scores  HN x T    scratch, holding every head's N x T weights, stacked
 //
 // Where the CPU op walks each token's causal prefix one head at a time, this
-// one takes every head's whole T x T score matrix at once, in four launches: a
-// batched GEMM of the queries against the transposed keys, scaled by
-// 1 / sqrt(D), the causal mask, the row softmax, and a batched GEMM of the
-// weights against the values.
+// one takes every head's whole N x T score matrix at once, in four launches: a
+// batched GEMM of the new tokens' queries against the transposed keys (scaled
+// by 1 / sqrt(D)), the causal mask, the row softmax, and a batched GEMM of the
+// weights against the values. With nothing cached, N is T.
 //
-// `qkv` must be three times as wide as `out`, whose width must divide evenly
-// by `head_count`, and `scores` must have a column per token and a row per
-// token per head. `out` must not overlap `qkv` or `scores`, and `scores` must
-// not overlap `qkv`. Returns false when a launch is refused, leaving `out` and
-// `scores` unspecified.
+// `qkv` must be three times as wide as `out` and have at least as many rows,
+// `out`'s width must divide evenly by `head_count`, and `scores` must have a
+// column per row of `qkv` and a row per row of `out` per head. `out` must not
+// overlap `qkv` or `scores`, and `scores` must not overlap `qkv`. Returns
+// false when a launch is refused, leaving `out` and `scores` unspecified.
 template<DeviceMatrixLike Out>
 requires GemmElement<device_element_t<Out>>
 [[nodiscard]] bool
@@ -302,13 +313,14 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
   using T = device_element_t<Out>;
 
   const auto& out_lens = out.as_lens();
-  const auto token_count = out_lens.row_extent();
+  const auto new_count = out_lens.row_extent();
+  const auto total_count = qkv.row_extent();
   const auto width = out_lens.col_extent();
-  assert(qkv.row_extent() == token_count);
+  assert(total_count >= new_count);
   assert(qkv.col_extent() == 3 * width);
   assert(head_count && (width % head_count == 0));
-  assert((scores.row_extent() == head_count * token_count) &&
-         (scores.col_extent() == token_count));
+  assert((scores.row_extent() == head_count * new_count) &&
+         (scores.col_extent() == total_count));
   assert(is_disjoint(out_lens.as_span(), qkv.as_span()));
   assert(is_disjoint(out_lens.as_span(), scores.as_span()));
   assert(is_disjoint(scores.as_span(), qkv.as_span()));
@@ -317,9 +329,11 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
 
   const auto one_third = [&](size_t which) {
     return qkv[{row_ndx{0}, col_ndx{which * width}},
-        {.row_count = token_count, .col_count = width}];
+        {.row_count = total_count, .col_count = width}];
   };
-  const auto q = one_third(0);
+  // The queries are those of the new tokens, below the cached ones.
+  const auto q = one_third(0)[{row_ndx{total_count - new_count}, col_ndx{0}},
+      {.row_count = new_count, .col_count = width}];
   const auto k = one_third(1);
   const auto v = one_third(2);
 
@@ -332,7 +346,7 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
               .out = matrix_axis::rows},
           {.scale = scale, .op_b = cublas_operation::transpose}))
     return false;
-  if (!causal_mask(scores)) return false;
+  if (!causal_mask(scores, total_count - new_count)) return false;
   if (!softmax(scores, scores)) return false;
   return gemm_batched(blas, out, scores, v,
       {.count = head_count,

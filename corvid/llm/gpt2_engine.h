@@ -254,7 +254,7 @@ public:
   //
   // `out` doubles as the residual, so it must have one row per new ID and the
   // model's width. `acts` is reused by every block, so it holds the last
-  // block's activations on return; its `ln_2_in` may be `out`, the in-place
+  // block's activations on return. Its `ln_2_in` may be `out`, the in-place
   // form, but no other buffer may overlap `out`.
   void forward(float_matrix_lens out, std::span<const token_id> new_ids,
       const block_activations& acts, kv_cache& cache) const {

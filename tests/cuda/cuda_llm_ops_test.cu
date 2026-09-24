@@ -45,6 +45,8 @@ using corvid::cuda::cublas_handle;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::llm::token_id;
+using matrix_types::col_ndx;
+using matrix_types::row_ndx;
 
 // The epsilon every layer norm test passes, GPT-2's own so the oracle case
 // matches.
@@ -378,6 +380,23 @@ TEST_CASE("Device causal mask blanks each square of a stack on its own",
         std::vector<float>{1.0F, blank, 1.0F, 1.0F, 1.0F, blank, 1.0F, 1.0F});
 }
 
+TEST_CASE("Device causal mask over cached tokens starts past them",
+    "[LlmOpsTest][cuda]") {
+  // Two new tokens after one cached, for two heads. In each head's matrix,
+  // row 0 is token 1 and keeps columns 0 and 1, and row 1 is token 2 and
+  // keeps all three.
+  const std::vector<float> ones(4UZ * 3, 1.0F);
+  cuda_matrix<float> scores(
+      float_matrix_view(ones, {.row_count = 4, .col_count = 3}));
+  REQUIRE(corvid::cuda::llm::causal_mask(scores, 1));
+
+  std::vector<float> storage(scores.size());
+  REQUIRE(scores.as_view().store(float_matrix_lens(storage, scores.extent())));
+  constexpr auto blank = -std::numeric_limits<float>::infinity();
+  CHECK(storage == std::vector<float>{1.0F, 1.0F, blank, 1.0F, 1.0F, 1.0F,
+                       1.0F, 1.0F, blank, 1.0F, 1.0F, 1.0F});
+}
+
 TEST_CASE("Device attention on three tokens of width two",
     "[LlmOpsTest][cuda]") {
   // The CPU test's napkin example, starting from its `qkv`. There, q and k
@@ -415,6 +434,45 @@ TEST_CASE("Device attention on three tokens of width two",
     CHECK_THAT(out_storage[3], WithinAbs(0.268941, tolerance));
     CHECK_THAT(out_storage[4], WithinAbs(0.577681, tolerance));
     CHECK_THAT(out_storage[5], WithinAbs(0.577681, tolerance));
+  }
+}
+
+TEST_CASE("Device attention over cached tokens matches a full pass",
+    "[LlmOpsTest][cuda]") {
+  // The napkin example's `qkv`, as the CPU test uses it. Attending the last
+  // two tokens with one cached, or the last token with two cached, gives the
+  // rows that the full pass gives those tokens.
+  const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+      0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+  const cuda_matrix<float> qkv(
+      float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
+  const cublas_handle blas;
+
+  for (const auto head_count : {1UZ, 2UZ}) {
+    DYNAMIC_SECTION(head_count << " heads") {
+      cuda_matrix<float> full({.row_count = 3, .col_count = 2});
+      cuda_matrix<float> full_scores(
+          {.row_count = head_count * 3, .col_count = 3});
+      REQUIRE(
+          corvid::cuda::llm::attend(blas, full, qkv, head_count, full_scores));
+      std::vector<float> full_storage(full.size());
+      REQUIRE(full.as_view().store(
+          float_matrix_lens(full_storage, full.extent())));
+      const float_matrix_view full_view(full_storage, full.extent());
+
+      for (const auto new_count : {1UZ, 2UZ, 3UZ}) {
+        cuda_matrix<float> out({.row_count = new_count, .col_count = 2});
+        cuda_matrix<float> scores(
+            {.row_count = head_count * new_count, .col_count = 3});
+        REQUIRE(corvid::cuda::llm::attend(blas, out, qkv, head_count, scores));
+        std::vector<float> out_storage(out.size());
+        REQUIRE(
+            out.as_view().store(float_matrix_lens(out_storage, out.extent())));
+        check_close(float_matrix_view(out_storage, out.extent()),
+            full_view[{row_ndx{3 - new_count}, col_ndx{0}}, out.extent()],
+            0.0F, 0.0F);
+      }
+    }
   }
 }
 
@@ -465,6 +523,26 @@ TEST_CASE("Device attention path matches the oracle",
       REQUIRE(out.as_view().store(out_lens));
 
       check_close(out_lens, expected, 1e-4F, 1e-4F);
+
+      // The last five tokens with nine cached get the same head outputs,
+      // bit for bit, as on the CPU.
+      constexpr auto new_count = 5UZ;
+      cuda_matrix<float> suffix_out(
+          {.row_count = new_count, .col_count = n_embd});
+      cuda_matrix<float> suffix_scores(
+          {.row_count = n_head * new_count, .col_count = token_count});
+      REQUIRE(corvid::cuda::llm::attend(blas, suffix_out, qkv, n_head,
+          suffix_scores));
+      std::vector<float> heads_storage(heads_out.size());
+      const float_matrix_lens heads_lens(heads_storage, heads_out.extent());
+      REQUIRE(heads_out.as_view().store(heads_lens));
+      std::vector<float> suffix_storage(suffix_out.size());
+      const float_matrix_lens suffix_lens(suffix_storage, suffix_out.extent());
+      REQUIRE(suffix_out.as_view().store(suffix_lens));
+      check_close(suffix_lens,
+          heads_lens[{row_ndx{token_count - new_count}, col_ndx{0}},
+              suffix_out.extent()],
+          0.0F, 0.0F);
     }
   }
 }
