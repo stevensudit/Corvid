@@ -294,8 +294,8 @@ public:
     if (!forward(trunk, new_ids, buffers.lenses(), cache_)) return false;
 
     cuda_matrix<float> logits({.row_count = 1, .col_count = vocab_size});
-    const auto last_row = trunk[{row_ndx{new_count - 1}, col_ndx{0}},
-        {.row_count = 1, .col_count = width}];
+    const auto last_row =
+        trunk[{row_ndx{new_count - 1}, col_ndx{0}}, matrix_extent::npos];
     if (!compute_logits(blas_, logits, last_row, wte_)) return false;
     std::vector<float> logits_storage(vocab_size);
     if (!logits.as_view().store(
