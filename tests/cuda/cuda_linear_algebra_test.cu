@@ -17,8 +17,10 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <ranges>
 #include <vector>
 
+#include "corvid/cuda/bfloat16.cuh"
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/linalg/linear_algebra.cuh"
@@ -36,6 +38,7 @@ namespace corvid_tests {
 
 using namespace corvid;
 using Catch::Matchers::WithinAbs;
+using corvid::cuda::bfloat16_t;
 using corvid::cuda::cublas_handle;
 using corvid::cuda::cublas_operation;
 using corvid::cuda::cuda_buffer;
@@ -61,6 +64,14 @@ __global__ void walk_columns(unsigned* count, unsigned* sum, size_t cols) {
   }
   count[thread] = visited;
   sum[thread] = total;
+}
+
+// The values narrowed to `bfloat16_t`, for operands built from float literals.
+std::vector<bfloat16_t> narrowed(const std::vector<float>& values) {
+  std::vector<bfloat16_t> result;
+  result.reserve(values.size());
+  for (const auto value : values) result.emplace_back(value);
+  return result;
 }
 
 } // namespace
@@ -346,6 +357,83 @@ TEMPLATE_TEST_CASE("Device batched gemm over both axes",
   std::vector<T> out_storage(out.size());
   REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
   CHECK(out_storage == std::vector<T>{T{26}, T{88}, T{78}, T{176}});
+}
+
+TEST_CASE("Device gemm over bfloat16_t accumulates in float",
+    "[LinearAlgebraTest][cuda]") {
+  // A two-by-three times three-by-two product whose values and partial sums
+  // are exact in float, so the bfloat16 result is the float product rounded
+  // once, at the store. Three of the four products need more than eight
+  // significant bits, so the rounding is visible.
+  const std::vector<float> a_values{1.5F, 2.25F, 3.125F, 4.0625F, 5.5F, 6.75F};
+  const std::vector<float> b_values{1.25F, 0.5F, 0.75F, 1.125F, 1.0F, 2.5F};
+  constexpr matrix_types::matrix_extent a_extent{.row_count = 2,
+      .col_count = 3};
+  constexpr matrix_types::matrix_extent b_extent{.row_count = 3,
+      .col_count = 2};
+  constexpr matrix_types::matrix_extent out_extent{.row_count = 2,
+      .col_count = 2};
+
+  const cublas_handle blas;
+  const cuda_matrix<float> a(matrix_view<float>(a_values, a_extent));
+  const cuda_matrix<float> b(matrix_view<float>(b_values, b_extent));
+  cuda_matrix<float> out(out_extent);
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out, a, b));
+  std::vector<float> out_values(out.size());
+  REQUIRE(out.as_view().store(matrix_lens<float>(out_values, out_extent)));
+  CHECK(out_values ==
+        std::vector<float>{6.6875F, 11.09375F, 15.953125F, 25.09375F});
+
+  const auto a_narrowed = narrowed(a_values);
+  const auto b_narrowed = narrowed(b_values);
+  const cuda_matrix<bfloat16_t> a_bf16(
+      matrix_view<bfloat16_t>(a_narrowed, a_extent));
+  const cuda_matrix<bfloat16_t> b_bf16(
+      matrix_view<bfloat16_t>(b_narrowed, b_extent));
+  cuda_matrix<bfloat16_t> out_bf16(out_extent);
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out_bf16, a_bf16, b_bf16));
+  std::vector<bfloat16_t> out_narrowed(out_bf16.size());
+  REQUIRE(out_bf16.as_view().store(
+      matrix_lens<bfloat16_t>(out_narrowed, out_extent)));
+  CHECK(out_narrowed == narrowed(out_values));
+
+  // Scaled and accumulated onto the float product, still rounding only at
+  // the store: 2 * product + product, in float, then narrowed.
+  REQUIRE(out_bf16.as_lens().load(
+      matrix_view<bfloat16_t>(out_narrowed, out_extent)));
+  REQUIRE(corvid::cuda::linalg::gemm(blas, out_bf16, a_bf16, b_bf16,
+      {.scale = 2}, out_bf16));
+  REQUIRE(out_bf16.as_view().store(
+      matrix_lens<bfloat16_t>(out_narrowed, out_extent)));
+  std::vector<float> tripled(out_values.size());
+  for (const auto [value, sum] : std::views::zip(out_values, tripled))
+    sum = 3 * value;
+  CHECK(out_narrowed == narrowed(tripled));
+}
+
+TEST_CASE("Device batched gemm over bfloat16_t", "[LinearAlgebraTest][cuda]") {
+  // The float and double case's first product, whose values are all exact in
+  // eight significant bits.
+  const cublas_handle blas;
+  const auto a_narrowed = narrowed({1.0F, 2.0F, 3.0F, 4.0F});
+  const auto b_narrowed = narrowed({5.0F, 6.0F, 7.0F, 8.0F});
+  const cuda_matrix<bfloat16_t> a(
+      matrix_view<bfloat16_t>(a_narrowed, {.row_count = 2, .col_count = 2}));
+  const cuda_matrix<bfloat16_t> b(
+      matrix_view<bfloat16_t>(b_narrowed, {.row_count = 2, .col_count = 2}));
+  cuda_matrix<bfloat16_t> outer({.row_count = 4, .col_count = 2});
+  REQUIRE(corvid::cuda::linalg::gemm_batched(blas, outer, a, b,
+      {.count = 2,
+          .a = matrix_axis::cols,
+          .b = matrix_axis::cols,
+          .out = matrix_axis::rows},
+      {.op_b = cublas_operation::transpose}));
+
+  std::vector<bfloat16_t> outer_narrowed(outer.size());
+  REQUIRE(outer.as_view().store(
+      matrix_lens<bfloat16_t>(outer_narrowed, outer.extent())));
+  CHECK(outer_narrowed ==
+        narrowed({5.0F, 7.0F, 15.0F, 21.0F, 12.0F, 16.0F, 24.0F, 32.0F}));
 }
 
 #pragma endregion

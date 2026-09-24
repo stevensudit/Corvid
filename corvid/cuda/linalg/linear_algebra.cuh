@@ -125,8 +125,8 @@ op_extent(cuda_matrix_lens<T> x, cublas_operation op) noexcept {
 // transposed.
 template<GemmElement T>
 struct gemm_options {
-  T scale = 1;
-  T addend_scale = 1;
+  gemm_scalar_t<T> scale = 1;
+  gemm_scalar_t<T> addend_scale = 1;
   cublas_operation op_a = cublas_operation::none;
   cublas_operation op_b = cublas_operation::none;
 };
@@ -182,8 +182,8 @@ gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
     // Copy `addend` into `out`, as part of the same default stream as `blas`.
     if (!out_lens.load(addend)) return false;
   }
-  const auto beta =
-      has_addend ? options.addend_scale : device_element_t<Out>{};
+  const gemm_scalar_t<device_element_t<Out>> beta =
+      has_addend ? options.addend_scale : 0;
 
   // Each leading dimension is its view's stride, the row length as stored.
   const auto m = static_cast<int>(out_lens.row_extent());
@@ -325,8 +325,8 @@ requires GemmElement<device_element_t<Out>>
   return blas
       .multiply_batched_row_major(m, n, k, options.scale, a.get(), lda,
           static_cast<long long>(a_pieces.stride), b.get(), ldb,
-          static_cast<long long>(b_pieces.stride), device_element_t<Out>{},
-          out_lens.get(), ldc, static_cast<long long>(out_pieces.stride),
+          static_cast<long long>(b_pieces.stride), 0, out_lens.get(), ldc,
+          static_cast<long long>(out_pieces.stride),
           static_cast<int>(batch.count), options.op_a, options.op_b)
       .ok();
 }
