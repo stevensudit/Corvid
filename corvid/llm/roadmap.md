@@ -1315,6 +1315,27 @@ and the twenty-ID greedy gate, now through the device pick. With this the
 KV-cache step is complete. Next: bf16, then tokens per second against
 llama.cpp.
 
+Status (2026-09-24, bf16, slice 1: the type): `corvid::cuda::bfloat16_t` in
+"bfloat16.cuh" wraps the toolkit's `__nv_bfloat16` behind explicit
+conversions, since the standard's `std::bfloat16_t` ships only in libstdc++.
+Construction from a `float` rounds to nearest even, conversion back is
+explicit, the comparisons are those of the float values, and `from_bits` and
+`bits` reach the pattern for the constants a `float` would round. It is
+storage, not arithmetic. A kernel converts to `float`, computes, and
+converts the result back, which keeps the accumulate-in-fp32 rule visible at
+the call site. The constraint `DeviceFloating` sits beside it, `Floating` or
+`bfloat16_t`, so the device ops can admit the type without CUDA reaching
+into "meta". The header specializes libcu++'s `numeric_limits` for it from
+bit patterns, so `cuda_reduce::lowest<T>`, the softmax peak, and the mask's
+infinity find a bf16 limit where they find a float's, with no branch and no
+second special case. Tests: the bit patterns of exact values and the
+rounding of ties (1 + 2^-8 goes to the even 0x3F80, 1 + 3 * 2^-8 to 0x3F82),
+the comparisons, the limits (max is (2 - 2^-7) * 2^127 and lowest its
+negation, both finite), and a device round trip over 64 threads through
+`block_max`, which exercises the identity and libcu++'s shuffle of a
+two-byte type. Next: the cuBLAS traits for `cublasGemmEx`, then the ops and
+the engine over the new element type, then the gate and the measurement.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
