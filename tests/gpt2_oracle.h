@@ -71,7 +71,8 @@ inline std::string read_file(const std::filesystem::path& path) {
 }
 
 // The model weights, the bisect prompt's activations, and every prompt's IDs
-// and logits, as the oracle dumped them.
+// and logits, along with the stress prompt's IDs and the last row of its
+// logits, as the oracle dumped them.
 struct oracle_dumps {
   safetensors_file weights;
   safetensors_file activations;
