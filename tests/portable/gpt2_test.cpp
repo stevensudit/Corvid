@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <format>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -25,6 +26,7 @@
 #include <vector>
 
 #include "corvid/llm/gpt2_engine.h"
+#include "corvid/math/bfloat16.h"
 #include "catch2_main.h"
 #include "gpt2_oracle.h"
 
@@ -36,7 +38,7 @@ using namespace corvid::tests::gpt2;
 
 TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
   auto oracle = oracle_dumps::load();
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine engine(model);
 
   // Every block, fed its own dumped residual. The residual that leaves it is
@@ -108,7 +110,7 @@ TEST_CASE("Forward pass matches the oracle", "[Gpt2Test][oracle]") {
       ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
   const auto token_count = ids.size();
   REQUIRE(token_count == 14);
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine engine(model);
   const auto expected = matrix_of(oracle.activations, "ln_f/out", n_embd);
 
@@ -135,7 +137,7 @@ TEST_CASE("Forward pass over a cache matches a full pass",
   REQUIRE(total_count == 14);
   constexpr auto cached_count = 9UZ;
   const auto new_count = total_count - cached_count;
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine engine(model);
 
   const auto run =
@@ -173,7 +175,7 @@ TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
 
   // The whole model, IDs to logits, on each of the manifest's prompts. The
   // logits dump holds all five; only the bisect prompt has activations.
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine engine(model);
   for (auto n = 0UZ; n < 5; ++n) {
     DYNAMIC_SECTION("prompt_" << n) {
@@ -211,7 +213,7 @@ TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
   const auto expected = read_greedy_continuation();
   REQUIRE(expected.ids.size() == 20);
 
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine engine(model);
   auto ids = ids_of(oracle.logits,
       std::format("prompt_{}/input_ids", expected.prompt));
@@ -232,7 +234,7 @@ TEST_CASE("Greedy decoding reproduces the manifest", "[Gpt2Test][oracle]") {
   // nothing, still gets the first pick. So does the same prompt asked twice,
   // which has every token but the last cached.
   const auto prompt = std::span{ids}.first(prompt_count);
-  const std::vector<token_id> unrelated{gpt2_model::end_of_text};
+  const std::vector<token_id> unrelated{gpt2_end_of_text};
   REQUIRE(engine.next_token(next, unrelated));
   REQUIRE(engine.next_token(next, prompt));
   CHECK(next == expected.ids.front());
@@ -245,7 +247,47 @@ TEST_CASE("Model rejects a file without the weights", "[Gpt2Test]") {
   constexpr std::array image{std::byte{2}, std::byte{}, std::byte{},
       std::byte{}, std::byte{}, std::byte{}, std::byte{}, std::byte{},
       std::byte{'{'}, std::byte{'}'}};
-  CHECK_THROWS_AS(gpt2_model::load(safetensors_file::parse(image)),
+  CHECK_THROWS_AS(gpt2_model<float>::load(safetensors_file::parse(image)),
+      std::runtime_error);
+}
+
+TEST_CASE("Model views a bf16 file as it is", "[Gpt2Test][oracle]") {
+  auto oracle = oracle_dumps::load();
+
+  // The oracle narrowed the fp32 weights with torch, and the host narrows
+  // them again here, so the two roundings must agree on every element of
+  // every tensor, bit for bit. The model over the bf16 file then has the
+  // fp32 model's dimensions.
+  const auto f32 = gpt2_model<float>::load(std::move(oracle.weights));
+  const auto bf16 =
+      gpt2_model<bfloat16_t>::load(std::move(oracle.weights_bf16));
+  CHECK(bf16.weights.size() == f32.weights.size());
+  for (const auto& tensor : f32.weights.tensors()) {
+    INFO(tensor.name);
+    const auto* entry = bf16.weights.find(tensor.name);
+    REQUIRE(entry);
+    REQUIRE(entry->shape == tensor.shape);
+    REQUIRE(entry->is<bfloat16_t>());
+    auto mismatches = 0UZ;
+    for (const auto [value, narrowed] :
+        std::views::zip(tensor.as<float>(), entry->as<bfloat16_t>()))
+      if (bfloat16_t{value}.bits() != narrowed.bits()) ++mismatches;
+    CHECK(mismatches == 0);
+  }
+  CHECK(bf16.width() == f32.width());
+  CHECK(bf16.hidden_width() == f32.hidden_width());
+  CHECK(bf16.vocab_size() == f32.vocab_size());
+  CHECK(bf16.context_length() == f32.context_length());
+  CHECK(bf16.blocks.size() == f32.blocks.size());
+  CHECK(bf16.head_count == f32.head_count);
+}
+
+TEST_CASE("Model rejects a file of another element type",
+    "[Gpt2Test][oracle]") {
+  auto oracle = oracle_dumps::load();
+  CHECK_THROWS_AS(gpt2_model<bfloat16_t>::load(std::move(oracle.weights)),
+      std::runtime_error);
+  CHECK_THROWS_AS(gpt2_model<float>::load(std::move(oracle.weights_bf16)),
       std::runtime_error);
 }
 

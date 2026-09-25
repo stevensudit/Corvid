@@ -46,7 +46,11 @@
 // them on the device in a `kv_cache` and runs only the tokens that are new.
 namespace corvid::cuda::llm {
 
+using corvid::llm::gpt2_block_params;
+using corvid::llm::gpt2_end_of_text;
+using corvid::llm::gpt2_layer_norm_eps;
 using corvid::llm::gpt2_model;
+using corvid::llm::ParameterElement;
 
 #pragma region gpt2_engine
 
@@ -63,8 +67,8 @@ using corvid::llm::gpt2_model;
 // norms' weights and biases, and the queries, keys (and so the key cache),
 // and scores, so a value that accumulates across the blocks is never narrowed
 // and the scores are exact products. Every parameter is uploaded at
-// construction, converted where its type differs from the model's `float`,
-// so the model may be destroyed afterward. The logits are `wide_t` too, so
+// construction, converted where its type differs from the model's, so the
+// model may be destroyed afterward. The logits are `wide_t` too, so
 // that a pick rests on the final projection's full precision. Tokenizing text
 // is `gpt2_tokenizer`'s job, so this takes and produces token IDs alone.
 //
@@ -190,7 +194,8 @@ public:
 #pragma region Construction
 
   // Upload every parameter of `model`, or throw.
-  explicit gpt2_engine(const gpt2_model& model)
+  template<ParameterElement H>
+  explicit gpt2_engine(const gpt2_model<H>& model)
       : wte_(upload<element_t>(model.wte)), wpe_(upload<element_t>(model.wpe)),
         ln_f_weight_(upload<wide_t>(model.ln_f_weight)),
         ln_f_bias_(upload<wide_t>(model.ln_f_bias)),
@@ -236,7 +241,7 @@ public:
     assert(is_disjoint(acts.ln_2_in.as_span(), acts.mlp_out.as_span()));
 
     if (!layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias,
-            gpt2_model::layer_norm_eps))
+            gpt2_layer_norm_eps))
       return false;
     // The attention projection goes a third at a time, so that the new keys
     // and values land in their stores and the queries beside them, each in
@@ -259,7 +264,7 @@ public:
     if (!add(acts.ln_2_in, in, acts.attn_out)) return false;
 
     if (!layer_norm(acts.ln_2_out, acts.ln_2_in, params.ln_2_weight,
-            params.ln_2_bias, gpt2_model::layer_norm_eps))
+            params.ln_2_bias, gpt2_layer_norm_eps))
       return false;
     if (!linear_projection(blas_, acts.hidden, acts.ln_2_out,
             params.mlp_c_fc_weight, params.mlp_c_fc_bias))
@@ -321,7 +326,7 @@ public:
         return false;
     }
     if (!layer_norm(out, residual, ln_f_weight_, ln_f_bias_,
-            gpt2_model::layer_norm_eps))
+            gpt2_layer_norm_eps))
       return false;
 
     cache.ids.insert(cache.ids.end(), new_ids.begin(), new_ids.end());
@@ -385,7 +390,7 @@ public:
     for (auto step = 0UZ; step < count; ++step) {
       token_id next{};
       if (!next_token(next, ids)) return false;
-      if (next == gpt2_model::end_of_text) return true;
+      if (next == gpt2_end_of_text) return true;
       ids.push_back(next);
     }
     return true;
@@ -394,7 +399,7 @@ public:
 #pragma endregion
 #pragma region block_params
 private:
-  // The parameters of one block, uploaded from `gpt2_model::block_params`.
+  // The parameters of one block, uploaded from `gpt2_block_params`.
   //
   // The names and shapes are those of the CPU bundle, except that the
   // attention projection's bias is held as its three thirds, since the
@@ -419,7 +424,8 @@ private:
     cuda_buffer<wide_t> mlp_c_proj_bias;
 
     // Allocate and upload every parameter of `host`, or throw.
-    explicit block_params(const gpt2_model::block_params& host)
+    template<ParameterElement H>
+    explicit block_params(const gpt2_block_params<H>& host)
         : ln_1_weight(upload<wide_t>(host.ln_1_weight)),
           ln_1_bias(upload<wide_t>(host.ln_1_bias)),
           attn_c_attn_weight(upload<element_t>(host.attn_c_attn_weight)),
@@ -461,50 +467,52 @@ private:
     }
 
     // The third of `host`'s attention projection bias that `which` names.
-    [[nodiscard]] static std::span<const float> attn_c_attn_bias_third(
-        const gpt2_model::block_params& host, size_t which) {
+    template<ParameterElement H>
+    [[nodiscard]] static gpt2_block_params<H>::vector_t
+    attn_c_attn_bias_third(const gpt2_block_params<H>& host, size_t which) {
       const auto width = host.attn_c_attn_weight.row_extent();
-      return std::span<const float>(host.attn_c_attn_bias)
-          .subspan(which * width, width);
+      return host.attn_c_attn_bias.subspan(col_ndx{which * width}, width);
     }
   };
 
 #pragma endregion
 #pragma region Upload
 
-  // Upload `host` as a matrix of `U`, or throw.
+  // Upload `host`, a parameter held as `H`, as a matrix of `U`, or throw.
   //
-  // A `float` destination takes the parameter straight up. Any other type
-  // stages it as `float` and converts on the device.
-  template<DeviceFloating U>
-  requires std::same_as<U, float>
-  [[nodiscard]] static cuda_matrix<U> upload(float_matrix_view host) {
+  // A parameter already held as `U` goes straight up. Any other type is
+  // staged as held and converted on the device.
+  template<DeviceFloating U, ParameterElement H>
+  requires std::same_as<U, H>
+  [[nodiscard]] static cuda_matrix<U> upload(matrix_view<H> host) {
     return cuda_matrix<U>(host);
   }
-  template<DeviceFloating U>
-  [[nodiscard]] static cuda_matrix<U> upload(float_matrix_view host) {
-    const cuda_matrix<float> staged(host);
+  template<DeviceFloating U, ParameterElement H>
+  [[nodiscard]] static cuda_matrix<U> upload(matrix_view<H> host) {
+    const cuda_matrix<H> staged(host);
     cuda_matrix<U> result(host.extent());
     if (!convert(result, staged)) raise_refused();
     return result;
   }
 
-  // Upload `host` as a buffer of `U`, or throw.
+  // Upload `host`, a parameter held as `H`, as a buffer of `U`, or throw.
   //
   // The same two paths as the matrix form, with the buffer converted as one
   // row.
-  template<DeviceFloating U>
-  requires std::same_as<U, float>
-  [[nodiscard]] static cuda_buffer<U> upload(std::span<const float> host) {
+  template<DeviceFloating U, ParameterElement H>
+  requires std::same_as<U, H>
+  [[nodiscard]] static cuda_buffer<U>
+  upload(enum_span<const H, col_ndx> host) {
     return cuda_buffer<U>(host);
   }
-  template<DeviceFloating U>
-  [[nodiscard]] static cuda_buffer<U> upload(std::span<const float> host) {
-    const cuda_buffer<float> staged(host);
+  template<DeviceFloating U, ParameterElement H>
+  [[nodiscard]] static cuda_buffer<U>
+  upload(enum_span<const H, col_ndx> host) {
+    const cuda_buffer<H> staged(host);
     cuda_buffer<U> result(host.size());
     const matrix_extent row{.row_count = 1, .col_count = host.size()};
     if (!convert(cuda_matrix_lens<U>(result.as_span(), row),
-            cuda_matrix_view<float>(staged.as_span(), row)))
+            cuda_matrix_view<H>(staged.as_span(), row)))
       raise_refused();
     return result;
   }

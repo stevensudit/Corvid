@@ -36,6 +36,7 @@
 #include "../enums/sequence_enum.h"
 #include "../filesys/os_file.h"
 #include "../filesys/os_mmap_file.h"
+#include "../math/bfloat16.h"
 #include "../math/endian.h"
 #include "../meta/bit_cast.h"
 #include "../proto/misc/json_parser.h"
@@ -99,9 +100,10 @@ consteval auto corvid_enum_spec(tensor_dtype*) {
 template<typename T>
 concept TensorElement =
     std::same_as<T, double> || std::same_as<T, float> ||
-    std::same_as<T, int64_t> || std::same_as<T, int32_t> ||
-    std::same_as<T, int16_t> || std::same_as<T, int8_t> ||
-    std::same_as<T, uint8_t> || std::same_as<T, bool>;
+    std::same_as<T, bfloat16_t> || std::same_as<T, int64_t> ||
+    std::same_as<T, int32_t> || std::same_as<T, int16_t> ||
+    std::same_as<T, int8_t> || std::same_as<T, uint8_t> ||
+    std::same_as<T, bool>;
 
 // The dtype whose elements are `T`.
 template<TensorElement T>
@@ -109,6 +111,7 @@ template<TensorElement T>
   using enum tensor_dtype;
   if constexpr (std::same_as<T, double>) return f64;
   if constexpr (std::same_as<T, float>) return f32;
+  if constexpr (std::same_as<T, bfloat16_t>) return bf16;
   if constexpr (std::same_as<T, int64_t>) return i64;
   if constexpr (std::same_as<T, int32_t>) return i32;
   if constexpr (std::same_as<T, int16_t>) return i16;

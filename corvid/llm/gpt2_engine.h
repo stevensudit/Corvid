@@ -159,7 +159,8 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  explicit gpt2_engine(const gpt2_model& model) noexcept : model_{model} {}
+  explicit gpt2_engine(const gpt2_model<float>& model) noexcept
+      : model_{model} {}
 
 #pragma endregion
 #pragma region Forward pass
@@ -212,7 +213,7 @@ public:
     assert(is_disjoint(acts.ln_2_in.as_span(), acts.mlp_out.as_span()));
 
     layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias,
-        gpt2_model::layer_norm_eps);
+        gpt2_layer_norm_eps);
     linear_projection(new_qkv, acts.ln_1_out, params.attn_c_attn_weight,
         params.attn_c_attn_bias);
     attend(acts.heads_out, qkv, model_.head_count, acts.scores);
@@ -221,7 +222,7 @@ public:
     add(acts.ln_2_in, in, acts.attn_out);
 
     layer_norm(acts.ln_2_out, acts.ln_2_in, params.ln_2_weight,
-        params.ln_2_bias, gpt2_model::layer_norm_eps);
+        params.ln_2_bias, gpt2_layer_norm_eps);
     linear_projection(acts.hidden, acts.ln_2_out, params.mlp_c_fc_weight,
         params.mlp_c_fc_bias);
     gelu_new(acts.hidden, acts.hidden);
@@ -283,7 +284,7 @@ public:
       apply_block(out, out, static_cast<size_t>(block_index), acts, qkv);
     }
     layer_norm(out, out, model_.ln_f_weight, model_.ln_f_bias,
-        gpt2_model::layer_norm_eps);
+        gpt2_layer_norm_eps);
 
     cache.ids.insert(cache.ids.end(), new_ids.begin(), new_ids.end());
   }
@@ -340,7 +341,7 @@ public:
     for (auto step = 0UZ; step < count; ++step) {
       token_id next{};
       if (!next_token(next, ids)) return false;
-      if (next == gpt2_model::end_of_text) return true;
+      if (next == gpt2_end_of_text) return true;
       ids.push_back(next);
     }
     return true;
@@ -349,7 +350,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  const gpt2_model& model_;
+  const gpt2_model<float>& model_;
   mutable kv_cache cache_;
 
 #pragma endregion

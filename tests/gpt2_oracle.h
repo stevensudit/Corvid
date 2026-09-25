@@ -70,25 +70,30 @@ inline std::string read_file(const std::filesystem::path& path) {
   return std::string{std::istreambuf_iterator<char>{in}, {}};
 }
 
-// The model weights, the bisect prompt's activations, and every prompt's IDs
-// and logits, along with the stress prompt's IDs and the last row of its
-// logits, as the oracle dumped them.
+// The model weights in fp32 and narrowed to bf16, the bisect prompt's
+// activations, and every prompt's IDs and logits, along with the stress
+// prompt's IDs and the last row of its logits, as the oracle dumped them.
 struct oracle_dumps {
   safetensors_file weights;
+  safetensors_file weights_bf16;
   safetensors_file activations;
   safetensors_file logits;
 
   // Load the files, skipping the test when the oracle has not run here.
   [[nodiscard]] static oracle_dumps load() {
     const auto model_path = oracle_path("model.safetensors");
+    const auto model_bf16_path = oracle_path("model-bf16.safetensors");
     const auto activations_path = oracle_path("activations.safetensors");
     const auto logits_path = oracle_path("logits.safetensors");
     if (!std::filesystem::exists(model_path) ||
+        !std::filesystem::exists(model_bf16_path) ||
         !std::filesystem::exists(activations_path) ||
         !std::filesystem::exists(logits_path))
       SKIP("no oracle dumps under tests/.local/llm/gpt2; run the oracle");
     return {
         .weights = safetensors_file::load(tests::open_read_only(model_path)),
+        .weights_bf16 =
+            safetensors_file::load(tests::open_read_only(model_bf16_path)),
         .activations =
             safetensors_file::load(tests::open_read_only(activations_path)),
         .logits = safetensors_file::load(tests::open_read_only(logits_path)),
