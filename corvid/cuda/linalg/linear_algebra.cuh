@@ -27,6 +27,7 @@
 #include "../../containers/utils/matrix_view.h"
 #include "../../meta/concepts.h"
 #include "../../meta/containers.h"
+#include "../bfloat16.cuh"
 #include "../cuda_buffer.cuh"
 #include "../cuda_cublas.cuh"
 #include "../cuda_kernel.cuh"
@@ -150,6 +151,9 @@ struct gemm_options {
 //
 // Another matrix must have the extent of `out`.
 //
+// `a` and `b` share an element type. `out` holds that type or, for
+// `bfloat16_t` operands, `float`.
+//
 // The distinction between `addend` and `out` is this layer's. Down in
 // `cublas_handle::multiply_row_major` and below, `C` is one in-out matrix that
 // is read scaled by `beta` and overwritten with the result. So `out` is always
@@ -159,20 +163,22 @@ struct gemm_options {
 //
 // `out` must not be `a` or `b`. Returns false when a launch or copy is
 // refused, leaving `out` unspecified.
-template<DeviceMatrixLike Out>
-requires GemmElement<device_element_t<Out>>
-[[nodiscard]] bool
-gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
-    input_view_t<Out> b, gemm_options<device_element_t<Out>> options = {},
+template<DeviceMatrixLike Out, DeviceMatrixViewable A, DeviceMatrixViewable B>
+requires std::same_as<device_value_t<A>, device_value_t<B>> &&
+         GemmOutput<device_value_t<A>, device_element_t<Out>>
+[[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out, const A& a,
+    const B& b, gemm_options<device_value_t<A>> options = {},
     input_view_t<Out> addend = {}) {
   const auto& out_lens = out.as_lens();
-  const auto op_a_extent = details::op_extent(a, options.op_a);
+  const cuda_matrix_view<device_value_t<A>> a_view = a;
+  const cuda_matrix_view<device_value_t<A>> b_view = b;
+  const auto op_a_extent = details::op_extent(a_view, options.op_a);
   [[maybe_unused]] const auto op_b_extent =
-      details::op_extent(b, options.op_b);
+      details::op_extent(b_view, options.op_b);
   assert((out_lens.row_extent() == op_a_extent.row_count) &&
          (out_lens.col_extent() == op_b_extent.col_count));
   assert(op_a_extent.col_count == op_b_extent.row_count);
-  assert((out_lens.get() != a.get()) && (out_lens.get() != b.get()));
+  assert((out_lens.get() != a_view.get()) && (out_lens.get() != b_view.get()));
 
   // To create the `out`/`addend` distinction, we need to initialize `C` with a
   // copy of the `addend`, if there's anything there for us.
@@ -182,19 +188,20 @@ gemm(const cublas_handle& blas, Out&& out, input_view_t<Out> a,
     // Copy `addend` into `out`, as part of the same default stream as `blas`.
     if (!out_lens.load(addend)) return false;
   }
-  const gemm_scalar_t<device_element_t<Out>> beta =
+  const gemm_scalar_t<device_value_t<A>> beta =
       has_addend ? options.addend_scale : 0;
 
   // Each leading dimension is its view's stride, the row length as stored.
   const auto m = static_cast<int>(out_lens.row_extent());
   const auto n = static_cast<int>(out_lens.col_extent());
   const auto k = static_cast<int>(op_a_extent.col_count);
-  const auto lda = static_cast<int>(a.stride());
-  const auto ldb = static_cast<int>(b.stride());
+  const auto lda = static_cast<int>(a_view.stride());
+  const auto ldb = static_cast<int>(b_view.stride());
   const auto ldc = static_cast<int>(out_lens.stride());
   return blas
-      .multiply_row_major(m, n, k, options.scale, a.get(), lda, b.get(), ldb,
-          beta, out_lens.get(), ldc, options.op_a, options.op_b)
+      .multiply_row_major(m, n, k, options.scale, a_view.get(), lda,
+          b_view.get(), ldb, beta, out_lens.get(), ldc, options.op_a,
+          options.op_b)
       .ok();
 }
 
@@ -360,11 +367,12 @@ namespace details {
 
 // Combine the elements of `a` and `b` through `op`, writing into `out`, all
 // `extent` in size, one thread per element.
-template<typename T, typename Op>
+template<DeviceFloating T, typename Op>
 __global__ void
 combine_elements(kernel_matrix_lens<T> out, kernel_matrix_view<T> a,
     kernel_matrix_view<T> b, matrix_extent extent, Op op) {
-  if (const kernel_coord at; at.is_within(extent)) out[at] = op(a[at], b[at]);
+  if (const kernel_coord at; at.is_within(extent))
+    out[at] = T{op(widen(a[at]), widen(b[at]))};
 }
 
 // Combine `a` and `b` elementwise through `op`, writing into `out`.
@@ -372,7 +380,7 @@ combine_elements(kernel_matrix_lens<T> out, kernel_matrix_view<T> a,
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, but must not otherwise overlap either. Returns false when
 // the launch is refused, leaving `out` unspecified.
-template<typename T, typename Op>
+template<DeviceFloating T, typename Op>
 [[nodiscard]] bool combine(cuda_matrix_lens<T> out, cuda_matrix_view<T> a,
     cuda_matrix_view<T> b, Op op) {
   assert(a.extent() == b.extent());
@@ -394,7 +402,7 @@ template<typename T, typename Op>
 // `a` or as `b`, adding in place, but must not otherwise overlap either.
 // Returns false when the launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
-requires Arithmetic<device_element_t<Out>>
+requires DeviceFloating<device_element_t<Out>>
 [[nodiscard]] bool add(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
   return details::combine(out.as_lens(), a, b, ::cuda::std::plus<>{});
 }
@@ -405,7 +413,7 @@ requires Arithmetic<device_element_t<Out>>
 // `a` or as `b`, subtracting in place, but must not otherwise overlap either.
 // Returns false when the launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
-requires Arithmetic<device_element_t<Out>>
+requires DeviceFloating<device_element_t<Out>>
 [[nodiscard]] bool
 subtract(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
   return details::combine(out.as_lens(), a, b, ::cuda::std::minus<>{});
@@ -425,7 +433,7 @@ namespace details {
 //
 // In-place is safe. Each element is read only by the thread that writes it,
 // and every read of `in` precedes that thread's write.
-template<Floating T>
+template<DeviceFloating T>
 __global__ void apply_softmax(kernel_matrix_lens<T> out,
     kernel_matrix_view<T> in, size_t cols) {
   const auto row = cuda_kernel::x_block<size_t>();
@@ -433,19 +441,20 @@ __global__ void apply_softmax(kernel_matrix_lens<T> out,
 
   // Shifting every value by the same amount leaves the weights unchanged, and
   // shifting by the maximum keeps `exp` at or below 1.
-  auto peak = ::cuda::std::numeric_limits<T>::lowest();
-  for (const auto c : columns) peak = ::cuda::std::max(peak, in[row, c]);
+  auto peak = ::cuda::std::numeric_limits<compute_t<T>>::lowest();
+  for (const auto col : columns)
+    peak = ::cuda::std::max(peak, widen(in[row, col]));
+
   peak = cuda_reduce::block_max(peak);
 
-  T total{};
-  for (const auto c : columns) {
-    const auto weight = std::exp(in[row, c] - peak);
-    out[row, c] = weight;
-    total += weight;
-  }
+  compute_t<T> total{};
+  for (const auto col : columns) total += std::exp(widen(in[row, col]) - peak);
   total = cuda_reduce::block_sum(total);
 
-  for (const auto c : columns) out[row, c] /= total;
+  // Each exponential is computed again rather than stored unnormalized, so
+  // that a weight is rounded once, at its store.
+  for (const auto col : columns)
+    out[row, col] = T{std::exp(widen(in[row, col]) - peak) / total};
 }
 
 } // namespace details
@@ -461,7 +470,7 @@ __global__ void apply_softmax(kernel_matrix_lens<T> out,
 // overlap it. Returns false when the launch is refused, leaving `out`
 // unspecified.
 template<DeviceMatrixLike Out>
-requires Floating<device_element_t<Out>>
+requires DeviceFloating<device_element_t<Out>>
 [[nodiscard]] bool softmax(Out&& out, input_view_t<Out> in) {
   const auto& out_lens = out.as_lens();
   assert(out_lens.extent() == in.extent());
@@ -471,6 +480,44 @@ requires Floating<device_element_t<Out>>
   details::apply_softmax<<<static_cast<unsigned>(out_lens.row_extent()),
       threads_per_block>>>(kernel_matrix_lens{out_lens},
       kernel_matrix_view{in}, out_lens.col_extent());
+  return cuda_last_status{}.ok();
+}
+
+#pragma endregion
+#pragma region convert
+
+namespace details {
+
+// Convert the elements of `in` to those of `out`, both `extent` in size, one
+// thread per element.
+template<DeviceFloating To, DeviceFloating From>
+__global__ void convert_elements(kernel_matrix_lens<To> out,
+    kernel_matrix_view<From> in, matrix_extent extent) {
+  if (const kernel_coord at; at.is_within(extent))
+    out[at] = To{static_cast<compute_t<To>>(widen(in[at]))};
+}
+
+} // namespace details
+
+// Convert every element of `in` to the element type of `out`, writing into
+// `out`.
+//
+// A value that the element type of `out` cannot hold exactly rounds to
+// nearest even. `out` and `in` must have the same extent and must not
+// overlap. Returns false when the launch is refused, leaving `out`
+// unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable In>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<In>>
+[[nodiscard]] bool convert(Out&& out, const In& in) {
+  const auto& out_lens = out.as_lens();
+  const cuda_matrix_view<device_value_t<In>> in_view = in;
+  assert(out_lens.extent() == in_view.extent());
+  assert(is_disjoint(out_lens.as_span(), in_view.as_span()));
+
+  details::convert_elements<<<grid_for(out_lens), threads_per_block>>>(
+      kernel_matrix_lens{out_lens}, kernel_matrix_view{in_view},
+      out_lens.extent());
   return cuda_last_status{}.ok();
 }
 

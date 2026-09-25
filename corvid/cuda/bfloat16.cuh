@@ -25,8 +25,9 @@
 #include "../meta/concepts.h"
 #include "./cuda_std.cuh"
 
-// The bfloat16 element type for device data, and the constraint that admits
-// it beside the floating-point types.
+// The bfloat16 element type for device data, the constraint that admits it
+// beside the floating-point types, and the type a kernel computes over any
+// of them in.
 //
 // A `bfloat16_t` is the top half of a `float`: the sign, the 8 exponent bits,
 // and 7 of the 23 mantissa bits, so it has the range of a `float` with 8
@@ -38,6 +39,15 @@
 //
 // It stands in for the standard's `std::bfloat16_t` until every standard
 // library ships one.
+//
+// A kernel generic over its element type computes in `compute_t<T>`, which is
+// `float` for `bfloat16_t` and `T` itself for a floating-point type. It widens
+// each element it reads with `widen` and narrows each result it stores with
+// `T{}`, so a result is rounded once:
+//
+//   compute_t<T> total{};
+//   for (const auto col : columns) total += widen(in[row, col]);
+//   out[row, col] = T{total / count};
 namespace corvid::cuda {
 
 #pragma region bfloat16_t
@@ -90,6 +100,32 @@ private:
 // device ops compute over.
 template<typename T>
 concept DeviceFloating = Floating<T> || std::same_as<T, bfloat16_t>;
+
+#pragma endregion
+#pragma region compute_t
+
+// The type a kernel computes over elements of `T` in.
+//
+// A floating-point type computes in itself. `bfloat16_t` is storage alone, so
+// it computes in `float`.
+template<DeviceFloating T>
+struct compute_type_of {
+  using type = T;
+};
+
+template<>
+struct compute_type_of<bfloat16_t> {
+  using type = float;
+};
+
+template<DeviceFloating T>
+using compute_t = compute_type_of<T>::type;
+
+// `x` widened to `compute_t<T>`.
+template<DeviceFloating T>
+[[nodiscard]] __host__ __device__ compute_t<T> widen(T x) noexcept {
+  return static_cast<compute_t<T>>(x);
+}
 
 #pragma endregion
 

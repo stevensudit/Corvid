@@ -18,6 +18,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -28,6 +29,7 @@
 #include "../../llm/llm_ops.h"
 #include "../../llm/token_id.h"
 #include "../../meta/containers.h"
+#include "../bfloat16.cuh"
 #include "../cuda_buffer.cuh"
 #include "../cuda_kernel.cuh"
 #include "../cuda_matrix.cuh"
@@ -36,13 +38,15 @@
 #include "../cuda_std.cuh"
 #include "../linalg/linear_algebra.cuh"
 
-// The transformer ops on the device, in fp32, one free function per op.
+// The transformer ops on the device, one free function per op, over `float`,
+// `double`, or `bfloat16_t`.
 //
 // Every op writes into a caller-owned output (a `cuda_matrix` or a
 // `cuda_matrix_lens`), launches on the default stream, and returns whether its
 // launches were accepted, so a fault inside a kernel surfaces at the next
 // synchronizing call, such as a `store`. The scalar formulas are the CPU ops'
-// own, shared through `CUDA_HOST_DEVICE`.
+// own, shared through `CUDA_HOST_DEVICE`, and a kernel computes them in
+// `compute_t` of its element type, rounding each result once, at its store.
 namespace corvid::cuda::llm {
 
 using namespace corvid::cuda::linalg;
@@ -68,26 +72,26 @@ namespace details {
 // In-place is safe. Each element is read only by the thread that writes it,
 // and the writes come after both sums, so no thread reads a column another
 // has already overwritten.
-template<Floating T>
+template<DeviceFloating T>
 __global__ void
 apply_layer_norm(kernel_matrix_lens<T> out, kernel_matrix_view<T> in,
-    size_t cols, const T* weight, const T* bias, T eps) {
+    size_t cols, const T* weight, const T* bias, compute_t<T> eps) {
   using corvid::linalg::scale_shift;
   using corvid::linalg::standardize;
   const auto row = cuda_kernel::x_block<size_t>();
   const kernel_col_range columns{cols};
-  const auto count = static_cast<T>(cols);
+  const auto count = static_cast<compute_t<T>>(cols);
 
-  T total{};
-  for (const auto c : columns) total += in[row, c];
+  compute_t<T> total{};
+  for (const auto col : columns) total += widen(in[row, col]);
   const auto mean = cuda_reduce::block_sum(total) / count;
 
   // The variance is calculated as the mean of the squared deviations from the
   // mean, as the CPU op computes it, rather than the mean of the squares minus
   // the square of the mean.
-  T squares{};
-  for (const auto c : columns) {
-    const auto deviation = in[row, c] - mean;
+  compute_t<T> squares{};
+  for (const auto col : columns) {
+    const auto deviation = widen(in[row, col]) - mean;
     squares += deviation * deviation;
   }
   const auto variance = cuda_reduce::block_sum(squares) / count;
@@ -95,11 +99,12 @@ apply_layer_norm(kernel_matrix_lens<T> out, kernel_matrix_view<T> in,
   // The inverse standard deviation is calculated as an actual reciprocal of
   // the square root, instead of using `rsqrt`. The latter would be faster, but
   // yield slightly different results.
-  const auto inv_std = T{1} / std::sqrt(variance + eps);
+  const auto inv_std = compute_t<T>{1} / std::sqrt(variance + eps);
 
-  for (const auto c : columns)
-    out[row, c] = scale_shift(standardize(in[row, c], mean, inv_std),
-        weight[c], bias[c]);
+  for (const auto col : columns)
+    out[row, col] =
+        T{scale_shift(standardize(widen(in[row, col]), mean, inv_std),
+            widen(weight[col]), widen(bias[col]))};
 }
 
 } // namespace details
@@ -120,10 +125,10 @@ apply_layer_norm(kernel_matrix_lens<T> out, kernel_matrix_view<T> in,
 // square root. Returns false when the launch is refused, leaving `out`
 // unspecified.
 template<DeviceMatrixLike Out>
-requires Floating<device_element_t<Out>>
+requires DeviceFloating<device_element_t<Out>>
 [[nodiscard]] bool
 layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
-    const input_buffer_t<Out>& bias, device_element_t<Out> eps) {
+    const input_buffer_t<Out>& bias, compute_t<device_element_t<Out>> eps) {
   const auto& out_lens = out.as_lens();
   [[maybe_unused]] const auto width = in.col_extent();
   assert(out_lens.extent() == in.extent());
@@ -145,11 +150,12 @@ namespace details {
 
 // Apply the scalar `gelu_new` to the elements of `in`, writing into `out`,
 // both `extent` in size, one thread per element.
-template<Floating T>
+template<DeviceFloating T>
 __global__ void apply_gelu_new(kernel_matrix_lens<T> out,
     kernel_matrix_view<T> in, matrix_extent extent) {
   using corvid::llm::gelu_new;
-  if (const kernel_coord at; at.is_within(extent)) out[at] = gelu_new(in[at]);
+  if (const kernel_coord at; at.is_within(extent))
+    out[at] = T{gelu_new(widen(in[at]))};
 }
 
 } // namespace details
@@ -159,7 +165,7 @@ __global__ void apply_gelu_new(kernel_matrix_lens<T> out,
 // `out` and `in` must have the same extent. `out` can be `in`, applying it in
 // place. Returns false when the launch is refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
-requires Floating<device_element_t<Out>>
+requires DeviceFloating<device_element_t<Out>>
 [[nodiscard]] bool gelu_new(Out&& out, input_view_t<Out> in) {
   const auto& out_lens = out.as_lens();
   assert(out_lens.extent() == in.extent());
@@ -226,7 +232,7 @@ template<DeviceMatrixLike Out>
 // `table`, and it must not overlap `table`. Returns false when the launch is
 // refused, leaving `out` unspecified.
 template<DeviceMatrixLike Out>
-requires Arithmetic<device_element_t<Out>>
+requires DeviceFloating<device_element_t<Out>>
 [[nodiscard]] bool embed_positions(Out&& out, input_view_t<Out> table,
     size_t first_position = 0) {
   const auto& out_lens = out.as_lens();
@@ -247,12 +253,12 @@ namespace details {
 //
 // `scores` is a stack of matrices of `new_count` rows each, and a row's token
 // is `cached_count` plus its index within its own matrix.
-template<Floating T>
+template<DeviceFloating T>
 __global__ void apply_causal_mask(kernel_matrix_lens<T> scores,
     matrix_extent extent, size_t cached_count, size_t new_count) {
   if (const kernel_coord at;
       at.is_within(extent) && (at.col > cached_count + (at.row % new_count)))
-    scores[at] = -::cuda::std::numeric_limits<T>::infinity();
+    scores[at] = T{-::cuda::std::numeric_limits<compute_t<T>>::infinity()};
 }
 
 } // namespace details
@@ -271,7 +277,7 @@ __global__ void apply_causal_mask(kernel_matrix_lens<T> scores,
 // `cached_count`, and must not be zero. Returns false when the launch is
 // refused, leaving `scores` unspecified.
 template<DeviceMatrixLike Out>
-requires Floating<device_element_t<Out>>
+requires DeviceFloating<device_element_t<Out>>
 [[nodiscard]] bool causal_mask(Out&& scores, size_t cached_count = 0) {
   const auto& scores_lens = scores.as_lens();
   assert(cached_count < scores_lens.col_extent());
@@ -327,7 +333,9 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
   assert(is_disjoint(scores.as_span(), qkv.as_span()));
   const auto cached_count = total_count - new_count;
   const auto head_width = width / head_count;
-  const auto scale = T{1} / std::sqrt(static_cast<T>(head_width));
+  const auto scale =
+      gemm_scalar_t<T>{1} /
+      std::sqrt(static_cast<gemm_scalar_t<T>>(head_width));
 
   const auto one_third = [&](size_t which) {
     return qkv[{row_ndx{0}, col_ndx{which * width}},
@@ -372,12 +380,16 @@ attend(const cublas_handle& blas, Out&& out, input_view_t<Out> qkv,
 //   in     T x C  a row per token
 //   vocab  V x C  a row per vocabulary entry
 //
-// A one-row `in` scores one token. `out` must not be `in` or `vocab`. Returns
-// false when the launch is refused, leaving `out` unspecified.
-template<DeviceMatrixLike Out>
-requires GemmElement<device_element_t<Out>>
+// A one-row `in` scores one token. `in` and `vocab` share an element type,
+// and `out` holds that type or, for `bfloat16_t`, `float`. `out` must not be
+// `in` or `vocab`. Returns false when the launch is refused, leaving `out`
+// unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable In,
+    DeviceMatrixViewable Vocab>
+requires std::same_as<device_value_t<In>, device_value_t<Vocab>> &&
+         GemmOutput<device_value_t<In>, device_element_t<Out>>
 [[nodiscard]] bool compute_logits(const cublas_handle& blas, Out&& out,
-    input_view_t<Out> in, input_view_t<Out> vocab) {
+    const In& in, const Vocab& vocab) {
   return gemm(blas, out, in, vocab, {.op_b = cublas_operation::transpose});
 }
 

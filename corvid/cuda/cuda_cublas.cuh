@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
@@ -146,6 +147,22 @@ concept GemmElement = requires { typename gemm_traits<T>::scalar_t; };
 template<GemmElement T>
 using gemm_scalar_t = gemm_traits<T>::scalar_t;
 
+// Whether cuBLAS stores a product of `T` as `Out`.
+//
+// A product is stored as its own type. A `bfloat16_t` product is also stored
+// as `float`, the type it accumulates in.
+template<GemmElement T, GemmElement Out>
+inline constexpr bool gemm_stores_as_v = std::same_as<T, Out>;
+
+template<>
+inline constexpr bool gemm_stores_as_v<bfloat16_t, float> = true;
+
+// An operand type `T` and a result type `Out` that `multiply` stores a
+// product of `T` as.
+template<typename T, typename Out>
+concept GemmOutput =
+    GemmElement<T> && GemmElement<Out> && gemm_stores_as_v<T, Out>;
+
 #pragma endregion
 #pragma region cublas_handle
 
@@ -207,10 +224,11 @@ public:
   //
   // `alpha` scales the product. `beta` scales `C` before the product is
   // added, so zero leaves `C` unread and one accumulates onto it.
-  template<GemmElement T>
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
   [[nodiscard]] cublas_last_status
   multiply(int m, int n, int k, gemm_scalar_t<T> alpha, const T* A, int lda,
-      const T* B, int ldb, gemm_scalar_t<T> beta, T* C, int ldc,
+      const T* B, int ldb, gemm_scalar_t<T> beta, Out* C, int ldc,
       cublas_operation op_a = cublas_operation::none,
       cublas_operation op_b = cublas_operation::none) const {
     return gemm(handle_, as_raw(op_a), as_raw(op_b), m, n, k, &alpha, A, lda,
@@ -230,10 +248,11 @@ public:
   // which is the same as `op(B)^T * op(A)^T`. So the call is `multiply` with
   // the operands swapped and `m` and `n` swapped, and it all cancels out to
   // give us a row-major result.
-  template<GemmElement T>
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
   [[nodiscard]] cublas_last_status
   multiply_row_major(int m, int n, int k, gemm_scalar_t<T> alpha, const T* A,
-      int lda, const T* B, int ldb, gemm_scalar_t<T> beta, T* C, int ldc,
+      int lda, const T* B, int ldb, gemm_scalar_t<T> beta, Out* C, int ldc,
       cublas_operation op_a = cublas_operation::none,
       cublas_operation op_b = cublas_operation::none) const {
     // The swap is deliberate, as the doc block explains.
@@ -242,9 +261,10 @@ public:
   }
 
   // Square multiply, where every dimension and leading dimension is `n`.
-  template<GemmElement T>
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
   [[nodiscard]] cublas_last_status multiply(int n, gemm_scalar_t<T> alpha,
-      const T* A, const T* B, gemm_scalar_t<T> beta, T* C,
+      const T* A, const T* B, gemm_scalar_t<T> beta, Out* C,
       cublas_operation op_a = cublas_operation::none,
       cublas_operation op_b = cublas_operation::none) const {
     return multiply(n, n, n, alpha, A, n, B, n, beta, C, n, op_a, op_b);
@@ -270,11 +290,12 @@ public:
   //
   // No stride is permitted to be zero, and no two instances of `C` may share
   // an element.
-  template<GemmElement T>
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
   [[nodiscard]] cublas_last_status
   multiply_batched(int m, int n, int k, gemm_scalar_t<T> alpha, const T* A,
       int lda, long long stride_a, const T* B, int ldb, long long stride_b,
-      gemm_scalar_t<T> beta, T* C, int ldc, long long stride_c,
+      gemm_scalar_t<T> beta, Out* C, int ldc, long long stride_c,
       int batch_count, cublas_operation op_a = cublas_operation::none,
       cublas_operation op_b = cublas_operation::none) const {
     return gemm_strided_batched(handle_, as_raw(op_a), as_raw(op_b), m, n, k,
@@ -287,10 +308,11 @@ public:
   // The same letters as `multiply_batched`, read row-major as in
   // `multiply_row_major`, which also explains the swap. The strides travel
   // with their operands.
-  template<GemmElement T>
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
   [[nodiscard]] cublas_last_status multiply_batched_row_major(int m, int n,
       int k, gemm_scalar_t<T> alpha, const T* A, int lda, long long stride_a,
-      const T* B, int ldb, long long stride_b, gemm_scalar_t<T> beta, T* C,
+      const T* B, int ldb, long long stride_b, gemm_scalar_t<T> beta, Out* C,
       int ldc, long long stride_c, int batch_count,
       cublas_operation op_a = cublas_operation::none,
       cublas_operation op_b = cublas_operation::none) const {
@@ -310,30 +332,33 @@ private:
     return create<cublasCreate, cublas_last_status>(policy);
   }
 
-  // The GEMM routine for every `GemmElement`, which is `cublasGemmEx` with
-  // the element's `gemm_traits`.
-  template<GemmElement T>
+  // The GEMM routine for every `GemmOutput` pair, which is `cublasGemmEx`
+  // with the operands' `gemm_traits` and the result's data type.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
   static cublasStatus_t
   gemm(cublasHandle_t handle, cublasOperation_t op_a, cublasOperation_t op_b,
       int m, int n, int k, const gemm_scalar_t<T>* alpha, const T* A, int lda,
-      const T* B, int ldb, const gemm_scalar_t<T>* beta, T* C, int ldc) {
+      const T* B, int ldb, const gemm_scalar_t<T>* beta, Out* C, int ldc) {
     using traits = gemm_traits<T>;
     return cublasGemmEx(handle, op_a, op_b, m, n, k, alpha, A,
         traits::data_type, lda, B, traits::data_type, ldb, beta, C,
-        traits::data_type, ldc, traits::compute_type, CUBLAS_GEMM_DEFAULT);
+        gemm_traits<Out>::data_type, ldc, traits::compute_type,
+        CUBLAS_GEMM_DEFAULT);
   }
 
-  // The strided-batched GEMM routine for every `GemmElement`.
-  template<GemmElement T>
+  // The strided-batched GEMM routine for every `GemmOutput` pair.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
   static cublasStatus_t gemm_strided_batched(cublasHandle_t handle,
       cublasOperation_t op_a, cublasOperation_t op_b, int m, int n, int k,
       const gemm_scalar_t<T>* alpha, const T* A, int lda, long long stride_a,
       const T* B, int ldb, long long stride_b, const gemm_scalar_t<T>* beta,
-      T* C, int ldc, long long stride_c, int batch_count) {
+      Out* C, int ldc, long long stride_c, int batch_count) {
     using traits = gemm_traits<T>;
     return cublasGemmStridedBatchedEx(handle, op_a, op_b, m, n, k, alpha, A,
         traits::data_type, lda, stride_a, B, traits::data_type, ldb, stride_b,
-        beta, C, traits::data_type, ldc, stride_c, batch_count,
+        beta, C, gemm_traits<Out>::data_type, ldc, stride_c, batch_count,
         traits::compute_type, CUBLAS_GEMM_DEFAULT);
   }
 

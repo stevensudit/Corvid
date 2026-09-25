@@ -321,6 +321,10 @@ private:
 template<typename M>
 using device_element_t = std::remove_cvref_t<M>::element_t;
 
+// The element type of `M` as a value, without the `const` of a view.
+template<typename M>
+using device_value_t = std::remove_const_t<device_element_t<M>>;
+
 // A device matrix, or a lens over one, whose elements can be written.
 //
 // That is a `cuda_matrix<T>`, or a `cuda_matrix_lens<T>` for a non-const `T`,
@@ -332,6 +336,13 @@ concept DeviceMatrixLike = requires(M& m) {
     m.as_lens()
   } -> std::convertible_to<cuda_matrix_lens<device_element_t<M>>>;
 };
+
+// A device matrix, or a lens or view over one, whose elements can be read.
+//
+// That is anything that converts to a `cuda_matrix_view` of its element type.
+template<typename M>
+concept DeviceMatrixViewable =
+    std::convertible_to<const M&, cuda_matrix_view<device_value_t<M>>>;
 
 #pragma endregion
 

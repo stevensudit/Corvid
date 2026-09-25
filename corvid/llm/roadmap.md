@@ -1355,6 +1355,38 @@ values need more than eight bits, so the rounding is visible), the same
 scaled and accumulated, and the batched product over both axes. Next: the
 ops and the engine over `bfloat16_t`.
 
+Status (2026-09-24, bf16, slice 3: the ops and the engine): every device op
+admits `bfloat16_t` beside `float` and `double`. A kernel computes in
+`compute_t<T>` ("bfloat16.cuh"), `float` for `bfloat16_t` and `T` itself
+otherwise, widening each element it reads with `widen` and narrowing each
+result once, at its store, with `T{}`, so a bf16 op is the float op rounded
+at the end. Softmax computes each exponential twice rather than storing the
+unnormalized weights, so that its weights are rounded once too. The residual
+adds, the position embedding, and the mask follow the same shape, with the
+mask's negative infinity narrowed from the compute type. The cuBLAS wrapper
+gained `GemmOutput`, the operand and result pair `multiply` accepts, which
+is a product's own type or, for `bfloat16_t` operands, `float`, the row of
+cuBLAS's table that stores a bf16 product accumulated in fp32 without
+narrowing it. The ops' `gemm` and `compute_logits` take their operands as
+`DeviceMatrixViewable` (anything that converts to a `cuda_matrix_view`) so
+the operand type is deduced apart from the output's, and `convert` is the
+elementwise conversion between element types. `gpt2_engine<T>` holds the
+model as `T`, uploading each parameter as `float` and converting it on the
+device (a `float` engine uploads directly), and computes its logits as
+`float` whatever `T` is, through the mixed GEMM, so a greedy pick rests on
+the final projection's full precision rather than on eight bits. Measured:
+the bf16 logits match the fp32 oracle within a relative error of 3.3e-2 on
+the worst prompt (the gate is 4e-2, absolute and relative), and bf16 greedy
+decoding follows the manifest for 7 of its 20 IDs before a close pick flips.
+The error is the residual stream's, held in eight significant bits through
+twelve blocks; keeping the residual in `float` while the projections run in
+bf16 is the usual remedy and is left as a decision. Tests: every op's bf16
+result checked as its float result narrowed at the store (layer norm, GELU,
+softmax, add, subtract, the mask, the embeddings), the attention napkin over
+bf16 within 1e-2, the mixed logits stored as exact floats, `convert` both
+ways, the concept truth tables, and the two bf16 engine gates. Next: tokens
+per second, fp32 against bf16 against llama.cpp.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
