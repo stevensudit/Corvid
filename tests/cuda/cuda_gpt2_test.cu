@@ -29,6 +29,7 @@
 #include "corvid/containers/utils/interval.h"
 #include "corvid/cuda/bfloat16.cuh"
 #include "corvid/cuda/llm/gpt2_engine.cuh"
+#include "corvid/infra/stopwatch.h"
 #include "catch2_main.h"
 #include "gpt2_oracle.h"
 
@@ -73,19 +74,10 @@ std::vector<float> download(const In& in) {
   return {storage.begin(), storage.end()};
 }
 
-// Run `f` and return how long it took, in milliseconds.
-template<typename F>
-double elapsed_ms(F&& f) {
-  const auto start = std::chrono::steady_clock::now();
-  f();
-  return std::chrono::duration<double, std::milli>(
-      std::chrono::steady_clock::now() - start)
-      .count();
-}
-
-// The rate of `count` tokens in `ms` milliseconds, in tokens per second.
-double tokens_per_second(size_t count, double ms) {
-  return 1000.0 * static_cast<double>(count) / ms;
+// The rate of `count` tokens in `took`, in tokens per second.
+double tokens_per_second(size_t count, fp_milliseconds took) {
+  return static_cast<double>(count) /
+         std::chrono::duration<double>(took).count();
 }
 
 // Download `device` and check that it is close to `expected`.
@@ -587,13 +579,15 @@ TEMPLATE_TEST_CASE("Device tokens per second", "[Gpt2Test][oracle][cuda]",
 
   auto ids = ids_of(oracle.logits, "stress/input_ids");
   const auto prefill_count = ids.size();
-  const auto prefill_ms = elapsed_ms([&] {
+  fp_milliseconds prefill_ms;
+  if (const auto timer = scope_timer(prefill_ms)) {
     REQUIRE(engine.next_token(next, ids));
-  });
+  }
   ids.push_back(next);
-  const auto full_step_ms = elapsed_ms([&] {
+  fp_milliseconds full_step_ms;
+  if (const auto timer = scope_timer(full_step_ms)) {
     REQUIRE(engine.next_token(next, ids));
-  });
+  }
 
   // The prompt runs first, so that every step of the run is cached.
   auto short_ids =
@@ -601,9 +595,10 @@ TEMPLATE_TEST_CASE("Device tokens per second", "[Gpt2Test][oracle][cuda]",
   const auto prompt_count = short_ids.size();
   REQUIRE(engine.next_token(next, short_ids));
   constexpr auto step_count = 20UZ;
-  const auto steps_ms = elapsed_ms([&] {
+  fp_milliseconds steps_ms;
+  if (const auto timer = scope_timer(steps_ms)) {
     REQUIRE(engine.generate(short_ids, step_count));
-  });
+  }
   const auto steps = short_ids.size() - prompt_count;
   REQUIRE(steps);
   const auto step_ms = steps_ms / static_cast<double>(steps);
@@ -612,9 +607,10 @@ TEMPLATE_TEST_CASE("Device tokens per second", "[Gpt2Test][oracle][cuda]",
       "prefill {} tokens: {:.1f} ms, {:.0f} tokens/s; decode at "
       "{} tokens: {:.2f} ms, {:.0f} tokens/s; decode from {} "
       "tokens over {} steps: {:.2f} ms/token, {:.0f} tokens/s",
-      prefill_count, prefill_ms, tokens_per_second(prefill_count, prefill_ms),
-      ids.size(), full_step_ms, tokens_per_second(1, full_step_ms),
-      prompt_count, steps, step_ms, tokens_per_second(1, step_ms)));
+      prefill_count, prefill_ms.count(),
+      tokens_per_second(prefill_count, prefill_ms), ids.size(),
+      full_step_ms.count(), tokens_per_second(1, full_step_ms), prompt_count,
+      steps, step_ms.count(), tokens_per_second(1, step_ms)));
 }
 
 #pragma endregion

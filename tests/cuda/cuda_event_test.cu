@@ -1,5 +1,5 @@
-// Tests for cuda_event and cuda_timer: creation, recording and timing on the
-// default stream, and the RAII timer around a trivial kernel.
+// Tests for cuda_event and cuda_scope_timer: creation, recording and timing on
+// the default stream, and the RAII timer around a trivial kernel.
 
 #include <cuda_runtime.h>
 
@@ -38,17 +38,17 @@ TEST_CASE("cuda_event records and times on the default stream", "[cuda]") {
 }
 
 #pragma endregion
-#pragma region cuda_timer
+#pragma region cuda_scope_timer
 
-TEST_CASE("cuda_timer sets its milliseconds on destruction", "[cuda]") {
+TEST_CASE("cuda_scope_timer sets its milliseconds on destruction", "[cuda]") {
   float ms = -1.0F;
   {
-    cuda_timer timer{ms};
+    cuda_scope_timer timer{ms};
     CHECK(ms == 0.0F); // zeroed at construction
     noop_kernel<<<1, 1>>>();
   }
   CHECK(ms >= 0.0F);
-  CHECK(cuda_timer::synchronize());
+  CHECK(cuda_scope_timer::synchronize());
   CHECK(cuda_last_status{}.ok());
 }
 

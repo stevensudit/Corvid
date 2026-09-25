@@ -1,6 +1,6 @@
 // Benchmarks a naive SGEMM kernel against cuBLAS on a square matrix, then
 // cross-checks the two results. Uses the corvid/cuda/ wrappers throughout:
-// cuda_buffer, cuda_timer, cuda_last_status, and cublas_handle.
+// cuda_buffer, cuda_scope_timer, cuda_last_status, and cublas_handle.
 
 #include <cmath>
 #include <print>
@@ -72,9 +72,9 @@ int main() {
   dim3 grid(ceil_div(n, block.x), ceil_div(n, block.y));
 
   matmul_naive<<<grid, block>>>(n, n, n, d_A, d_B, d_C); // warm-up
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
-  if (auto timer = cuda_timer{ms}; true) {
+  if (auto timer = cuda_scope_timer{ms}; true) {
     matmul_naive<<<grid, block>>>(n, n, n, d_A, d_B, d_C);
     *cuda_last_status{}; // check for launch errors
   }
@@ -93,9 +93,9 @@ int main() {
   const float beta = 0.0F;
 
   *handle.multiply(n, alpha, d_A.get(), d_B.get(), beta, d_C.get()); // warm-up
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
-  if (auto timer = cuda_timer{ms}; true) {
+  if (auto timer = cuda_scope_timer{ms}; true) {
     *handle.multiply(n, alpha, d_A.get(), d_B.get(), beta, d_C.get());
   }
   *d_C.store(h_C_cublas);

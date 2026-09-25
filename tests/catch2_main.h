@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <string_view>
@@ -25,6 +24,8 @@
 
 #include <catch2/catch_session.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include "corvid/infra/stopwatch.h"
 
 // Mirrors the `MAKE_TEST_LIST` role from `minitest.h`: include in exactly one
 // TU per Catch2 test executable to pull in the test macros (`TEST_CASE`,
@@ -69,11 +70,10 @@ int main(int argc, char* argv[]) {
     args.push_back(min_duration_value);
 #endif
   }
-  const auto start = std::chrono::steady_clock::now();
+  const corvid::stopwatch watch;
   const int rc =
       Catch::Session().run(static_cast<int>(args.size()), args.data());
-  const auto elapsed = std::chrono::steady_clock::now() - start;
-  const double ms = std::chrono::duration<double, std::milli>(elapsed).count();
+  const auto ms = corvid::fp_milliseconds{watch.elapsed()}.count();
   // Use `printf` rather than `std::println`: some libstdc++ versions we
   // build against don't ship `<print>` yet.
   // NOLINTNEXTLINE(modernize-use-std-print)

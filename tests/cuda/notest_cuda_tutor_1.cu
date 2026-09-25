@@ -65,9 +65,9 @@ int main() {
   dim3 gridDim(ceil_div(n, block_size)); // enough blocks to cover n
 
   add<<<gridDim, blockDim>>>(n, d_C, d_A, d_B); // warm-up
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
-  if (auto timer = cuda_timer{ms}; true) {
+  if (auto timer = cuda_scope_timer{ms}; true) {
     add<<<gridDim, blockDim>>>(n, d_C, d_A, d_B);
     *cuda_last_status{}; // check for launch errors
   }
@@ -83,9 +83,9 @@ int main() {
   dim3 gridDimS(32 * mp_count);
 
   add<<<gridDimS, blockDimS>>>(n, d_C, d_A, d_B); // warm-up
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
-  if (auto timer = cuda_timer{ms}; true) {
+  if (auto timer = cuda_scope_timer{ms}; true) {
     add<<<gridDimS, blockDimS>>>(n, d_C, d_A, d_B);
     *cuda_last_status{}; // check for launch errors
   }

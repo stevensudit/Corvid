@@ -37,7 +37,7 @@ int main() {
   *d_I;
 
   iota<<<1, n>>>(n, d_I);
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
   *d_I.store(h_I);
 
