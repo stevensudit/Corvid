@@ -121,7 +121,7 @@ TEST_CASE(
       const std::vector<peak_case> cases{
           {{}, 0},
           {{threads - 1}, threads - 1},
-          {{threads / 2 + 1}, threads / 2 + 1},
+          {{(threads / 2) + 1}, (threads / 2) + 1},
           {{threads / 4, 3 * threads / 4}, threads / 4},
       };
       for (const auto& [peaks, expected] : cases) {

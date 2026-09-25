@@ -727,8 +727,8 @@ TEST_CASE("Device convert narrows and widens between element types",
   // Values that need more than eight significant bits narrow to bfloat16 as
   // the host narrows them, and widen back to what they narrowed to. A float
   // widens to double exactly.
-  const std::vector<float> values{1.0F, 1.00390625F, 3.14159F, -0.1F, 65504.0F,
-      1e-3F};
+  const std::vector<float> values{1.0F, 1.00390625F, 1.2345678F, -0.1F,
+      65504.0F, 1e-3F};
   constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 3};
   const cuda_matrix<float> in(matrix_view<float>(values, extent));
 
