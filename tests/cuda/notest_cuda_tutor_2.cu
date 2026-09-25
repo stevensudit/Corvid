@@ -83,7 +83,7 @@ __global__ void reduce_block(const float* in, float* block_sums, int n) {
 int main() {
   int n = 42;
   test<<<4, 256>>>(n); // warm-up
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
   // Fill an array using one thread per element.
   n = 1024;
@@ -93,7 +93,7 @@ int main() {
   *d_I;
 
   iota<<<1, n>>>(n, d_I);
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
   *d_I.store(h_I);
 
@@ -112,7 +112,7 @@ int main() {
   *d_M;
 
   fill_multiplication_grid<<<1, dim3(w, h)>>>(w, h, d_M);
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
   *d_M.store(h_M);
 

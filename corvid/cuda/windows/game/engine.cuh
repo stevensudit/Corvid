@@ -845,7 +845,7 @@ private:
               // Time just the render so the title can show GPU ms against the
               // whole-frame ms (GPU-bound vs CPU-bound).
               {
-                cuda_timer gpu_timer(gpu_ms_);
+                cuda_scope_timer gpu_timer(gpu_ms_);
                 render_scene(hdr_.get(), aa_gbuf_.get(), grid_dim, block_, res,
                     rays, field_, colors_.texture(), ball, head, mirror_,
                     render_cfg_);
@@ -860,7 +860,7 @@ private:
                     exposure_sums_.get());
                 exposure_primed_ = true;
               }
-              cuda_timer::synchronize().or_throw();
+              cuda_scope_timer::synchronize().or_throw();
             },
             [&] { imgui_.render(presenter_.back_buffer()); }, sync_interval)
         .or_throw();
@@ -1216,9 +1216,9 @@ private:
   // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
   Uint64 last_ns_{};
 
-  // Last frame's GPU kernel time (ms), measured with a `cuda_timer` and shown
-  // next to the whole-frame ms so a slowdown can be pinned to the GPU render
-  // or to the CPU-side per-frame work.
+  // Last frame's GPU kernel time (ms), measured with a `cuda_scope_timer` and
+  // shown next to the whole-frame ms so a slowdown can be pinned to the GPU
+  // render or to the CPU-side per-frame work.
   float gpu_ms_{};
 
 #pragma endregion

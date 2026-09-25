@@ -72,14 +72,14 @@ int main() {
   // Timing that instead of the kernel is a classic beginner mistake.
   sapxy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
 
-  *cuda_timer::synchronize(); // wait for the warm-up to finish
+  *cuda_scope_timer::synchronize(); // wait for the warm-up to finish
 
   // Reset `device_y`; the warm-up already mutated it, and the timed run must
   // start from the same inputs the check below expects.
   *device_y.load(host_y);
 
   float ms;
-  if (auto timer = cuda_timer{ms}; true) {
+  if (auto timer = cuda_scope_timer{ms}; true) {
     sapxy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
     *cuda_last_status{}; // check for launch errors
   }

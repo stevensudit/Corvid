@@ -29,7 +29,7 @@ namespace corvid::cuda {
 
 // CUDA event (timing-enabled) wrapper.
 //
-// You should probably just use `cuda_timer`.
+// You should probably just use `cuda_scope_timer`.
 class cuda_event: public cuda_handle<cudaEvent_t, cudaEventDestroy> {
 public:
 #pragma region Construction
@@ -84,25 +84,25 @@ private:
 };
 
 #pragma endregion
-#pragma region cuda_timer
+#pragma region cuda_scope_timer
 
 // RAII timer for CUDA code. Imprints on `ms` during construction and sets it
 // on destruction. On failure, either throws or `ms` remains 0.
-class cuda_timer {
+class cuda_scope_timer {
 public:
 #pragma region Construction
 
-  explicit cuda_timer(float& ms) : ms_{ms} {
+  explicit cuda_scope_timer(float& ms) : ms_{ms} {
     *start_;
     *stop_;
     ms_ = 0.F;
     *start_.record();
   }
 
-  cuda_timer(const cuda_timer&) = delete;
-  cuda_timer& operator=(const cuda_timer&) = delete;
+  cuda_scope_timer(const cuda_scope_timer&) = delete;
+  cuda_scope_timer& operator=(const cuda_scope_timer&) = delete;
 
-  ~cuda_timer() {
+  ~cuda_scope_timer() {
     if (!stop_.record() || !stop_.synchronize()) return;
     (void)cuda_event::elapsed_ms(start_, stop_, ms_);
   }
