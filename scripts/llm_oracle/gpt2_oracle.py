@@ -19,6 +19,9 @@ tests/data/llm/gpt2/           small, committed
 tests/.local/llm/gpt2/         large, gitignored
   model.safetensors              the weights, copied from the hub and
                                  rewritten with an 8-byte-aligned header
+  model-bf16.safetensors         the same weights with every tensor
+                                 narrowed to bf16, as a publisher ships a
+                                 bf16 model
   logits.safetensors             per prompt: input_ids and fp32 logits;
                                  for the stress prompt: input_ids and the
                                  last row of its logits
@@ -110,6 +113,12 @@ def align(path: Path) -> None:
     """
     tensors = load_file(str(path))
     save_file(tensors, str(path), metadata={"format": "pt"})
+
+
+def narrow_to_bf16(src: Path, dest: Path) -> None:
+    """Write dest as src with every tensor cast to bf16, round to nearest even."""
+    tensors = {k: v.to(torch.bfloat16) for k, v in load_file(str(src)).items()}
+    save_file(tensors, str(dest), metadata={"format": "pt"})
 
 
 def tokenizer_fixtures(tok: GPT2TokenizerFast, fixtures: Path) -> dict:
@@ -244,6 +253,7 @@ def main() -> None:
     fetch("merges.txt", fixtures / "merges.txt")
     fetch("model.safetensors", out / "model.safetensors")
     align(out / "model.safetensors")
+    narrow_to_bf16(out / "model.safetensors", out / "model-bf16.safetensors")
 
     tok = GPT2TokenizerFast.from_pretrained(MODEL_ID)
     model = GPT2LMHeadModel.from_pretrained(MODEL_ID, torch_dtype=torch.float32)
@@ -305,6 +315,7 @@ def main() -> None:
             p.name: sha256(p)
             for p in [
                 out / "model.safetensors",
+                out / "model-bf16.safetensors",
                 out / "logits.safetensors",
                 out / "activations.safetensors",
                 out / "grads.safetensors",

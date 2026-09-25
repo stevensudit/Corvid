@@ -51,6 +51,7 @@ using corvid::cuda::cuda_matrix_view;
 using corvid::cuda::device_value_t;
 using corvid::cuda::DeviceMatrixViewable;
 using corvid::cuda::llm::gpt2_engine;
+using corvid::llm::gpt2_end_of_text;
 using corvid::llm::gpt2_model;
 using corvid::llm::token_id;
 using matrix_types::col_ndx;
@@ -123,7 +124,7 @@ constexpr auto logits_tolerance<bfloat16_t> = bf16_logits_tolerance;
 
 TEST_CASE("Device block matches the oracle", "[Gpt2Test][oracle][cuda]") {
   auto oracle = oracle_dumps::load();
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<float> engine(model);
 
   // Every block, fed its own dumped residual, as the CPU test does. The
@@ -196,7 +197,7 @@ TEST_CASE("Device forward pass matches the oracle",
       ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
   const auto token_count = id_storage.size();
   REQUIRE(token_count == 14);
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<float> engine(model);
   const auto expected = matrix_of(oracle.activations, "ln_f/out", n_embd);
 
@@ -223,7 +224,7 @@ TEST_CASE("Device double engine matches the oracle",
   const auto id_storage =
       ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
   const auto token_count = id_storage.size();
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<double> engine(model);
   const auto expected = matrix_of(oracle.activations, "ln_f/out", n_embd);
   const auto expected_logits = matrix_of(oracle.logits,
@@ -272,7 +273,7 @@ TEST_CASE("Device forward pass over a cache matches a full pass",
   REQUIRE(total_count == 14);
   constexpr auto cached_count = 9UZ;
   const auto new_count = total_count - cached_count;
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<float> engine(model);
 
   const auto run =
@@ -325,7 +326,7 @@ TEST_CASE("Device model matches the oracle on every prompt",
   // The whole model, IDs to logits, on each of the manifest's prompts, with
   // the head a GEMM against the transposed embedding, which the test uploads
   // for itself since the engine scores only the last token.
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<float> engine(model);
   const cuda_matrix<float> wte(model.wte);
   for (auto n = 0UZ; n < 5; ++n) {
@@ -363,7 +364,7 @@ TEST_CASE("Device greedy decoding reproduces the manifest",
   const auto expected = read_greedy_continuation();
   REQUIRE(expected.ids.size() == 20);
 
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<float> engine(model);
   auto ids = ids_of(oracle.logits,
       std::format("prompt_{}/input_ids", expected.prompt));
@@ -384,7 +385,7 @@ TEST_CASE("Device greedy decoding reproduces the manifest",
   // nothing, still gets the first pick. So does the same prompt asked twice,
   // which has every token but the last cached.
   const auto prompt = std::span{ids}.first(prompt_count);
-  const std::vector<token_id> unrelated{gpt2_model::end_of_text};
+  const std::vector<token_id> unrelated{gpt2_end_of_text};
   REQUIRE(engine.next_token(next, unrelated));
   REQUIRE(engine.next_token(next, prompt));
   CHECK(next == expected.ids.front());
@@ -402,7 +403,7 @@ TEST_CASE("Device bf16 model matches the oracle within its tolerance",
   // significant bits, so the logits land within a looser tolerance than
   // fp32's, measured and stated here. The trunk leaves the engine as
   // `bfloat16_t`, ready for the product against the embedding.
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<bfloat16_t> engine(model);
   const cuda_matrix<float> wte_f32(model.wte);
   cuda_matrix<bfloat16_t> wte(wte_f32.extent());
@@ -437,7 +438,7 @@ TEST_CASE("Device bf16 model matches the oracle within its tolerance",
 TEST_CASE("Device bf16 block matches the oracle within its tolerance",
     "[Gpt2Test][oracle][cuda]") {
   auto oracle = oracle_dumps::load();
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<bfloat16_t> engine(model);
 
   // Every block fed its own dumped residual, as the fp32 test does, with the
@@ -500,7 +501,7 @@ TEST_CASE("Device bf16 greedy decoding follows the manifest",
   // prefix, so only the first pick is required, and how far the run follows
   // the manifest is reported.
   const auto expected = read_greedy_continuation();
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<bfloat16_t> engine(model);
   auto ids = ids_of(oracle.logits,
       std::format("prompt_{}/input_ids", expected.prompt));
@@ -515,6 +516,50 @@ TEST_CASE("Device bf16 greedy decoding follows the manifest",
   if (followed < expected.ids.size())
     WARN("bf16 greedy decoding follows the manifest for "
          << followed << " of " << expected.ids.size() << " IDs");
+}
+
+TEST_CASE(
+    "Device bf16 engine over a bf16 file matches the oracle within its "
+    "tolerance",
+    "[Gpt2Test][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+  const cublas_handle blas;
+
+  // The five-prompt gate over the engine built from the bf16 file, whose
+  // matrices go up as they are and whose vectors widen to `float` on the
+  // device. Against the engine built from the fp32 file, the only change is
+  // that the layer norms' weights and biases and the residual stream's biases
+  // arrive rounded to eight significant bits, so the gate is the same. The
+  // worst relative error measured this way is 1.5e-2 on prompt 3, against
+  // the fp32 file's 2.6e-2 (2026-09-25).
+  const auto model =
+      gpt2_model<bfloat16_t>::load(std::move(oracle.weights_bf16));
+  const gpt2_engine<bfloat16_t> engine(model);
+  const cuda_matrix<bfloat16_t> wte(model.wte);
+  for (const auto n : iota(5)) {
+    INFO("prompt_" << n);
+    const auto prefix = std::format("prompt_{}", n);
+    const auto id_storage = ids_of(oracle.logits, prefix + "/input_ids");
+    const auto expected =
+        matrix_of(oracle.logits, prefix + "/logits", n_vocab);
+    const auto token_count = id_storage.size();
+    REQUIRE(expected.row_extent() == token_count);
+
+    cuda_matrix<bfloat16_t> trunk(
+        {.row_count = token_count, .col_count = n_embd});
+    cuda_matrix<float> residual(trunk.extent());
+    gpt2_engine<bfloat16_t>::block_activation_buffers owned(token_count,
+        n_embd, n_hidden, n_head);
+    gpt2_engine<bfloat16_t>::kv_cache cache;
+    REQUIRE(
+        engine.forward(trunk, residual, id_storage, owned.lenses(), cache));
+
+    cuda_matrix<float> logits(expected.extent());
+    REQUIRE(corvid::cuda::llm::compute_logits(blas, logits, trunk, wte));
+
+    check_device_close(logits, expected, bf16_logits_tolerance,
+        bf16_logits_tolerance);
+  }
 }
 
 TEMPLATE_TEST_CASE("Device model matches the oracle at full context",
@@ -534,7 +579,7 @@ TEMPLATE_TEST_CASE("Device model matches the oracle at full context",
   const auto expected =
       matrix_of(oracle.logits, "stress/last_logits", n_vocab);
   REQUIRE(expected.row_extent() == 1);
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const engine_t engine(model);
 
   cuda_matrix<TestType> trunk({.row_count = token_count, .col_count = n_embd});
@@ -571,10 +616,10 @@ TEMPLATE_TEST_CASE("Device tokens per second", "[Gpt2Test][oracle][cuda]",
   // done. A one-token list goes first, so that the cache's allocation and
   // cuBLAS's warm-up fall outside the measured passes. The numbers are
   // reported, not checked. The roadmap records them.
-  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine<TestType> engine(model);
   token_id next{};
-  const std::vector<token_id> unrelated{gpt2_model::end_of_text};
+  const std::vector<token_id> unrelated{gpt2_end_of_text};
   REQUIRE(engine.next_token(next, unrelated));
 
   auto ids = ids_of(oracle.logits, "stress/input_ids");

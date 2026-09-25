@@ -53,7 +53,9 @@ weights, MLP multi-layer perceptron, GELU Gaussian Error Linear Unit.
 
 ## Weights file
 
-Every tensor in "model.safetensors" is fp32. `N` runs from 0 to L - 1.
+Every tensor in "model.safetensors" is fp32, and "model-bf16.safetensors"
+holds the same tensors cast to bf16, as a publisher ships a bf16 model. `N`
+runs from 0 to L - 1.
 
 | tensor | shape | used by |
 |---|---|---|

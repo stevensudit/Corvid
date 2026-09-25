@@ -17,11 +17,10 @@
 #pragma once
 
 #include <concepts>
-#include <cstdint>
 
-#include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
+#include "../math/bfloat16.h"
 #include "../meta/concepts.h"
 #include "./cuda_std.cuh"
 
@@ -29,16 +28,12 @@
 // beside the floating-point types, and the type a kernel computes over any
 // of them in.
 //
-// A `bfloat16_t` is the top half of a `float`: the sign, the 8 exponent bits,
-// and 7 of the 23 mantissa bits, so it has the range of a `float` with 8
-// significant bits. It is storage, not arithmetic. Convert to `float`,
-// compute, and convert the result back, on the host or in a kernel:
+// `bfloat16_t` is the library's portable storage type ("bfloat16.h"). It is
+// storage, not arithmetic. Convert to `float`, compute, and convert the
+// result back, on the host or in a kernel:
 //
 //   const bfloat16_t x{1.5F};
 //   const bfloat16_t y{static_cast<float>(x) * 2};
-//
-// It stands in for the standard's `std::bfloat16_t` until every standard
-// library ships one.
 //
 // A kernel generic over its element type computes in `compute_t<T>`, which is
 // `float` for `bfloat16_t` and `T` itself for a floating-point type. It widens
@@ -53,49 +48,7 @@ namespace corvid::cuda {
 
 #pragma region bfloat16_t
 
-// A 16-bit brain floating-point value, the toolkit's `__nv_bfloat16` behind
-// explicit conversions.
-//
-// Construction from a `float` rounds to nearest even. The comparisons are
-// those of the values as floats. It is trivially copyable, and default
-// construction leaves it uninitialized, as with `float`.
-class bfloat16_t {
-public:
-  bfloat16_t() = default;
-  explicit __host__ __device__ bfloat16_t(float value)
-      : raw_(__float2bfloat16(value)) {}
-
-  // The value with the bit pattern `bits`, for a constant that a `float`
-  // would round.
-  [[nodiscard]] static constexpr __host__ __device__ bfloat16_t from_bits(
-      uint16_t bits) noexcept {
-    return bfloat16_t{__nv_bfloat16_raw{bits}};
-  }
-
-  [[nodiscard]] __host__ __device__ uint16_t bits() const noexcept {
-    return static_cast<__nv_bfloat16_raw>(raw_).x;
-  }
-
-  [[nodiscard]] explicit __host__ __device__ operator float() const noexcept {
-    return __bfloat162float(raw_);
-  }
-
-  [[nodiscard]] __host__ __device__ friend bool
-  operator==(bfloat16_t a, bfloat16_t b) noexcept {
-    return (static_cast<float>(a) == static_cast<float>(b));
-  }
-  [[nodiscard]] __host__ __device__ friend bool
-  operator<(bfloat16_t a, bfloat16_t b) noexcept {
-    return (static_cast<float>(a) < static_cast<float>(b));
-  }
-
-private:
-  constexpr __host__ __device__ explicit bfloat16_t(
-      __nv_bfloat16_raw raw) noexcept
-      : raw_(raw) {}
-
-  __nv_bfloat16 raw_;
-};
+using corvid::bfloat16_t;
 
 // `T` must be a floating-point type or `bfloat16_t`, the element types the
 // device ops compute over.

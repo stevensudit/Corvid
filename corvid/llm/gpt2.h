@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <format>
 #include <stdexcept>
@@ -24,14 +25,72 @@
 #include <vector>
 
 #include "../containers/utils/matrix_view.h"
+#include "../enums/enum_conversion.h"
+#include "../math/bfloat16.h"
 #include "safetensors.h"
 #include "token_id.h"
 
 namespace corvid::llm {
 
+#pragma region Constants
+
+// The epsilon GPT-2 adds to the variance inside every layer norm.
+inline constexpr float gpt2_layer_norm_eps = 1e-5F;
+
+// The ID of `<|endoftext|>`, the last vocabulary entry, which ends a
+// generation.
+inline constexpr token_id gpt2_end_of_text{50256};
+
+#pragma endregion
+#pragma region ParameterElement
+
+// `T` must be a type a weights file holds its parameters as, `float` for the
+// published fp32 weights and `bfloat16_t` for a bf16 file.
+template<typename T>
+concept ParameterElement =
+    std::same_as<T, float> || std::same_as<T, bfloat16_t>;
+
+#pragma endregion
+#pragma region gpt2_block_params
+
+// The parameters of one block, as views over a weights file whose
+// parameters are `T`.
+//
+// The names follow the tensor names under `h.N`, with the sublayer
+// prefixed so the two `c_proj` projections can be told apart. For GPT-2,
+// with C = 768 and F = 3072:
+//
+//   ln_1_weight, ln_1_bias                [C]
+//   attn_c_attn_weight, attn_c_attn_bias  [C, 3C], [3C]
+//   attn_c_proj_weight, attn_c_proj_bias  [C, C], [C]
+//   ln_2_weight, ln_2_bias                [C]
+//   mlp_c_fc_weight, mlp_c_fc_bias        [C, F], [F]
+//   mlp_c_proj_weight, mlp_c_proj_bias    [F, C], [C]
+template<ParameterElement T>
+struct gpt2_block_params {
+  using element_t = T;
+  using matrix_t = matrix_view<element_t>;
+  using vector_t = enum_span<const element_t, matrix_types::col_ndx>;
+
+  vector_t ln_1_weight;
+  vector_t ln_1_bias;
+  matrix_t attn_c_attn_weight;
+  vector_t attn_c_attn_bias;
+  matrix_t attn_c_proj_weight;
+  vector_t attn_c_proj_bias;
+  vector_t ln_2_weight;
+  vector_t ln_2_bias;
+  matrix_t mlp_c_fc_weight;
+  vector_t mlp_c_fc_bias;
+  matrix_t mlp_c_proj_weight;
+  vector_t mlp_c_proj_bias;
+};
+
+#pragma endregion
 #pragma region gpt2_model
 
-// A GPT-2 model, as views over the weights file it owns.
+// A GPT-2 model, as views over the weights file it owns, whose parameters
+// are `T`.
 //
 // For GPT-2, with V = 50257 vocabulary entries, a context of 1024, C = 768,
 // and L = 12 blocks:
@@ -41,59 +100,29 @@ namespace corvid::llm {
 //   blocks                  [L]        one `block_params` per `h.N`, in order
 //   ln_f_weight, ln_f_bias  [C]        the final layer norm
 //
-// Every member is const, so a model is built by `load` and never changes,
-// and the views live as long as it does.
+// Every tensor of the file must be `T`, so a bf16 file is viewed as it is,
+// never widened. Every member is const, so a model is built by `load` and
+// never changes, and the views live as long as it does.
 //
-//   const auto model = gpt2_model::load(safetensors_file::load(os_file));
+//   const auto model = gpt2_model<float>::load(safetensors_file::load(file));
+template<ParameterElement T>
 struct gpt2_model {
-#pragma region Constants
+#pragma region Types
 
-  // The epsilon GPT-2 adds to the variance inside every layer norm.
-  static constexpr float layer_norm_eps = 1e-5F;
-
-  // The ID of `<|endoftext|>`, the last vocabulary entry, which ends a
-  // generation.
-  static constexpr token_id end_of_text{50256};
-
-#pragma endregion
-#pragma region block_params
-
-  // The parameters of one block, as views over the weight file.
-  //
-  // The names follow the tensor names under `h.N`, with the sublayer
-  // prefixed so the two `c_proj` projections can be told apart. For GPT-2,
-  // with C = 768 and F = 3072:
-  //
-  //   ln_1_weight, ln_1_bias                [C]
-  //   attn_c_attn_weight, attn_c_attn_bias  [C, 3C], [3C]
-  //   attn_c_proj_weight, attn_c_proj_bias  [C, C], [C]
-  //   ln_2_weight, ln_2_bias                [C]
-  //   mlp_c_fc_weight, mlp_c_fc_bias        [C, F], [F]
-  //   mlp_c_proj_weight, mlp_c_proj_bias    [F, C], [C]
-  struct block_params {
-    const_float_row_span ln_1_weight;
-    const_float_row_span ln_1_bias;
-    float_matrix_view attn_c_attn_weight;
-    const_float_row_span attn_c_attn_bias;
-    float_matrix_view attn_c_proj_weight;
-    const_float_row_span attn_c_proj_bias;
-    const_float_row_span ln_2_weight;
-    const_float_row_span ln_2_bias;
-    float_matrix_view mlp_c_fc_weight;
-    const_float_row_span mlp_c_fc_bias;
-    float_matrix_view mlp_c_proj_weight;
-    const_float_row_span mlp_c_proj_bias;
-  };
+  using element_t = T;
+  using block_params = gpt2_block_params<element_t>;
+  using matrix_t = block_params::matrix_t;
+  using vector_t = block_params::vector_t;
 
 #pragma endregion
 #pragma region Data members
 
   const safetensors_file weights;
-  const float_matrix_view wte;
-  const float_matrix_view wpe;
+  const matrix_t wte;
+  const matrix_t wpe;
   const std::vector<block_params> blocks;
-  const const_float_row_span ln_f_weight;
-  const const_float_row_span ln_f_bias;
+  const vector_t ln_f_weight;
+  const vector_t ln_f_bias;
   const size_t head_count; // Heads per block, H.
 
 #pragma endregion
@@ -118,8 +147,9 @@ struct gpt2_model {
 #pragma endregion
 #pragma region Loading
 
-  // Take `file` and view every parameter, or throw when a tensor is missing
-  // or misshaped or the block count is not one of GPT-2's four sizes.
+  // Take `file` and view every parameter, or throw when a tensor is missing,
+  // misshaped, or not `T`, or the block count is not one of GPT-2's four
+  // sizes.
   [[nodiscard]] static gpt2_model load(safetensors_file&& file) {
     const auto wte = lookup_matrix(file, "wte.weight");
     const auto width = wte.col_extent();
@@ -145,26 +175,28 @@ struct gpt2_model {
 #pragma endregion
 #pragma region Helpers
 private:
-  // The fp32 matrix `name` of `file`, whose shape must match `expected` in
-  // each count that is not `dynamic_extent`, or throw.
-  [[nodiscard]] static float_matrix_view
-  lookup_matrix(const safetensors_file& file, std::string_view name,
-      matrix_types::matrix_extent expected = {}) {
-    const auto view = file.find_matrix<float>(name, expected);
-    if (view.empty())
-      throw std::runtime_error{std::format(
-          "GPT-2 weights: tensor {} is missing or misshaped", name)};
+  // The matrix `name` of `file`, whose shape must match `expected` in each
+  // count that is not `dynamic_extent`, or throw.
+  [[nodiscard]] static matrix_t lookup_matrix(const safetensors_file& file,
+      std::string_view name, matrix_types::matrix_extent expected = {}) {
+    const auto view = file.find_matrix<element_t>(name, expected);
+    if (view.empty()) raise_missing(name);
     return view;
   }
 
-  // The fp32 vector `name` of `file`, `size` long, or throw.
-  [[nodiscard]] static const_float_row_span lookup_vector(
-      const safetensors_file& file, std::string_view name, size_t size) {
-    const auto span = file.find_vector<float>(name, size);
-    if (span.empty())
-      throw std::runtime_error{std::format(
-          "GPT-2 weights: tensor {} is missing or misshaped", name)};
+  // The vector `name` of `file`, `size` long, or throw.
+  [[nodiscard]] static vector_t lookup_vector(const safetensors_file& file,
+      std::string_view name, size_t size) {
+    const auto span = file.find_vector<element_t>(name, size);
+    if (span.empty()) raise_missing(name);
     return span;
+  }
+
+  // Throw for the tensor `name`, which is missing, misshaped, or not `T`.
+  [[noreturn]] static void raise_missing(std::string_view name) {
+    throw std::runtime_error{std::format(
+        "GPT-2 weights: tensor {} is missing, misshaped, or not {}", name,
+        enum_as_string(dtype_of<element_t>()))};
   }
 
   // The parameters of block `n` of `file`, for tokens `width` wide, or throw.

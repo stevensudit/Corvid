@@ -1553,6 +1553,34 @@ full-context column carries a standard deviation above its value on every
 row and is the weakest; the fp32 CUDA prefill also wobbled by a fifth
 across its five repetitions. Stage 4's table is complete.
 
+Status (2026-09-25, bf16, slice 5: the bf16 weights file): the loader views
+a bf16 file as it is, the way a publisher ships a bf16 model, instead of
+narrowing fp32 on upload. `bfloat16_t` moved to "corvid/math/bfloat16.h" as
+the library's portable storage type over a `uint16_t`, converting in
+constexpr integer arithmetic on host and device alike (the toolkit's own
+host path is the same arithmetic, and on the device it trades the one `cvt`
+instruction of the sm_80 intrinsic for a handful of integer ops in
+memory-bound stores, and the bf16 row of the table above held: 11.2 ms
+prefill, 2.2 ms and 2.5 ms per decoded token), so the safetensors reader
+admits it as a tensor element and
+`gpt2_model<T>` holds its parameters as `float` or `bfloat16_t`, rejecting a
+file of the other type. The device engine uploads a parameter already held
+as its destination type straight up and stages any other as held and
+converts it on the device, so a bf16 file's matrices go up unconverted and
+its vectors widen to `float` exactly. The oracle writes
+"model-bf16.safetensors" beside the fp32 file, every tensor cast by torch.
+Gates: on the host, every element of the bf16 file's 148 tensors equals the
+fp32 tensor narrowed by `bfloat16_t`, bit for bit; on the device, the bf16
+engine over the bf16 file passes the five-prompt gate at 3e-2 with a worst
+relative error of 1.5e-2 (prompt 3), against 2.6e-2 for the bf16 engine over
+the fp32 file in the same run, whose layer norm weights and biases and
+residual-stream biases stay exact `float` where the bf16 file's arrive
+rounded to eight significant bits. That rounding moved the worst prompt down
+and two others up by a tenth, so it is noise in the few elements that set a
+maximum, not a gain, and the gate stays. The GPT-2 constants left the model
+template for namespace scope (`gpt2_layer_norm_eps`, `gpt2_end_of_text`).
+Next: stage 5, with the fp16 key cache left as a decision.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
