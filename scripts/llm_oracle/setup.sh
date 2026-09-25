@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Create the oracle venv under tests/.local/llm/venv and install its
-# dependencies. Run once per container; the venv lives on the workspace
-# mount, so it survives a container rebuild.
+# dependencies. The venv lives on the workspace mount, so it survives a
+# container rebuild; rerun this to move it to a new interpreter or new pins
+# (--clear rebuilds it in place).
 #
 # The firewall allowlist has download.pytorch.org (the torch CPU wheel
 # index) and download-r2.pytorch.org (where that index sends the wheel
@@ -17,7 +18,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV="$ROOT/tests/.local/llm/venv"
 
-python3.14 -m venv "$VENV"
+python3.14 -m venv --clear "$VENV"
 "$VENV/bin/pip" install --upgrade pip
 "$VENV/bin/pip" install --index-url https://download.pytorch.org/whl/cpu torch==2.14.0
 "$VENV/bin/pip" install -r "$ROOT/scripts/llm_oracle/requirements.txt"
