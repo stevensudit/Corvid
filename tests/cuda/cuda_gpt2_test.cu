@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <format>
 #include <ranges>
@@ -22,6 +23,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <catch2/catch_template_test_macros.hpp>
 
 #include "corvid/containers/utils/interval.h"
 #include "corvid/cuda/bfloat16.cuh"
@@ -44,6 +47,8 @@ using corvid::cuda::cublas_handle;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::cuda::cuda_matrix_view;
+using corvid::cuda::device_value_t;
+using corvid::cuda::DeviceMatrixViewable;
 using corvid::cuda::llm::gpt2_engine;
 using corvid::llm::gpt2_model;
 using corvid::llm::token_id;
@@ -57,11 +62,30 @@ namespace {
 
 #pragma region Helpers
 
-// Download `device` into a host vector, in row-major order.
-std::vector<float> download(cuda_matrix_view<float> device) {
-  std::vector<float> storage(device.row_extent() * device.col_extent());
-  REQUIRE(device.store(float_matrix_lens(storage, device.extent())));
-  return storage;
+// Download `in` into a host vector of `float`, in row-major order, converted
+// from its element type.
+template<DeviceMatrixViewable In>
+std::vector<float> download(const In& in) {
+  using T = device_value_t<In>;
+  const cuda_matrix_view<T> device = in;
+  std::vector<T> storage(device.row_extent() * device.col_extent());
+  REQUIRE(device.store(matrix_lens<T>(storage, device.extent())));
+  return {storage.begin(), storage.end()};
+}
+
+// Run `f` and return how long it took, in milliseconds.
+template<typename F>
+double elapsed_ms(F&& f) {
+  const auto start = std::chrono::steady_clock::now();
+  f();
+  return std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - start)
+      .count();
+}
+
+// The rate of `count` tokens in `ms` milliseconds, in tokens per second.
+double tokens_per_second(size_t count, double ms) {
+  return 1000.0 * static_cast<double>(count) / ms;
 }
 
 // Download `device` and check that it is close to `expected`.
@@ -91,6 +115,13 @@ constexpr auto bf16_exit_ratio = 2e-2F;
 constexpr auto bf16_attn_out_ratio = 1e-1F;
 constexpr auto bf16_ln_2_in_ratio = 2e-2F;
 constexpr auto bf16_mlp_out_ratio = 2e-2F;
+
+// The tolerance of an engine's logits against the fp32 oracle's, by element
+// type: the fp32 gate, except for bf16's own.
+template<typename T>
+constexpr auto logits_tolerance = 1e-4F;
+template<>
+constexpr auto logits_tolerance<bfloat16_t> = bf16_logits_tolerance;
 
 #pragma endregion
 
@@ -213,12 +244,7 @@ TEST_CASE("Device double engine matches the oracle",
   gpt2_engine<double>::kv_cache cache;
   REQUIRE(engine.forward(out, residual, id_storage, owned.lenses(), cache));
 
-  const auto as_float = [](cuda_matrix_view<double> device) {
-    std::vector<double> storage(device.row_extent() * device.col_extent());
-    REQUIRE(device.store(matrix_lens<double>(storage, device.extent())));
-    return std::vector<float>(storage.begin(), storage.end());
-  };
-  const auto out_values = as_float(out);
+  const auto out_values = download(out);
   check_close(float_matrix_view(out_values, out.extent()), expected, 1e-4F,
       1e-4F);
 
@@ -227,7 +253,7 @@ TEST_CASE("Device double engine matches the oracle",
   REQUIRE(corvid::cuda::linalg::convert(wte, wte_f32));
   cuda_matrix<double> logits(expected_logits.extent());
   REQUIRE(corvid::cuda::llm::compute_logits(blas, logits, out, wte));
-  const auto logit_values = as_float(logits);
+  const auto logit_values = download(logits);
   check_close(float_matrix_view(logit_values, logits.extent()),
       expected_logits, 1e-4F, 1e-4F);
 
@@ -497,6 +523,98 @@ TEST_CASE("Device bf16 greedy decoding follows the manifest",
   if (followed < expected.ids.size())
     WARN("bf16 greedy decoding follows the manifest for "
          << followed << " of " << expected.ids.size() << " IDs");
+}
+
+TEMPLATE_TEST_CASE("Device model matches the oracle at full context",
+    "[Gpt2Test][oracle][cuda]", float, bfloat16_t, double) {
+  auto oracle = oracle_dumps::load();
+  const cublas_handle blas;
+
+  // The stress prompt, one token short of the context, through the model in
+  // each element type: the last row of the logits against the row the oracle
+  // dumped, at the type's tolerance, and the pick that follows it. Every
+  // position is in use, so the attention scores are as wide as they get.
+  using engine_t = gpt2_engine<TestType>;
+  using wide_t = engine_t::wide_t;
+  const auto ids = ids_of(oracle.logits, "stress/input_ids");
+  const auto token_count = ids.size();
+  REQUIRE(token_count == n_ctx - 1);
+  const auto expected =
+      matrix_of(oracle.logits, "stress/last_logits", n_vocab);
+  REQUIRE(expected.row_extent() == 1);
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const engine_t engine(model);
+
+  cuda_matrix<TestType> trunk({.row_count = token_count, .col_count = n_embd});
+  cuda_matrix<wide_t> residual(trunk.extent());
+  typename engine_t::block_activation_buffers owned(token_count, n_embd,
+      n_hidden, n_head);
+  typename engine_t::kv_cache cache;
+  REQUIRE(engine.forward(trunk, residual, ids, owned.lenses(), cache));
+
+  const cuda_matrix<float> wte_f32(model.wte);
+  cuda_matrix<TestType> wte(wte_f32.extent());
+  REQUIRE(corvid::cuda::linalg::convert(wte, wte_f32));
+  cuda_matrix<wide_t> logits(expected.extent());
+  const auto last_row =
+      trunk[{row_ndx{token_count - 1}, col_ndx{0}}, matrix_extent::npos];
+  REQUIRE(corvid::cuda::llm::compute_logits(blas, logits, last_row, wte));
+  const auto values = download(logits);
+  check_close(float_matrix_view(values, logits.extent()), expected,
+      logits_tolerance<TestType>, logits_tolerance<TestType>);
+
+  token_id next{};
+  REQUIRE(engine.next_token(next, ids));
+  CHECK(next == corvid::llm::pick_greedy(expected[row_ndx{0}]));
+}
+
+TEMPLATE_TEST_CASE("Device tokens per second", "[Gpt2Test][oracle][cuda]",
+    float, bfloat16_t, double) {
+  auto oracle = oracle_dumps::load();
+
+  // The measurement stage 4 records, per element type: the stress prompt as
+  // a prefill, one cached step at the full context after it, and the bisect
+  // prompt's greedy run as cached steps at a short context, each through
+  // `next_token`, which ends in a download and so returns when the device is
+  // done. A one-token list goes first, so that the cache's allocation and
+  // cuBLAS's warm-up fall outside the measured passes. The numbers are
+  // reported, not checked. The roadmap records them.
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const gpt2_engine<TestType> engine(model);
+  token_id next{};
+  const std::vector<token_id> unrelated{gpt2_model::end_of_text};
+  REQUIRE(engine.next_token(next, unrelated));
+
+  auto ids = ids_of(oracle.logits, "stress/input_ids");
+  const auto prefill_count = ids.size();
+  const auto prefill_ms = elapsed_ms([&] {
+    REQUIRE(engine.next_token(next, ids));
+  });
+  ids.push_back(next);
+  const auto full_step_ms = elapsed_ms([&] {
+    REQUIRE(engine.next_token(next, ids));
+  });
+
+  // The prompt runs first, so that every step of the run is cached.
+  auto short_ids =
+      ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
+  const auto prompt_count = short_ids.size();
+  REQUIRE(engine.next_token(next, short_ids));
+  constexpr auto step_count = 20UZ;
+  const auto steps_ms = elapsed_ms([&] {
+    REQUIRE(engine.generate(short_ids, step_count));
+  });
+  const auto steps = short_ids.size() - prompt_count;
+  REQUIRE(steps);
+  const auto step_ms = steps_ms / static_cast<double>(steps);
+
+  WARN(std::format(
+      "prefill {} tokens: {:.1f} ms, {:.0f} tokens/s; decode at "
+      "{} tokens: {:.2f} ms, {:.0f} tokens/s; decode from {} "
+      "tokens over {} steps: {:.2f} ms/token, {:.0f} tokens/s",
+      prefill_count, prefill_ms, tokens_per_second(prefill_count, prefill_ms),
+      ids.size(), full_step_ms, tokens_per_second(1, full_step_ms),
+      prompt_count, steps, step_ms, tokens_per_second(1, step_ms)));
 }
 
 #pragma endregion

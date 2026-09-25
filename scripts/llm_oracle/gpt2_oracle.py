@@ -17,7 +17,9 @@ tests/data/llm/gpt2/           small, committed
 tests/.local/llm/gpt2/         large, gitignored
   model.safetensors              the weights, copied from the hub and
                                  rewritten with an 8-byte-aligned header
-  logits.safetensors             per prompt: input_ids and fp32 logits
+  logits.safetensors             per prompt: input_ids and fp32 logits;
+                                 for the stress prompt: input_ids and the
+                                 last row of its logits
   activations.safetensors        every sublayer boundary for the bisect prompt
   grads.safetensors              loss and every parameter gradient for one
                                  batch drawn from the corpus
@@ -61,6 +63,13 @@ PROMPTS = [
 ]
 BISECT_PROMPT = 1
 GREEDY_TOKENS = 20
+
+# Stress prompt: the most tokens the context holds with a position left for
+# the one it predicts, taken from the back of the corpus as IDs rather than
+# text, so that no text has to tokenize to exactly this count. The back, so
+# that the prompt ends on plain text rather than inside a multi-byte
+# character, and the pick is a word.
+STRESS_TOKENS = 1023
 
 # Gradient batch: B sequences of T tokens, consecutive slices of the corpus.
 GRAD_BATCH = 4
@@ -135,7 +144,7 @@ class Capture:
             h.remove()
 
 
-def prompt_artifacts(model, tok, out: Path) -> dict:
+def prompt_artifacts(model, tok, corpus_tokens: list[int], out: Path) -> dict:
     logits = {}
     activations = {}
     info = []
@@ -164,9 +173,23 @@ def prompt_artifacts(model, tok, out: Path) -> dict:
             activations = cap.tensors
             activations["logits"] = out_logits.contiguous()
         info.append({"text": prompt, "tokens": ids.shape[1]})
+    # Only the last row of the stress prompt's logits is kept: the whole
+    # [T, V] would be 200 MB, and the case exists for the token it predicts.
+    ids = torch.tensor(corpus_tokens[-STRESS_TOKENS:]).view(1, -1)
+    with torch.no_grad():
+        last_logits = model(ids).logits[0, -1:].contiguous()
+    logits["stress/input_ids"] = ids.squeeze(0).to(torch.int32)
+    logits["stress/last_logits"] = last_logits
+    pick = int(last_logits.argmax())
+    stress = {
+        "source": "corpus_tokens.json full, from the back",
+        "tokens": STRESS_TOKENS,
+        "pick": pick,
+        "text": tok.decode([pick]),
+    }
     save_file(logits, str(out / "logits.safetensors"))
     save_file(activations, str(out / "activations.safetensors"))
-    return {"prompts": info, "bisect_prompt": BISECT_PROMPT}
+    return {"prompts": info, "bisect_prompt": BISECT_PROMPT, "stress": stress}
 
 
 def greedy(model, tok) -> dict:
@@ -244,11 +267,11 @@ def main() -> None:
             "attention), mlp/out; then ln_f/in (residual out) and logits [T, V]"
         ),
     }
-    manifest.update(prompt_artifacts(model, tok, out))
-    manifest["greedy"] = greedy(model, tok)
     corpus_tokens = json.loads(
         (fixtures / "corpus_tokens.json").read_text(encoding="utf-8")
     )["full"]
+    manifest.update(prompt_artifacts(model, tok, corpus_tokens, out))
+    manifest["greedy"] = greedy(model, tok)
     manifest["grads"] = grad_artifacts(model, corpus_tokens, out)
 
     import safetensors
@@ -279,6 +302,7 @@ def main() -> None:
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     print(f"greedy: {manifest['greedy']['text']!r}")
+    print(f"stress pick: {manifest['stress']['text']!a}")
     print(f"loss: {manifest['grads']['loss']:.6f}")
     print(f"wrote {fixtures} and {out}")
 

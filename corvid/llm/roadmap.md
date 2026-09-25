@@ -1465,6 +1465,42 @@ double engine against the fp32 oracle's final layer norm output and logits
 at the fp32 gate, and its greedy picks against the host's. Next: tokens per
 second, with the 1023-token stress prompt.
 
+Status (2026-09-25, bf16, slice 4: the stress prompt and tokens per second):
+the oracle gained a stress prompt, the last 1023 tokens of the corpus taken
+as IDs, one short of the context and ending on plain text, with only the
+last row of its logits dumped (200 KB, where the whole [T, V] would be 200
+MB) and its pick, a newline, in the manifest. "Device model matches the
+oracle at full context" runs it through the `float`, bf16, and `double`
+engines, one Catch2 template test case per element type, and gates the last
+logits row at the type's tolerance and the pick that follows. Measured
+against a largest logit of 132: `float` 1.3e-6 relative, `double` 1.1e-6,
+and bf16 2.9e-3 relative and 0.35 absolute, an order of magnitude under the
+short prompts' worst of 2.6e-2, so bf16's error does not compound with the
+context. The softmax averages it over more keys. "Device tokens per second"
+measures, through `next_token` and after a one-token warm-up, the stress
+prompt as a prefill, one cached step at the full context after it, and the
+bisect prompt's greedy run as twenty cached steps, reported rather than
+checked. One run each on the RTX 4090 (Windows, driver 616.56):
+
+| engine   | prefill, 1023 tokens | decode at 1024 tokens | decode from 14 tokens |
+|----------|----------------------|-----------------------|-----------------------|
+| `float`  | 17.9 ms, 57k tok/s   | 5.5 ms, 181 tok/s     | 2.9 ms, 345 tok/s     |
+| bf16     | 11.4 ms, 90k tok/s   | 2.3 ms, 438 tok/s     | 2.6 ms, 383 tok/s     |
+| `double` | 227 ms, 4.5k tok/s   | 2.8 ms, 359 tok/s     | 2.8 ms, 357 tok/s     |
+
+Two readings. Decode is bound by launches, not arithmetic: every type
+lands near 2.7 ms per token at the short context, which over the roughly
+150 launches a token takes is about 18 us each, the cost of a launch under
+Windows, so the element type barely registers there and the deferred
+fusion (or a CUDA graph) is the lever. Prefill is where the types part:
+bf16's tensor cores run 1.6x `float`, and `double` runs 13x slower. One
+number is unexplained: the `float` engine's cached step at the full context
+takes twice bf16's and `double`'s, reproducibly, which points at cuBLAS's
+kernel choice for the [1, 64] x [64, 1024] batched product in `float` and
+is recorded here as a finding rather than chased. The CPU engine is not in
+the table; its warm pass was profiled at 4.6 ms per token earlier in this
+stage. Stage 4's measurement is recorded.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
