@@ -51,13 +51,21 @@ using corvid::llm::gpt2_model;
 #pragma region gpt2_engine
 
 // The GPT-2 inference engine on the device, holding its own copy of a
-// `gpt2_model`'s parameters as `T`.
+// `gpt2_model`'s parameters, with the operands of its matrix products as `T`
+// and the residual stream as `float`.
 //
-// Every parameter is uploaded at construction, converted from the model's
-// `float` where `T` differs, so the model may be destroyed afterward. The
-// logits are `float` whatever `T` is, so that a pick rests on the final
-// projection's full precision. Tokenizing text is `gpt2_tokenizer`'s job, so
-// this takes and produces token IDs alone.
+// `T` is the storage of whatever a product reads: the token and position
+// embeddings, the projection weights, the biases of the two projections
+// whose outputs feed another product, and the activations between them (the
+// layer norm outputs, `qkv`, the attention scratch, and the MLP's hidden
+// activation). The residual stream, the two projection outputs added to it
+// and their biases, and the layer norms' weights and biases are `float`, so
+// that a value accumulating across the blocks is never narrowed. Every
+// parameter is uploaded at construction, converted where its type differs
+// from the model's `float`, so the model may be destroyed afterward. The
+// logits are `float` too, so that a pick rests on the final projection's
+// full precision. Tokenizing text is `gpt2_tokenizer`'s job, so this takes
+// and produces token IDs alone.
 //
 //   const gpt2_engine<float> engine(model);
 //   std::vector<token_id> ids = ...;
@@ -67,6 +75,7 @@ requires DeviceFloating<T> && GemmElement<T>
 class gpt2_engine {
 public:
   using element_t = T;
+  using residual_t = float;
 
 #pragma region block_activations
 
@@ -75,17 +84,19 @@ public:
   //
   // The names, shapes, and sharing rules are those of the CPU
   // `corvid::llm::gpt2_engine::block_activations`, except that `scores` is the
-  // device `attend`'s HN x T scratch rather than one row.
+  // device `attend`'s HN x T scratch rather than one row. `attn_out`,
+  // `ln_2_in`, and `mlp_out` are on the residual stream, so they are
+  // `residual_t`. The rest feed a product and are `element_t`.
   //
   // Note that the `const` on an instance is shallow.
   struct block_activations {
     cuda_matrix_lens<element_t> ln_1_out;
     cuda_matrix_lens<element_t> heads_out;
-    cuda_matrix_lens<element_t> attn_out;
-    cuda_matrix_lens<element_t> ln_2_in;
+    cuda_matrix_lens<residual_t> attn_out;
+    cuda_matrix_lens<residual_t> ln_2_in;
     cuda_matrix_lens<element_t> ln_2_out;
     cuda_matrix_lens<element_t> hidden;
-    cuda_matrix_lens<element_t> mlp_out;
+    cuda_matrix_lens<residual_t> mlp_out;
     cuda_matrix_lens<element_t> scores;
   };
 
@@ -95,11 +106,11 @@ public:
   struct block_activation_buffers {
     cuda_matrix<element_t> ln_1_out;
     cuda_matrix<element_t> heads_out;
-    cuda_matrix<element_t> attn_out;
-    cuda_matrix<element_t> ln_2_in;
+    cuda_matrix<residual_t> attn_out;
+    cuda_matrix<residual_t> ln_2_in;
     cuda_matrix<element_t> ln_2_out;
     cuda_matrix<element_t> hidden;
-    cuda_matrix<element_t> mlp_out;
+    cuda_matrix<residual_t> mlp_out;
     cuda_matrix<element_t> scores;
 
     // Allocate every buffer, or throw.
@@ -160,8 +171,8 @@ public:
   // Upload every parameter of `model`, or throw.
   explicit gpt2_engine(const gpt2_model& model)
       : wte_(upload(model.wte)), wpe_(upload(model.wpe)),
-        ln_f_weight_(upload(model.ln_f_weight)),
-        ln_f_bias_(upload(model.ln_f_bias)), head_count_{model.head_count} {
+        ln_f_weight_(model.ln_f_weight), ln_f_bias_(model.ln_f_bias),
+        head_count_{model.head_count} {
     blocks_.reserve(model.blocks.size());
     for (const auto& host_block : model.blocks)
       blocks_.emplace_back(host_block);
@@ -179,8 +190,8 @@ public:
   // activation views must have the extents `block_activations` states for
   // that extent and may share storage only as it allows. Returns false when a
   // launch is refused, leaving `out`, `qkv`, and the activations unspecified.
-  [[nodiscard]] bool apply_block(cuda_matrix_lens<element_t> out,
-      cuda_matrix_view<element_t> in, size_t block_index,
+  [[nodiscard]] bool apply_block(cuda_matrix_lens<residual_t> out,
+      cuda_matrix_view<residual_t> in, size_t block_index,
       const block_activations& acts, cuda_matrix_lens<element_t> qkv) const {
     const auto& params = blocks_[block_index];
     assert(qkv.row_extent() >= in.row_extent());
@@ -232,7 +243,7 @@ public:
   // `ln_2_in` may be `out`, the in-place form, but no other buffer may overlap
   // `out`. Returns false when a launch or transfer is refused, leaving `out`,
   // the activations, and `cache` unspecified.
-  [[nodiscard]] bool forward(cuda_matrix_lens<element_t> out,
+  [[nodiscard]] bool forward(cuda_matrix_lens<residual_t> out,
       std::span<const token_id> new_ids, const block_activations& acts,
       kv_cache& cache) const {
     const auto cached_count = cache.ids.size();
@@ -296,15 +307,20 @@ public:
     const auto new_ids = ids.subspan(cached_count);
     const auto new_count = new_ids.size();
 
-    cuda_matrix<element_t> trunk({.row_count = new_count, .col_count = width});
+    cuda_matrix<residual_t> trunk(
+        {.row_count = new_count, .col_count = width});
     block_activation_buffers buffers(new_count, width,
         blocks_.front().mlp_c_fc_weight.col_extent(), head_count_,
         cached_count);
     if (!forward(trunk, new_ids, buffers.lenses(), cache_)) return false;
 
+    // The last token's row of the trunk is narrowed to the embedding's type
+    // for the product against it.
+    cuda_matrix<element_t> last_row({.row_count = 1, .col_count = width});
+    if (!convert(last_row,
+            trunk[{row_ndx{new_count - 1}, col_ndx{0}}, matrix_extent::npos]))
+      return false;
     cuda_matrix<float> logits({.row_count = 1, .col_count = vocab_size});
-    const auto last_row =
-        trunk[{row_ndx{new_count - 1}, col_ndx{0}}, matrix_extent::npos];
     if (!compute_logits(blas_, logits, last_row, wte_)) return false;
     cuda_buffer<token_id> device_pick;
     if (!pick_greedy(device_pick, logits)) return false;
@@ -334,35 +350,35 @@ public:
 private:
   // The parameters of one block, uploaded from `gpt2_model::block_params`.
   //
-  // The names and shapes are those of the CPU bundle.
+  // The names and shapes are those of the CPU bundle. The layer norms' weights
+  // and biases and the biases of the two projections that write to the
+  // residual stream are `residual_t`. The rest are `element_t`.
   struct block_params {
-    cuda_buffer<element_t> ln_1_weight;
-    cuda_buffer<element_t> ln_1_bias;
+    cuda_buffer<residual_t> ln_1_weight;
+    cuda_buffer<residual_t> ln_1_bias;
     cuda_matrix<element_t> attn_c_attn_weight;
     cuda_buffer<element_t> attn_c_attn_bias;
     cuda_matrix<element_t> attn_c_proj_weight;
-    cuda_buffer<element_t> attn_c_proj_bias;
-    cuda_buffer<element_t> ln_2_weight;
-    cuda_buffer<element_t> ln_2_bias;
+    cuda_buffer<residual_t> attn_c_proj_bias;
+    cuda_buffer<residual_t> ln_2_weight;
+    cuda_buffer<residual_t> ln_2_bias;
     cuda_matrix<element_t> mlp_c_fc_weight;
     cuda_buffer<element_t> mlp_c_fc_bias;
     cuda_matrix<element_t> mlp_c_proj_weight;
-    cuda_buffer<element_t> mlp_c_proj_bias;
+    cuda_buffer<residual_t> mlp_c_proj_bias;
 
     // Allocate and upload every parameter of `host`, or throw.
     explicit block_params(const gpt2_model::block_params& host)
-        : ln_1_weight(upload(host.ln_1_weight)),
-          ln_1_bias(upload(host.ln_1_bias)),
+        : ln_1_weight(host.ln_1_weight), ln_1_bias(host.ln_1_bias),
           attn_c_attn_weight(upload(host.attn_c_attn_weight)),
           attn_c_attn_bias(upload(host.attn_c_attn_bias)),
           attn_c_proj_weight(upload(host.attn_c_proj_weight)),
-          attn_c_proj_bias(upload(host.attn_c_proj_bias)),
-          ln_2_weight(upload(host.ln_2_weight)),
-          ln_2_bias(upload(host.ln_2_bias)),
+          attn_c_proj_bias(host.attn_c_proj_bias),
+          ln_2_weight(host.ln_2_weight), ln_2_bias(host.ln_2_bias),
           mlp_c_fc_weight(upload(host.mlp_c_fc_weight)),
           mlp_c_fc_bias(upload(host.mlp_c_fc_bias)),
           mlp_c_proj_weight(upload(host.mlp_c_proj_weight)),
-          mlp_c_proj_bias(upload(host.mlp_c_proj_bias)) {}
+          mlp_c_proj_bias(host.mlp_c_proj_bias) {}
   };
 
 #pragma endregion
@@ -417,8 +433,8 @@ private:
   cuda_matrix<element_t> wte_;
   cuda_matrix<element_t> wpe_;
   std::vector<block_params> blocks_;
-  cuda_buffer<element_t> ln_f_weight_;
-  cuda_buffer<element_t> ln_f_bias_;
+  cuda_buffer<residual_t> ln_f_weight_;
+  cuda_buffer<residual_t> ln_f_bias_;
   size_t head_count_;
   mutable kv_cache cache_;
 

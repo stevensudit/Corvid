@@ -142,6 +142,8 @@ struct closeness {
   float max_abs_error{};
   // Over the elements whose expected value is not zero.
   float max_rel_error{};
+  // The largest expected magnitude, the scale the absolute error is against.
+  float max_magnitude{};
 };
 
 // Compare `actual` to `expected`, which must have the same extent.
@@ -156,6 +158,7 @@ inline closeness compare(float_matrix_view actual, float_matrix_view expected,
       const auto magnitude = std::abs(expected_row[col]);
       const auto abs_error = std::abs(actual_row[col] - expected_row[col]);
       result.max_abs_error = std::max(result.max_abs_error, abs_error);
+      result.max_magnitude = std::max(result.max_magnitude, magnitude);
       if (magnitude != 0.0F)
         result.max_rel_error =
             std::max(result.max_rel_error, abs_error / magnitude);
@@ -170,8 +173,20 @@ inline void check_close(float_matrix_view actual, float_matrix_view expected,
     float atol, float rtol) {
   const auto result = compare(actual, expected, atol, rtol);
   INFO("max abs error "
-       << result.max_abs_error << ", max rel error " << result.max_rel_error);
+       << result.max_abs_error << " against a largest " << result.max_magnitude
+       << ", max rel error " << result.max_rel_error);
   CHECK(result.violations == 0);
+}
+
+// Check that the largest error of `actual` against `expected` is within
+// `ratio` of the largest expected magnitude, for activations whose scale is
+// set by a few large values.
+inline void check_close_to_scale(float_matrix_view actual,
+    float_matrix_view expected, float ratio) {
+  const auto result = compare(actual, expected, 0.0F, 0.0F);
+  INFO("max abs error " << result.max_abs_error << " against a largest "
+                        << result.max_magnitude);
+  CHECK(result.max_abs_error <= ratio * result.max_magnitude);
 }
 
 #pragma endregion
