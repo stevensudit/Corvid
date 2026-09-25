@@ -445,30 +445,30 @@ namespace details {
 //
 // In-place is safe. Each element is read only by the thread that writes it,
 // and every read of `in` precedes that thread's write.
-template<DeviceFloating T>
-__global__ void apply_softmax(kernel_matrix_lens<T> out,
-    kernel_matrix_view<T> in, size_t cols) {
+template<DeviceFloating To, DeviceFloating From>
+__global__ void apply_softmax(kernel_matrix_lens<To> out,
+    kernel_matrix_view<From> in, size_t cols) {
   const auto row = cuda_kernel::x_block<size_t>();
   const kernel_col_range columns{cols};
 
   // Shifting every value by the same amount leaves the weights unchanged, and
   // shifting by the maximum keeps `exp` at or below 1.
-  auto peak = ::cuda::std::numeric_limits<compute_t<T>>::lowest();
+  auto peak = ::cuda::std::numeric_limits<compute_t<From>>::lowest();
   for (const auto col : columns)
     peak = ::cuda::std::max(peak, widen(in[row, col]));
 
   peak = cuda_reduce::block_max(peak);
 
-  compute_t<T> total{};
+  compute_t<From> total{};
   for (const auto col : columns) {
     const auto weight = std::exp(widen(in[row, col]) - peak);
-    out[row, col] = T{weight};
+    out[row, col] = narrow<To>(weight);
     total += weight;
   }
   total = cuda_reduce::block_sum(total);
 
   for (const auto col : columns)
-    out[row, col] = T{widen(out[row, col]) / total};
+    out[row, col] = narrow<To>(widen(out[row, col]) / total);
 }
 
 } // namespace details
@@ -481,19 +481,22 @@ __global__ void apply_softmax(kernel_matrix_lens<T> out,
 //
 // `out` and `in` must have the same extent, with at least one column. `out`
 // can be the same view as `in`, applying it in place, but must not otherwise
-// overlap it. Returns false when the launch is refused, leaving `out`
+// overlap it. `out` may hold another element type than `in`, each weight
+// rounded to it. Returns false when the launch is refused, leaving `out`
 // unspecified.
-template<DeviceMatrixLike Out>
-requires DeviceFloating<device_element_t<Out>>
-[[nodiscard]] bool softmax(Out&& out, input_view_t<Out> in) {
+template<DeviceMatrixLike Out, DeviceMatrixViewable In>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<In>>
+[[nodiscard]] bool softmax(Out&& out, const In& in) {
   const auto& out_lens = out.as_lens();
-  assert(out_lens.extent() == in.extent());
-  assert(in.col_extent() > 0);
-  assert(is_same_or_disjoint(out_lens.as_span(), in.as_span()));
+  const cuda_matrix_view<device_value_t<In>> in_view = in;
+  assert(out_lens.extent() == in_view.extent());
+  assert(in_view.col_extent() > 0);
+  assert(is_same_or_disjoint(out_lens.as_span(), in_view.as_span()));
 
   details::apply_softmax<<<static_cast<unsigned>(out_lens.row_extent()),
       threads_per_block>>>(kernel_matrix_lens{out_lens},
-      kernel_matrix_view{in}, out_lens.col_extent());
+      kernel_matrix_view{in_view}, out_lens.col_extent());
   return cuda_last_status{}.ok();
 }
 

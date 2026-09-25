@@ -500,6 +500,22 @@ TEST_CASE("Device causal mask over cached tokens starts past them",
                        1.0F, 1.0F, blank, 1.0F, 1.0F, 1.0F});
 }
 
+// The queries, keys, and values of a host `qkv`, uploaded as three matrices.
+struct qkv_thirds {
+  cuda_matrix<float> queries;
+  cuda_matrix<float> keys;
+  cuda_matrix<float> values;
+};
+
+qkv_thirds split_qkv(float_matrix_view qkv) {
+  const auto width = qkv.col_extent() / 3;
+  const auto third = [&](size_t which) {
+    return cuda_matrix<float>(qkv[{row_ndx{0}, col_ndx{which * width}},
+        {.row_count = qkv.row_extent(), .col_count = width}]);
+  };
+  return {third(0), third(1), third(2)};
+}
+
 TEST_CASE("Device attention on three tokens of width two",
     "[LlmOpsTest][cuda]") {
   // The CPU test's napkin example, starting from its `qkv`. There, q and k
@@ -507,7 +523,7 @@ TEST_CASE("Device attention on three tokens of width two",
   // columns swapped.
   const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
       0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
-  const cuda_matrix<float> qkv(
+  const auto [queries, keys, values] = split_qkv(
       float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
   const cublas_handle blas;
   cuda_matrix<float> out({.row_count = 3, .col_count = 2});
@@ -517,7 +533,9 @@ TEST_CASE("Device attention on three tokens of width two",
 
   SECTION("one head of width two") {
     cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
-    REQUIRE(corvid::cuda::llm::attend(blas, out, qkv, 1, scores));
+    cuda_matrix<float> weights(scores.extent());
+    REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values, 1,
+        scores, weights));
     REQUIRE(out.as_view().store(out_lens));
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
     CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
@@ -529,7 +547,9 @@ TEST_CASE("Device attention on three tokens of width two",
 
   SECTION("two heads of width one") {
     cuda_matrix<float> scores({.row_count = 2UZ * 3, .col_count = 3});
-    REQUIRE(corvid::cuda::llm::attend(blas, out, qkv, 2, scores));
+    cuda_matrix<float> weights(scores.extent());
+    REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values, 2,
+        scores, weights));
     REQUIRE(out.as_view().store(out_lens));
     CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
     CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
@@ -538,21 +558,35 @@ TEST_CASE("Device attention on three tokens of width two",
     CHECK_THAT(out_storage[4], WithinAbs(0.577681, tolerance));
     CHECK_THAT(out_storage[5], WithinAbs(0.577681, tolerance));
   }
+
+  SECTION("the softmax may write its weights over the scores") {
+    cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
+    REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values, 1,
+        scores, scores));
+    REQUIRE(out.as_view().store(out_lens));
+    CHECK_THAT(out_storage[2], WithinAbs(0.669762, tolerance));
+    CHECK_THAT(out_storage[3], WithinAbs(0.330238, tolerance));
+  }
 }
 
 TEST_CASE("Device attention over bfloat16_t on three tokens of width two",
     "[LlmOpsTest][cuda]") {
-  // The napkin example held as `bfloat16_t`. Its scores and weights are
-  // rounded to eight bits between the launches, so the rows match the float
-  // ones within a stated tolerance rather than bit for bit.
-  const auto qkv_narrowed = narrowed({1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F, 0.0F,
-      1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F});
-  const cuda_matrix<bfloat16_t> qkv(
-      matrix_view<bfloat16_t>(qkv_narrowed, {.row_count = 3, .col_count = 6}));
+  // The napkin example with the values held as `bfloat16_t`, as the engine
+  // holds them, and the queries and keys as float. Only the weights are
+  // rounded to eight bits, so the rows match the float ones within a stated
+  // tolerance rather than bit for bit.
+  const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+      0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+  const auto [queries, keys, float_values] = split_qkv(
+      float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
+  cuda_matrix<bfloat16_t> values(float_values.extent());
+  REQUIRE(corvid::cuda::linalg::convert(values, float_values));
   const cublas_handle blas;
   cuda_matrix<bfloat16_t> out({.row_count = 3, .col_count = 2});
-  cuda_matrix<bfloat16_t> scores({.row_count = 3, .col_count = 3});
-  REQUIRE(corvid::cuda::llm::attend(blas, out, qkv, 1, scores));
+  cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
+  cuda_matrix<bfloat16_t> weights(scores.extent());
+  REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values, 1,
+      scores, weights));
 
   std::vector<bfloat16_t> out_narrowed(out.size());
   REQUIRE(out.as_view().store(
@@ -574,7 +608,7 @@ TEST_CASE("Device attention over cached tokens matches a full pass",
   // rows that the full pass gives those tokens.
   const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
       0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
-  const cuda_matrix<float> qkv(
+  const auto [queries, keys, values] = split_qkv(
       float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
   const cublas_handle blas;
 
@@ -583,18 +617,23 @@ TEST_CASE("Device attention over cached tokens matches a full pass",
       cuda_matrix<float> full({.row_count = 3, .col_count = 2});
       cuda_matrix<float> full_scores(
           {.row_count = head_count * 3, .col_count = 3});
-      REQUIRE(
-          corvid::cuda::llm::attend(blas, full, qkv, head_count, full_scores));
+      cuda_matrix<float> full_weights(full_scores.extent());
+      REQUIRE(corvid::cuda::llm::attend(blas, full, queries, keys, values,
+          head_count, full_scores, full_weights));
       std::vector<float> full_storage(full.size());
       REQUIRE(full.as_view().store(
           float_matrix_lens(full_storage, full.extent())));
       const float_matrix_view full_view(full_storage, full.extent());
 
       for (const auto new_count : {1UZ, 2UZ, 3UZ}) {
+        const auto new_queries = queries[{row_ndx{3 - new_count}, col_ndx{0}},
+            matrix_types::matrix_extent::npos];
         cuda_matrix<float> out({.row_count = new_count, .col_count = 2});
         cuda_matrix<float> scores(
             {.row_count = head_count * new_count, .col_count = 3});
-        REQUIRE(corvid::cuda::llm::attend(blas, out, qkv, head_count, scores));
+        cuda_matrix<float> weights(scores.extent());
+        REQUIRE(corvid::cuda::llm::attend(blas, out, new_queries, keys, values,
+            head_count, scores, weights));
         std::vector<float> out_storage(out.size());
         REQUIRE(
             out.as_view().store(float_matrix_lens(out_storage, out.extent())));
@@ -613,7 +652,8 @@ TEST_CASE("Device attention path matches the oracle",
 
   // Every block's attention, fed its own dumped `ln_1/out` and compared
   // against its dumped `attn/out`, as the CPU test does, with the two
-  // projections and the heads all on the device.
+  // projections and the heads all on the device. The attention projection is
+  // one product here, sliced into its thirds afterward.
   for (auto n = 0UZ; n < n_layer; ++n) {
     DYNAMIC_SECTION("block_" << n) {
       const auto dump = std::format("block_{}", n);
@@ -638,16 +678,23 @@ TEST_CASE("Device attention path matches the oracle",
           vector_of(oracle.weights, param + ".c_proj.bias", n_embd)));
 
       cuda_matrix<float> qkv({.row_count = token_count, .col_count = n_qkv});
+      const matrix_types::matrix_extent third{.row_count = token_count,
+          .col_count = n_embd};
+      const auto queries = qkv[{row_ndx{0}, col_ndx{0}}, third];
+      const auto keys = qkv[{row_ndx{0}, col_ndx{n_embd}}, third];
+      const auto values = qkv[{row_ndx{0}, col_ndx{2 * n_embd}}, third];
       cuda_matrix<float> heads_out(in_view.extent());
       cuda_matrix<float> scores(
           {.row_count = n_head * token_count, .col_count = token_count});
+      cuda_matrix<float> weights(scores.extent());
       cuda_matrix<float> out(in_view.extent());
       std::vector<float> out_storage(out.size());
       const float_matrix_lens out_lens(out_storage, out.extent());
 
       REQUIRE(corvid::cuda::linalg::linear_projection(blas, qkv, in,
           attn_weight, attn_bias));
-      REQUIRE(corvid::cuda::llm::attend(blas, heads_out, qkv, n_head, scores));
+      REQUIRE(corvid::cuda::llm::attend(blas, heads_out, queries, keys, values,
+          n_head, scores, weights));
       REQUIRE(corvid::cuda::linalg::linear_projection(blas, out, heads_out,
           proj_weight, proj_bias));
       REQUIRE(out.as_view().store(out_lens));
@@ -657,12 +704,16 @@ TEST_CASE("Device attention path matches the oracle",
       // The last five tokens with nine cached get the same head outputs,
       // bit for bit, as on the CPU.
       constexpr auto new_count = 5UZ;
+      const auto suffix_queries =
+          queries[{row_ndx{token_count - new_count}, col_ndx{0}},
+              matrix_types::matrix_extent::npos];
       cuda_matrix<float> suffix_out(
           {.row_count = new_count, .col_count = n_embd});
       cuda_matrix<float> suffix_scores(
           {.row_count = n_head * new_count, .col_count = token_count});
-      REQUIRE(corvid::cuda::llm::attend(blas, suffix_out, qkv, n_head,
-          suffix_scores));
+      cuda_matrix<float> suffix_weights(suffix_scores.extent());
+      REQUIRE(corvid::cuda::llm::attend(blas, suffix_out, suffix_queries, keys,
+          values, n_head, suffix_scores, suffix_weights));
       std::vector<float> heads_storage(heads_out.size());
       const float_matrix_lens heads_lens(heads_storage, heads_out.extent());
       REQUIRE(heads_out.as_view().store(heads_lens));
