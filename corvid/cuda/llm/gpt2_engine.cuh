@@ -51,21 +51,22 @@ using corvid::llm::gpt2_model;
 #pragma region gpt2_engine
 
 // The GPT-2 inference engine on the device, holding its own copy of a
-// `gpt2_model`'s parameters, with the operands of its matrix products as `T`
-// and the residual stream as `float`.
+// `gpt2_model`'s parameters, with the operands of its products against them
+// as `T` and everything else in `wide_t`, the type `T` computes in.
 //
-// `T` is the storage of whatever a product reads: the token and position
-// embeddings, the projection weights, the biases of the two projections
-// whose outputs feed another product, and the activations between them (the
-// layer norm outputs, `qkv`, the attention scratch, and the MLP's hidden
-// activation). The residual stream, the two projection outputs added to it
-// and their biases, and the layer norms' weights and biases are `float`, so
-// that a value accumulating across the blocks is never narrowed. Every
-// parameter is uploaded at construction, converted where its type differs
-// from the model's `float`, so the model may be destroyed afterward. The
-// logits are `float` too, so that a pick rests on the final projection's
-// full precision. Tokenizing text is `gpt2_tokenizer`'s job, so this takes
-// and produces token IDs alone.
+// `T` is the storage of what a product against the parameters reads: the
+// token and position embeddings, the projection weights, the biases of the
+// projections whose outputs feed another such product, the layer norm
+// outputs, the values (and so the value cache), the attention weights, the
+// heads' output, and the MLP's hidden activation. `wide_t` holds the residual
+// stream, the two projection outputs added to it and their biases, the layer
+// norms' weights and biases, and the queries, keys (and so the key cache),
+// and scores, so a value that accumulates across the blocks is never narrowed
+// and the scores are exact products. Every parameter is uploaded at
+// construction, converted where its type differs from the model's `float`,
+// so the model may be destroyed afterward. The logits are `wide_t` too, so
+// that a pick rests on the final projection's full precision. Tokenizing text
+// is `gpt2_tokenizer`'s job, so this takes and produces token IDs alone.
 //
 //   const gpt2_engine<float> engine(model);
 //   std::vector<token_id> ids = ...;
@@ -75,7 +76,10 @@ requires DeviceFloating<T> && GemmElement<T>
 class gpt2_engine {
 public:
   using element_t = T;
-  using residual_t = float;
+  // The type `element_t` computes in, `float` for `bfloat16_t` and
+  // `element_t` itself otherwise, which holds whatever is not an operand of a
+  // product against the parameters.
+  using wide_t = compute_t<element_t>;
 
 #pragma region block_activations
 
@@ -83,21 +87,25 @@ public:
   // lenses.
   //
   // The names, shapes, and sharing rules are those of the CPU
-  // `corvid::llm::gpt2_engine::block_activations`, except that `scores` is the
-  // device `attend`'s HN x T scratch rather than one row. `attn_out`,
-  // `ln_2_in`, and `mlp_out` are on the residual stream, so they are
-  // `residual_t`. The rest feed a product and are `element_t`.
+  // `corvid::llm::gpt2_engine::block_activations`, with the device `attend`'s
+  // inputs and scratch in place of `qkv` and its one row of scores: the new
+  // tokens' `queries`, and `scores` and `weights`, each HN x T. The queries,
+  // scores, and the three activations on the residual stream (`attn_out`,
+  // `ln_2_in`, and `mlp_out`) are `wide_t`. The rest feed a product against
+  // the parameters and are `element_t`.
   //
   // Note that the `const` on an instance is shallow.
   struct block_activations {
     cuda_matrix_lens<element_t> ln_1_out;
+    cuda_matrix_lens<wide_t> queries;
+    cuda_matrix_lens<wide_t> scores;
+    cuda_matrix_lens<element_t> weights;
     cuda_matrix_lens<element_t> heads_out;
-    cuda_matrix_lens<residual_t> attn_out;
-    cuda_matrix_lens<residual_t> ln_2_in;
+    cuda_matrix_lens<wide_t> attn_out;
+    cuda_matrix_lens<wide_t> ln_2_in;
     cuda_matrix_lens<element_t> ln_2_out;
     cuda_matrix_lens<element_t> hidden;
-    cuda_matrix_lens<residual_t> mlp_out;
-    cuda_matrix_lens<element_t> scores;
+    cuda_matrix_lens<wide_t> mlp_out;
   };
 
   // Owned device storage for every activation of `apply_block`, all distinct,
@@ -105,38 +113,42 @@ public:
   // attended by `head_count` heads after `cached_count` cached tokens.
   struct block_activation_buffers {
     cuda_matrix<element_t> ln_1_out;
+    cuda_matrix<wide_t> queries;
+    cuda_matrix<wide_t> scores;
+    cuda_matrix<element_t> weights;
     cuda_matrix<element_t> heads_out;
-    cuda_matrix<residual_t> attn_out;
-    cuda_matrix<residual_t> ln_2_in;
+    cuda_matrix<wide_t> attn_out;
+    cuda_matrix<wide_t> ln_2_in;
     cuda_matrix<element_t> ln_2_out;
     cuda_matrix<element_t> hidden;
-    cuda_matrix<residual_t> mlp_out;
-    cuda_matrix<element_t> scores;
+    cuda_matrix<wide_t> mlp_out;
 
     // Allocate every buffer, or throw.
     block_activation_buffers(size_t new_count, size_t width,
         size_t hidden_width, size_t head_count, size_t cached_count = 0)
         : ln_1_out({.row_count = new_count, .col_count = width}),
-          heads_out({.row_count = new_count, .col_count = width}),
-          attn_out({.row_count = new_count, .col_count = width}),
-          ln_2_in({.row_count = new_count, .col_count = width}),
-          ln_2_out({.row_count = new_count, .col_count = width}),
-          hidden({.row_count = new_count, .col_count = hidden_width}),
-          mlp_out({.row_count = new_count, .col_count = width}),
+          queries({.row_count = new_count, .col_count = width}),
           scores({.row_count = head_count * new_count,
-              .col_count = cached_count + new_count}) {}
+              .col_count = cached_count + new_count}),
+          weights(scores.extent()), heads_out(queries.extent()),
+          attn_out(queries.extent()), ln_2_in(queries.extent()),
+          ln_2_out(queries.extent()),
+          hidden({.row_count = new_count, .col_count = hidden_width}),
+          mlp_out(queries.extent()) {}
 
     // The lenses `apply_block` takes.
     [[nodiscard]] block_activations lenses() noexcept {
       return {
           .ln_1_out = ln_1_out,
+          .queries = queries,
+          .scores = scores,
+          .weights = weights,
           .heads_out = heads_out,
           .attn_out = attn_out,
           .ln_2_in = ln_2_in,
           .ln_2_out = ln_2_out,
           .hidden = hidden,
           .mlp_out = mlp_out,
-          .scores = scores,
       };
     }
   };
@@ -144,15 +156,24 @@ public:
 #pragma endregion
 #pragma region kv_cache
 
+  // One block's keys and values for every position of the context, on the
+  // device.
+  struct block_store {
+    cuda_matrix<wide_t> keys;
+    cuda_matrix<element_t> values;
+  };
+
   // The tokens that `forward` has already run, with each one's keys and values
   // in every block, on the device.
   //
   // The layout is that of the CPU `corvid::llm::gpt2_engine::kv_cache`, with
-  // the IDs on the host and the rows on the device. For M cached tokens of
-  // width C in a context of L positions:
+  // the IDs on the host, the rows on the device, and the keys and values held
+  // apart, since the keys are `wide_t` and the values `element_t`. For M
+  // cached tokens of width C in a context of L positions:
   //
   //   ids     [M]      the cached tokens
-  //   blocks  [L, 3C]  per block, a row per position, the first M in use
+  //   blocks  [L]      per block, its keys and its values, each [L, C], a row
+  //                    per position, the first M in use
   //
   // Each block's store spans the whole context from the first `forward` on,
   // so a later pass writes its rows in place and nothing reallocates.
@@ -162,7 +183,7 @@ public:
   // either member breaks the pairing between them.
   struct kv_cache {
     std::vector<token_id> ids;
-    std::vector<cuda_matrix<element_t>> blocks;
+    std::vector<block_store> blocks;
   };
 
 #pragma endregion
@@ -170,8 +191,9 @@ public:
 
   // Upload every parameter of `model`, or throw.
   explicit gpt2_engine(const gpt2_model& model)
-      : wte_(upload(model.wte)), wpe_(upload(model.wpe)),
-        ln_f_weight_(model.ln_f_weight), ln_f_bias_(model.ln_f_bias),
+      : wte_(upload<element_t>(model.wte)), wpe_(upload<element_t>(model.wpe)),
+        ln_f_weight_(upload<wide_t>(model.ln_f_weight)),
+        ln_f_bias_(upload<wide_t>(model.ln_f_bias)),
         head_count_{model.head_count} {
     blocks_.reserve(model.blocks.size());
     for (const auto& host_block : model.blocks)
@@ -184,20 +206,27 @@ public:
   // Run block `block_index` over the residual, reading `in` and writing `out`.
   //
   // The contract is that of the CPU `corvid::llm::gpt2_engine::apply_block`,
-  // which also holds the step table. `out` and `in` must have the same extent
-  // and may be the same view. `qkv` must have at least as many rows as `in`,
-  // the first of them holding the cached tokens' `attn.c_attn` output. The
+  // which also holds the step table, with the block's `keys` and `values` in
+  // place of `qkv`. `out` and `in` must have the same extent and may be the
+  // same view. `keys` and `values` must have the same extent, the width of
+  // `in` and at least as many rows, the first of them holding the cached
+  // tokens' keys and values, and the new tokens' rows are written. The
   // activation views must have the extents `block_activations` states for
   // that extent and may share storage only as it allows. Returns false when a
-  // launch is refused, leaving `out`, `qkv`, and the activations unspecified.
-  [[nodiscard]] bool apply_block(cuda_matrix_lens<residual_t> out,
-      cuda_matrix_view<residual_t> in, size_t block_index,
-      const block_activations& acts, cuda_matrix_lens<element_t> qkv) const {
+  // launch is refused, leaving `out`, the new rows of `keys` and `values`,
+  // and the activations unspecified.
+  [[nodiscard]] bool apply_block(cuda_matrix_lens<wide_t> out,
+      cuda_matrix_view<wide_t> in, size_t block_index,
+      const block_activations& acts, cuda_matrix_lens<wide_t> keys,
+      cuda_matrix_lens<element_t> values) const {
     const auto& params = blocks_[block_index];
-    assert(qkv.row_extent() >= in.row_extent());
-    const auto cached_count = qkv.row_extent() - in.row_extent();
-    const auto new_qkv = qkv[{row_ndx{cached_count}, col_ndx{0}},
-        {.row_count = in.row_extent(), .col_count = qkv.col_extent()}];
+    assert(keys.row_extent() >= in.row_extent());
+    assert(values.extent() == keys.extent());
+    const auto cached_count = keys.row_extent() - in.row_extent();
+    const auto new_keys =
+        keys[{row_ndx{cached_count}, col_ndx{0}}, matrix_extent::npos];
+    const auto new_values =
+        values[{row_ndx{cached_count}, col_ndx{0}}, matrix_extent::npos];
     // Each of these four writes is followed by an add that reads the residual
     // it would have destroyed; the ops' same-or-disjoint checks allow all
     // four, and the ops catch every other overlap.
@@ -209,10 +238,20 @@ public:
     if (!layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias,
             gpt2_model::layer_norm_eps))
       return false;
-    if (!linear_projection(blas_, new_qkv, acts.ln_1_out,
-            params.attn_c_attn_weight, params.attn_c_attn_bias))
+    // The attention projection goes a third at a time, so that the new keys
+    // and values land in their stores and the queries beside them, each in
+    // its own type.
+    if (!linear_projection(blas_, acts.queries, acts.ln_1_out,
+            params.attn_c_attn_query_weight(), params.attn_c_attn_query_bias))
       return false;
-    if (!attend(blas_, acts.heads_out, qkv, head_count_, acts.scores))
+    if (!linear_projection(blas_, new_keys, acts.ln_1_out,
+            params.attn_c_attn_key_weight(), params.attn_c_attn_key_bias))
+      return false;
+    if (!linear_projection(blas_, new_values, acts.ln_1_out,
+            params.attn_c_attn_value_weight(), params.attn_c_attn_value_bias))
+      return false;
+    if (!attend(blas_, acts.heads_out, acts.queries, keys, values, head_count_,
+            acts.scores, acts.weights))
       return false;
     if (!linear_projection(blas_, acts.attn_out, acts.heads_out,
             params.attn_c_proj_weight, params.attn_c_proj_bias))
@@ -236,43 +275,52 @@ public:
   // the final layer norm's output to `out`.
   //
   // The contract is that of the CPU `corvid::llm::gpt2_engine::forward`,
-  // which also holds the step table. `out` doubles as the residual, so it
-  // must have one row per new ID and the model's width, and there must be no
-  // more tokens, cached and new, than the context holds. `acts` is reused by
-  // every block, so it holds the last block's activations on return. Its
-  // `ln_2_in` may be `out`, the in-place form, but no other buffer may overlap
-  // `out`. Returns false when a launch or transfer is refused, leaving `out`,
-  // the activations, and `cache` unspecified.
-  [[nodiscard]] bool forward(cuda_matrix_lens<residual_t> out,
-      std::span<const token_id> new_ids, const block_activations& acts,
-      kv_cache& cache) const {
+  // which also holds the step table, except that the residual stream runs
+  // through `residual`, caller-owned scratch of `out`'s extent, and the final
+  // layer norm writes `out` from it. `out` must have one row per new ID and
+  // the model's width, and there must be no more tokens, cached and new, than
+  // the context holds. `acts` is reused by every block, so it holds the last
+  // block's activations on return. Its `ln_2_in` may be `residual`, the
+  // in-place form, but no other buffer may overlap `residual`, and none may
+  // overlap `out`. Returns false when a launch or transfer is refused,
+  // leaving `out`, `residual`, the activations, and `cache` unspecified.
+  [[nodiscard]] bool forward(cuda_matrix_lens<element_t> out,
+      cuda_matrix_lens<wide_t> residual, std::span<const token_id> new_ids,
+      const block_activations& acts, kv_cache& cache) const {
     const auto cached_count = cache.ids.size();
     const auto total_count = cached_count + new_ids.size();
     const auto context_length = wpe_.row_extent();
+    const auto width = wte_.col_extent();
     assert(total_count <= context_length);
-    const auto qkv_width = 3 * wte_.col_extent();
+    assert(residual.extent() == out.extent());
+    assert(is_disjoint(out.as_span(), residual.as_span()));
 
     const cuda_buffer<token_id> device_ids(new_ids);
-    if (!embed_tokens(out, device_ids, wte_)) return false;
-    if (!embed_positions(out, wpe_, cached_count)) return false;
+    if (!embed_tokens(residual, device_ids, wte_)) return false;
+    if (!embed_positions(residual, wpe_, cached_count)) return false;
 
     // Allocating the whole context up front means that no later pass
     // reallocates.
     if (cache.blocks.empty()) {
+      const matrix_extent context{.row_count = context_length,
+          .col_count = width};
       cache.ids.reserve(context_length);
       cache.blocks.reserve(blocks_.size());
       for (auto block = 0UZ; block < blocks_.size(); ++block)
-        cache.blocks.emplace_back(matrix_extent{.row_count = context_length,
-            .col_count = qkv_width});
+        cache.blocks.emplace_back(block_store{
+            .keys = cuda_matrix<wide_t>(context),
+            .values = cuda_matrix<element_t>(context)});
     }
+    const matrix_extent in_use{.row_count = total_count, .col_count = width};
     for (const auto [block_index, store] : std::views::enumerate(cache.blocks))
     {
-      const auto qkv = store[{row_ndx{0}, col_ndx{0}},
-          {.row_count = total_count, .col_count = qkv_width}];
-      if (!apply_block(out, out, static_cast<size_t>(block_index), acts, qkv))
+      const auto keys = store.keys[{row_ndx{0}, col_ndx{0}}, in_use];
+      const auto values = store.values[{row_ndx{0}, col_ndx{0}}, in_use];
+      if (!apply_block(residual, residual, static_cast<size_t>(block_index),
+              acts, keys, values))
         return false;
     }
-    if (!layer_norm(out, out, ln_f_weight_, ln_f_bias_,
+    if (!layer_norm(out, residual, ln_f_weight_, ln_f_bias_,
             gpt2_model::layer_norm_eps))
       return false;
 
@@ -307,20 +355,18 @@ public:
     const auto new_ids = ids.subspan(cached_count);
     const auto new_count = new_ids.size();
 
-    cuda_matrix<residual_t> trunk(
-        {.row_count = new_count, .col_count = width});
+    const matrix_extent extent{.row_count = new_count, .col_count = width};
+    cuda_matrix<element_t> trunk(extent);
+    cuda_matrix<wide_t> residual(extent);
     block_activation_buffers buffers(new_count, width,
         blocks_.front().mlp_c_fc_weight.col_extent(), head_count_,
         cached_count);
-    if (!forward(trunk, new_ids, buffers.lenses(), cache_)) return false;
-
-    // The last token's row of the trunk is narrowed to the embedding's type
-    // for the product against it.
-    cuda_matrix<element_t> last_row({.row_count = 1, .col_count = width});
-    if (!convert(last_row,
-            trunk[{row_ndx{new_count - 1}, col_ndx{0}}, matrix_extent::npos]))
+    if (!forward(trunk, residual, new_ids, buffers.lenses(), cache_))
       return false;
-    cuda_matrix<float> logits({.row_count = 1, .col_count = vocab_size});
+
+    cuda_matrix<wide_t> logits({.row_count = 1, .col_count = vocab_size});
+    const auto last_row =
+        trunk[{row_ndx{new_count - 1}, col_ndx{0}}, matrix_extent::npos];
     if (!compute_logits(blas_, logits, last_row, wte_)) return false;
     cuda_buffer<token_id> device_pick;
     if (!pick_greedy(device_pick, logits)) return false;
@@ -350,72 +396,114 @@ public:
 private:
   // The parameters of one block, uploaded from `gpt2_model::block_params`.
   //
-  // The names and shapes are those of the CPU bundle. The layer norms' weights
-  // and biases and the biases of the two projections that write to the
-  // residual stream are `residual_t`. The rest are `element_t`.
+  // The names and shapes are those of the CPU bundle, except that the
+  // attention projection's bias is held as its three thirds, since the
+  // queries' and keys' are `wide_t` and the values' `element_t`. Its weight
+  // stays whole, read a third at a time. The layer norms' weights and biases
+  // and the biases of the two projections that write to the residual stream
+  // are `wide_t`. The rest are `element_t`.
   struct block_params {
-    cuda_buffer<residual_t> ln_1_weight;
-    cuda_buffer<residual_t> ln_1_bias;
+    cuda_buffer<wide_t> ln_1_weight;
+    cuda_buffer<wide_t> ln_1_bias;
     cuda_matrix<element_t> attn_c_attn_weight;
-    cuda_buffer<element_t> attn_c_attn_bias;
+    cuda_buffer<wide_t> attn_c_attn_query_bias;
+    cuda_buffer<wide_t> attn_c_attn_key_bias;
+    cuda_buffer<element_t> attn_c_attn_value_bias;
     cuda_matrix<element_t> attn_c_proj_weight;
-    cuda_buffer<residual_t> attn_c_proj_bias;
-    cuda_buffer<residual_t> ln_2_weight;
-    cuda_buffer<residual_t> ln_2_bias;
+    cuda_buffer<wide_t> attn_c_proj_bias;
+    cuda_buffer<wide_t> ln_2_weight;
+    cuda_buffer<wide_t> ln_2_bias;
     cuda_matrix<element_t> mlp_c_fc_weight;
     cuda_buffer<element_t> mlp_c_fc_bias;
     cuda_matrix<element_t> mlp_c_proj_weight;
-    cuda_buffer<residual_t> mlp_c_proj_bias;
+    cuda_buffer<wide_t> mlp_c_proj_bias;
 
     // Allocate and upload every parameter of `host`, or throw.
     explicit block_params(const gpt2_model::block_params& host)
-        : ln_1_weight(host.ln_1_weight), ln_1_bias(host.ln_1_bias),
-          attn_c_attn_weight(upload(host.attn_c_attn_weight)),
-          attn_c_attn_bias(upload(host.attn_c_attn_bias)),
-          attn_c_proj_weight(upload(host.attn_c_proj_weight)),
-          attn_c_proj_bias(host.attn_c_proj_bias),
-          ln_2_weight(host.ln_2_weight), ln_2_bias(host.ln_2_bias),
-          mlp_c_fc_weight(upload(host.mlp_c_fc_weight)),
-          mlp_c_fc_bias(upload(host.mlp_c_fc_bias)),
-          mlp_c_proj_weight(upload(host.mlp_c_proj_weight)),
-          mlp_c_proj_bias(host.mlp_c_proj_bias) {}
+        : ln_1_weight(upload<wide_t>(host.ln_1_weight)),
+          ln_1_bias(upload<wide_t>(host.ln_1_bias)),
+          attn_c_attn_weight(upload<element_t>(host.attn_c_attn_weight)),
+          attn_c_attn_query_bias(
+              upload<wide_t>(attn_c_attn_bias_third(host, 0))),
+          attn_c_attn_key_bias(
+              upload<wide_t>(attn_c_attn_bias_third(host, 1))),
+          attn_c_attn_value_bias(
+              upload<element_t>(attn_c_attn_bias_third(host, 2))),
+          attn_c_proj_weight(upload<element_t>(host.attn_c_proj_weight)),
+          attn_c_proj_bias(upload<wide_t>(host.attn_c_proj_bias)),
+          ln_2_weight(upload<wide_t>(host.ln_2_weight)),
+          ln_2_bias(upload<wide_t>(host.ln_2_bias)),
+          mlp_c_fc_weight(upload<element_t>(host.mlp_c_fc_weight)),
+          mlp_c_fc_bias(upload<element_t>(host.mlp_c_fc_bias)),
+          mlp_c_proj_weight(upload<element_t>(host.mlp_c_proj_weight)),
+          mlp_c_proj_bias(upload<wide_t>(host.mlp_c_proj_bias)) {}
+
+    // The columns of the attention projection's weight that produce the
+    // queries, the keys, and the values.
+    [[nodiscard]] cuda_matrix_view<element_t>
+    attn_c_attn_query_weight() const {
+      return attn_c_attn_weight_third(0);
+    }
+    [[nodiscard]] cuda_matrix_view<element_t> attn_c_attn_key_weight() const {
+      return attn_c_attn_weight_third(1);
+    }
+    [[nodiscard]] cuda_matrix_view<element_t>
+    attn_c_attn_value_weight() const {
+      return attn_c_attn_weight_third(2);
+    }
+
+  private:
+    [[nodiscard]] cuda_matrix_view<element_t> attn_c_attn_weight_third(
+        size_t which) const {
+      const auto width = attn_c_attn_weight.row_extent();
+      return attn_c_attn_weight[{row_ndx{0}, col_ndx{which * width}},
+          {.row_count = width, .col_count = width}];
+    }
+
+    // The third of `host`'s attention projection bias that `which` names.
+    [[nodiscard]] static std::span<const float> attn_c_attn_bias_third(
+        const gpt2_model::block_params& host, size_t which) {
+      const auto width = host.attn_c_attn_weight.row_extent();
+      return std::span<const float>(host.attn_c_attn_bias)
+          .subspan(which * width, width);
+    }
   };
 
 #pragma endregion
 #pragma region Upload
 
-  // Upload `host` as a matrix of `element_t`, or throw.
+  // Upload `host` as a matrix of `U`, or throw.
   //
-  // A `float` parameter goes straight up. Any other type is staged as `float`
-  // and converted on the device.
-  [[nodiscard]] static cuda_matrix<element_t> upload(float_matrix_view host)
-  requires std::same_as<element_t, float>
-  {
-    return cuda_matrix<element_t>(host);
+  // A `float` destination takes the parameter straight up. Any other type
+  // stages it as `float` and converts on the device.
+  template<DeviceFloating U>
+  requires std::same_as<U, float>
+  [[nodiscard]] static cuda_matrix<U> upload(float_matrix_view host) {
+    return cuda_matrix<U>(host);
   }
-  [[nodiscard]] static cuda_matrix<element_t> upload(float_matrix_view host) {
+  template<DeviceFloating U>
+  [[nodiscard]] static cuda_matrix<U> upload(float_matrix_view host) {
     const cuda_matrix<float> staged(host);
-    cuda_matrix<element_t> result(host.extent());
+    cuda_matrix<U> result(host.extent());
     if (!convert(result, staged)) raise_refused();
     return result;
   }
 
-  // Upload `host` as a buffer of `element_t`, or throw.
+  // Upload `host` as a buffer of `U`, or throw.
   //
   // The same two paths as the matrix form, with the buffer converted as one
   // row.
-  [[nodiscard]] static cuda_buffer<element_t>
-  upload(std::span<const float> host)
-  requires std::same_as<element_t, float>
-  {
-    return cuda_buffer<element_t>(host);
+  template<DeviceFloating U>
+  requires std::same_as<U, float>
+  [[nodiscard]] static cuda_buffer<U> upload(std::span<const float> host) {
+    return cuda_buffer<U>(host);
   }
-  [[nodiscard]] static cuda_buffer<element_t> upload(
-      std::span<const float> host) {
+  template<DeviceFloating U>
+  [[nodiscard]] static cuda_buffer<U> upload(std::span<const float> host) {
     const cuda_buffer<float> staged(host);
-    cuda_buffer<element_t> result(host.size());
+    cuda_buffer<U> result(host.size());
     const matrix_extent row{.row_count = 1, .col_count = host.size()};
-    if (!convert(cuda_matrix_lens<element_t>(result.as_span(), row),
+    if (!convert(cuda_matrix_lens<U>(result.as_span(), row),
             cuda_matrix_view<float>(staged.as_span(), row)))
       raise_refused();
     return result;
@@ -433,8 +521,8 @@ private:
   cuda_matrix<element_t> wte_;
   cuda_matrix<element_t> wpe_;
   std::vector<block_params> blocks_;
-  cuda_buffer<residual_t> ln_f_weight_;
-  cuda_buffer<residual_t> ln_f_bias_;
+  cuda_buffer<wide_t> ln_f_weight_;
+  cuda_buffer<wide_t> ln_f_bias_;
   size_t head_count_;
   mutable kv_cache cache_;
 

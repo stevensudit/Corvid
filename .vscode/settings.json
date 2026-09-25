@@ -131,6 +131,7 @@
         ]
     },
     "python.formatting.provider": "black",
+    "python.defaultInterpreterPath": "${workspaceFolder}/tests/.local/llm/venv/Scripts/python.exe",
     "lldb.displayFormat": "auto",
     "lldb.showDisassembly": "auto",
     "lldb.dereferencePointers": true,

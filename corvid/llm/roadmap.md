@@ -1424,6 +1424,47 @@ attention operands wider (`qkv` in float, or an fp16 KV cache with eleven
 significant bits) is the next lever, and a decision. Next: tokens per
 second, fp32 against bf16 against llama.cpp.
 
+Status (2026-09-24, bf16, slice 3c: the split cache and the fused
+narrowing): the final layer norm now writes `forward`'s output in `T`
+straight from the `float` residual, which became caller-owned scratch beside
+`out`, so the narrowing that `next_token` did in a launch of its own is
+gone, for every `T`. The attention projection runs a third at a time over
+column slices of its weight, and each third lands where it is used, in its
+own type, with nothing copied: the queries in a `float` scratch, the keys in
+a `float` key cache, and the values in a `T` value cache, so the cache holds
+[L, C] keys and [L, C] values per block instead of [L, 3C] of `qkv`, the
+same bytes for a bf16 model with the unused query columns dropped, and the
+keys in full precision. `attend` takes the three apart, computes the scores
+as `float` products, and its softmax writes `T` weights for the product
+against the values, since that one averages whatever error it reads.
+Measured: the bf16 logits' worst relative error fell from 3.4e-2 to 2.6e-2
+(the gate is 3e-2), four of the five prompts improved, and bf16 greedy
+decoding still follows the manifest for 7 of 20 IDs. The attention outputs
+barely moved (block 3 stays at 7.9e-2 of its largest value), which locates
+the rest of their error in what the projections read: the layer norm output,
+rounded to eight significant bits because the products against the `T`
+weights take `T` operands. That is the floor of bf16 parameters, and
+llama.cpp and the transformers reference share it. What remains open is
+bandwidth, not precision: the key cache doubled its bytes per row to hold
+`float`, and an fp16 key cache with eleven significant bits would halve them
+again, at the price of an fp16 element type and its cuBLAS row. Next: tokens
+per second, fp32 against bf16 against llama.cpp, with a 1023-token prompt
+and one generated token as the stress case, its last logits dumped by the
+fp32 oracle.
+
+Status (2026-09-24, bf16, slice 3d: the double engine): `gpt2_engine<T>`
+admits `double` again, so the engine has a precision above the fp32 oracle's
+to measure fp32 against. `wide_t`, the type `T` computes in, already held
+the residual, the queries, keys, and scores, and the parameters on the
+residual side; what pinned `float` was the logits, which are `wide_t` now
+with `pick_greedy` generic over the logits' element type, and the uploads of
+the `wide_t` parameters, which went straight up from the model's floats and
+now go through the same staged conversion as the `T` ones, with the upload
+helper taking its destination type. Tests: the bisect prompt through a
+double engine against the fp32 oracle's final layer norm output and logits
+at the fp32 gate, and its greedy picks against the host's. Next: tokens per
+second, with the 1023-token stress prompt.
+
 ### 5. Backward pass and LoRA
 
 Backward kernels for every op in stage 4, a LoRA on the attention
