@@ -43,7 +43,8 @@
 // A kernel generic over its element type computes in `compute_t<T>`, which is
 // `float` for `bfloat16_t` and `T` itself for a floating-point type. It widens
 // each element it reads with `widen` and narrows each result it stores with
-// `T{}`, so a result is rounded once:
+// `T{}` (or `narrow<T>`, when the result is in another type's compute type),
+// so a result is rounded once:
 //
 //   compute_t<T> total{};
 //   for (const auto col : columns) total += widen(in[row, col]);
@@ -125,6 +126,12 @@ using compute_t = compute_type_of<T>::type;
 template<DeviceFloating T>
 [[nodiscard]] __host__ __device__ compute_t<T> widen(T x) noexcept {
   return static_cast<compute_t<T>>(x);
+}
+
+// `x`, a value in any compute type, narrowed to `T`.
+template<DeviceFloating T, Floating C>
+[[nodiscard]] __host__ __device__ T narrow(C x) noexcept {
+  return T{static_cast<compute_t<T>>(x)};
 }
 
 #pragma endregion

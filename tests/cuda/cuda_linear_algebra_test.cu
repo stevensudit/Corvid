@@ -40,6 +40,7 @@ namespace corvid_tests {
 
 using namespace corvid;
 using Catch::Matchers::WithinAbs;
+using Catch::Matchers::WithinRel;
 using corvid::cuda::bfloat16_t;
 using corvid::cuda::cublas_handle;
 using corvid::cuda::cublas_operation;
@@ -563,6 +564,30 @@ TEMPLATE_TEST_CASE("Device subtract on hand-computed rows",
   }
 }
 
+TEST_CASE("Device add over mixed element types rounds once, to the output's",
+    "[LinearAlgebraTest][cuda]") {
+  // A float row plus a bfloat16 row into a float row is exact, and the same
+  // sum into a bfloat16 row is the float sum narrowed once.
+  const std::vector<float> a_values{1.0F, 2.5F, 1000.0F, -3.0F};
+  const auto b_narrowed = narrowed({0.5F, 0.25F, 1.0F, 0.125F});
+  constexpr matrix_types::matrix_extent extent{.row_count = 1, .col_count = 4};
+  const cuda_matrix<float> a(matrix_view<float>(a_values, extent));
+  const cuda_matrix<bfloat16_t> b(matrix_view<bfloat16_t>(b_narrowed, extent));
+
+  cuda_matrix<float> sum(extent);
+  REQUIRE(corvid::cuda::linalg::add(sum, a, b));
+  std::vector<float> sum_values(sum.size());
+  REQUIRE(sum.as_view().store(matrix_lens<float>(sum_values, extent)));
+  CHECK(sum_values == std::vector<float>{1.5F, 2.75F, 1001.0F, -2.875F});
+
+  cuda_matrix<bfloat16_t> sum_bf16(extent);
+  REQUIRE(corvid::cuda::linalg::add(sum_bf16, a, b));
+  std::vector<bfloat16_t> sum_narrowed(sum_bf16.size());
+  REQUIRE(
+      sum_bf16.as_view().store(matrix_lens<bfloat16_t>(sum_narrowed, extent)));
+  CHECK(sum_narrowed == narrowed(sum_values));
+}
+
 #pragma endregion
 #pragma region softmax
 
@@ -661,11 +686,12 @@ TEST_CASE("Device softmax over a row wider than a block",
   }
 }
 
-TEST_CASE("Device softmax over bfloat16_t is the float softmax narrowed",
+TEST_CASE("Device softmax over bfloat16_t matches the float softmax",
     "[LinearAlgebraTest][cuda]") {
   // The hand-computed rows, narrowed first so that both kernels widen to
-  // the same floats. The bf16 result is then the float result rounded once,
-  // at the store.
+  // the same floats. A bf16 weight is rounded twice, as the exponential
+  // stored and again as the quotient, so it lands within two half-ulps of
+  // the float weight.
   const auto in_narrowed =
       narrowed({0.0F, 0.707F, 1000.0F, 1000.0F, -3.0F, 5.0F});
   constexpr matrix_types::matrix_extent extent{.row_count = 3, .col_count = 2};
@@ -684,7 +710,13 @@ TEST_CASE("Device softmax over bfloat16_t is the float softmax narrowed",
   std::vector<bfloat16_t> out_narrowed(out_bf16.size());
   REQUIRE(
       out_bf16.as_view().store(matrix_lens<bfloat16_t>(out_narrowed, extent)));
-  CHECK(out_narrowed == narrowed(out_values));
+  constexpr auto two_half_ulps = 1.0F / 128;
+  for (const auto [weight, expected] :
+      std::views::zip(widened(out_narrowed), out_values))
+  {
+    CAPTURE(expected);
+    CHECK_THAT(weight, WithinRel(expected, two_half_ulps));
+  }
 }
 
 #pragma endregion

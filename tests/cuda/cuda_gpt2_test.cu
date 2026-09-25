@@ -72,10 +72,23 @@ void check_device_close(cuda_matrix_view<float> device,
 }
 
 // The tolerance of the bf16 logits against the oracle's fp32 ones, both
-// absolute and relative. The largest relative error measured over the five
-// prompts is 3.3e-2 (prompt 3, 2026-09-24), the cost of a residual stream
-// held in eight significant bits through twelve blocks.
+// absolute and relative, set above the largest relative error measured over
+// the five prompts, 3.4e-2 on prompt 3 (2026-09-24), with the residual
+// stream in `float` and the products' operands in eight significant bits.
+// The reference is GPT-2 run wholly in bf16 by transformers, which loses
+// 3.7e-2 on the same prompt ("gpt2_bf16_reference.py").
 constexpr auto bf16_logits_tolerance = 4e-2F;
+
+// The ratios of a bf16 block's largest error to its largest expected value,
+// set above the largest measured over the twelve blocks (2026-09-24): the
+// exit residual 1.3e-2 (block 11), the attention output 7.2e-2 (block 3,
+// where the scores are dot products of bf16 queries and keys and the
+// softmax magnifies their error), the residual after it 1.2e-2 (block 11),
+// and the MLP output 9.4e-3 (block 5).
+constexpr auto bf16_exit_ratio = 2e-2F;
+constexpr auto bf16_attn_out_ratio = 1e-1F;
+constexpr auto bf16_ln_2_in_ratio = 2e-2F;
+constexpr auto bf16_mlp_out_ratio = 2e-2F;
 
 #pragma endregion
 
@@ -299,10 +312,10 @@ TEST_CASE("Device bf16 model matches the oracle within its tolerance",
   const cublas_handle blas;
 
   // The five-prompt gate again, with the model held as `bfloat16_t`. Every
-  // activation leaves its op rounded to eight significant bits, so the
-  // logits land within a looser tolerance than fp32's, measured and stated
-  // here. They are `float`, projected through the embedding as the engine
-  // holds it.
+  // product reads operands rounded to eight significant bits, so the logits
+  // land within a looser tolerance than fp32's, measured and stated here.
+  // The trunk leaves the engine as `float` and is narrowed for the product
+  // against the embedding, as the engine narrows its last row.
   const auto model = gpt2_model::load(std::move(oracle.weights));
   const gpt2_engine<bfloat16_t> engine(model);
   const cuda_matrix<float> wte_f32(model.wte);
@@ -317,18 +330,75 @@ TEST_CASE("Device bf16 model matches the oracle within its tolerance",
       const auto token_count = id_storage.size();
       REQUIRE(expected.row_extent() == token_count);
 
-      cuda_matrix<bfloat16_t> trunk(
+      cuda_matrix<float> trunk(
           {.row_count = token_count, .col_count = n_embd});
       gpt2_engine<bfloat16_t>::block_activation_buffers owned(token_count,
           n_embd, n_hidden, n_head);
       gpt2_engine<bfloat16_t>::kv_cache cache;
       REQUIRE(engine.forward(trunk, id_storage, owned.lenses(), cache));
 
+      cuda_matrix<bfloat16_t> trunk_bf16(trunk.extent());
+      REQUIRE(corvid::cuda::linalg::convert(trunk_bf16, trunk));
       cuda_matrix<float> logits(expected.extent());
-      REQUIRE(corvid::cuda::llm::compute_logits(blas, logits, trunk, wte));
+      REQUIRE(
+          corvid::cuda::llm::compute_logits(blas, logits, trunk_bf16, wte));
 
       check_device_close(logits, expected, bf16_logits_tolerance,
           bf16_logits_tolerance);
+    }
+  }
+}
+
+TEST_CASE("Device bf16 block matches the oracle within its tolerance",
+    "[Gpt2Test][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+  const auto model = gpt2_model::load(std::move(oracle.weights));
+  const gpt2_engine<bfloat16_t> engine(model);
+
+  // Every block fed its own dumped residual, as the fp32 test does, with the
+  // block's products over bf16 operands and its residual in float. The exit
+  // residual is checked against the next block's entry, and the three float
+  // activations on the way against their dumps, each as a ratio of its
+  // largest error to its largest value, since a block's scale is set by a
+  // few massive activations and a ratio per element would mean nothing.
+  for (const auto n : iota(n_layer)) {
+    DYNAMIC_SECTION("block_" << n) {
+      const auto dump = std::format("block_{}", n);
+      const auto in_view =
+          matrix_of(oracle.activations, dump + "/ln_1/in", n_embd);
+      const auto exit =
+          (n + 1 < n_layer)
+              ? std::format("block_{}/ln_1/in", n + 1)
+              : std::string{"ln_f/in"};
+      const auto expected = matrix_of(oracle.activations, exit, n_embd);
+      const auto token_count = in_view.row_extent();
+
+      const cuda_matrix<float> in(in_view);
+      cuda_matrix<float> out(in_view.extent());
+      gpt2_engine<bfloat16_t>::block_activation_buffers owned(token_count,
+          n_embd, n_hidden, n_head);
+      const auto acts = owned.lenses();
+      cuda_matrix<bfloat16_t> qkv(
+          {.row_count = token_count, .col_count = n_qkv});
+      REQUIRE(engine.apply_block(out, in, n, acts, qkv));
+
+      check_close_to_scale(float_matrix_view(download(out), out.extent()),
+          expected, bf16_exit_ratio);
+      struct dumped {
+        const char* name;
+        cuda_matrix_view<float> actual;
+        float ratio;
+      };
+      for (const auto& [name, actual, ratio] :
+          {dumped{"attn/out", acts.attn_out, bf16_attn_out_ratio},
+              dumped{"ln_2/in", acts.ln_2_in, bf16_ln_2_in_ratio},
+              dumped{"mlp/out", acts.mlp_out, bf16_mlp_out_ratio}})
+      {
+        INFO(name);
+        const auto storage = download(actual);
+        check_close_to_scale(float_matrix_view(storage, actual.extent()),
+            matrix_of(oracle.activations, dump + "/" + name, n_embd), ratio);
+      }
     }
   }
 }

@@ -213,11 +213,12 @@ requires std::same_as<device_value_t<A>, device_value_t<B>> &&
 //
 // `bias` must not be empty. `out` must not be `a` or `b`. Returns false when a
 // launch is refused, leaving `out` unspecified.
-template<DeviceMatrixLike Out>
-requires GemmElement<device_element_t<Out>>
-[[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out,
-    input_view_t<Out> a, input_view_t<Out> b, const input_buffer_t<Out>& bias,
-    gemm_options<device_element_t<Out>> options = {}) {
+template<DeviceMatrixLike Out, DeviceMatrixViewable A, DeviceMatrixViewable B>
+requires std::same_as<device_value_t<A>, device_value_t<B>> &&
+         GemmOutput<device_value_t<A>, device_element_t<Out>>
+[[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out, const A& a,
+    const B& b, const input_buffer_t<Out>& bias,
+    gemm_options<device_value_t<A>> options = {}) {
   const auto& out_lens = out.as_lens();
   assert(bias);
   assert(bias.size() == out_lens.col_extent());
@@ -349,14 +350,17 @@ requires GemmElement<device_element_t<Out>>
 //
 // `out` has a row per row of `in` and a column per column of `weight`,
 // `weight` has a row per column of `in`, and `bias` has an element per column
-// of `weight`. `out` must not be `in` or `weight`.
+// of `weight`. `in` and `weight` share an element type, and `out` and `bias`
+// hold that type or, for `bfloat16_t` operands, `float`. `out` must not be
+// `in` or `weight`.
 //
 // Returns false when a launch is refused, leaving `out` unspecified.
-template<DeviceMatrixLike Out>
-requires GemmElement<device_element_t<Out>>
-[[nodiscard]] bool
-linear_projection(const cublas_handle& blas, Out&& out, input_view_t<Out> in,
-    input_view_t<Out> weight, const input_buffer_t<Out>& bias) {
+template<DeviceMatrixLike Out, DeviceMatrixViewable In,
+    DeviceMatrixViewable Weight>
+requires std::same_as<device_value_t<In>, device_value_t<Weight>> &&
+         GemmOutput<device_value_t<In>, device_element_t<Out>>
+[[nodiscard]] bool linear_projection(const cublas_handle& blas, Out&& out,
+    const In& in, const Weight& weight, const input_buffer_t<Out>& bias) {
   return gemm(blas, out, in, weight, bias);
 }
 
@@ -367,12 +371,12 @@ namespace details {
 
 // Combine the elements of `a` and `b` through `op`, writing into `out`, all
 // `extent` in size, one thread per element.
-template<DeviceFloating T, typename Op>
+template<DeviceFloating To, DeviceFloating A, DeviceFloating B, typename Op>
 __global__ void
-combine_elements(kernel_matrix_lens<T> out, kernel_matrix_view<T> a,
-    kernel_matrix_view<T> b, matrix_extent extent, Op op) {
+combine_elements(kernel_matrix_lens<To> out, kernel_matrix_view<A> a,
+    kernel_matrix_view<B> b, matrix_extent extent, Op op) {
   if (const kernel_coord at; at.is_within(extent))
-    out[at] = T{op(widen(a[at]), widen(b[at]))};
+    out[at] = narrow<To>(op(widen(a[at]), widen(b[at])));
 }
 
 // Combine `a` and `b` elementwise through `op`, writing into `out`.
@@ -380,9 +384,9 @@ combine_elements(kernel_matrix_lens<T> out, kernel_matrix_view<T> a,
 // All three views must have the same extent. `out` can be the same view as
 // `a` or as `b`, but must not otherwise overlap either. Returns false when
 // the launch is refused, leaving `out` unspecified.
-template<DeviceFloating T, typename Op>
-[[nodiscard]] bool combine(cuda_matrix_lens<T> out, cuda_matrix_view<T> a,
-    cuda_matrix_view<T> b, Op op) {
+template<DeviceFloating To, DeviceFloating A, DeviceFloating B, typename Op>
+[[nodiscard]] bool combine(cuda_matrix_lens<To> out, cuda_matrix_view<A> a,
+    cuda_matrix_view<B> b, Op op) {
   assert(a.extent() == b.extent());
   assert(out.extent() == a.extent());
   assert(is_same_or_disjoint(out.as_span(), a.as_span()));
@@ -398,25 +402,33 @@ template<DeviceFloating T, typename Op>
 
 // Add `a` and `b` elementwise, writing into `out`.
 //
-// All three views must have the same extent. `out` can be the same view as
-// `a` or as `b`, adding in place, but must not otherwise overlap either.
+// All three must have the same extent. `out` can be the same view as `a` or
+// as `b`, adding in place, but must not otherwise overlap either. The three
+// may differ in element type, and each sum is rounded once, to `out`'s.
 // Returns false when the launch is refused, leaving `out` unspecified.
-template<DeviceMatrixLike Out>
-requires DeviceFloating<device_element_t<Out>>
-[[nodiscard]] bool add(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
-  return details::combine(out.as_lens(), a, b, ::cuda::std::plus<>{});
+template<DeviceMatrixLike Out, DeviceMatrixViewable A, DeviceMatrixViewable B>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<A>> && DeviceFloating<device_value_t<B>>
+[[nodiscard]] bool add(Out&& out, const A& a, const B& b) {
+  return details::combine(out.as_lens(),
+      cuda_matrix_view<device_value_t<A>>(a),
+      cuda_matrix_view<device_value_t<B>>(b), ::cuda::std::plus<>{});
 }
 
 // Subtract `b` from `a` elementwise, writing into `out`.
 //
-// All three views must have the same extent. `out` can be the same view as
-// `a` or as `b`, subtracting in place, but must not otherwise overlap either.
-// Returns false when the launch is refused, leaving `out` unspecified.
-template<DeviceMatrixLike Out>
-requires DeviceFloating<device_element_t<Out>>
-[[nodiscard]] bool
-subtract(Out&& out, input_view_t<Out> a, input_view_t<Out> b) {
-  return details::combine(out.as_lens(), a, b, ::cuda::std::minus<>{});
+// All three must have the same extent. `out` can be the same view as `a` or
+// as `b`, subtracting in place, but must not otherwise overlap either. The
+// three may differ in element type, and each difference is rounded once, to
+// `out`'s. Returns false when the launch is refused, leaving `out`
+// unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable A, DeviceMatrixViewable B>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<A>> && DeviceFloating<device_value_t<B>>
+[[nodiscard]] bool subtract(Out&& out, const A& a, const B& b) {
+  return details::combine(out.as_lens(),
+      cuda_matrix_view<device_value_t<A>>(a),
+      cuda_matrix_view<device_value_t<B>>(b), ::cuda::std::minus<>{});
 }
 
 #pragma endregion
@@ -448,13 +460,15 @@ __global__ void apply_softmax(kernel_matrix_lens<T> out,
   peak = cuda_reduce::block_max(peak);
 
   compute_t<T> total{};
-  for (const auto col : columns) total += std::exp(widen(in[row, col]) - peak);
+  for (const auto col : columns) {
+    const auto weight = std::exp(widen(in[row, col]) - peak);
+    out[row, col] = T{weight};
+    total += weight;
+  }
   total = cuda_reduce::block_sum(total);
 
-  // Each exponential is computed again rather than stored unnormalized, so
-  // that a weight is rounded once, at its store.
   for (const auto col : columns)
-    out[row, col] = T{std::exp(widen(in[row, col]) - peak) / total};
+    out[row, col] = T{widen(out[row, col]) / total};
 }
 
 } // namespace details
@@ -494,7 +508,7 @@ template<DeviceFloating To, DeviceFloating From>
 __global__ void convert_elements(kernel_matrix_lens<To> out,
     kernel_matrix_view<From> in, matrix_extent extent) {
   if (const kernel_coord at; at.is_within(extent))
-    out[at] = To{static_cast<compute_t<To>>(widen(in[at]))};
+    out[at] = narrow<To>(widen(in[at]));
 }
 
 } // namespace details

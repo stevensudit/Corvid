@@ -182,6 +182,15 @@ TEST_CASE("Device layer norm over bfloat16_t is the float layer norm narrowed",
   REQUIRE(
       out_bf16.as_view().store(matrix_lens<bfloat16_t>(out_narrowed, extent)));
   CHECK(out_narrowed == narrowed(out_values));
+
+  // And from the float rows straight into bfloat16, the residual stream's
+  // form, which is the same computation with the one rounding at the end.
+  cuda_matrix<bfloat16_t> out_mixed(extent);
+  REQUIRE(corvid::cuda::llm::layer_norm(out_mixed, in, weight, bias, eps));
+  std::vector<bfloat16_t> mixed_narrowed(out_mixed.size());
+  REQUIRE(out_mixed.as_view().store(
+      matrix_lens<bfloat16_t>(mixed_narrowed, extent)));
+  CHECK(mixed_narrowed == narrowed(out_values));
 }
 
 #pragma endregion
@@ -383,6 +392,30 @@ TEMPLATE_TEST_CASE("Device embed positions on hand-computed rows",
   std::vector<T> out_storage(out.size());
   REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
   CHECK(out_storage == std::vector<T>{T{1.5}, T{2.25}, T{0}, T{25}});
+}
+
+TEST_CASE("Device embeddings from bfloat16_t tables into a float residual",
+    "[LlmOpsTest][cuda]") {
+  // The two napkin tables held as `bfloat16_t`, gathered and added into a
+  // `float` residual, as the engine holds them. The values are exact in
+  // eight bits, so both halves are exact.
+  const auto table_narrowed =
+      narrowed({1.0F, 2.0F, 10.0F, 20.0F, 100.0F, 200.0F});
+  const cuda_matrix<bfloat16_t> table(matrix_view<bfloat16_t>(table_narrowed,
+      {.row_count = 3, .col_count = 2}));
+  const std::vector<token_id> id_storage{token_id{2}, token_id{0}};
+  cuda_buffer<token_id> ids(id_storage.size());
+  REQUIRE(ids.load(id_storage));
+  cuda_matrix<float> out({.row_count = id_storage.size(), .col_count = 2});
+
+  REQUIRE(corvid::cuda::llm::embed_tokens(out, ids, table));
+  std::vector<float> out_storage(out.size());
+  REQUIRE(out.as_view().store(float_matrix_lens(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<float>{100.0F, 200.0F, 1.0F, 2.0F});
+
+  REQUIRE(corvid::cuda::llm::embed_positions(out, table));
+  REQUIRE(out.as_view().store(float_matrix_lens(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<float>{101.0F, 202.0F, 11.0F, 22.0F});
 }
 
 TEST_CASE("Device embed tokens match the oracle",

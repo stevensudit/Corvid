@@ -1360,8 +1360,11 @@ admits `bfloat16_t` beside `float` and `double`. A kernel computes in
 `compute_t<T>` ("bfloat16.cuh"), `float` for `bfloat16_t` and `T` itself
 otherwise, widening each element it reads with `widen` and narrowing each
 result once, at its store, with `T{}`, so a bf16 op is the float op rounded
-at the end. Softmax computes each exponential twice rather than storing the
-unnormalized weights, so that its weights are rounded once too. The residual
+at the end. Softmax is the exception, since it stores each unnormalized
+weight and divides it in place, so a bf16 weight is rounded twice; measured
+against recomputing the exponential, the difference is lost in the noise of
+the gate below, and a second exponential per element would cost the float
+kernel real time, so the one-pass form stays for every type. The residual
 adds, the position embedding, and the mask follow the same shape, with the
 mask's negative infinity narrowed from the compute type. The cuBLAS wrapper
 gained `GemmOutput`, the operand and result pair `multiply` accepts, which
@@ -1386,6 +1389,40 @@ softmax, add, subtract, the mask, the embeddings), the attention napkin over
 bf16 within 1e-2, the mixed logits stored as exact floats, `convert` both
 ways, the concept truth tables, and the two bf16 engine gates. Next: tokens
 per second, fp32 against bf16 against llama.cpp.
+
+Status (2026-09-24, bf16, slice 3b: the residual stays fp32): the engine now
+holds only the operands of its matrix products as `T`, the embeddings, the
+projection weights, the biases of the two projections whose outputs feed
+another product, and the activations between them (the layer norm outputs,
+`qkv` and so the KV cache, the attention scratch, and the MLP's hidden
+activation). The residual stream, the two projection outputs added to it and
+their biases, and the layer norms' weights and biases are `float`, so a
+value that accumulates across the blocks is never narrowed; bf16 is for the
+parameters' memory and bandwidth, and the activations are small. The ops
+that straddle the two learned to read one element type and write another:
+`layer_norm` reads the float residual and writes `T`, `embed_tokens` and
+`embed_positions` read a `T` table into the float residual, `add` and
+`subtract` take operands of any element types, and `linear_projection` and
+the bias `gemm` take mixed operands as the matrix-addend `gemm` already did,
+so a `T` product lands in a float output with its float bias. A `narrow<T>`
+helper beside `widen` carries a value from one compute type into another
+element type. `next_token` narrows the trunk's last row to `T` for the
+product against the embedding, one extra launch per token. Measured: the
+bf16 logits match the fp32 oracle within a relative error of 3.4e-2 on the
+worst prompt (the gate stays 4e-2), with the largest absolute error down
+from 4.5 to 2.5, and bf16 greedy decoding still follows the manifest for 7
+of 20 IDs. A per-block gate measures each block against its own scale, since
+a few massive activations set it: the exit residual within 1.3e-2 of its
+largest value, the MLP output within 9.4e-3, and the attention output within
+7.2e-2 (block 3), which is where bf16's cost now sits, in the scores, dot
+products of bf16 queries and keys that the softmax magnifies. The reference
+for all of this is "gpt2_bf16_reference.py", which runs the transformers
+model wholly in bf16: on the same worst prompt it loses 3.7e-2 relative and
+10.0 absolute, and its greedy run follows fp32 for 6 of 20 IDs, so the
+engine is at parity or better, and what remains is bf16's own. Keeping the
+attention operands wider (`qkv` in float, or an fp16 KV cache with eleven
+significant bits) is the next lever, and a decision. Next: tokens per
+second, fp32 against bf16 against llama.cpp.
 
 ### 5. Backward pass and LoRA
 

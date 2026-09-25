@@ -46,7 +46,8 @@
 // launches were accepted, so a fault inside a kernel surfaces at the next
 // synchronizing call, such as a `store`. The scalar formulas are the CPU ops'
 // own, shared through `CUDA_HOST_DEVICE`, and a kernel computes them in
-// `compute_t` of its element type, rounding each result once, at its store.
+// `compute_t` of the element type it reads, rounding each result once, at
+// its store, to the element type it writes.
 namespace corvid::cuda::llm {
 
 using namespace corvid::cuda::linalg;
@@ -72,24 +73,24 @@ namespace details {
 // In-place is safe. Each element is read only by the thread that writes it,
 // and the writes come after both sums, so no thread reads a column another
 // has already overwritten.
-template<DeviceFloating T>
+template<DeviceFloating To, DeviceFloating From>
 __global__ void
-apply_layer_norm(kernel_matrix_lens<T> out, kernel_matrix_view<T> in,
-    size_t cols, const T* weight, const T* bias, compute_t<T> eps) {
+apply_layer_norm(kernel_matrix_lens<To> out, kernel_matrix_view<From> in,
+    size_t cols, const From* weight, const From* bias, compute_t<From> eps) {
   using corvid::linalg::scale_shift;
   using corvid::linalg::standardize;
   const auto row = cuda_kernel::x_block<size_t>();
   const kernel_col_range columns{cols};
-  const auto count = static_cast<compute_t<T>>(cols);
+  const auto count = static_cast<compute_t<From>>(cols);
 
-  compute_t<T> total{};
+  compute_t<From> total{};
   for (const auto col : columns) total += widen(in[row, col]);
   const auto mean = cuda_reduce::block_sum(total) / count;
 
   // The variance is calculated as the mean of the squared deviations from the
   // mean, as the CPU op computes it, rather than the mean of the squares minus
   // the square of the mean.
-  compute_t<T> squares{};
+  compute_t<From> squares{};
   for (const auto col : columns) {
     const auto deviation = widen(in[row, col]) - mean;
     squares += deviation * deviation;
@@ -99,12 +100,12 @@ apply_layer_norm(kernel_matrix_lens<T> out, kernel_matrix_view<T> in,
   // The inverse standard deviation is calculated as an actual reciprocal of
   // the square root, instead of using `rsqrt`. The latter would be faster, but
   // yield slightly different results.
-  const auto inv_std = compute_t<T>{1} / std::sqrt(variance + eps);
+  const auto inv_std = compute_t<From>{1} / std::sqrt(variance + eps);
 
   for (const auto col : columns)
     out[row, col] =
-        T{scale_shift(standardize(widen(in[row, col]), mean, inv_std),
-            widen(weight[col]), widen(bias[col]))};
+        narrow<To>(scale_shift(standardize(widen(in[row, col]), mean, inv_std),
+            widen(weight[col]), widen(bias[col])));
 }
 
 } // namespace details
@@ -121,24 +122,28 @@ apply_layer_norm(kernel_matrix_lens<T> out, kernel_matrix_view<T> in,
 //   bias    C
 //
 // `out` can be the same view as `in`, normalizing in place, but must not
-// otherwise overlap it. `eps` is added to each row's variance inside the
-// square root. Returns false when the launch is refused, leaving `out`
-// unspecified.
-template<DeviceMatrixLike Out>
-requires DeviceFloating<device_element_t<Out>>
-[[nodiscard]] bool
-layer_norm(Out&& out, input_view_t<Out> in, const input_buffer_t<Out>& weight,
-    const input_buffer_t<Out>& bias, compute_t<device_element_t<Out>> eps) {
+// otherwise overlap it. `in`, `weight`, and `bias` share an element type,
+// and `out` may hold another, each result rounded once, to it. `eps` is
+// added to each row's variance inside the square root. Returns false when
+// the launch is refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable In>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<In>>
+[[nodiscard]] bool layer_norm(Out&& out, const In& in,
+    const cuda_buffer<device_value_t<In>>& weight,
+    const cuda_buffer<device_value_t<In>>& bias,
+    compute_t<device_value_t<In>> eps) {
   const auto& out_lens = out.as_lens();
-  [[maybe_unused]] const auto width = in.col_extent();
-  assert(out_lens.extent() == in.extent());
+  const cuda_matrix_view<device_value_t<In>> in_view = in;
+  [[maybe_unused]] const auto width = in_view.col_extent();
+  assert(out_lens.extent() == in_view.extent());
   assert((weight.size() == width) && (bias.size() == width));
-  assert(is_same_or_disjoint(out_lens.as_span(), in.as_span()));
+  assert(is_same_or_disjoint(out_lens.as_span(), in_view.as_span()));
   assert(is_disjoint(out_lens.as_span(), weight.as_span()));
   assert(is_disjoint(out_lens.as_span(), bias.as_span()));
 
   details::apply_layer_norm<<<out_lens.row_extent(), threads_per_block>>>(
-      kernel_matrix_lens{out_lens}, kernel_matrix_view{in}, width,
+      kernel_matrix_lens{out_lens}, kernel_matrix_view{in_view}, width,
       weight.get(), bias.get(), eps);
   return cuda_last_status{}.ok();
 }
@@ -182,11 +187,11 @@ namespace details {
 
 // Copy the row of `table` that each ID names into `out`, `extent` in size, one
 // thread per element.
-template<typename T>
-__global__ void gather_rows(kernel_matrix_lens<T> out, const token_id* ids,
-    kernel_matrix_view<T> table, matrix_extent extent) {
+template<DeviceFloating To, DeviceFloating From>
+__global__ void gather_rows(kernel_matrix_lens<To> out, const token_id* ids,
+    kernel_matrix_view<From> table, matrix_extent extent) {
   if (const kernel_coord at; at.is_within(extent))
-    out[at] = table[*ids[at.row], at.col];
+    out[at] = narrow<To>(widen(table[*ids[at.row], at.col]));
 }
 
 } // namespace details
@@ -201,18 +206,22 @@ __global__ void gather_rows(kernel_matrix_lens<T> out, const token_id* ids,
 //   out    [T, C]  a row per ID, written
 //
 // `out` must have one row per ID and the width of `table`, every ID must
-// index a row of `table`, and `out` must not overlap `table`. Returns false
-// when the launch is refused, leaving `out` unspecified.
-template<DeviceMatrixLike Out>
-[[nodiscard]] bool embed_tokens(Out&& out, const cuda_buffer<token_id>& ids,
-    input_view_t<Out> table) {
+// index a row of `table`, and `out` must not overlap `table`. `out` may hold
+// another element type than `table`, each entry rounded once, to it.
+// Returns false when the launch is refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable Table>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<Table>>
+[[nodiscard]] bool
+embed_tokens(Out&& out, const cuda_buffer<token_id>& ids, const Table& table) {
   const auto& out_lens = out.as_lens();
+  const cuda_matrix_view<device_value_t<Table>> table_view = table;
   assert(out_lens.row_extent() == ids.size());
-  assert(out_lens.col_extent() == table.col_extent());
-  assert(is_disjoint(out_lens.as_span(), table.as_span()));
+  assert(out_lens.col_extent() == table_view.col_extent());
+  assert(is_disjoint(out_lens.as_span(), table_view.as_span()));
 
   details::gather_rows<<<grid_for(out_lens), threads_per_block>>>(
-      kernel_matrix_lens{out_lens}, ids.get(), kernel_matrix_view{table},
+      kernel_matrix_lens{out_lens}, ids.get(), kernel_matrix_view{table_view},
       out_lens.extent());
   return cuda_last_status{}.ok();
 }
@@ -229,18 +238,21 @@ template<DeviceMatrixLike Out>
 //   out    [T, C]  a row per token, added to in place
 //
 // `out` must have the width of `table`, its last row's position must be in
-// `table`, and it must not overlap `table`. Returns false when the launch is
-// refused, leaving `out` unspecified.
-template<DeviceMatrixLike Out>
-requires DeviceFloating<device_element_t<Out>>
-[[nodiscard]] bool embed_positions(Out&& out, input_view_t<Out> table,
-    size_t first_position = 0) {
+// `table`, and it must not overlap `table`. `out` may hold another element
+// type than `table`, each sum rounded once, to it. Returns false when the
+// launch is refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable Table>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<Table>>
+[[nodiscard]] bool
+embed_positions(Out&& out, const Table& table, size_t first_position = 0) {
   const auto& out_lens = out.as_lens();
-  assert(first_position + out_lens.row_extent() <= table.row_extent());
-  assert(out_lens.col_extent() == table.col_extent());
+  const cuda_matrix_view<device_value_t<Table>> table_view = table;
+  assert(first_position + out_lens.row_extent() <= table_view.row_extent());
+  assert(out_lens.col_extent() == table_view.col_extent());
 
   return add(out, out_lens,
-      table[{row_ndx{first_position}, col_ndx{0}}, out_lens.extent()]);
+      table_view[{row_ndx{first_position}, col_ndx{0}}, out_lens.extent()]);
 }
 
 #pragma endregion
