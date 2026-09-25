@@ -192,6 +192,20 @@ keep open. Known primer item recorded in the manifest: HF GPT-2 stores
 projections as Conv1D (`W` is `[in, out]`, `y = x @ W + b`), the transpose
 of `nn.Linear`.
 
+Status (2026-09-25): the manifest is split. The dump checksums and the
+interpreter version, the only entries that differ between the Windows and
+Linux oracle runs, moved to a gitignored `tests/.local/llm/gpt2/dumps.json`
+beside the dumps; the committed manifest keeps the gate values, the pinned
+library versions, and the tracked fixtures' checksums, so a rerun on either
+platform leaves the tree clean unless a number changed. Prompted by the
+Linux dumps predating slice 4's stress entries: the tests read the dumps of
+their own checkout, so each platform reruns the oracle after a slice adds
+an entry. Same day: the oracle interpreter is Python 3.14 on both platforms
+(deadsnakes in the Dockerfile, the py launcher on Windows) and every library
+is pinned (torch 2.14.0 in the setup scripts, the rest in
+requirements.txt, transformers bumped to 5.17.0); the 3.14 rerun on Linux
+reproduced the 3.12 dumps byte for byte.
+
 ### 1. Tokenizer
 
 GPT-2's byte-level BPE, in `corvid::llm`, built on `corvid/strings` and the

@@ -5,9 +5,9 @@
 # where GPT-2 124M in fp32 takes seconds, and the CPU wheel is a fraction of
 # the size of the CUDA one. Everything else comes from PyPI.
 #
-# Pass -Python to pick the interpreter (default: the py launcher's 3.12).
+# Pass -Python to pick the interpreter (default: the py launcher's 3.14).
 param(
-  [string]$Python = "py -3.12"
+  [string]$Python = "py -3.14"
 )
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -15,7 +15,7 @@ $Venv = Join-Path $Root "tests\.local\llm\venv"
 
 Invoke-Expression "$Python -m venv `"$Venv`""
 & "$Venv\Scripts\python.exe" -m pip install --upgrade pip
-& "$Venv\Scripts\pip.exe" install --index-url https://download.pytorch.org/whl/cpu torch
+& "$Venv\Scripts\pip.exe" install --index-url https://download.pytorch.org/whl/cpu torch==2.14.0
 & "$Venv\Scripts\pip.exe" install -r "$Root\scripts\llm_oracle\requirements.txt"
 
 Write-Host ""

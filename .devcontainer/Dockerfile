@@ -131,6 +131,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-unidiff python3-termcolor python3-dateutil \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Python 3.14 from the deadsnakes PPA, for the LLM oracle venv
+# (scripts/llm_oracle/setup.sh): Ubuntu 24.04 ships 3.12, and the oracle
+# should run the same interpreter on both platforms. The system python3 stays
+# 3.12 for the tooling above. The PPA host and the key server it verifies
+# through are in the firewall allowlist.
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
+  && add-apt-repository -y ppa:deadsnakes/ppa \
+  && apt-get install -y --no-install-recommends python3.14 python3.14-venv \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # CMake 4 from the PyPI wheel, ahead of Ubuntu's 3.28 on PATH. Identifying
 # clang++ as the CUDA compiler needs it: 3.28 probes clang with sm_52/30/20,
 # which the 13.3 ptxas rejects, so the configure fails with "CUDA compiler

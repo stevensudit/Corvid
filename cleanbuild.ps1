@@ -240,9 +240,12 @@ if ($tidy) {
   # (keeping -O so the /MD CRT and layout match the normal Release build; the
   # CRT comes from -fms-runtime-lib=dll, not the build type). The build type
   # MUST stay Release: an empty build type makes the GNU-clang platform pull the
-  # debug CRT (msvcrtd), which then fails to link against the /MD Catch2.
+  # debug CRT (msvcrtd), which then fails to link against the /MD Catch2. The
+  # CUDA Release flags carry their own -DNDEBUG, so override them too; while
+  # only the C++ ones were, the .cu TUs compiled with asserts stripped and an
+  # ill-formed assert in linear_algebra.cuh passed here but not on Linux.
   $cfg += @('-DUSE_CLANG_TIDY=ON', "-DCLANG_TIDY_EXE=$clangTidy",
-    '-DCMAKE_CXX_FLAGS_RELEASE=-O2')
+    '-DCMAKE_CXX_FLAGS_RELEASE=-O2', '-DCMAKE_CUDA_FLAGS_RELEASE=-O3')
 }
 $cfg += $cudaArgs
 $mode = if ($reconfigure) { 'reconfigure' } elseif ($tidy) { 'tidy' } elseif ($cudacheck) { 'cudacheck' } elseif ($sanitizer) { $sanitizer } else { 'plain' }
@@ -444,15 +447,17 @@ if ($stem -like 'notest_*') {
 
 # tidy mode: clang-tidy warnings streamed past during the build and got buried
 # under the ctest run. Summarize them at the end so the bottom-line state is
-# visible, mirroring cleanbuild.sh. Filter out .fetchcontent (the FetchContent'd
-# Catch2) so only Corvid-owned findings appear; group by check.
+# visible, mirroring cleanbuild.sh. Errors count too: the standalone .cu pass
+# reports a TU that fails to compile as [clang-diagnostic-error] and does not
+# stop the script. Filter out .fetchcontent (the FetchContent'd Catch2) so only
+# Corvid-owned findings appear; group by check.
 if ($tidy) {
   Write-Host ''
   Write-Host '==================== clang-tidy summary ===================='
-  $warn = @(Select-String -Path $tidyLog -Pattern ': warning: .*\[[A-Za-z][A-Za-z0-9._-]*\]' |
+  $warn = @(Select-String -Path $tidyLog -Pattern ': (warning|error): .*\[[A-Za-z][A-Za-z0-9._-]*\]' |
     Where-Object { $_.Line -notmatch '\.fetchcontent' } | ForEach-Object { $_.Line })
   if ($warn.Count) {
-    Write-Host "$($warn.Count) warning(s):"
+    Write-Host "$($warn.Count) finding(s):"
     Write-Host ''
     $warn | ForEach-Object { Write-Host $_ }
     Write-Host ''
@@ -461,7 +466,7 @@ if ($tidy) {
       Group-Object | Sort-Object Count -Descending |
       ForEach-Object { Write-Host ('  {0,5}  {1}' -f $_.Count, $_.Name) }
   } else {
-    Write-Host 'clean: no warnings'
+    Write-Host 'clean: no warnings or errors'
   }
   Write-Host ''
   Write-Host "Full log: $tidyLog"

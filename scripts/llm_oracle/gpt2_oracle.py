@@ -12,8 +12,9 @@ Outputs (paths relative to the repository root):
 tests/data/llm/gpt2/           small, committed
   vocab.json, merges.txt         the tokenizer tables, copied from the hub
   corpus_tokens.json             reference encoding of corpus.txt
-  manifest.json                  shapes, config, prompts, checksums,
-                                 greedy continuation, tool versions
+  manifest.json                  shapes, config, prompts, greedy
+                                 continuation, tool versions, fixture
+                                 checksums
 
 tests/.local/llm/gpt2/         large, gitignored
   model.safetensors              the weights, copied from the hub and
@@ -24,10 +25,15 @@ tests/.local/llm/gpt2/         large, gitignored
   activations.safetensors        every sublayer boundary for the bisect prompt
   grads.safetensors              loss and every parameter gradient for one
                                  batch drawn from the corpus
+  dumps.json                     the dumps' checksums, with the interpreter
+                                 and platform that produced them
 
 All reference tensors are fp32, computed on the CPU in eval mode with
 deterministic algorithms, so the numbers are reproducible bit for bit on
-the same torch version. The manifest records that version.
+the same torch version. The manifest records that version. Across
+platforms the dump bytes differ at the ulp level (the BLAS backends), so
+their checksums stay beside them in dumps.json rather than in the committed
+manifest, where the two platforms would take turns rewriting them.
 """
 
 import argparse
@@ -279,7 +285,6 @@ def main() -> None:
     import transformers
 
     manifest["versions"] = {
-        "python": platform.python_version(),
         "torch": torch.__version__,
         "transformers": transformers.__version__,
         "safetensors": safetensors.__version__,
@@ -291,12 +296,24 @@ def main() -> None:
             fixtures / "merges.txt",
             fixtures / "corpus.txt",
             fixtures / "corpus_tokens.json",
-            out / "model.safetensors",
-            out / "logits.safetensors",
-            out / "activations.safetensors",
-            out / "grads.safetensors",
         ]
     }
+    dumps = {
+        "platform": platform.system(),
+        "python": platform.python_version(),
+        "sha256": {
+            p.name: sha256(p)
+            for p in [
+                out / "model.safetensors",
+                out / "logits.safetensors",
+                out / "activations.safetensors",
+                out / "grads.safetensors",
+            ]
+        },
+    }
+    (out / "dumps.json").write_text(
+        json.dumps(dumps, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
     # LF on every platform, so the checksums and the committed text match
     # across machines.
     (fixtures / "manifest.json").write_text(

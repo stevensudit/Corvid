@@ -87,6 +87,8 @@ for domain in \
     "download-r2.pytorch.org" \
     "archive.ubuntu.com" \
     "security.ubuntu.com" \
+    "ppa.launchpadcontent.net" \
+    "keyserver.ubuntu.com" \
     "apt.llvm.org"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')

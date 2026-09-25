@@ -77,19 +77,14 @@
     "loss": 5.197338581085205
   },
   "versions": {
-    "python": "3.12.10",
     "torch": "2.14.0+cpu",
-    "transformers": "5.16.1",
+    "transformers": "5.17.0",
     "safetensors": "0.8.0"
   },
   "sha256": {
     "tests/data/llm/gpt2/vocab.json": "196139668be63f3b5d6574427317ae82f612a97c5d1cdaf36ed2256dbf636783",
     "tests/data/llm/gpt2/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
     "tests/data/llm/gpt2/corpus.txt": "3e4579503acabfdd443602fa790f66b70643b4f437fe576cc4468dbf261b89a4",
-    "tests/data/llm/gpt2/corpus_tokens.json": "e61ab3e287d8711c4313d016898eb3b54b332fabbf839ca4041512d3c674600e",
-    "tests/.local/llm/gpt2/model.safetensors": "919304e993b13db68d27802f59c215208ecc4dcc4343c85992fd3ff60d639af9",
-    "tests/.local/llm/gpt2/logits.safetensors": "46c66deecacac1a5d89740613ac82e31a9ee1bd3712cd6832bed98df33e66eb4",
-    "tests/.local/llm/gpt2/activations.safetensors": "5a6de2ee278ad35af199fd8b4c3d2a578db6d473ed57c45530773512cce0a2a3",
-    "tests/.local/llm/gpt2/grads.safetensors": "71bc6b8e7c12ab191cfe5d5490589de3c5647734a209a441daf3cde8ef5aa0d9"
+    "tests/data/llm/gpt2/corpus_tokens.json": "e61ab3e287d8711c4313d016898eb3b54b332fabbf839ca4041512d3c674600e"
   }
 }
