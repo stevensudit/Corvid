@@ -25,6 +25,7 @@
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/linalg/linear_algebra.cuh"
+#include "bfloat16_helpers.cuh"
 #include "catch2_main.h"
 #include "catch2/catch_template_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
@@ -47,8 +48,12 @@ using corvid::cuda::cuda_matrix;
 using corvid::cuda::cuda_matrix_lens;
 using corvid::cuda::cuda_matrix_view;
 using corvid::cuda::DeviceMatrixLike;
+using corvid::cuda::DeviceMatrixViewable;
+using corvid::cuda::GemmOutput;
 using corvid::cuda::kernel_col_range;
 using corvid::matrix_types::matrix_axis;
+using corvid::tests::narrowed;
+using corvid::tests::widened;
 
 namespace {
 
@@ -65,14 +70,6 @@ __global__ void walk_columns(unsigned* count, unsigned* sum, size_t cols) {
   }
   count[thread] = visited;
   sum[thread] = total;
-}
-
-// The values narrowed to `bfloat16_t`, for operands built from float literals.
-std::vector<bfloat16_t> narrowed(const std::vector<float>& values) {
-  std::vector<bfloat16_t> result;
-  result.reserve(values.size());
-  for (const auto value : values) result.emplace_back(value);
-  return result;
 }
 
 } // namespace
@@ -94,6 +91,30 @@ TEST_CASE("DeviceMatrixLike admits only writable outputs",
   static_assert(!DeviceMatrixLike<const cuda_matrix<float>&>);
   static_assert(!DeviceMatrixLike<cuda_matrix_view<float>>);
   static_assert(!DeviceMatrixLike<int>);
+}
+
+TEST_CASE("DeviceMatrixViewable admits anything that converts to a view",
+    "[LinearAlgebraTest][cuda]") {
+  static_assert(DeviceMatrixViewable<cuda_matrix<float>>);
+  static_assert(DeviceMatrixViewable<const cuda_matrix<float>>);
+  static_assert(DeviceMatrixViewable<cuda_matrix<float>&>);
+  static_assert(DeviceMatrixViewable<cuda_matrix_lens<float>>);
+  static_assert(DeviceMatrixViewable<cuda_matrix_view<float>>);
+  static_assert(!DeviceMatrixViewable<int>);
+  static_assert(std::same_as<
+      corvid::cuda::device_value_t<cuda_matrix_view<float>>, float>);
+}
+
+TEST_CASE("GemmOutput admits a product's own type and float over bfloat16_t",
+    "[LinearAlgebraTest][cuda]") {
+  static_assert(GemmOutput<float, float>);
+  static_assert(GemmOutput<double, double>);
+  static_assert(GemmOutput<bfloat16_t, bfloat16_t>);
+  static_assert(GemmOutput<bfloat16_t, float>);
+  static_assert(!GemmOutput<float, bfloat16_t>);
+  static_assert(!GemmOutput<float, double>);
+  static_assert(!GemmOutput<double, float>);
+  static_assert(!GemmOutput<int, int>);
 }
 
 #pragma endregion
@@ -441,7 +462,7 @@ TEST_CASE("Device batched gemm over bfloat16_t", "[LinearAlgebraTest][cuda]") {
 #pragma region add
 
 TEMPLATE_TEST_CASE("Device add on hand-computed rows",
-    "[LinearAlgebraTest][cuda]", float, double) {
+    "[LinearAlgebraTest][cuda]", float, double, bfloat16_t) {
   using T = TestType;
   using lens_t = cuda_matrix_lens<T>;
   using row_ndx = lens_t::row_ndx;
@@ -480,7 +501,7 @@ TEMPLATE_TEST_CASE("Device add on hand-computed rows",
     // The operands are the leading two columns of three-wide matrices, and
     // `out` the leading columns of one whose last column must survive
     // untouched. `x` marks filler.
-    constexpr auto x = T{-1};
+    const auto x = T{-1};
     const std::vector<T> a_wide_storage{T{1}, T{2}, x, T{3}, T{4}, x};
     const std::vector<T> b_wide_storage{T{10}, T{20}, x, T{30}, T{40}, x};
     const std::vector<T> out_start{x, x, T{9}, x, x, T{9}};
@@ -510,7 +531,7 @@ TEMPLATE_TEST_CASE("Device add on hand-computed rows",
 #pragma region subtract
 
 TEMPLATE_TEST_CASE("Device subtract on hand-computed rows",
-    "[LinearAlgebraTest][cuda]", float, double) {
+    "[LinearAlgebraTest][cuda]", float, double, bfloat16_t) {
   using T = TestType;
   const std::vector<T> a_storage{T{11}, T{22}, T{33}, T{44}};
   const std::vector<T> b_storage{T{1}, T{2}, T{3}, T{4}};
@@ -638,6 +659,67 @@ TEST_CASE("Device softmax over a row wider than a block",
     CAPTURE(c);
     CHECK_THAT(weights[c + 1] / weights[c], WithinAbs(ratio, 1e-4));
   }
+}
+
+TEST_CASE("Device softmax over bfloat16_t is the float softmax narrowed",
+    "[LinearAlgebraTest][cuda]") {
+  // The hand-computed rows, narrowed first so that both kernels widen to
+  // the same floats. The bf16 result is then the float result rounded once,
+  // at the store.
+  const auto in_narrowed =
+      narrowed({0.0F, 0.707F, 1000.0F, 1000.0F, -3.0F, 5.0F});
+  constexpr matrix_types::matrix_extent extent{.row_count = 3, .col_count = 2};
+
+  const auto in_widened = widened(in_narrowed);
+  const cuda_matrix<float> in(matrix_view<float>(in_widened, extent));
+  cuda_matrix<float> out(extent);
+  REQUIRE(corvid::cuda::linalg::softmax(out, in));
+  std::vector<float> out_values(out.size());
+  REQUIRE(out.as_view().store(matrix_lens<float>(out_values, extent)));
+
+  const cuda_matrix<bfloat16_t> in_bf16(
+      matrix_view<bfloat16_t>(in_narrowed, extent));
+  cuda_matrix<bfloat16_t> out_bf16(extent);
+  REQUIRE(corvid::cuda::linalg::softmax(out_bf16, in_bf16));
+  std::vector<bfloat16_t> out_narrowed(out_bf16.size());
+  REQUIRE(
+      out_bf16.as_view().store(matrix_lens<bfloat16_t>(out_narrowed, extent)));
+  CHECK(out_narrowed == narrowed(out_values));
+}
+
+#pragma endregion
+#pragma region convert
+
+TEST_CASE("Device convert narrows and widens between element types",
+    "[LinearAlgebraTest][cuda]") {
+  // Values that need more than eight significant bits narrow to bfloat16 as
+  // the host narrows them, and widen back to what they narrowed to. A float
+  // widens to double exactly.
+  const std::vector<float> values{1.0F, 1.00390625F, 3.14159F, -0.1F, 65504.0F,
+      1e-3F};
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 3};
+  const cuda_matrix<float> in(matrix_view<float>(values, extent));
+
+  cuda_matrix<bfloat16_t> as_bf16(extent);
+  REQUIRE(corvid::cuda::linalg::convert(as_bf16, in));
+  std::vector<bfloat16_t> bf16_values(as_bf16.size());
+  REQUIRE(
+      as_bf16.as_view().store(matrix_lens<bfloat16_t>(bf16_values, extent)));
+  CHECK(bf16_values == narrowed(values));
+
+  cuda_matrix<float> round_trip(extent);
+  REQUIRE(corvid::cuda::linalg::convert(round_trip, as_bf16));
+  std::vector<float> round_trip_values(round_trip.size());
+  REQUIRE(round_trip.as_view().store(
+      matrix_lens<float>(round_trip_values, extent)));
+  CHECK(round_trip_values == widened(bf16_values));
+
+  cuda_matrix<double> as_double(extent);
+  REQUIRE(corvid::cuda::linalg::convert(as_double, in));
+  std::vector<double> double_values(as_double.size());
+  REQUIRE(
+      as_double.as_view().store(matrix_lens<double>(double_values, extent)));
+  CHECK(double_values == std::vector<double>(values.begin(), values.end()));
 }
 
 #pragma endregion

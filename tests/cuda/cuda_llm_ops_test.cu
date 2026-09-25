@@ -24,9 +24,11 @@
 #include <vector>
 
 #include "corvid/containers/utils/interval.h"
+#include "corvid/cuda/bfloat16.cuh"
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/llm/llm_ops.cuh"
+#include "bfloat16_helpers.cuh"
 #include "catch2_main.h"
 #include "catch2/catch_template_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
@@ -43,10 +45,13 @@ namespace corvid_tests {
 using namespace corvid;
 using namespace corvid::tests::gpt2;
 using Catch::Matchers::WithinAbs;
+using corvid::cuda::bfloat16_t;
 using corvid::cuda::cublas_handle;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::llm::token_id;
+using corvid::tests::narrowed;
+using corvid::tests::widened;
 using matrix_types::col_ndx;
 using matrix_types::row_ndx;
 
@@ -144,6 +149,41 @@ TEST_CASE("Device layer norm matches the oracle",
   }
 }
 
+TEST_CASE("Device layer norm over bfloat16_t is the float layer norm narrowed",
+    "[LlmOpsTest][cuda]") {
+  // The hand-computed rows again, whose values are exact in eight bits, so
+  // the bf16 kernel widens them to the same floats and its output is the
+  // float output rounded once, at the store.
+  const std::vector<float> in_values{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 5.0F, 5.0F,
+      5.0F};
+  const std::vector<float> weight_values{1.0F, 2.0F, 1.0F, 2.0F};
+  const std::vector<float> bias_values{0.0F, 0.0F, 0.5F, 0.5F};
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 4};
+
+  const cuda_matrix<float> in(float_matrix_view(in_values, extent));
+  const cuda_buffer<float> weight(weight_values);
+  const cuda_buffer<float> bias(bias_values);
+  cuda_matrix<float> out(extent);
+  REQUIRE(corvid::cuda::llm::layer_norm(out, in, weight, bias, eps));
+  std::vector<float> out_values(out.size());
+  REQUIRE(out.as_view().store(float_matrix_lens(out_values, extent)));
+
+  const auto in_narrowed = narrowed(in_values);
+  const auto weight_narrowed = narrowed(weight_values);
+  const auto bias_narrowed = narrowed(bias_values);
+  const cuda_matrix<bfloat16_t> in_bf16(
+      matrix_view<bfloat16_t>(in_narrowed, extent));
+  const cuda_buffer<bfloat16_t> weight_bf16(weight_narrowed);
+  const cuda_buffer<bfloat16_t> bias_bf16(bias_narrowed);
+  cuda_matrix<bfloat16_t> out_bf16(extent);
+  REQUIRE(corvid::cuda::llm::layer_norm(out_bf16, in_bf16, weight_bf16,
+      bias_bf16, eps));
+  std::vector<bfloat16_t> out_narrowed(out_bf16.size());
+  REQUIRE(
+      out_bf16.as_view().store(matrix_lens<bfloat16_t>(out_narrowed, extent)));
+  CHECK(out_narrowed == narrowed(out_values));
+}
+
 #pragma endregion
 #pragma region add
 
@@ -227,6 +267,32 @@ TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
   CHECK(same_storage == out_storage);
 }
 
+TEST_CASE("Device GELU over bfloat16_t is the float GELU narrowed",
+    "[LlmOpsTest][cuda]") {
+  // The same reference inputs, all exact in eight bits, so the bf16 result
+  // is the float result rounded once, at the store.
+  const std::vector<float> in_values{0.0F, 1.0F, -1.0F, 2.0F, -2.0F, 10.0F,
+      -10.0F};
+  const matrix_types::matrix_extent extent{.row_count = 1,
+      .col_count = in_values.size()};
+
+  const cuda_matrix<float> in(float_matrix_view(in_values, extent));
+  cuda_matrix<float> out(extent);
+  REQUIRE(corvid::cuda::llm::gelu_new(out, in));
+  std::vector<float> out_values(out.size());
+  REQUIRE(out.as_view().store(float_matrix_lens(out_values, extent)));
+
+  const auto in_narrowed = narrowed(in_values);
+  const cuda_matrix<bfloat16_t> in_bf16(
+      matrix_view<bfloat16_t>(in_narrowed, extent));
+  cuda_matrix<bfloat16_t> out_bf16(extent);
+  REQUIRE(corvid::cuda::llm::gelu_new(out_bf16, in_bf16));
+  std::vector<bfloat16_t> out_narrowed(out_bf16.size());
+  REQUIRE(
+      out_bf16.as_view().store(matrix_lens<bfloat16_t>(out_narrowed, extent)));
+  CHECK(out_narrowed == narrowed(out_values));
+}
+
 #pragma endregion
 #pragma region MLP
 
@@ -280,7 +346,7 @@ TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
 #pragma region embed_tokens
 
 TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
-    "[LlmOpsTest][cuda]", float, double) {
+    "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
   using T = TestType;
   // Three tokens in the vocabulary, width two, as the CPU test has them.
   const std::vector<T> table_storage{T{1}, T{2}, T{10}, T{20}, T{100}, T{200}};
@@ -301,7 +367,7 @@ TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
 }
 
 TEMPLATE_TEST_CASE("Device embed positions on hand-computed rows",
-    "[LlmOpsTest][cuda]", float, double) {
+    "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
   using T = TestType;
   // A context of three positions, width two, under two tokens, as the CPU
   // test has them.
@@ -354,18 +420,20 @@ TEST_CASE("Device embed tokens match the oracle",
 #pragma endregion
 #pragma region attend
 
-TEST_CASE("Device causal mask blanks the columns after the diagonal",
-    "[LlmOpsTest][cuda]") {
-  const std::vector<float> ones(3UZ * 3, 1.0F);
-  cuda_matrix<float> scores(
-      float_matrix_view(ones, {.row_count = 3, .col_count = 3}));
+TEMPLATE_TEST_CASE("Device causal mask blanks the columns after the diagonal",
+    "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
+  using T = TestType;
+  const std::vector<T> ones(3UZ * 3, T{1});
+  cuda_matrix<T> scores(
+      matrix_view<T>(ones, {.row_count = 3, .col_count = 3}));
   REQUIRE(corvid::cuda::llm::causal_mask(scores));
 
-  std::vector<float> storage(scores.size());
-  REQUIRE(scores.as_view().store(float_matrix_lens(storage, scores.extent())));
-  constexpr auto blank = -std::numeric_limits<float>::infinity();
-  CHECK(storage == std::vector<float>{1.0F, blank, blank, 1.0F, 1.0F, blank,
-                       1.0F, 1.0F, 1.0F});
+  std::vector<T> storage(scores.size());
+  REQUIRE(scores.as_view().store(matrix_lens<T>(storage, scores.extent())));
+  const T blank{-std::numeric_limits<float>::infinity()};
+  CHECK(
+      storage ==
+      std::vector<T>{T{1}, blank, blank, T{1}, T{1}, blank, T{1}, T{1}, T{1}});
 }
 
 TEST_CASE("Device causal mask blanks each square of a stack on its own",
@@ -437,6 +505,33 @@ TEST_CASE("Device attention on three tokens of width two",
     CHECK_THAT(out_storage[4], WithinAbs(0.577681, tolerance));
     CHECK_THAT(out_storage[5], WithinAbs(0.577681, tolerance));
   }
+}
+
+TEST_CASE("Device attention over bfloat16_t on three tokens of width two",
+    "[LlmOpsTest][cuda]") {
+  // The napkin example held as `bfloat16_t`. Its scores and weights are
+  // rounded to eight bits between the launches, so the rows match the float
+  // ones within a stated tolerance rather than bit for bit.
+  const auto qkv_narrowed = narrowed({1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F, 0.0F,
+      1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F});
+  const cuda_matrix<bfloat16_t> qkv(
+      matrix_view<bfloat16_t>(qkv_narrowed, {.row_count = 3, .col_count = 6}));
+  const cublas_handle blas;
+  cuda_matrix<bfloat16_t> out({.row_count = 3, .col_count = 2});
+  cuda_matrix<bfloat16_t> scores({.row_count = 3, .col_count = 3});
+  REQUIRE(corvid::cuda::llm::attend(blas, out, qkv, 1, scores));
+
+  std::vector<bfloat16_t> out_narrowed(out.size());
+  REQUIRE(out.as_view().store(
+      matrix_lens<bfloat16_t>(out_narrowed, out.extent())));
+  const auto out_values = widened(out_narrowed);
+  constexpr auto tolerance = 1e-2;
+  CHECK_THAT(out_values[0], WithinAbs(0.0, tolerance));
+  CHECK_THAT(out_values[1], WithinAbs(1.0, tolerance));
+  CHECK_THAT(out_values[2], WithinAbs(0.669762, tolerance));
+  CHECK_THAT(out_values[3], WithinAbs(0.330238, tolerance));
+  CHECK_THAT(out_values[4], WithinAbs(0.751745, tolerance));
+  CHECK_THAT(out_values[5], WithinAbs(0.751745, tolerance));
 }
 
 TEST_CASE("Device attention over cached tokens matches a full pass",
@@ -547,6 +642,34 @@ TEST_CASE("Device attention path matches the oracle",
           0.0F, 0.0F);
     }
   }
+}
+
+#pragma endregion
+#pragma region logits
+
+TEST_CASE("Device logits over bfloat16_t are stored as float",
+    "[LlmOpsTest][cuda]") {
+  // Two tokens of width three against a vocabulary of two, with values whose
+  // float partial sums are exact, so the logits are the exact products and
+  // are never rounded to bfloat16.
+  const auto in_narrowed =
+      narrowed({1.5F, 2.25F, 3.125F, 4.0625F, 5.5F, 6.75F});
+  const auto vocab_narrowed =
+      narrowed({1.25F, 0.75F, 1.0F, 0.5F, 1.125F, 2.5F});
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 3};
+  const cublas_handle blas;
+  const cuda_matrix<bfloat16_t> in(
+      matrix_view<bfloat16_t>(in_narrowed, extent));
+  const cuda_matrix<bfloat16_t> vocab(
+      matrix_view<bfloat16_t>(vocab_narrowed, extent));
+  cuda_matrix<float> logits({.row_count = 2, .col_count = 2});
+  REQUIRE(corvid::cuda::llm::compute_logits(blas, logits, in, vocab));
+
+  std::vector<float> logit_values(logits.size());
+  REQUIRE(logits.as_view().store(
+      float_matrix_lens(logit_values, logits.extent())));
+  CHECK(logit_values ==
+        std::vector<float>{6.6875F, 11.09375F, 15.953125F, 25.09375F});
 }
 
 #pragma endregion
