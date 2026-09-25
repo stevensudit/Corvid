@@ -159,6 +159,20 @@ TEST_CASE("scope_timer stop writes early and disarms the destructor",
   CHECK(took == 3ms);
 }
 
+TEST_CASE("scope_timer pauses through its stopwatch even when const",
+    "[infra][stopwatch]") {
+  const auto guard = steady_now_clock::fake_now_scope();
+  stopwatch::duration_t took{};
+  if (const auto timer = scope_timer(took)) {
+    set_now(2ms);
+    timer.watch().pause();
+    set_now(10ms);
+    timer.watch().resume();
+    set_now(13ms);
+  }
+  CHECK(took == 5ms);
+}
+
 TEST_CASE("scope_timer writes through a relaxed_atomic",
     "[infra][stopwatch]") {
   const auto guard = steady_now_clock::fake_now_scope();
