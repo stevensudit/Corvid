@@ -63,7 +63,7 @@ inline std::filesystem::path fixture_path(std::string_view name) {
          "gpt2" / name;
 }
 
-// The whole of the file at `path`; an unreadable file fails the test.
+// The whole of the file at `path`, where an unreadable file fails the test.
 inline std::string read_file(const std::filesystem::path& path) {
   std::ifstream in(path, std::ios::binary);
   REQUIRE(in);
