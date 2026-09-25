@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Produce the GPT-2 124M reference artifacts for corvid/llm.
 
-This is the only Python in the LLM quest. It reads the published weights
-through PyTorch and Hugging Face once and writes everything the C++ side
-diffs against. It never runs inference for the project; it is the oracle,
-not the engine.
+This and gpt2_gguf.py, which packs the weights this fetches for the
+llama.cpp yardstick, are the only Python in the LLM quest. This one reads
+the published weights through PyTorch and Hugging Face once and writes
+everything the C++ side diffs against. It never runs inference for the
+project; it is the oracle, not the engine.
 
 Outputs (paths relative to the repository root):
 

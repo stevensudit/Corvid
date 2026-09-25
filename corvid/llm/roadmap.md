@@ -109,13 +109,16 @@ manager. So the division of labor is fixed up front:
 - `tests/.local/llm/`: weights and activation dumps. Gitignored; too large
   to commit and reproducible from the oracle script. Tests that need them
   skip with a clear message when the directory is absent.
-- `scripts/llm_oracle/`: the one Python script, `gpt2_oracle.py`, with
-  `setup.sh` (venv under `tests/.local/llm/venv`, torch from the CPU wheel
-  index) and `requirements.txt`. PyTorch is allowed here and nowhere else:
-  it reads the published weights and writes the reference artifacts. It
-  never runs inference for the project, which would defeat the purpose. The
+- `scripts/llm_oracle/`: the Python, `gpt2_oracle.py`, with `setup.sh`
+  (venv under `tests/.local/llm/venv`, torch from the CPU wheel index) and
+  `requirements.txt`. PyTorch is allowed here and nowhere else: it reads
+  the published weights and writes the reference artifacts. It never runs
+  inference for the project, which would defeat the purpose. The
   container's firewall allows `huggingface.co`, its download hosts, and
   `download.pytorch.org`, so the script runs in place after a rebuild.
+  Beside it, `gpt2_gguf.py` packs the oracle's weights and the committed
+  tokenizer tables as GGUF files for the llama.cpp yardstick (the `gguf`
+  package is in the requirements for it alone).
 
 ## Side quests
 
@@ -1500,6 +1503,41 @@ kernel choice for the [1, 64] x [64, 1024] batched product in `float` and
 is recorded here as a finding rather than chased. The CPU engine is not in
 the table; its warm pass was profiled at 4.6 ms per token earlier in this
 stage. Stage 4's measurement is recorded.
+
+Status (2026-09-25, bf16, slice 4b: the llama.cpp yardstick): llama.cpp is
+the prebuilt CUDA 13 release, build 11191, unpacked under `C:\code\llama`,
+with the winget Vulkan build 11149 as a second backend row, run through
+`llama-bench` over GGUF files that "gpt2_gguf.py" packs from the oracle's
+own weights and the committed tokenizer tables: an f32 file and a "mostly
+bf16" one (matrices bf16, vectors fp32, the bf16 engine's split), written
+with the `gguf` package. The packing is verified through llama.cpp's greedy
+decoding of the bisect prompt: the f32 file reproduces the manifest's
+twenty tokens exactly on both backends, and the bf16 file follows for six,
+as the transformers bf16 reference does (the engine follows for seven).
+`llama-bench` measures the engine test's three columns over random tokens,
+which timing does not care about: `-p 1023 -n 0` for the prefill, `-n 1 -d
+1023` for one token at the full context, and `-n 20 -d 14` for twenty from
+the short context, five repetitions each, everything offloaded, flash
+attention and the f16 KV cache at their defaults. On the RTX 4090:
+
+| file | backend | prefill, 1023 tokens | decode at 1023 tokens | decode from 14 tokens |
+|------|---------|----------------------|-----------------------|-----------------------|
+| f32  | CUDA    | 48.3k tok/s          | 295 tok/s             | 394 tok/s             |
+| bf16 | CUDA    | 62.3k tok/s          | 601 tok/s             | 565 tok/s             |
+| f32  | Vulkan  | 47.7k tok/s          | 365 tok/s             | 362 tok/s             |
+| bf16 | Vulkan  | 52.8k tok/s          | 387 tok/s             | 465 tok/s             |
+
+Against the engine's table, CUDA to CUDA: the engine's prefill is ahead in
+both precisions (57k against 48k in fp32, 90k against 62k in bf16), the
+fp32 decode rates are close (345 against 394 from the short context), and
+bf16 decode is where llama.cpp leads, 565 against 383 tokens per second
+from the short context, 1.8 ms per token against 2.6. The engine's decode
+is bound by its launch count, so that gap is the size of the deferred
+fusion, and the KV cache's element types (llama.cpp's f16 keys and values
+against the engine's fp32 keys) are part of it. The one-token
+full-context column carries a standard deviation above its value on every
+row and is the weakest; the fp32 CUDA prefill also wobbled by a fifth
+across its five repetitions. Stage 4's table is complete.
 
 ### 5. Backward pass and LoRA
 
