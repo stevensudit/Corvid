@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Fail fast.
-set -e
+# Fail fast, through pipes too: a failed build behind `| tee` (the tidy log)
+# must stop the script like an untee'd one does, not report tee's success.
+set -e -o pipefail
 
 # Side effect on first run after a fresh clone: CMake regenerates `.clangd`
 # at the project root from `.clangd.in` via `configure_file`. The generated
@@ -243,7 +244,7 @@ if [[ -z "$sanitizer" ]] && ! $use_coverage && ! $use_scan; then
       fi
     else
       clangxx_for_cuda="$(command -v clang++ || true)"
-      cuda_arch="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '. ')"
+      cuda_arch="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '. ' || true)"
       # Identifying clang++ as the CUDA compiler needs CMake 4: 3.28 probes
       # clang with sm_52/30/20, which the 13.3 ptxas rejects, and the configure
       # dies with "CUDA compiler identification is unknown". The devcontainer
@@ -643,19 +644,21 @@ fi
 
 # In tidy mode, clang-tidy warnings stream through the build phase but get
 # buried under the ctest run that follows. Summarize them at the very end so
-# the bottom-line state is visible. Filter out diagnostics in
+# the bottom-line state is visible. Errors count too: the standalone .cu pass
+# above reports a TU that fails to compile as [clang-diagnostic-error] and
+# does not stop the script. Filter out diagnostics in
 # .fetchcontent/ or .local/ (FetchContent'd Catch2, prebuilt OpenSSL, ngtcp2
 # ExternalProject sources) so only Corvid-owned issues appear.
 if $use_tidy; then
   echo
   echo "==================== clang-tidy summary ===================="
-  warn_lines=$(grep -E ': warning: .*\[[A-Za-z][A-Za-z0-9._-]*\]' "$tidyLogFile" \
+  warn_lines=$(grep -E ': (warning|error): .*\[[A-Za-z][A-Za-z0-9._-]*\]' "$tidyLogFile" \
                | grep -v -F '.fetchcontent/' \
                | grep -v -F '.local/' \
                || true)
   if [[ -n "$warn_lines" ]]; then
     warn_count=$(printf '%s\n' "$warn_lines" | wc -l)
-    echo "$warn_count warning(s):"
+    echo "$warn_count finding(s):"
     echo
     printf '%s\n' "$warn_lines"
     echo
@@ -665,7 +668,7 @@ if $use_tidy; then
         | sort | uniq -c | sort -rn \
         | sed 's/^/  /'
   else
-    echo "clean: no warnings"
+    echo "clean: no warnings or errors"
   fi
   echo
   echo "Full log: $tidyLogFile"

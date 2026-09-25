@@ -178,7 +178,11 @@ requires std::same_as<device_value_t<A>, device_value_t<B>> &&
   assert((out_lens.row_extent() == op_a_extent.row_count) &&
          (out_lens.col_extent() == op_b_extent.col_count));
   assert(op_a_extent.col_count == op_b_extent.row_count);
-  assert((out_lens.get() != a_view.get()) && (out_lens.get() != b_view.get()));
+  // Aliasing is a question about memory, not element type. In a
+  // mixed-precision product `out` and the inputs differ in type, so compare
+  // as `const void*`.
+  [[maybe_unused]] const void* const out_address = out_lens.get();
+  assert((out_address != a_view.get()) && (out_address != b_view.get()));
 
   // To create the `out`/`addend` distinction, we need to initialize `C` with a
   // copy of the `addend`, if there's anything there for us.
