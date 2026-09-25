@@ -221,9 +221,15 @@ public:
   [[nodiscard]] explicit operator bool() const noexcept { return true; }
 
 #pragma endregion
+#pragma region Accessors
+
+  // The underlying stopwatch, for pausing across work that should not count.
+  [[nodiscard]] stopwatch& watch() const noexcept { return watch_; }
+
+#pragma endregion
 #pragma region Data members
 private:
-  stopwatch watch_;
+  mutable stopwatch watch_;
   Output* out_;
 
 #pragma endregion
