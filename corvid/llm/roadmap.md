@@ -101,8 +101,9 @@ manager. So the division of labor is fixed up front:
   stage 4 is built and measured, because it is the more convenient box and
   the more direct route to CUDA. The code stays cross-platform: no
   Windows-only or Linux-only headers in device code, and nothing nvcc or
-  clang's CUDA frontend would reject, so the Linux leg (nvcc + g++-15)
-  keeps building it.
+  clang's CUDA frontend would reject, so the Linux leg (also clang++ as
+  the CUDA compiler since 2026-09-21; nvcc + g++-15 is the opt-in
+  bug-report leg) keeps building it.
 - `tests/data/llm/`: small committed fixtures, on the order of a megabyte
   in total: the tokenizer tables, the tokenizer corpus and its expected
   encoding, and the oracle manifest. Never a model.
@@ -1579,6 +1580,15 @@ rounded to eight significant bits. That rounding moved the worst prompt down
 and two others up by a tenth, so it is noise in the few elements that set a
 maximum, not a gain, and the gate stays. The GPT-2 constants left the model
 template for namespace scope (`gpt2_layer_norm_eps`, `gpt2_end_of_text`).
+The Linux leg followed on 2026-09-25: the oracle rerun there wrote the bf16
+file with every other dump checksum unchanged, and the suite, tidy, gcc 16
+(C++26), and clang with libstdc++ (C++26) are all green, so the portable
+header's constexpr `std::bit_cast` conversions and `operator<=>` have now
+compiled on every Linux compiler and standard library. The gcc leg's CUDA
+bucket built for the first time on that run, after the bucket's external
+Catch2 gained per-compiler directories (tests/CMakeLists.txt: sharing one
+sub-build between the clang and gcc legs lost its install prefix to a CMake
+cache wipe on the compiler change).
 Next: stage 5, with the fp16 key cache left as a decision.
 
 ### 5. Backward pass and LoRA

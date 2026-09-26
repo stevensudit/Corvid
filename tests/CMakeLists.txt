@@ -930,10 +930,11 @@ if(CORVID_ENABLE_CUDA)
             # libstdc++ Catch2 of the same tag as an ExternalProject, the
             # ngtcp2/nghttp3 pattern: a separate CMake invocation whose
             # install under tests/.local/ survives the build-dir wipe, so it
-            # builds once per checkout. Not Ubuntu's catch2 package: that is
-            # 3.4, and 3.5 is where Catch2 put the NOLINT on its assertion
-            # decomposition (`Decomposer() <= expr`), without which clang-tidy
-            # reports bugprone-chained-comparison on every CHECK.
+            # builds once per checkout and compiler. Not Ubuntu's catch2
+            # package: that is 3.4, and 3.5 is where Catch2 put the NOLINT on
+            # its assertion decomposition (`Decomposer() <= expr`), without
+            # which clang-tidy reports bugprone-chained-comparison on every
+            # CHECK.
             #
             # The sub-build takes the suite's C++ compiler but none of its
             # flags (a fresh cache), so it lands on the compiler's default
@@ -941,9 +942,17 @@ if(CORVID_ENABLE_CUDA)
             # `-stdlib=libstdc++` spells that out for clang. The suite's
             # dialect and warning flags do not apply to Catch2's own sources,
             # and Release is right for a test harness.
+            #
+            # The directories carry the compiler ID because CMake treats a
+            # changed CMAKE_CXX_COMPILER as invalidating the sub-build's
+            # whole cache: it deletes the cache and reconfigures with only
+            # the compiler re-applied, so the install prefix below reverts
+            # to /usr/local and the install step fails. One sub-build shared
+            # by the clang and gcc legs of a checkout did exactly that.
             include(ExternalProject)
-            set(CUDA_CATCH2_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/catch2-external")
-            set(CUDA_CATCH2_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/catch2")
+            string(TOLOWER "${CMAKE_CXX_COMPILER_ID}" _cuda_catch2_cxx_id)
+            set(CUDA_CATCH2_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/catch2-external-${_cuda_catch2_cxx_id}")
+            set(CUDA_CATCH2_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/catch2-${_cuda_catch2_cxx_id}")
             set(CUDA_CATCH2_LIB_DIR     "${CUDA_CATCH2_INSTALL_DIR}/lib")
             set(CUDA_CATCH2_INCLUDE_DIR "${CUDA_CATCH2_INSTALL_DIR}/include")
             set(_cuda_catch2_cxx_flags "")
