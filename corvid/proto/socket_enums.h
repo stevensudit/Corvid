@@ -64,7 +64,7 @@ consteval auto corvid_enum_spec(socket_type*) {
 enum class address_family : int {
   unspecified = AF_UNSPEC,    // 0
   local = AF_LOCAL,           // 1
-  file = AF_LOCAL,            // 1, aka AF_LOCAL. AF_UNIX
+  file = AF_LOCAL,            // 1, aka AF_LOCAL, AF_UNIX
   inet = AF_INET,             // 2
   ax25 = AF_AX25,             // 3
   ipx = AF_IPX,               // 4

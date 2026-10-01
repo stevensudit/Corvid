@@ -166,9 +166,6 @@ struct pos_range {
 // To get `npos`, `nloc`, `npos_choice`, and `nloc_value`, use:
 //  using namespace corvid::literals;
 // Note: `npos` is defined in string_literals.h
-//
-// Not named `literals`, because `locating` is an inline namespace: a second
-// `literals` under `strings` would make `corvid::strings::literals` ambiguous.
 inline namespace locating_literals {
 
 constexpr location nloc{npos, npos};
