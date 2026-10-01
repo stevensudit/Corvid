@@ -166,14 +166,17 @@ struct pos_range {
 // To get `npos`, `nloc`, `npos_choice`, and `nloc_value`, use:
 //  using namespace corvid::literals;
 // Note: `npos` is defined in string_literals.h
-inline namespace literals {
+//
+// Not named `literals`, because `locating` is an inline namespace: a second
+// `literals` under `strings` would make `corvid::strings::literals` ambiguous.
+inline namespace locating_literals {
 
 constexpr location nloc{npos, npos};
 constexpr pos_range npos_range{npos, npos};
 
 // Whether to return `npos` or `size` when nothing is found.
 enum class npos_choice : uint8_t { npos, size };
-} // namespace literals
+} // namespace locating_literals
 
 #pragma endregion
 #pragma region as_npos
@@ -1199,5 +1202,5 @@ excised(std::string s, std::initializer_list<std::string_view> from) {
 
 // Publish these literals corvid-wide.
 namespace corvid::literals {
-using namespace corvid::strings::locating::literals;
+using namespace corvid::strings::locating::locating_literals;
 }

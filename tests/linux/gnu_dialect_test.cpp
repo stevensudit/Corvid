@@ -27,17 +27,29 @@
 #define linux 1
 #endif
 
+// Every umbrella header, in alphabetical order. Including them together is
+// what catches a name that one module declares and a later one trips over.
+#include "corvid/concurrency.h"
+#include "corvid/containers.h"
+#include "corvid/ecs.h"
+#include "corvid/enums.h"
+#include "corvid/filesys.h"
+#include "corvid/infra.h"
+#include "corvid/lang.h"
+#include "corvid/math.h"
+#include "corvid/meta.h"
 #include "corvid/proto.h"
+#include "corvid/strings.h"
 #include "catch2_main.h"
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region GNU dialect macros
 
-// Compiling this file is the test: the proto headers have to parse with
-// `unix` and `linux` defined as macros. The checks only confirm that no
-// header undefined them along the way.
-TEST_CASE("Proto headers compile with the GNU dialect macros",
+// Compiling this file is the test: the umbrella headers have to parse
+// together, with `unix` and `linux` defined as macros. The checks only confirm
+// that no header undefined them along the way.
+TEST_CASE("Umbrella headers compile together with the GNU dialect macros",
     "[gnu_dialect]") {
   CHECK(unix == 1);
   CHECK(linux == 1);
