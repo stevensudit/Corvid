@@ -2999,7 +2999,7 @@ TEST_CASE("SegmentBookkeeping", "[IovMsghdr]") {
 #pragma region GatherScatterRoundTrip
 
 TEST_CASE("GatherScatterRoundTrip", "[IovMsghdr]") {
-  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+  auto [writer, reader] = net_socket::create_pair(address_family::local,
       socket_type::stream, execution::blocking);
   REQUIRE(writer.is_open());
   REQUIRE(reader.is_open());
@@ -3043,7 +3043,7 @@ TEST_CASE("GatherScatterRoundTrip", "[IovMsghdr]") {
 #pragma region PartialConsumeAdvances
 
 TEST_CASE("PartialConsumeAdvances", "[IovMsghdr]") {
-  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+  auto [writer, reader] = net_socket::create_pair(address_family::local,
       socket_type::stream, execution::blocking);
   REQUIRE(writer.is_open());
   REQUIRE(reader.is_open());
@@ -3079,7 +3079,7 @@ TEST_CASE("PartialConsumeAdvances", "[IovMsghdr]") {
 #pragma region CompactRetiresSlack
 
 TEST_CASE("CompactRetiresSlack", "[IovMsghdr]") {
-  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+  auto [writer, reader] = net_socket::create_pair(address_family::local,
       socket_type::stream, execution::blocking);
   REQUIRE(writer.is_open());
   REQUIRE(reader.is_open());

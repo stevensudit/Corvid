@@ -87,7 +87,7 @@ public:
   = default;
 
   template<typename U>
-  requires(std::is_constructible_v<T, U &&>)
+  requires(std::is_constructible_v<T, U&&>)
   constexpr explicit strong_type(U&& value) noexcept(
       std::is_nothrow_constructible_v<T, U&&>)
       : value_(std::forward<U>(value)) {}

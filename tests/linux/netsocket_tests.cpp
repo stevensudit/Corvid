@@ -411,8 +411,8 @@ TEST_CASE("AddressFamilyString", "[NetSocket]") {
     CHECK(enum_as_string(AF::local) == "local");
     CHECK(enum_as_string(AF::inet) == "inet");
     CHECK(enum_as_string(AF::inet6) == "inet6");
-    // `unix` and `file` are aliases for `local`; they share value 1.
-    CHECK(enum_as_string(AF::unix) == "local");
+    // `file` is an alias for `local`; they share value 1.
+    CHECK(enum_as_string(AF::file) == "local");
   }
   if (true) {
     constexpr AF bad{-1};

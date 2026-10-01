@@ -124,7 +124,7 @@ public:
   [[nodiscard]] static net_socket
   create_uds(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
-    return do_create(address_family::unix, exec, style);
+    return do_create(address_family::local, exec, style);
   }
 
   // Create a socket whose address family matches `target`.
@@ -166,7 +166,7 @@ public:
 
   // Create a connected pair of UDS sockets.
   [[nodiscard]] static std::pair<net_socket, net_socket>
-  create_pair(address_family domain = address_family::unix,
+  create_pair(address_family domain = address_family::local,
       socket_type type = socket_type::stream,
       execution exec = execution::nonblocking) noexcept {
     auto combined_type = *type | *socket_type::cloexec;

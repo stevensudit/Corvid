@@ -56,12 +56,15 @@ consteval auto corvid_enum_spec(socket_type*) {
 #pragma region address_family
 
 // `AF_*` wrapper for address family domains.
+//
+// `AF_UNIX` has no `unix` enumerator, because gcc and clang predefine `unix`
+// as a macro in the GNU dialects (`-std=gnu++NN`), where the name cannot be
+// an identifier.
 // NOLINTNEXTLINE(performance-enum-size)
 enum class address_family : int {
   unspecified = AF_UNSPEC,    // 0
   local = AF_LOCAL,           // 1
-  unix = AF_LOCAL,            // 1, aka AF_LOCAL
-  file = AF_LOCAL,            // 1, aka AF_LOCAL
+  file = AF_LOCAL,            // 1, aka AF_LOCAL. AF_UNIX
   inet = AF_INET,             // 2
   ax25 = AF_AX25,             // 3
   ipx = AF_IPX,               // 4
