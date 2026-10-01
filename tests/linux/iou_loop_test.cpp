@@ -1214,7 +1214,7 @@ TEST_CASE("RecvBufferMulti", "[IouLoop]") {
   // boundaries); confirm all three arrive with the correct payloads.
   if (true) {
     auto [send_sock, recv_sock] =
-        net_socket::create_pair(address_family::unix, socket_type::seqpacket);
+        net_socket::create_pair(address_family::local, socket_type::seqpacket);
 
     std::atomic<int> count{0};
     std::array<std::string, 3> payloads;

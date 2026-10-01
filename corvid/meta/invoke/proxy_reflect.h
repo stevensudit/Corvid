@@ -652,8 +652,8 @@ deduce_object(std::meta::info m, std::meta::info self) {
       return {};
 
     const auto shape = std::meta::dealias(std::meta::type_of(params[0]));
-    // Uninitialized on purpose, since consteval rejects a read before
-    // assignment.
+    // Default-initialization of `std::meta::info` is zero-initialization, so
+    // `arg` starts as a null reflection.
     std::meta::info arg;
     if (std::meta::is_rvalue_reference_type(shape)) {
       // `const auto&&` is not a forwarding reference and binds no lvalue.

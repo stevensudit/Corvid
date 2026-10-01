@@ -154,7 +154,7 @@ struct sockaddr_view {
   }
 
   [[nodiscard]] constexpr bool is_uds() const noexcept {
-    return family() == address_family::unix;
+    return family() == address_family::local;
   }
 
   [[nodiscard]] bool is_ans() const noexcept {
@@ -274,7 +274,7 @@ struct sockaddr_view {
 
     if (fam == address_family::inet6) return sizeof(sockaddr_in6);
 
-    if (fam == address_family::unix) {
+    if (fam == address_family::local) {
       const auto& sun = reinterpret_cast<const sockaddr_un&>(addr);
       const char* path = sun.sun_path;
       const auto path_size = sizeof(sun.sun_path);
