@@ -796,11 +796,133 @@ two guards that are correct in their own right:
 ## 12. Shared developer context across Windows and WSL
 
 The project `CLAUDE.md` is checked in and travels with `git pull`. The global
-`~/.claude/CLAUDE.md` and the auto-memory folder do not. To share one memory
-store, keep the physical store on NTFS (for example
-`C:\code\Corvid\.claude-shared\memory`), junction the Windows per-project
-memory directory to it (`mklink /J`, no admin needed), and symlink the WSL
-per-project memory directory to the same folder via `/mnt/c/...`. The
-per-project memory directory name is derived from a hash of the project path,
-which differs between the WSL and `C:\` paths, so the sharing is not automatic.
+`~/.claude/CLAUDE.md` and the auto-memory folder do not. Claude Code keeps
+auto-memory in a per-project directory named after the project path, with the
+separators turned into dashes: `c--code-Corvid` for `C:\code\Corvid` on
+Windows, `-workspace` for `/workspace` in the dev container. The two names
+differ, so the sharing is not automatic.
+
+One physical store serves both sides. It lives on NTFS at
+`C:\code\claude-memory`, outside the Corvid tree, and is its own git
+repository. On Windows, `%USERPROFILE%\.claude\projects\c--code-Corvid\memory`
+is a junction to it (`mklink /J`, no admin needed). In the dev container,
+`.devcontainer/steve/devcontainer.json` bind-mounts `/mnt/c/code/claude-memory`
+at `/home/node/.claude/projects/-workspace/memory`. The Dockerfile pre-creates
+the mount target so that a fresh config volume has it owned by `node`;
+otherwise Docker creates the intermediate directories as root and Claude Code
+cannot write there.
+
+The same config mounts the store a second time, at `/mnt/c/code/claude-memory`
+inside the container. That mount is transitional. The earlier scheme made the
+per-project memory directory a symlink to that path, and the mount keeps the
+path resolving until nothing depends on it.
+
+These bind mounts are personal. The generic `.devcontainer/devcontainer.json`
+has none of them. Its mounts are all named volumes, so a container built from
+it shares no Claude state with Windows. In the steve config the rest of
+`/home/node/.claude` is likewise a named volume, which leaves the memory
+directory as the only part of it that Windows sees. The WSL distribution
+itself holds no Claude configuration: Claude Code runs on Windows and inside
+the container, never in the distribution directly.
+
 Edit memories from one machine at a time.
+
+## 13. Linux container host
+
+Not adopted as of 2026-10-02: WSL containers (`wslc`), which Microsoft made
+generally available on 2026-09-29. The Linux legs keep running in the dev
+container under Docker inside the WSL distribution. The analysis is kept here
+so the decision can be revisited without redoing it.
+
+### The current arrangement
+
+Docker runs inside the WSL distribution, and the Linux checkout of the repo
+lives on that distribution's ext4 filesystem. The dev container bind-mounts
+the checkout at `/workspace`. The container and the files therefore share one
+virtual machine (VM) and one kernel, and a build reads and writes ext4
+directly. This is deliberate. Only the personal mounts in
+`.devcontainer/steve/devcontainer.json` (the Claude memory store and the
+dotfiles) cross into NTFS, through `/mnt/c`.
+
+### What `wslc` changes
+
+`wslc.exe` is a Windows-side command-line tool. It needs WSL 2.9.3 or later,
+and everything below was checked against 3.0.1.0. A container it starts does
+not run inside a distribution. Each `wslc` session is its own VM with its own
+storage VHD, so the distribution's ext4 filesystem belongs to a different VM
+and `-v` cannot bind from it. That leaves three places for the repo:
+
+- A Windows path, `-v C:\code\Corvid:/workspace`. `wslc` shares it into the
+  session VM over virtiofs, which the architecture post puts at about twice
+  the speed of plan9. It is still a cross-OS filesystem under a workload of
+  many small files and `stat` calls, and the Linux and Windows legs would
+  share one working tree, `tests/build` included.
+- A VHD volume, `wslc volume create --driver vhd`. This is native ext4, but
+  the repo then lives inside the `wslc` session, where neither Windows nor
+  the distribution can reach it except through a container.
+- The distribution, through the `wslc-remote` wrapper. It runs a userspace
+  NFSv3 server in the distribution and mounts the export into the session VM
+  over loopback. That puts a network filesystem where a plain bind mount is
+  today, and the wrapper is one person's community-supported project.
+
+Each of the three gives up the thing the current arrangement has, a native
+filesystem that the container and the distribution's own tools both reach
+directly.
+
+The shared memory store is not a counterexample. It already crosses the OS
+boundary, but it is a few small Markdown files touched a handful of times per
+session, so the latency never shows. A build tree is the opposite workload.
+Under `wslc` those personal mounts would get shorter, with a virtiofs share of
+the `C:\` path replacing the hop through `/mnt/c`.
+
+### Run arguments
+
+The filesystem is the smaller obstacle. `.devcontainer/devcontainer.json`
+passes three kinds of run argument, and `wslc run` and `wslc create` accept
+one of them:
+
+| Argument                         | Needed for           | `wslc` |
+|----------------------------------|----------------------|--------|
+| `--gpus all`                     | the cuda bucket      | yes    |
+| `--cap-add=NET_ADMIN`, `NET_RAW` | `init-firewall.sh`   | no     |
+| `--security-opt seccomp=...`     | io_uring, sanitizers | no     |
+
+`init-firewall.sh` builds the container's outbound allowlist with iptables
+and ipset, which need both capabilities. `seccomp-corvid.json` is Docker's
+default profile plus the three io_uring syscalls the linux bucket uses and
+the `personality` flag the sanitizers set to disable address space layout
+randomization (ASLR). `wslc` 3.0.1.0 has no option for either, and none for
+`--privileged`.
+
+### Not tested
+
+None of these would change the decision while the two options are missing, so
+they were left alone:
+
+- Which capabilities and seccomp filter a `wslc` container gets by default.
+- How long the suite takes to build over virtiofs.
+- Whether the dev containers CLI's `wslc` support (added in 0.88.0) passes
+  `runArgs` through or rejects the ones `wslc` lacks.
+- Whether `-v` accepts a `\\wsl.localhost\` path as a way back into the
+  distribution's filesystem.
+- `wslc compose`, which is announced but not shipped. The dev container does
+  not use compose.
+
+### When to revisit
+
+Revisit when `wslc` can express the capabilities and the seccomp profile, or
+when a test shows its defaults already cover the firewall and io_uring. Then
+measure the suite's build time over virtiofs before moving the checkout, since
+that cost is what the current arrangement exists to avoid.
+
+### Sources
+
+Read on 2026-10-02:
+
+- Announcement:
+  https://blogs.windows.com/windowsdeveloper/2026/09/29/wsl-containers-now-generally-available/
+- Architecture (session model, virtiofs, VHD volumes):
+  https://devblogs.microsoft.com/commandline/wslc-architecture-deep-dive/
+- Documentation: https://learn.microsoft.com/en-us/windows/wsl/wsl-container
+- `wslc-remote`: https://github.com/craigloewen-msft/wslc-remote
+- The option lists come from `wslc run --help` and `wslc create --help`.
