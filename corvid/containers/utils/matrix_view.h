@@ -115,6 +115,11 @@ struct matrix_extent {
     return {.row_count = col_count, .col_count = row_count};
   }
 
+  // The element count, which is what storage for the extent holds.
+  [[nodiscard]] constexpr size_t size() const noexcept {
+    return row_count * col_count;
+  }
+
   // The count along `axis`. Prefer the subscript.
   template<typename Self>
   [[nodiscard]] constexpr auto&
@@ -176,7 +181,7 @@ public:
   constexpr matrix_lens_base(span_t data, extent_t extent,
       matrix_types::exact_size_t) noexcept
       : matrix_lens_base{data, extent, extent.col_count} {
-    assert(data.size() == extent.row_count * extent.col_count);
+    assert(data.size() == extent.size());
   }
 
   // Strided lens over `data`, whose rows start `stride` elements apart and
@@ -217,7 +222,7 @@ public:
   }
   [[nodiscard]] constexpr extent_t extent() const noexcept { return extent_; }
   [[nodiscard]] constexpr size_t size() const noexcept {
-    return extent_.row_count * extent_.col_count;
+    return extent_.size();
   }
   [[nodiscard]] constexpr bool empty() const noexcept {
     return !extent_.row_count || !extent_.col_count;

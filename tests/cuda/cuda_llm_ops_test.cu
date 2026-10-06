@@ -14,6 +14,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -814,6 +815,141 @@ TEST_CASE("Device greedy picks match the host on every prompt",
           std::views::zip(picked, logits_view.rows()))
         CHECK(pick == corvid::llm::pick_greedy(logits_row));
     }
+  }
+}
+
+#pragma endregion
+#pragma region cross_entropy
+
+TEMPLATE_TEST_CASE("Device cross-entropy on hand-computed rows",
+    "[LlmOpsTest][cuda]", float, double) {
+  using T = TestType;
+  // Two rows of the same three logits, whose softmax is the probabilities
+  // below.
+  //
+  // The label of a row is the entry it should have predicted: the likeliest
+  // entry for the first row, the least likely for the second. Each loss is the
+  // negated logarithm of its label's probability, and each gradient is the
+  // probabilities, less 1 at the label, halved for the mean over the two rows.
+  const std::vector<T> logit_storage{T{2}, T{1}, T{0}, T{2}, T{1}, T{0}};
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 3};
+  const std::vector<token_id> label_storage{token_id{0}, token_id{2}};
+  constexpr std::array probabilities{0.66524096, 0.24472847, 0.09003057};
+
+  const cuda_matrix<T> logits(matrix_view<T>(logit_storage, extent));
+  const cuda_buffer<token_id> labels(label_storage);
+  cuda_matrix<T> gradient(extent);
+  cuda_buffer<T> losses(extent.row_count);
+  REQUIRE(corvid::cuda::llm::cross_entropy(gradient, losses, logits, labels,
+      extent.row_count));
+
+  std::vector<T> gradient_storage(gradient.size());
+  const matrix_lens<T> gradient_lens(gradient_storage, extent);
+  REQUIRE(gradient.as_view().store(gradient_lens));
+  std::vector<T> loss_storage(losses.size());
+  REQUIRE(losses.store(loss_storage));
+  constexpr auto tolerance = 1e-6;
+  CHECK_THAT(loss_storage[0], WithinAbs(0.40760596, tolerance));
+  CHECK_THAT(loss_storage[1], WithinAbs(2.40760596, tolerance));
+  for (const auto [label, gradient_row] :
+      std::views::zip(label_storage, gradient_lens.rows()))
+    for (const auto [col, probability] : std::views::enumerate(probabilities))
+    {
+      const auto entry = static_cast<size_t>(col);
+      const auto target = (entry == *label) ? 1.0 : 0.0;
+      CHECK_THAT(gradient_row[col_ndx{entry}],
+          WithinAbs((probability - target) / 2.0, tolerance));
+    }
+
+  // In place, over the logits, gives the same values.
+  cuda_matrix<T> same(matrix_view<T>(logit_storage, extent));
+  REQUIRE(corvid::cuda::llm::cross_entropy(same, losses, same, labels,
+      extent.row_count));
+  std::vector<T> same_storage(same.size());
+  REQUIRE(same.as_view().store(matrix_lens<T>(same_storage, extent)));
+  CHECK(same_storage == gradient_storage);
+  std::vector<T> same_losses(losses.size());
+  REQUIRE(losses.store(same_losses));
+  CHECK(same_losses == loss_storage);
+}
+
+TEST_CASE("Device cross-entropy's gradient predicts the change in the loss",
+    "[LlmOpsTest][cuda]") {
+  // A gradient is a prediction. Nudge one logit by a small step, and the loss
+  // moves by that logit's gradient times the step. This makes the nudge and
+  // checks the prediction.
+  //
+  // The label of a row is the ID it should have predicted, whose probability
+  // sets its loss. The logits have a column per vocabulary entry, so the ID
+  // is a column of them.
+  constexpr auto cols = 600UZ;
+  constexpr token_id label{123};
+  constexpr col_ndx label_col{*label};
+  constexpr auto step = 1e-4;
+
+  // Row 0 is the row as it is. Each pair of rows after it is a copy with one
+  // logit nudged, up in the first and down in the second. The pairs of rows
+  // contain nudged versions of the label's column, another column, and the
+  // last column.
+  constexpr std::array nudged{label_col, col_ndx{7}, col_ndx{cols - 1}};
+  const auto up_row_of = [](size_t nudge) { return row_ndx{1 + (2 * nudge)}; };
+  const double_matrix_lens::extent_t extent{
+      .row_count = 1 + (2 * nudged.size()),
+      .col_count = cols};
+
+  // The logits are a wave across the columns, the same in every row, in
+  // `double` so that the difference of two close losses keeps its digits. The
+  // row is wider than a block of threads, so every thread walks several
+  // columns.
+  std::vector<double> logit_storage(extent.size());
+  const double_matrix_lens logits_lens(logit_storage, extent);
+  for (const auto logits_row : logits_lens.rows())
+    for (auto [col, logit] :
+        std::views::zip(logits_row.range_interval(), logits_row))
+      logit = 3.0 * std::sin(0.37 * static_cast<double>(*col));
+
+  // Apply nudge to the specified columns in the up and down rows.
+  for (const auto [nudge, col] : std::views::enumerate(nudged)) {
+    const auto up_row = up_row_of(nudge);
+    logits_lens[up_row, col] += step;
+    logits_lens[up_row + 1, col] -= step;
+  }
+
+  // Calculate losses and gradients. Every row has the same label. A label
+  // count of 1 leaves each row's gradient that of its own loss, undivided.
+  const cuda_matrix<double> logits(logits_lens);
+  const cuda_buffer<token_id> labels(
+      std::vector<token_id>(extent.row_count, label));
+  cuda_matrix<double> gradient(extent);
+  cuda_buffer<double> losses(extent.row_count);
+  REQUIRE(
+      corvid::cuda::llm::cross_entropy(gradient, losses, logits, labels, 1));
+
+  // Copy the gradient and loss data from the device to the host.
+  std::vector<double> gradient_storage(gradient.size());
+  const double_matrix_lens gradient_lens(gradient_storage, extent);
+  REQUIRE(gradient.as_view().store(gradient_lens));
+  std::vector<double> loss_storage(losses.size());
+  REQUIRE(losses.store(loss_storage));
+
+  // The loss of the first row as it is, calculated against the formula on the
+  // host.
+  const auto base_row = logits_lens[row_ndx{0}];
+  const auto peak = std::ranges::max(base_row);
+  auto total = 0.0;
+  for (const auto logit : base_row) total += std::exp(logit - peak);
+  CHECK_THAT(loss_storage[0],
+      WithinAbs(std::log(total) + peak - base_row[label_col], 1e-12));
+
+  // The prediction. The up row's loss less the down row's, over the distance
+  // between them, is the slope of the loss at that logit, and the gradient
+  // of the row as it is must be that slope.
+  for (const auto [nudge, col] : std::views::enumerate(nudged)) {
+    INFO("logit " << *col);
+    const auto up_row = up_row_of(nudge);
+    const auto slope =
+        (loss_storage[*up_row] - loss_storage[*(up_row + 1)]) / (2 * step);
+    CHECK_THAT((gradient_lens[row_ndx{0}, col]), WithinAbs(slope, 1e-7));
   }
 }
 

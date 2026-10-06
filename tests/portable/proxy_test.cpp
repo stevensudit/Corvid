@@ -1271,12 +1271,12 @@ static_assert(Proxiable<proxy_view<vault>, vault>);
 // Conformance. Boilerplate or carried impl, always via registration;
 // matching names alone are NOT enough.
 //
-// Diagnostics on record (clang 22, re-captured 2026-07-08 after the
-// composition refactor). Constructing `proxy_view<gunslinger>` from an
-// unregistered `cowboy` emits exactly one error: "no matching constructor
-// for initialization of 'proxy_view<gunslinger>' ... candidate template
-// ignored: constraints not satisfied [with T = cowboy] ... because
-// 'Proxiable<cowboy, gunslinger>' evaluated to false ... because
+// Diagnostics on record (clang 22, re-captured after the composition
+// refactor). Constructing `proxy_view<gunslinger>` from an unregistered
+// `cowboy` emits exactly one error: "no matching constructor for
+// initialization of 'proxy_view<gunslinger>' ... candidate template ignored:
+// constraints not satisfied [with T = cowboy] ... because 'Proxiable<cowboy,
+// gunslinger>' evaluated to false ... because
 // 'implementation::vtbuild_t<gunslinger>::is_all_bound<gunslinger, cowboy>'
 // evaluated to false", plus two "could not match" notes for the dedicated
 // upcasting and proxy-viewing constructors. Calling `pv.call<"missing">()`
@@ -1445,13 +1445,11 @@ static_assert(!prox::Extends<marshal, marshal>);
 // alone is not enough (Rust's separate `impl Base for T`), and conforming to
 // the base says nothing about the derived facade.
 //
-// Diagnostics on record (clang 22, captured 2026-07-08, detonator halves
-// re-captured 2026-07-09 after the collision-rules rework). Constructing
-// `proxy_view<marshal>` from `vigilante` emits one error with the same
-// constraint walk as the `cowboy` case, ending at
-// 'implementation::vtbuild_t<marshal>::is_all_bound<marshal, vigilante>'
-// evaluated to false"; the walk does not name the missing base facade.
-// Redeclaring an inherited name with the same signature
+// Diagnostics on record (clang 22). Constructing `proxy_view<marshal>` from
+// `vigilante` emits one error with the same constraint walk as the `cowboy`
+// case, ending at 'implementation::vtbuild_t<marshal>::is_all_bound<marshal,
+// vigilante>' evaluated to false"; the walk does not name the missing base
+// facade. Redeclaring an inherited name with the same signature
 // (`facade<extends<gunslinger>, method<"fire", int(int)>>`) detonates at first
 // use of the facade's machinery: "static assertion failed ...
 // 'no_chain_collision_against<...>()': a method name may recur within one
@@ -1466,24 +1464,22 @@ static_assert(!prox::Extends<marshal, marshal>);
 //
 // Listing the identical entry twice, whether a `method` or an `extends`,
 // detonates at first use of the facade's machinery (diagnostic on record,
-// clang 22, captured 2026-07-11): "static assertion failed ...
-// 'is_entry_listed_once<...>()': a facade may not list the identical method or
-// extends entry twice", with the duplicated entry spelled out in the
-// requirement and no follow-on noise. Dedup would otherwise collapse the
-// duplicate silently; a diamond's two DISTINCT `extends` entries sharing an
-// ancestor stay legal, as does an explicit re-extension alongside a path that
-// already covers it.
+// clang 22): "static assertion failed ... 'is_entry_listed_once<...>()': a
+// facade may not list the identical method or extends entry twice", with the
+// duplicated entry spelled out in the requirement and no follow-on noise.
+// Dedup would otherwise collapse the duplicate silently; a diamond's two
+// DISTINCT `extends` entries sharing an ancestor stay legal, as does an
+// explicit re-extension alongside a path that already covers it.
 //
 // A facade is never a value: the deleted default constructor on `facade`
 // propagates, so declaring a `gunslinger` where a handle over one was meant
 // fails at the declaration. Handles stay constructible as always.
 //
-// Diagnostic on record (clang 22, captured 2026-07-10): `gunslinger g;`
-// fails with a single error, "call to implicitly-deleted default
-// constructor of 'gunslinger'", with notes walking to the cause ("default
-// constructor of 'gunslinger' is implicitly deleted because base class
-// 'prox::facade<...>' has a deleted default constructor" and "'facade' has
-// been explicitly marked deleted here").
+// Diagnostic on record (clang 22): `gunslinger g;` fails with a single error,
+// "call to implicitly-deleted default constructor of 'gunslinger'", with notes
+// walking to the cause ("default constructor of 'gunslinger' is implicitly
+// deleted because base class 'prox::facade<...>' has a deleted default
+// constructor" and "'facade' has been explicitly marked deleted here").
 static_assert(!std::is_default_constructible_v<gunslinger>);
 static_assert(!std::is_default_constructible_v<posse_leader>);
 static_assert(std::is_default_constructible_v<proxy<gunslinger>>);
@@ -1535,17 +1531,17 @@ static_assert(sizeof(proxy_view<posse_leader>) == 2 * sizeof(void*));
 // conformance stays per facade (including the deliberately different
 // `reload` bindings), and the base levels still validate their own `api`s.
 //
-// Diagnostics on record (clang 22, captured 2026-07-09). Omitting the
-// `name` entry from a facade detonates at first use of its machinery, as a
-// single clean error with the fold spelled out over the entries: "static
-// assertion failed due to requirement '0 + entry_name<method<...>,
-// ...>::is_name == 1': every facade must carry exactly one name entry".
-// Composing two facades whose name<> entries match (`copycat` claiming
-// name<"gunslinger">) detonates even without a method collision:
-// "static assertion failed ... 'owner_names_unique_against<...>()': facade
-// names must be unique within a composition", spelling the slot list, with
-// declaring facades, in the requirement, followed by the usual single "no
-// type named 'vtable_t'" noise error.
+// Diagnostics on record (clang 22). Omitting the `name` entry from a facade
+// detonates at first use of its machinery, as a single clean error with the
+// fold spelled out over the entries: "static assertion failed due to
+// requirement '0 + entry_name<method<...>, ...>::is_name == 1': every facade
+// must carry exactly one name entry". Composing two facades whose name<>
+// entries match (`copycat` claiming name<"gunslinger">) detonates even without
+// a method collision: "static assertion failed ...
+// 'owner_names_unique_against<...>()': facade names must be unique within a
+// composition", spelling the slot list, with declaring facades, in the
+// requirement, followed by the usual single "no type named 'vtable_t'" noise
+// error.
 static_assert(prox::Extends<war_correspondent, gunslinger>);
 static_assert(prox::Extends<war_correspondent, camera>);
 static_assert(Proxiable<photographer, war_correspondent>);
@@ -1561,13 +1557,23 @@ static_assert(prox::validate_api<camera>());
 //
 // The unqualified core spelling is the same lazy error, via static_assert
 // rather than overload resolution, so it cannot be probed by a concept.
-// Diagnostic on record instead (clang 22, captured 2026-07-09, message
-// re-worded 2026-07-10 when per-name overloads made the qualify-the-key
-// advice insufficient on its own): `wc.call<"reload">()` fires "static
-// assertion failed due to requirement 'ndx != ...::ambiguous_v': ambiguous
-// method call; qualify the key with the facade name, or match one
-// overload's arguments exactly", followed by the accepted "tuple index out
-// of bounds" noise, matching the unknown-name case.
+// Diagnostic on record instead (clang 22). Omitting the `name` entry from a
+// facade detonates at first use of its machinery, as a single clean error with
+// the fold spelled out over the entries: "static assertion failed due to
+// requirement '0 + entry_name<method<...>, ...>::is_name == 1': every facade
+// must carry exactly one name entry". Composing two facades whose name<>
+// entries match (`copycat` claiming name<"gunslinger">) detonates even without
+// a method collision: "static assertion failed ...
+// 'owner_names_unique_against<...>()': facade names must be unique within a
+// composition", spelling the slot list, with declaring facades, in the
+// requirement, followed by the usual single "no type named 'vtable_t'" noise
+// error.
+// re-worded when per-name overloads made the qualify-the-key advice
+// insufficient on its own): `wc.call<"reload">()` fires "static assertion
+// failed due to requirement 'ndx != ...::ambiguous_v': ambiguous method call;
+// qualify the key with the facade name, or match one overload's arguments
+// exactly", followed by the accepted "tuple index out of bounds" noise,
+// matching the unknown-name case.
 template<typename P>
 concept CanReloadSugar = requires(P& p) { p.reload(); };
 static_assert(CanReloadSugar<proxy_view<gunslinger>>);
@@ -1582,14 +1588,14 @@ static_assert(!CanReloadSugar<proxy_view<war_correspondent>>);
 // (that is redeclaration). Registration validates the overloaded `api` by
 // default.
 //
-// Diagnostics on record (clang 22, captured 2026-07-10). A pair differing
-// only in the result type (`method<"x", int()>` plus `method<"x", long()>`)
-// detonates at first use of the facade's machinery: "static assertion
-// failed ... 'no_chain_collision_against<...>()': a method name may recur
-// within one extends chain only as overloads differing in arguments or
-// constness", both slots spelled out in the requirement, followed by the
-// usual single "no type named 'vtable_t'" noise error. A pair differing
-// only in `noexcept` fires the same assert.
+// Diagnostics on record (clang 22). A pair differing only in the result type
+// (`method<"x", int()>` plus `method<"x", long()>`) detonates at first use of
+// the facade's machinery: "static assertion failed ...
+// 'no_chain_collision_against<...>()': a method name may recur within one
+// extends chain only as overloads differing in arguments or constness", both
+// slots spelled out in the requirement, followed by the usual single "no type
+// named 'vtable_t'" noise error. A pair differing only in `noexcept` fires the
+// same assert.
 static_assert(Proxiable<quartermaster, arsenal>);
 static_assert(Proxiable<quartermaster, armory>);
 static_assert(prox::validate_api<arsenal>());
@@ -1621,12 +1627,11 @@ static_assert(std::same_as<
 // overload through both spellings alike, because `resolve` hands ranking to
 // the compiler; the runtime checks live in "Per-name overloads".
 //
-// Diagnostic on record (clang 22, captured 2026-07-10, re-verified
-// unchanged 2026-07-11 after ranking moved to the compiler):
-// `v.call<"aim">(1L)` fires "static assertion failed due to requirement
-// 'ndx != ...::ambiguous_v': ambiguous method call; qualify the key with
-// the facade name, or match one overload's arguments exactly", followed by
-// the accepted "tuple index out of bounds" noise.
+// Diagnostic on record (clang 22, re-verified unchanged after ranking moved to
+// the compiler): `v.call<"aim">(1L)` fires "static assertion failed due to
+// requirement 'ndx != ...::ambiguous_v': ambiguous method call; qualify the
+// key with the facade name, or match one overload's arguments exactly",
+// followed by the accepted "tuple index out of bounds" noise.
 template<typename P, typename A>
 concept CanAimSugar = requires(P& p, A a) { p.aim(a); };
 static_assert(CanAimSugar<proxy_view<arsenal>, int>);
@@ -1642,14 +1647,13 @@ static_assert(!CanAimSugar<proxy_view<arsenal>, long>);
 // validation probe drives the base slots by natural name through the base
 // boilerplate, where the hidden forwarders fail to resolve.
 //
-// Diagnostics on record (clang 22, captured 2026-07-10). Removing the
-// `using arsenal::api::issue;` from `armory::api` fails at the validating
-// registration with "no matching member function for call to 'issue'" at
-// `t.issue(rifles)` and `t.issue()` in `arsenal::boilerplate` (the
-// candidate note names the two-argument `armory` forwarder: "requires 2
-// non-object arguments, but 1 was provided"); any sugar call sites using
-// the hidden overloads fail the same way. Before the chain relaxation,
-// declaring `armory`'s `issue(int, int)` at all detonated with the
+// Diagnostics on record (clang 22). Removing the `using arsenal::api::issue;`
+// from `armory::api` fails at the validating registration with "no matching
+// member function for call to 'issue'" at `t.issue(rifles)` and `t.issue()` in
+// `arsenal::boilerplate` (the candidate note names the two-argument `armory`
+// forwarder: "requires 2 non-object arguments, but 1 was provided"); any sugar
+// call sites using the hidden overloads fail the same way. Before the chain
+// relaxation, declaring `armory`'s `issue(int, int)` at all detonated with the
 // phase-7 message ("a method name may recur within one facade only as
 // overloads differing in arguments or constness, and never across an
 // extends chain").
@@ -1833,11 +1837,11 @@ static_assert(!noexcept(std::declval<proxy_view<gunslinger>&>().fire(1)));
 // can place before any registration exists; here they are redundant with the
 // registrations.
 //
-// Diagnostics on record (clang 22, captured 2026-07-08). Drifting the `api`'s
-// `fire` parameter from `int` to `long long`, with these standalone asserts
-// removed, fails through `lawman`'s registration alone, at the forwarder's own
-// line: "no matching member function for call to 'call' ... candidate template
-// ignored: constraints not satisfied [with K = ... \"fire\", Args = <long long
+// Diagnostics on record (clang 22). Drifting the `api`'s `fire` parameter from
+// `int` to `long long`, with these standalone asserts removed, fails through
+// `lawman`'s registration alone, at the forwarder's own line: "no matching
+// member function for call to 'call' ... candidate template ignored:
+// constraints not satisfied [with K = ... \"fire\", Args = <long long
 // &>] ... because 'vtbuild_t<gunslinger>::template has_exact_args<...
 // \"fire\", long long &>()' evaluated to false". Before the check existed, the
 // same drift compiled silently, with the sugar truncating wide arguments at

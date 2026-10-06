@@ -472,5 +472,136 @@ pick_greedy(cuda_buffer<token_id>& out, const Logits& logits) {
 }
 
 #pragma endregion
+#pragma region cross_entropy
+
+namespace details {
+
+// Compute the loss of one row of `logits`, `cols` wide, against its label (the
+// correct `token_id`), writing it into `losses`, and the gradient of that loss
+// divided by `label_count`, writing into the matching row of `gradient`.
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and every `blockDim.x` after it.
+//
+// In-place is safe. Every thread reads the label's logit before
+// `exponentiate_row`, which is itself safe in place, and the last pass reads
+// only what the thread itself wrote.
+template<DeviceFloating T>
+__global__ void apply_cross_entropy(kernel_matrix_lens<T> gradient, T* losses,
+    kernel_matrix_view<T> logits, const token_id* labels, size_t cols,
+    compute_t<T> label_count) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const kernel_col_range columns{cols};
+  const auto label = static_cast<size_t>(*labels[row]);
+  const auto label_logit = widen(logits[row, label]);
+
+  // The row's softmax, with `gradient` holding the exponentials until `total`
+  // is known.
+  const auto [peak, total] = exponentiate_row(gradient, logits, row, columns);
+
+  for (const auto col : columns) {
+    const auto probability = widen(gradient[row, col]) / total;
+    const auto target = (col == label) ? compute_t<T>{1} : compute_t<T>{0};
+    gradient[row, col] = narrow<T>((probability - target) / label_count);
+  }
+
+  // The label's probability is `exp(label_logit - peak) / total`, so its
+  // negated logarithm is taken without forming it. In other words, we
+  // deliberately do not calculate the probability and then take its logarithm,
+  // because that would round the probability.
+  if (cuda_kernel::x_thread() == 0)
+    losses[row] = narrow<T>(std::log(total) - (label_logit - peak));
+}
+
+} // namespace details
+
+// Compute the cross-entropy loss of each row of `logits` against its label,
+// writing into `losses`, and the gradient of the mean loss with respect to
+// every logit, writing into `gradient`.
+//
+// A row of logits is a prediction, one score per vocabulary entry, and its
+// label is the entry that was in fact right, as a `token_id`. ("Label" alludes
+// to labeled data. It's a holdover from ML classification models, where it was
+// literally the label hand-written to describe, say, an image input.)
+//
+// With P predictions and V vocabulary entries:
+//
+//   gradient  [P, V]  how much the mean loss moves per unit of each logit,
+//                     written
+//   losses    [P]     each row's loss, written
+//   logits    [P, V]  a row per prediction
+//   labels    [P]     each row's label
+//
+// The softmax turns a row's logits into probabilities, and the row's loss is
+// the negated logarithm of the probability its label got. A label given a
+// probability of 1 costs nothing, and the cost grows without bound as that
+// probability nears 0.
+//
+// For a row of three logits whose label is entry 0:
+//
+//   token_id       0       1       2
+//   logits         2       1       0
+//   exp            7.389   2.718   1       totaling 11.107
+//   probabilities  0.665   0.245   0.090   each `exp` over the total
+//   loss           -log(0.665) = 0.408
+//
+// The gradient answers one question per logit. Were this logit a little
+// larger, by how many times that little would the loss change? The answer is
+// the row's probabilities, less 1 at the label:
+//
+//   gradient       -0.335  0.245   0.090
+//
+// So raising logit 1 by 0.01 raises the loss by about 0.245 * 0.01, and
+// raising the label's logit by 0.01 lowers the loss by about 0.335 * 0.01.
+// Every wrong entry pushes the loss up in proportion to the probability it
+// took, and the label pulls it down by the probability it did not get.
+//
+// The reason is in the loss written out, `log(total) - logits[label]`.
+// Raising a logit by a small `step` multiplies its `exp` by about `1 + step`,
+// which adds `step` times that `exp` to the total, and the logarithm of the
+// total rises by that addition over the total, which is `step` times the
+// logit's probability. For every logit but the label's, that is the whole
+// effect. The label's logit also appears in the second term, which falls by
+// `step`.
+//
+// The loss that training lowers is the mean of the rows' losses, over
+// `label_count` rows, so each row's gradient is divided by `label_count`. A
+// caller that spreads one batch over several calls passes the batch's count
+// to each, so `label_count` may exceed P. A batch of 4 sequences run as 4
+// calls of 63 predictions each passes 4 * 63 = 252 to all four. The losses
+// are not divided.
+//
+// For `bfloat16_t`, each gradient is rounded twice, since its exponential is
+// stored in `gradient` before the division by the total reads it back. The
+// losses are not affected, and `float` and `double` are exact.
+//
+// `gradient` must have the extent of `logits`, with at least one column, and
+// can be `logits` itself, replacing each logit with its gradient, but must
+// not otherwise overlap it. `losses` and `labels` must have an element per
+// row, every label must index a column, and `label_count` must not be zero.
+//
+// Returns false when the launch is refused, leaving `gradient` and `losses`
+// unspecified.
+template<DeviceMatrixLike Out>
+requires DeviceFloating<device_element_t<Out>>
+[[nodiscard]] bool cross_entropy(Out&& gradient,
+    cuda_buffer<device_element_t<Out>>& losses, input_view_t<Out> logits,
+    const cuda_buffer<token_id>& labels, size_t label_count) {
+  const auto& gradient_lens = gradient.as_lens();
+  assert(gradient_lens.extent() == logits.extent());
+  assert(logits.col_extent() > 0);
+  assert((losses.size() == logits.row_extent()) &&
+         (labels.size() == logits.row_extent()));
+  assert(label_count);
+  assert(is_same_or_disjoint(gradient_lens.as_span(), logits.as_span()));
+
+  details::apply_cross_entropy<<<logits.row_extent(), threads_per_block>>>(
+      kernel_matrix_lens{gradient_lens}, losses.get(),
+      kernel_matrix_view{logits}, labels.get(), logits.col_extent(),
+      static_cast<compute_t<device_element_t<Out>>>(label_count));
+  return cuda_last_status{}.ok();
+}
+
+#pragma endregion
 
 } // namespace corvid::cuda::llm

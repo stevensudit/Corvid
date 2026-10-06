@@ -438,25 +438,33 @@ requires DeviceFloating<device_element_t<Out>> &&
 #pragma endregion
 #pragma region softmax
 
-namespace details {
+// What `exponentiate_row` reduces. Consists of the row's largest value and the
+// sum of its shifted exponentials.
+template<DeviceFloating T>
+struct row_exponentials {
+  T peak;
+  T total;
+};
 
-// Turn one row of `in`, `cols` wide, into weights that sum to 1, writing into
-// the matching row of `out`.
+// Write the exponential of each of the thread's `columns` of row `row` of
+// `in`, shifted down by the row's largest value, into the matching row of
+// `out`, and return that largest value and the row's total.
 //
-// The block index picks the row, and each thread takes the columns at its
-// index and every `blockDim.x` after it. A thread past the last column brings
-// the identity to both block reductions, which every thread must join.
+// This is a softmax short of the division by the total, so a softmax divides
+// `out` by `total` and a loss has `peak` and `total` to take a logarithm
+// from. Shifting every value by the same amount leaves the weights unchanged,
+// and shifting by the maximum keeps `exp` at or below 1.
+//
+// Every thread of the block must call it, with the row's columns shared out
+// as a `kernel_col_range` does. A thread past the last column brings the
+// identity to both block reductions.
 //
 // In-place is safe. Each element is read only by the thread that writes it,
 // and every read of `in` precedes that thread's write.
 template<DeviceFloating To, DeviceFloating From>
-__global__ void apply_softmax(kernel_matrix_lens<To> out,
-    kernel_matrix_view<From> in, size_t cols) {
-  const auto row = cuda_kernel::x_block<size_t>();
-  const kernel_col_range columns{cols};
-
-  // Shifting every value by the same amount leaves the weights unchanged, and
-  // shifting by the maximum keeps `exp` at or below 1.
+__device__ row_exponentials<compute_t<From>>
+exponentiate_row(kernel_matrix_lens<To> out, kernel_matrix_view<From> in,
+    size_t row, kernel_col_range columns) {
   auto peak = ::cuda::std::numeric_limits<compute_t<From>>::lowest();
   for (const auto col : columns)
     peak = ::cuda::std::max(peak, widen(in[row, col]));
@@ -470,6 +478,26 @@ __global__ void apply_softmax(kernel_matrix_lens<To> out,
     total += weight;
   }
   total = cuda_reduce::block_sum(total);
+
+  return {peak, total};
+}
+
+namespace details {
+
+// Turn one row of `in`, `cols` wide, into weights that sum to 1, writing into
+// the matching row of `out`.
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and every `blockDim.x` after it.
+//
+// In-place is safe, as `exponentiate_row` is, and the division reads only
+// what the thread itself wrote.
+template<DeviceFloating To, DeviceFloating From>
+__global__ void apply_softmax(kernel_matrix_lens<To> out,
+    kernel_matrix_view<From> in, size_t cols) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const kernel_col_range columns{cols};
+  const auto [peak, total] = exponentiate_row(out, in, row, columns);
 
   for (const auto col : columns)
     out[row, col] = narrow<To>(widen(out[row, col]) / total);

@@ -36,8 +36,8 @@
 // The GPT-2 inference engine on the device, over `float`, `double`, or
 // `bfloat16_t`.
 //
-// `gpt2_engine<T>` uploads a `gpt2_model` once, as `T`, and runs it: one
-// block, the forward pass from token IDs through every block to the final
+// `gpt2_engine<T>` uploads a `gpt2_model` once, as `T`, and runs it. It
+// performs th eforward pass from token IDs through every block to the final
 // layer norm, and greedy generation on top of it, composing the ops of
 // "llm_ops.cuh" as "gpt2_engine.h" composes the CPU ones. The activations of a
 // block are caller-owned lenses, as on the CPU.
@@ -54,6 +54,11 @@ using corvid::llm::ParameterElement;
 
 #pragma region gpt2_engine
 
+// Fwd.
+template<typename T>
+requires DeviceFloating<T> && GemmElement<T>
+class gpt2_trainer;
+
 // The GPT-2 inference engine on the device, holding its own copy of a
 // `gpt2_model`'s parameters, with the operands of its products against them
 // as `T` and everything else in `wide_t`, the type `T` computes in.
@@ -62,15 +67,18 @@ using corvid::llm::ParameterElement;
 // token and position embeddings, the projection weights, the biases of the
 // projections whose outputs feed another such product, the layer norm
 // outputs, the values (and so the value cache), the attention weights, the
-// heads' output, and the MLP's hidden activation. `wide_t` holds the residual
-// stream, the two projection outputs added to it and their biases, the layer
-// norms' weights and biases, and the queries, keys (and so the key cache),
-// and scores, so a value that accumulates across the blocks is never narrowed
-// and the scores are exact products. Every parameter is uploaded at
-// construction, converted where its type differs from the model's, so the
-// model may be destroyed afterward. The logits are `wide_t` too, so
-// that a pick rests on the final projection's full precision. Tokenizing text
-// is `gpt2_tokenizer`'s job, so this takes and produces token IDs alone.
+// heads' output, and the MLP's hidden activation.
+//
+// `wide_t` holds the residual stream, the two projection outputs added to it
+// and their biases, the layer norms' weights and biases, and the queries, keys
+// (and so the key cache), and scores, so a value that accumulates across the
+// blocks is never narrowed and the scores are exact products.
+//
+// Every parameter is uploaded at construction and converted where its type
+// differs from the model's, so the model may be destroyed afterward. The
+// logits are `wide_t` too, so that a pick rests on the final projection's full
+// precision. Tokenizing text is `gpt2_tokenizer`'s job, so this takes and
+// produces token IDs alone.
 //
 //   const gpt2_engine<float> engine(model);
 //   std::vector<token_id> ids = ...;
@@ -93,12 +101,16 @@ public:
   // The names, shapes, and sharing rules are those of the CPU
   // `corvid::llm::gpt2_engine::block_activations`, with the device `attend`'s
   // inputs and scratch in place of `qkv` and its one row of scores: the new
-  // tokens' `queries`, and `scores` and `weights`, each HN x T. The queries,
-  // scores, and the three activations on the residual stream (`attn_out`,
-  // `ln_2_in`, and `mlp_out`) are `wide_t`. The rest feed a product against
-  // the parameters and are `element_t`.
+  // tokens' `queries`, and `scores` and `weights`, each HN x T.
   //
-  // Note that the `const` on an instance is shallow.
+  // The queries, scores, and the three activations on the residual stream
+  // (`attn_out`, `ln_2_in`, and `mlp_out`) are `wide_t`. The rest feed a
+  // product against the parameters and are `element_t`.
+  //
+  // `hidden_pre` is the one activation with no CPU counterpart. It holds the
+  // MLP's widened rows as `mlp.c_fc` wrote them, before `gelu_new`, with the
+  // extent of `hidden`. It may be `hidden` itself, which applies `gelu_new` in
+  // place.
   struct block_activations {
     cuda_matrix_lens<element_t> ln_1_out;
     cuda_matrix_lens<wide_t> queries;
@@ -108,13 +120,17 @@ public:
     cuda_matrix_lens<wide_t> attn_out;
     cuda_matrix_lens<wide_t> ln_2_in;
     cuda_matrix_lens<element_t> ln_2_out;
+    cuda_matrix_lens<element_t> hidden_pre;
     cuda_matrix_lens<element_t> hidden;
     cuda_matrix_lens<wide_t> mlp_out;
   };
 
-  // Owned device storage for every activation of `apply_block`, all distinct,
-  // for `new_count` new tokens of width `width` and MLP width `hidden_width`,
+  // Owned device storage for every activation of `apply_block`, for
+  // `new_count` new tokens of width `width` and MLP width `hidden_width`,
   // attended by `head_count` heads after `cached_count` cached tokens.
+  //
+  // Every activation has its own buffer except `hidden_pre`, which shares
+  // `hidden`.
   struct block_activation_buffers {
     cuda_matrix<element_t> ln_1_out;
     cuda_matrix<wide_t> queries;
@@ -151,6 +167,7 @@ public:
           .attn_out = attn_out,
           .ln_2_in = ln_2_in,
           .ln_2_out = ln_2_out,
+          .hidden_pre = hidden,
           .hidden = hidden,
           .mlp_out = mlp_out,
       };
@@ -212,11 +229,13 @@ public:
   //
   // The contract is that of the CPU `corvid::llm::gpt2_engine::apply_block`,
   // which also holds the step table, with the block's `keys` and `values` in
-  // place of `qkv`. `out` and `in` must have the same extent and may be the
+  // place of `qkv`, and with `mlp.c_fc` writing `hidden_pre`, which
+  // `gelu_new` reads. `out` and `in` must have the same extent and may be the
   // same view. `keys` and `values` must have the same extent, the width of
   // `in` and at least as many rows, the first of them holding the cached
-  // tokens' keys and values, and the new tokens' rows are written. The
-  // activation views must have the extents `block_activations` states for
+  // tokens' keys and values, and the new tokens' rows are written.
+  //
+  // The activation views must have the extents `block_activations` states for
   // that extent and may share storage only as it allows. Returns false when a
   // launch is refused, leaving `out`, the new rows of `keys` and `values`,
   // and the activations unspecified.
@@ -233,7 +252,7 @@ public:
     const auto new_values =
         values[{row_ndx{cached_count}, col_ndx{0}}, matrix_extent::npos];
     // Each of these four writes is followed by an add that reads the residual
-    // it would have destroyed; the ops' same-or-disjoint checks allow all
+    // it would have destroyed. The ops' same-or-disjoint checks allow all
     // four, and the ops catch every other overlap.
     assert(is_disjoint(in.as_span(), acts.ln_1_out.as_span()));
     assert(is_disjoint(in.as_span(), acts.attn_out.as_span()));
@@ -266,10 +285,10 @@ public:
     if (!layer_norm(acts.ln_2_out, acts.ln_2_in, params.ln_2_weight,
             params.ln_2_bias, gpt2_layer_norm_eps))
       return false;
-    if (!linear_projection(blas_, acts.hidden, acts.ln_2_out,
+    if (!linear_projection(blas_, acts.hidden_pre, acts.ln_2_out,
             params.mlp_c_fc_weight, params.mlp_c_fc_bias))
       return false;
-    if (!gelu_new(acts.hidden, acts.hidden)) return false;
+    if (!gelu_new(acts.hidden, acts.hidden_pre)) return false;
     if (!linear_projection(blas_, acts.mlp_out, acts.hidden,
             params.mlp_c_proj_weight, params.mlp_c_proj_bias))
       return false;
@@ -399,6 +418,8 @@ public:
 #pragma endregion
 #pragma region block_params
 private:
+  friend class gpt2_trainer<element_t>;
+
   // The parameters of one block, uploaded from `gpt2_block_params`.
   //
   // The names and shapes are those of the CPU bundle, except that the

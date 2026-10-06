@@ -26,8 +26,10 @@ tests/.local/llm/gpt2/         large, gitignored
                                  for the stress prompt: input_ids and the
                                  last row of its logits
   activations.safetensors        every sublayer boundary for the bisect prompt
-  grads.safetensors              loss and every parameter gradient for one
-                                 batch drawn from the corpus
+  grads.safetensors              for one batch drawn from the corpus: the
+                                 loss, every parameter's gradient, and the
+                                 gradient at every sublayer boundary and at
+                                 the logits
   dumps.json                     the dumps' checksums, with the interpreter
                                  and platform that produced them
 
@@ -139,25 +141,55 @@ def tokenizer_fixtures(tok: GPT2TokenizerFast, fixtures: Path) -> dict:
 
 
 class Capture:
-    """Forward hooks that record sublayer inputs and outputs by name."""
+    """Forward hooks that record sublayer inputs and outputs by name.
 
-    def __init__(self):
+    By default the record is a detached copy of each tensor's value. With
+    retain_grads, it is the tensor itself, still part of the graph and told
+    to keep its gradient, so that after a backward pass each one's .grad is
+    the gradient of the loss with respect to it.
+    """
+
+    def __init__(self, *, retain_grads=False):
         self.tensors: dict[str, torch.Tensor] = {}
         self.handles = []
+        self.retain_grads = retain_grads
+
+    def record(self, name: str, tensor: torch.Tensor):
+        if self.retain_grads:
+            tensor.retain_grad()
+            self.tensors[name] = tensor
+        else:
+            self.tensors[name] = tensor.detach().squeeze(0).clone()
 
     def tap(self, module, name: str, *, inputs=False, outputs=True):
         def hook(_mod, args, out):
             if inputs:
-                self.tensors[name + "/in"] = args[0].detach().squeeze(0).clone()
+                self.record(name + "/in", args[0])
             if outputs:
-                o = out[0] if isinstance(out, tuple) else out
-                self.tensors[name + "/out"] = o.detach().squeeze(0).clone()
+                self.record(
+                    name + "/out", out[0] if isinstance(out, tuple) else out
+                )
 
         self.handles.append(module.register_forward_hook(hook))
 
     def release(self):
         for h in self.handles:
             h.remove()
+
+
+def tap_sublayers(cap: Capture, transformer) -> None:
+    """Tap every sublayer boundary of the model, under the dump point names."""
+    # drop is the identity in eval mode; its output is wte + wpe.
+    cap.tap(transformer.drop, "embed")
+    for n, block in enumerate(transformer.h):
+        # ln_1 input is the residual stream entering the block.
+        cap.tap(block.ln_1, f"block_{n}/ln_1", inputs=True)
+        cap.tap(block.attn, f"block_{n}/attn")
+        # ln_2 input is the residual stream after the attention add.
+        cap.tap(block.ln_2, f"block_{n}/ln_2", inputs=True)
+        cap.tap(block.mlp, f"block_{n}/mlp")
+    # ln_f input is the residual stream leaving the last block.
+    cap.tap(transformer.ln_f, "ln_f", inputs=True)
 
 
 def prompt_artifacts(model, tok, corpus_tokens: list[int], out: Path) -> dict:
@@ -168,18 +200,7 @@ def prompt_artifacts(model, tok, corpus_tokens: list[int], out: Path) -> dict:
         ids = tok(prompt, return_tensors="pt").input_ids
         cap = Capture()
         if i == BISECT_PROMPT:
-            t = model.transformer
-            # drop is the identity in eval mode; its output is wte + wpe.
-            cap.tap(t.drop, "embed")
-            for n, block in enumerate(t.h):
-                # ln_1 input is the residual stream entering the block.
-                cap.tap(block.ln_1, f"block_{n}/ln_1", inputs=True)
-                cap.tap(block.attn, f"block_{n}/attn")
-                # ln_2 input is the residual stream after the attention add.
-                cap.tap(block.ln_2, f"block_{n}/ln_2", inputs=True)
-                cap.tap(block.mlp, f"block_{n}/mlp")
-            # ln_f input is the residual stream leaving the last block.
-            cap.tap(t.ln_f, "ln_f", inputs=True)
+            tap_sublayers(cap, model.transformer)
         with torch.no_grad():
             out_logits = model(ids).logits.squeeze(0)
         cap.release()
@@ -227,13 +248,27 @@ def grad_artifacts(model, corpus_tokens: list[int], out: Path) -> dict:
         sys.exit(f"corpus has {len(corpus_tokens)} tokens; need {need}")
     ids = torch.tensor(corpus_tokens[:need]).view(GRAD_BATCH, GRAD_SEQ)
     model.zero_grad(set_to_none=True)
+    cap = Capture(retain_grads=True)
+    tap_sublayers(cap, model.transformer)
     # HF shifts labels internally: position t predicts token t+1.
-    loss = model(ids, labels=ids).loss
+    result = model(ids, labels=ids)
+    cap.release()
+    cap.record("logits", result.logits)
+    loss = result.loss
     loss.backward()
     grads = {"input_ids": ids.to(torch.int32), "loss": loss.detach().view(1)}
     for name, p in model.named_parameters():
         assert p.grad is not None, name
         grads[name] = p.grad.detach().contiguous().clone()
+    # The gradient of the loss with respect to each activation the forward
+    # dump names, and to the logits, so that a wrong parameter gradient can
+    # be bisected to the sublayer whose backward step introduced it. Each is
+    # a row per token, the sequences one after another: [B * T, C], and
+    # [B * T, V] for the logits. No parameter is named like a dump point, so
+    # the two sets of entries cannot collide.
+    for name, tensor in cap.tensors.items():
+        assert tensor.grad is not None, name
+        grads[name] = tensor.grad.reshape(need, -1).contiguous().clone()
     save_file(grads, str(out / "grads.safetensors"))
     return {"batch": GRAD_BATCH, "seq": GRAD_SEQ, "loss": loss.item()}
 

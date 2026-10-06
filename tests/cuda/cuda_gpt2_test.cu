@@ -31,6 +31,7 @@
 #include "corvid/cuda/llm/gpt2_engine.cuh"
 #include "corvid/infra/stopwatch.h"
 #include "catch2_main.h"
+#include "gpt2_device_oracle.cuh"
 #include "gpt2_oracle.h"
 
 // The whole test sits in a named namespace. A `using namespace corvid;` at
@@ -48,8 +49,6 @@ using corvid::cuda::cublas_handle;
 using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::cuda::cuda_matrix_view;
-using corvid::cuda::device_value_t;
-using corvid::cuda::DeviceMatrixViewable;
 using corvid::cuda::llm::gpt2_engine;
 using corvid::llm::gpt2_end_of_text;
 using corvid::llm::gpt2_model;
@@ -64,53 +63,34 @@ namespace {
 
 #pragma region Helpers
 
-// Download `in` into a host vector of `float`, in row-major order, converted
-// from its element type.
-template<DeviceMatrixViewable In>
-std::vector<float> download(const In& in) {
-  using T = device_value_t<In>;
-  const cuda_matrix_view<T> device = in;
-  std::vector<T> storage(device.row_extent() * device.col_extent());
-  REQUIRE(device.store(matrix_lens<T>(storage, device.extent())));
-  return {storage.begin(), storage.end()};
-}
-
 // The rate of `count` tokens in `took`, in tokens per second.
 double tokens_per_second(size_t count, fp_milliseconds took) {
   return static_cast<double>(count) /
          std::chrono::duration<double>(took).count();
 }
 
-// Download `device` and check that it is close to `expected`.
-void check_device_close(cuda_matrix_view<float> device,
-    float_matrix_view expected, float atol, float rtol) {
-  const auto storage = download(device);
-  check_close(float_matrix_view(storage, device.extent()), expected, atol,
-      rtol);
-}
-
 // The tolerance of the bf16 logits against the oracle's fp32 ones, both
 // absolute and relative, set above the largest relative error measured over
-// the five prompts, 2.7e-2 on prompt 3 (2026-09-24), with the residual
-// stream, queries, keys, and scores in `float` and the products' operands
-// against the parameters in eight significant bits. The reference is GPT-2
-// run wholly in bf16 by transformers, which loses 3.7e-2 on the same prompt
+// the five prompts, 2.7e-2 on prompt 3, with the residual stream, queries,
+// keys, and scores in `float` and the products' operands against the
+// parameters in eight significant bits. The reference is GPT-2 run wholly in
+// bf16 by transformers, which loses 3.7e-2 on the same prompt
 // ("gpt2_bf16_reference.py").
 constexpr auto bf16_logits_tolerance = 3e-2F;
 
 // The ratios of a bf16 block's largest error to its largest expected value,
-// set above the largest measured over the twelve blocks (2026-09-24): the
-// exit residual 1.3e-2 (block 11), the attention output 7.9e-2 (block 3,
-// whose output is small against the bf16 rounding of the layer norm output
-// that its projections read), the residual after it 1.2e-2 (block 11), and
-// the MLP output 9.4e-3 (block 5).
+// set above the largest measured over the twelve blocks: the exit
+// residual 1.3e-2 (block 11), the attention output 7.9e-2 (block 3, whose
+// output is small against the bf16 rounding of the layer norm output that its
+// projections read), the residual after it 1.2e-2 (block 11), and the MLP
+// output 9.4e-3 (block 5).
 constexpr auto bf16_exit_ratio = 2e-2F;
 constexpr auto bf16_attn_out_ratio = 1e-1F;
 constexpr auto bf16_ln_2_in_ratio = 2e-2F;
 constexpr auto bf16_mlp_out_ratio = 2e-2F;
 
 // The tolerance of an engine's logits against the fp32 oracle's, by element
-// type: the fp32 gate, except for bf16's own.
+// type, the fp32 gate, except for bf16's own.
 template<typename T>
 constexpr auto logits_tolerance = 1e-4F;
 template<>
@@ -531,7 +511,7 @@ TEST_CASE(
   // that the layer norms' weights and biases and the residual stream's biases
   // arrive rounded to eight significant bits, so the gate is the same. The
   // worst relative error measured this way is 1.5e-2 on prompt 3, against
-  // the fp32 file's 2.6e-2 (2026-09-25).
+  // the fp32 file's 2.6e-2.
   const auto model =
       gpt2_model<bfloat16_t>::load(std::move(oracle.weights_bf16));
   const gpt2_engine<bfloat16_t> engine(model);

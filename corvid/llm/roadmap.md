@@ -77,8 +77,10 @@ manager. So the division of labor is fixed up front:
     `corvid/llm/gpt2_engine.h` (`gpt2_engine`, CPU) and
     `corvid/cuda/llm/gpt2_engine.cuh` (`corvid::cuda::llm::gpt2_engine`,
     device) run it: `apply_block`, `forward`, `next_token`, `generate`,
-    with their activation bundles. A later model gets its own files beside
-    them and reuses the ops.
+    with their activation bundles. `corvid/cuda/llm/gpt2_trainer.cuh`
+    (`gpt2_trainer`, device only) is stage 5's training pass over the
+    device engine. A later model gets its own files beside them and reuses
+    the ops.
 - **Two bands in `deps.md`**: `linalg` rests on `containers/utils`; `llm` is
   an apex band so the reader may reach `filesys` and `proto`. The `.cuh`
   files stay under `corvid/cuda/`, outside the layering lint.
@@ -1605,6 +1607,90 @@ but activations still flow backward through the whole network.
 Done when: gradients match the oracle, then the LoRA training loss goes down
 on the sample text and the merged adapter changes generation in the expected
 direction.
+
+Design, accepted 2026-10-02:
+
+- The batch is a loop. The oracle's gradient batch is 4 sequences of 64
+  tokens, and the trainer runs them one at a time through the engine's
+  `apply_block` with nothing cached, so no forward op changes. A batched
+  `attend` (a second stride through the batched GEMM, the sequence count
+  through the causal mask) is a throughput item for later, in the same bin
+  as fusion.
+- Every activation is retained. The inference forward pass reuses one set of
+  activations for all twelve blocks, which leaves a backward pass nothing to
+  read. Training keeps a set per sequence and block, 4 x 12 = 48 in all,
+  with the residual entering each block and the block's keys and values. A
+  set is 3.7 MB, and the whole batch with its logits is about 240 MB. The
+  attention scores are not needed after the softmax, whose backward step
+  reads the weights alone.
+- GELU keeps its input. The engine applied `gelu_new` in place, destroying
+  the pre-activation that its derivative needs. `block_activations` gains
+  `hidden_pre`, which `mlp.c_fc` writes and `gelu_new` reads. Inference
+  aliases it to `hidden` and stays in place.
+- Layer norm's backward step recomputes each row's mean and reciprocal
+  standard deviation from the retained input, so the forward op's signature
+  stays as it is.
+- One op, `cross_entropy`, yields each row's loss and the gradient of the
+  mean loss with respect to the logits, which is the softmax of the row,
+  less 1 at the label (the token that in fact came next, the known answer a
+  prediction is scored against), divided by the count. Labels are shifted as
+  Hugging Face shifts them: position t predicts token t + 1. So a sequence of 64
+  tokens makes 63 predictions, the batch makes 4 x 63 = 252, and the loss is
+  the mean over all of them.
+- The gradients mirror the parameters, one `float` device matrix each, and
+  every sequence's backward pass accumulates into them.
+- Device only, with no CPU backward twin, and no autodiff (see Rulings).
+  Backward ops take the `_backward` suffix.
+- The home is `gpt2_trainer` in "corvid/cuda/llm/gpt2_trainer.cuh", beside
+  the engine, which stays inference-shaped. The trainer owns the retained
+  activations, the gradients, and later the adapter and optimizer state.
+- The oracle dumps the gradient of the loss at every sublayer boundary that
+  the forward dump names, so a wrong parameter gradient bisects to a
+  sublayer and not just to a block.
+- A gate's tolerance is its largest error relative to the oracle's largest
+  value, pinned from the gate's first passing run.
+- The fp16 key cache does not block this stage. It is a bf16 decode
+  bandwidth lever, this stage is gated in fp32, and training never decodes,
+  so it waits for the bf16 training precision decisions of stage 7.
+
+Five slices, each gated: (1) the training forward pass and the loss, against
+the oracle's loss; (2) backward through the head and the final layer norm,
+against the `ln_f` gradients, which depend on nothing else; (3) the MLP half
+of a block, against block 11's gradients, since the backward pass reaches
+block 11 first; (4) the attention half, then all twelve blocks, `wpe`, and
+`wte`; (5) LoRA, AdamW, and the training loop.
+
+Two hazards for those gates, known in advance. The dump holds each block's
+`attn.c_attn` weight gradient as one [768, 2304] tensor, where the engine
+reads that projection as three column thirds. And `wte` is tied to the
+output head, so torch sums the head's contribution and the embedding
+lookup's into one gradient, with no separate `lm_head.weight` entry.
+
+Status (2026-10-02, slice 1: the training forward pass and the loss):
+`gpt2_trainer` runs the oracle's batch through the engine's blocks, one
+sequence at a time, each into its own retained buffers: the residual
+entering each block and leaving the last, each block's activations with a
+`hidden_pre` of its own, its keys and values, and the final layer norm's
+output. It computes the logits of every position but the last of each
+sequence and hands them to the new device op `cross_entropy`, which replaces
+each logit with its gradient, in place, and writes each row's loss. The host
+downloads the 252 losses and takes their mean. In the engine,
+`block_activations` gained `hidden_pre`, which the engine's own buffers alias
+to `hidden`, so inference still applies `gelu_new` in place, and the engine
+befriends the trainer, which reads its parameters. The oracle gained the
+gradient of the loss at every dump point of the forward pass and at the
+logits, in "grads.safetensors" under the dump points' names. Each is a row
+per token with the sequences one after another, [256, 768], and
+[256, 50257] for the logits, 110 MB more in all. Every other dump's checksum
+and the tracked manifest are unchanged, and each checkout reruns the oracle
+before its trainer test can pass. Gate, on the RTX 4090 (Windows): the loss
+is 5.19734 against the oracle's 5.197339, 3.7e-7 relative, gated at 1e-5,
+and the logit gradient's largest error over the four sequences is 3.0e-5 of
+its largest value (1 / 252, at a label the model gave almost no
+probability), gated at 1e-4. `cross_entropy` has two unit tests of its own:
+hand-computed rows in `float` and `double`, and a check that nudging a logit
+by a small step moves the loss by the gradient times the step, which is what
+a gradient means. Next: slice 2.
 
 ### 6. A model that can hold an opinion
 

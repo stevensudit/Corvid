@@ -71,13 +71,15 @@ inline std::string read_file(const std::filesystem::path& path) {
 }
 
 // The model weights in fp32 and narrowed to bf16, the bisect prompt's
-// activations, and every prompt's IDs and logits, along with the stress
-// prompt's IDs and the last row of its logits, as the oracle dumped them.
+// activations, every prompt's IDs and logits, along with the stress prompt's
+// IDs and the last row of its logits, and the gradient batch's IDs, loss, and
+// gradients, as the oracle dumped them.
 struct oracle_dumps {
   safetensors_file weights;
   safetensors_file weights_bf16;
   safetensors_file activations;
   safetensors_file logits;
+  safetensors_file grads;
 
   // Load the files, skipping the test when the oracle has not run here.
   [[nodiscard]] static oracle_dumps load() {
@@ -85,10 +87,12 @@ struct oracle_dumps {
     const auto model_bf16_path = oracle_path("model-bf16.safetensors");
     const auto activations_path = oracle_path("activations.safetensors");
     const auto logits_path = oracle_path("logits.safetensors");
+    const auto grads_path = oracle_path("grads.safetensors");
     if (!std::filesystem::exists(model_path) ||
         !std::filesystem::exists(model_bf16_path) ||
         !std::filesystem::exists(activations_path) ||
-        !std::filesystem::exists(logits_path))
+        !std::filesystem::exists(logits_path) ||
+        !std::filesystem::exists(grads_path))
       SKIP("no oracle dumps under tests/.local/llm/gpt2; run the oracle");
     return {
         .weights = safetensors_file::load(tests::open_read_only(model_path)),
@@ -97,6 +101,7 @@ struct oracle_dumps {
         .activations =
             safetensors_file::load(tests::open_read_only(activations_path)),
         .logits = safetensors_file::load(tests::open_read_only(logits_path)),
+        .grads = safetensors_file::load(tests::open_read_only(grads_path)),
     };
   }
 };
@@ -121,6 +126,17 @@ vector_of(const safetensors_file& file, std::string_view name, size_t size) {
   return span;
 }
 
+// `values` as token IDs, none of which may be negative.
+inline std::vector<token_id> as_ids(std::span<const int32_t> values) {
+  std::vector<token_id> ids;
+  ids.reserve(values.size());
+  for (const auto id : values) {
+    REQUIRE(id >= 0);
+    ids.push_back(token_id{static_cast<uint32_t>(id)});
+  }
+  return ids;
+}
+
 // The int32 tensor `name` of `file`, which must be one-dimensional, as token
 // IDs.
 inline std::vector<token_id>
@@ -130,12 +146,18 @@ ids_of(const safetensors_file& file, std::string_view name) {
   REQUIRE(entry);
   REQUIRE(entry->shape.size() == 1);
   REQUIRE(entry->is<int32_t>());
-  std::vector<token_id> ids;
-  for (const auto id : entry->as<int32_t>()) {
-    REQUIRE(id >= 0);
-    ids.push_back(token_id{static_cast<uint32_t>(id)});
-  }
-  return ids;
+  return as_ids(entry->as<int32_t>());
+}
+
+// The int32 tensor `name` of `file`, which must be two-dimensional with `rows`
+// rows and `cols` columns, as token IDs in row-major order.
+inline std::vector<token_id> id_rows_of(const safetensors_file& file,
+    std::string_view name, size_t rows, size_t cols) {
+  INFO(name);
+  const auto view =
+      file.find_matrix<int32_t>(name, {.row_count = rows, .col_count = cols});
+  REQUIRE(!view.empty());
+  return as_ids(view.as_span());
 }
 
 #pragma endregion
@@ -210,6 +232,10 @@ constexpr auto n_ctx = 1024UZ;
 // The prompt whose activations the oracle dumped, by its index in the
 // manifest.
 constexpr auto bisect_prompt = 1UZ;
+// The batch whose loss and gradients the oracle dumped, as sequences of
+// tokens, which the manifest records as "batch" and "seq".
+constexpr auto n_grad_batch = 4UZ;
+constexpr auto n_grad_seq = 64UZ;
 
 #pragma region Greedy
 

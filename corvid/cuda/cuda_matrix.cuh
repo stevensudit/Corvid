@@ -248,7 +248,7 @@ public:
 
   // Allocate `extent` elements, uninitialized, or throw.
   explicit cuda_matrix(extent_t extent)
-      : buffer_(extent.row_count * extent.col_count), extent_{extent} {}
+      : buffer_(extent.size()), extent_{extent} {}
 
   // Allocate and upload `host`, or throw.
   explicit cuda_matrix(matrix_view<element_t> host)
@@ -274,9 +274,7 @@ public:
   [[nodiscard]] size_t col_extent() const noexcept {
     return extent_.col_count;
   }
-  [[nodiscard]] size_t size() const noexcept {
-    return extent_.row_count * extent_.col_count;
-  }
+  [[nodiscard]] size_t size() const noexcept { return extent_.size(); }
 
   // The whole matrix as a packed lens, or as a packed view.
   [[nodiscard]] lens_t as_lens() noexcept {
