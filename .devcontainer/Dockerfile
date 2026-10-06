@@ -16,9 +16,10 @@
 FROM ubuntu:24.04 AS gcc-build
 ARG GCC_VERSION=16.2.0
 # SHA-512 of gcc-${GCC_VERSION}.tar.xz, from the release's sha512.sum on
-# gcc.gnu.org, cross-checked against the bytes ftp.gnu.org serves. Pins the
-# exact source the image builds, since HTTPS alone trusts whatever the server
-# sends. A version bump updates both ARGs.
+# gcc.gnu.org. Pins the exact source the image builds, since HTTPS alone
+# trusts whatever the server sends. A version bump updates both ARGs. The
+# tarball comes from gcc.gnu.org's own release area rather than ftp.gnu.org,
+# which serves the same bytes but goes unreachable for stretches.
 ARG GCC_SHA512=c51c30ca7422d0cbecf504b2e0f33c3aca31e0f90a76b65217f465163fa6fa17b3f5de39e145c47e5bab90ac0ce7fff3b03c8d553ae36e01faaea5a50f8648d1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl xz-utils build-essential flex bison patch \
@@ -26,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 COPY gcc-constexpr-strret.patch gcc_constexpr_strret_check.cpp /tmp/corvid/
 RUN curl -fsSL -o /tmp/gcc-${GCC_VERSION}.tar.xz \
-      https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz && \
+      https://gcc.gnu.org/pub/gcc/releases/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz && \
     echo "${GCC_SHA512}  /tmp/gcc-${GCC_VERSION}.tar.xz" | sha512sum -c - && \
     tar -xJ -C /tmp -f /tmp/gcc-${GCC_VERSION}.tar.xz && \
     rm /tmp/gcc-${GCC_VERSION}.tar.xz && \
