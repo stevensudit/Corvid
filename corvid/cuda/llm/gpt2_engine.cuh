@@ -37,7 +37,7 @@
 // `bfloat16_t`.
 //
 // `gpt2_engine<T>` uploads a `gpt2_model` once, as `T`, and runs it. It
-// performs th eforward pass from token IDs through every block to the final
+// performs the forward pass from token IDs through every block to the final
 // layer norm, and greedy generation on top of it, composing the ops of
 // "llm_ops.cuh" as "gpt2_engine.h" composes the CPU ones. The activations of a
 // block are caller-owned lenses, as on the CPU.
