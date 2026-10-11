@@ -61,7 +61,16 @@ fi
 cfg=(-S "$srcRoot" -B "$bldDir" -G Ninja -DUSE_LIBSTDCPP=OFF
   -DIDE_DEBUG=ON -DFETCHCONTENT_BASE_DIR="$fcDebug" "${cudaArgs[@]}")
 sigFile="$bldDir/.ide-build-config"
-configSig="$(IFS='|'; echo "${cfg[*]}")|CC=$CC|CXX=$CXX"
+# The toolchain's identity rides along, as in cleanbuild.sh: an image rebuild
+# or toolkit bump keeps the paths above while swapping the binaries behind
+# them, and a signature of options alone would reuse a cache whose
+# find_library results point into the old toolkit.
+toolchainSig="$("$CXX" --version 2>/dev/null | head -n 1)"
+if [[ ${#cudaArgs[@]} -gt 0 ]]; then
+  cuda_root="$(realpath "$(dirname "$(command -v nvcc)")/..")"
+  toolchainSig+="|$cuda_root|$(nvcc --version | tail -n 1)"
+fi
+configSig="$(IFS='|'; echo "${cfg[*]}")|CC=$CC|CXX=$CXX|$toolchainSig"
 if [[ ! -f "$sigFile" || ! -f "$bldDir/CMakeCache.txt" \
       || "$(cat "$sigFile")" != "$configSig" ]]; then
   cmake --fresh "${cfg[@]}"

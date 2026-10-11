@@ -63,7 +63,16 @@ $cfg = @('-S', $srcRoot, '-B', $bldDir, '-G', 'Ninja',
   "-DCMAKE_CXX_COMPILER=$clangXx", '-DCMAKE_BUILD_TYPE=Release',
   '-DIDE_DEBUG=ON', "-DFETCHCONTENT_BASE_DIR=$fcDebug") + $cudaArgs
 $sigFile = Join-Path $bldDir '.ide-build-config'
-$configSig = ($cfg -join '|')
+# The toolchain's identity rides along, as in cleanbuild.ps1: a compiler or
+# toolkit upgrade keeps the paths above while swapping the binaries behind
+# them, and a signature of args alone would reuse a cache whose find_library
+# results point into the old toolkit.
+$toolchainSig = (Get-Item $clangXx).VersionInfo.FileVersion
+if ($cudaArgs) {
+  $cudaRoot = Split-Path (Split-Path (Get-Command nvcc).Source)
+  $toolchainSig += "|$cudaRoot|$(nvcc --version | Select-Object -Last 1)"
+}
+$configSig = (($cfg + $toolchainSig) -join '|')
 $reuse = (Test-Path $sigFile) -and (Test-Path (Join-Path $bldDir 'CMakeCache.txt')) -and
   ((Get-Content $sigFile -Raw).Trim() -eq $configSig)
 if (-not $reuse) {
