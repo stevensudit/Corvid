@@ -20,22 +20,18 @@
 #include <string_view>
 #include <vector>
 
-#include <ATen/ATen.h>
-// c10's logging shim defines a glog-style CHECK, which Catch2's must replace.
-#undef CHECK
-
+#include "catch2_torch.h"
 #include "corvid/containers/utils/matrix_view.h"
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/cuda_matrix.cuh"
 #include "corvid/cuda/linalg/linear_algebra.cuh"
 #include "corvid/llm/safetensors.h"
 #include "corvid/torch/tensor_adapter.cuh"
-#include "catch2_main.h"
 #include "gpt2_oracle.h"
 
 // The LibTorch build spike is one translation unit that links our CUDA stack
-// and LibTorch together, borrows tensors from our safetensors reader and from
-// our device buffers, runs a matmul through torch, and matches our own GEMM.
+// and LibTorch together, views our safetensors reader's weights and our device
+// buffers as tensors, runs a matmul through torch, and matches our own GEMM.
 // It proves the build (clang-CUDA against the torch headers, the hand-wired
 // link line, the shared libraries found at run time) and the runtime (torch's
 // bundled cudart beside our statically linked one, in one process, sharing
@@ -50,9 +46,7 @@ using corvid::llm::safetensors_file;
 using corvid::matrix_types::matrix_extent;
 using corvid::tests::gpt2::check_close;
 using corvid::tests::gpt2::oracle_path;
-using corvid::torch::as_device_view;
-using corvid::torch::as_host_view;
-using corvid::torch::as_tensor;
+using namespace corvid::torch;
 
 namespace {
 
@@ -110,16 +104,15 @@ struct gemm_case {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-TEST_CASE("torch matmul over borrowed host memory matches our GEMM",
-    "[torch]") {
+TEST_CASE("torch matmul over our host memory matches our GEMM", "[torch]") {
   auto test = gemm_case::load();
   const cublas_handle blas;
   REQUIRE(blas);
   const auto ours =
       test.ours(blas, cuda_matrix<float>(test.a), cuda_matrix<float>(test.b));
 
-  // The torch side borrows the mapped weights, moves them to the device,
-  // multiplies, and brings the product back.
+  // The torch side views the mapped weights as tensors, moves them to the
+  // device, multiplies, and brings the product back.
   REQUIRE(at::hasCUDA());
   const auto t_out =
       at::matmul(as_tensor(test.a).to(at::kCUDA),
@@ -133,8 +126,7 @@ TEST_CASE("torch matmul over borrowed host memory matches our GEMM",
   check_close(ours, theirs, 1e-4F, 1e-4F);
 }
 
-TEST_CASE("torch matmul over borrowed device memory matches our GEMM",
-    "[torch]") {
+TEST_CASE("torch matmul over our device memory matches our GEMM", "[torch]") {
   auto test = gemm_case::load();
   const cublas_handle blas;
   REQUIRE(blas);
@@ -142,11 +134,11 @@ TEST_CASE("torch matmul over borrowed device memory matches our GEMM",
   const cuda_matrix<float> d_b(test.b);
   const auto ours = test.ours(blas, d_a, d_b);
 
-  // The torch side borrows our device buffers as they sit, multiplies on the
-  // device, and borrows the product back as one of our views for our own
-  // download. Our buffers come from the statically linked cudart and torch's
-  // from its bundled one, so this is the two runtimes sharing one device
-  // address space.
+  // The torch side views our device buffers as tensors where they sit,
+  // multiplies on the device, and hands the product back as one of our views
+  // for our own download. Our buffers come from the statically linked cudart
+  // and torch's from its bundled one, so this is the two runtimes sharing one
+  // device address space.
   REQUIRE(at::hasCUDA());
   const auto t_out =
       at::matmul(as_tensor(d_a.as_view()), as_tensor(d_b.as_view()));

@@ -27,7 +27,13 @@
       "preLaunchTask": "build",
       // Debugger-launched processes get the Windows debug heap, which makes
       // allocation-heavy tests ~100x slower (a silent 2-minute "hang").
-      "environment": [{ "name": "_NO_DEBUG_HEAP", "value": "1" }]
+      "environment": [
+        { "name": "_NO_DEBUG_HEAP", "value": "1" },
+        {
+          "name": "PATH",
+          "value": "${workspaceFolder}\\tests\\.local\\libtorch\\lib;${env:PATH}"
+        }
+      ]
     }
   ]
 }

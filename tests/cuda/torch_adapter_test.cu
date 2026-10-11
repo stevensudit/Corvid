@@ -19,30 +19,19 @@
 #include <ranges>
 #include <vector>
 
-#include <ATen/ATen.h>
-// c10's logging shim defines a glog-style CHECK, which Catch2's must replace.
-#undef CHECK
-
+#include "catch2_torch.h"
 #include "corvid/containers/utils/interval.h"
 #include "corvid/containers/utils/matrix_view.h"
 #include "corvid/cuda/cuda_matrix.cuh"
 #include "corvid/math/bfloat16.h"
 #include "corvid/torch/tensor_adapter.cuh"
-#include "catch2_main.h"
 
 namespace corvid_tests {
 
 using namespace corvid;
+using namespace corvid::matrix_types;
+using namespace corvid::torch;
 using corvid::cuda::cuda_matrix;
-using corvid::matrix_types::col_ndx;
-using corvid::matrix_types::matrix_extent;
-using corvid::matrix_types::row_ndx;
-using corvid::torch::as_device_lens;
-using corvid::torch::as_device_view;
-using corvid::torch::as_host_lens;
-using corvid::torch::as_host_view;
-using corvid::torch::as_tensor;
-using corvid::torch::scalar_type_v;
 
 namespace {
 
@@ -78,7 +67,7 @@ TEST_CASE("Host lens and tensor share memory", "[torch]") {
   tensor.add_(1.0F);
   CHECK(values[6] == 7.0F);
 
-  // And the tensor borrows back as the same lens.
+  // And the tensor converts back to the same lens.
   const auto back = as_host_lens<float>(tensor);
   REQUIRE(!back.empty());
   CHECK(back.as_span().data() == values.data());
@@ -88,7 +77,7 @@ TEST_CASE("Host lens and tensor share memory", "[torch]") {
   CHECK(back_view.as_span().data() == values.data());
 }
 
-TEST_CASE("A strided slice borrows with its stride", "[torch]") {
+TEST_CASE("A strided slice converts with its stride", "[torch]") {
   auto values = counting();
   const float_matrix_lens lens(values, extent);
   // Columns 1 and 2 of every row.
@@ -109,7 +98,7 @@ TEST_CASE("A strided slice borrows with its stride", "[torch]") {
   CHECK(back.as_span().data() == slice.as_span().data());
 }
 
-TEST_CASE("A tensor that is not a matrix of T borrows as empty", "[torch]") {
+TEST_CASE("A tensor that is not a matrix of T converts to empty", "[torch]") {
   auto values = counting();
   const auto tensor = as_tensor(float_matrix_lens(values, extent));
 
@@ -157,7 +146,7 @@ TEST_CASE("Device lens and CUDA tensor share memory", "[torch]") {
   CHECK(as_host_view<float>(tensor).empty());
 }
 
-TEST_CASE("A tensor torch allocates on the device borrows as a view",
+TEST_CASE("A tensor torch allocates on the device converts to a view",
     "[torch]") {
   REQUIRE(at::hasCUDA());
   const auto tensor = at::ones({2, 3},

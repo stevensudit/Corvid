@@ -1084,13 +1084,14 @@ if(CORVID_ENABLE_CUDA)
         if(CUDA_USES_CUBLAS)
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE CUDA::cublas)
         endif()
-        # Auto-link LibTorch for sources that pull in a torch or ATen header.
+        # Auto-link LibTorch for sources that name torch (an ATen or torch
+        # header, the corvid/torch band, or the Catch2 shim "catch2_torch.h").
         # On Windows its DLLs (39 of them, 5 GB) go on the test's PATH rather
         # than beside the exe. Prepending also makes torch's own
         # cublas64_13.dll serve our GEMM, since every CUDA 13.x minor shares
         # that name, so a torch test runs on torch's cuBLAS and its bundled
         # cudart next to the toolkit's static cudart in our own code.
-        file(STRINGS ${SOURCE_FILE} CUDA_USES_TORCH REGEX "<(ATen|torch)/")
+        file(STRINGS ${SOURCE_FILE} CUDA_USES_TORCH REGEX "torch")
         if(CUDA_USES_TORCH)
             corvid_require_libtorch()
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE corvid_libtorch)

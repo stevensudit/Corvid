@@ -29,12 +29,12 @@
 
 // Zero-copy adapters between Corvid's matrix lenses and ATen tensors.
 //
-// A lens borrows into a tensor with `as_tensor`, and a tensor borrows into a
-// lens with `as_host_lens` or `as_device_lens` (or their read-only `_view`
-// forms). Nothing is copied in either direction. The two share the memory,
-// and whichever side owns it must outlive the other. Memory stays where it
-// is, so a device lens becomes a CUDA tensor and a CUDA tensor becomes a
-// device lens.
+// A lens becomes a tensor over the same memory with `as_tensor`, and a tensor
+// becomes a lens over its memory with `as_host_lens` or `as_device_lens` (or
+// their read-only `_view` forms). Nothing is copied and nothing changes
+// hands. The two share the memory, and whichever side owns it must outlive
+// the other. Memory stays where it is, so a device lens becomes a CUDA tensor
+// and a CUDA tensor becomes a device lens.
 //
 //   const auto weight = as_tensor(weights.find_matrix<float>("wte.weight"));
 //   const auto product =
@@ -119,7 +119,7 @@ static_assert(
 
 namespace details {
 
-// The row-major layout of `tensor` in a lens's terms.
+// The row-major layout of a tensor in a lens's terms.
 struct lens_layout {
   matrix_extent extent;
   size_t stride{};
@@ -133,7 +133,10 @@ struct lens_layout {
 };
 
 // Whether `tensor` is a two-dimensional tensor of `T` on `device` whose rows
-// are contiguous.
+// hold their elements adjacently.
+//
+// The rows themselves may lie any stride apart, which the lens carries. Only
+// the inner stride must be one, since a lens has no stride within a row.
 template<TensorElement T>
 [[nodiscard]] bool
 is_matrix(const at::Tensor& tensor, at::DeviceType device) noexcept {
@@ -159,12 +162,11 @@ is_matrix(const at::Tensor& tensor, at::DeviceType device) noexcept {
   return {.extent = extent, .stride = stride};
 }
 
-// `tensor` as a lens of `Lens`'s kind, or an empty lens unless it is a
-// two-dimensional tensor of the lens's element type on `device` whose rows
-// are contiguous.
+// `tensor` as a lens of `Lens`'s kind over its memory, or an empty lens
+// unless `is_matrix` accepts it for the lens's element type on `device`.
 template<typename Lens>
 [[nodiscard]] Lens
-borrow_tensor(const at::Tensor& tensor, at::DeviceType device) noexcept {
+lens_of(const at::Tensor& tensor, at::DeviceType device) noexcept {
   using element_t = Lens::element_t;
   using value_t = std::remove_const_t<element_t>;
   if (!is_matrix<value_t>(tensor, device)) return {};
@@ -180,9 +182,9 @@ borrow_tensor(const at::Tensor& tensor, at::DeviceType device) noexcept {
       layout.stride};
 }
 
-// `lens` borrowed as a tensor on `device`, without a copy.
+// `lens` as a tensor on `device` over its memory.
 template<typename Lens>
-[[nodiscard]] at::Tensor borrow_lens(const Lens& lens, at::DeviceType device) {
+[[nodiscard]] at::Tensor tensor_of(const Lens& lens, at::DeviceType device) {
   using value_t = std::remove_const_t<typename Lens::element_t>;
   const std::array<int64_t, 2> sizes{static_cast<int64_t>(lens.row_extent()),
       static_cast<int64_t>(lens.col_extent())};
@@ -201,66 +203,69 @@ template<typename Lens>
 #pragma endregion
 #pragma region Lens to tensor
 
-// `host` borrowed as a tensor of the same shape and strides, without a copy.
+// `host` as a tensor of the same shape and strides over its memory.
 //
 // The tensor reads and writes the lens's memory, which must outlive it. A
-// view borrows the same way, and the tensor is writable regardless.
+// view converts the same way, and the tensor is writable regardless.
 template<typename T>
 requires TensorElement<std::remove_const_t<T>>
 [[nodiscard]] at::Tensor as_tensor(matrix_lens<T> host) {
-  return details::borrow_lens(host, at::kCPU);
+  return details::tensor_of(host, at::kCPU);
 }
 
-// `device` borrowed as a CUDA tensor of the same shape and strides, without
-// a copy.
+// `device` as a CUDA tensor of the same shape and strides over its memory.
 //
 // The tensor reads and writes the lens's memory, which must outlive it. A
-// view borrows the same way, and the tensor is writable regardless.
+// view converts the same way, and the tensor is writable regardless.
 template<typename T>
 requires TensorElement<std::remove_const_t<T>>
 [[nodiscard]] at::Tensor as_tensor(cuda::cuda_matrix_lens<T> device) {
-  return details::borrow_lens(device, at::kCUDA);
+  return details::tensor_of(device, at::kCUDA);
 }
 
 #pragma endregion
 #pragma region Tensor to lens
 
 // `tensor` as a lens over its memory, or an empty lens unless it is a
-// two-dimensional tensor of `T` on the host whose rows are contiguous.
+// two-dimensional tensor of `T` on the host whose rows hold their elements
+// adjacently (the rows may lie any stride apart).
 //
 // The lens reads and writes the tensor's memory, which must outlive it.
 template<TensorElement T>
 [[nodiscard]] matrix_lens<T> as_host_lens(const at::Tensor& tensor) noexcept {
-  return details::borrow_tensor<matrix_lens<T>>(tensor, at::kCPU);
+  return details::lens_of<matrix_lens<T>>(tensor, at::kCPU);
 }
 
 // `tensor` as a view over its memory, or an empty view unless it is a
-// two-dimensional tensor of `T` on the host whose rows are contiguous.
+// two-dimensional tensor of `T` on the host whose rows hold their elements
+// adjacently (the rows may lie any stride apart).
 //
 // The tensor's memory must outlive the view.
 template<TensorElement T>
 [[nodiscard]] matrix_view<T> as_host_view(const at::Tensor& tensor) noexcept {
-  return details::borrow_tensor<matrix_view<T>>(tensor, at::kCPU);
+  return details::lens_of<matrix_view<T>>(tensor, at::kCPU);
 }
 
 // `tensor` as a device lens over its memory, or an empty lens unless it is
-// a two-dimensional CUDA tensor of `T` whose rows are contiguous.
+// a two-dimensional CUDA tensor of `T` whose rows hold their elements
+// adjacently (the rows may lie any stride apart).
 //
 // The lens reads and writes the tensor's memory, which must outlive it.
 template<TensorElement T>
 [[nodiscard]] cuda::cuda_matrix_lens<T>
 as_device_lens(const at::Tensor& tensor) noexcept {
-  return details::borrow_tensor<cuda::cuda_matrix_lens<T>>(tensor, at::kCUDA);
+  return details::lens_of<cuda::cuda_matrix_lens<T>>(tensor, at::kCUDA);
 }
 
 // `tensor` as a device view over its memory, or an empty view unless it is
-// a two-dimensional CUDA tensor of `T` whose rows are contiguous.
+// a two-dimensional CUDA tensor of `T` whose rows hold their elements
+// adjacently (the rows may lie any stride apart).
 //
 // The tensor's memory must outlive the view.
 template<TensorElement T>
 [[nodiscard]] cuda::cuda_matrix_view<T>
 as_device_view(const at::Tensor& tensor) noexcept {
-  return details::borrow_tensor<cuda::cuda_matrix_view<T>>(tensor, at::kCUDA);
+  return details::lens_of<cuda::cuda_matrix_view<T>>(tensor, at::kCUDA);
 }
 
 #pragma endregion
