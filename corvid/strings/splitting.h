@@ -470,8 +470,7 @@ template<typename R = void, PieceGenerator PG>
   return parts;
 }
 
-// For alternative design choices when solving a similar problem, compare
-// with:
+// For alternative design choices when solving a similar problem, compare with:
 // https://github.com/abseil/abseil-cpp/blob/master/absl/strings/internal/str_split_internal.h
 
 #pragma endregion

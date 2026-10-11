@@ -184,8 +184,7 @@ TEST_CASE("VoePropagation", "[ValueOrErrorTest]") {
 
 TEST_CASE("VoeSuccessPropagation", "[ValueOrErrorTest]") {
   // The opposite flow: a successful result converts across error types, so
-  // crossing an error-domain boundary with a good value is just returning
-  // it.
+  // crossing an error-domain boundary with a good value is just returning it.
   using wire_error = error_value<struct WireTag>;
   using wired = value_or_error<int, wire_error>;
   auto transmit = [](const parsed& p) -> wired {

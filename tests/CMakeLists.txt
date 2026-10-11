@@ -85,11 +85,12 @@ if(WIN32)
     # same driver and warning flags as Linux clang, which also keeps clangd's
     # parsing aligned. cl is the conformance-mode second compiler. (The CUDA
     # bucket also uses clang++, because nvcc's MSVC device frontend has no C++23
-    # dialect; see the CUDA section.) The libc++/clang knobs in the Linux
-    # branches (-nostdinc++, the libc++ include prefix, -march=native,
-    # -fexperimental-library, the libc++ link options) have no MSVC-ABI analog,
-    # so none apply here. The Linux network stack is excluded at the
-    # source-bucket level. See crossplatform.md.
+    # dialect; see the CUDA section.) The libc++ knobs in the Linux branches
+    # (-nostdinc++, the libc++ include prefix, -fexperimental-library, the
+    # libc++ link options) have no MSVC-ABI analog, so none apply here;
+    # -march=native does, and is passed for parity with Linux so the same
+    # loops vectorize the same way on both. The Linux network stack is
+    # excluded at the source-bucket level. See crossplatform.md.
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         # clang++ (GNU-like driver, MSVC ABI). Plain -Wall -Wextra -Werror as on
         # Linux (no /clang: escape, unlike the retired clang-cl path); CMake's
@@ -97,7 +98,7 @@ if(WIN32)
         # correctly. -fms-runtime-lib=dll selects the dynamic (/MD) CRT to match
         # the .cu bucket and keep ASAN's dynamic runtime usable; clang++ would
         # otherwise default to the static (/MT) CRT.
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -fms-runtime-lib=dll")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -Wall -Wextra -Werror -fms-runtime-lib=dll")
     else()
         # MSVC cl, the conformance-mode second compiler. cl has no /std:c++26, so
         # request C++26 as /std:c++latest (overriding CMake's default), which cl
@@ -117,6 +118,12 @@ if(WIN32)
         # (e.g. a JSON `\uXXXX` inside a Catch2 CHECK re-forms as an invalid
         # universal-character-name).
         #
+        # /Zc:u8EscapeEncoding makes each `\x` escape in a u8 literal one
+        # char8_t code unit, as the standard says, without which cl treats
+        # `\xC2` as the code point U+00C2 and re-encodes it as two bytes,
+        # breaking every test that spells UTF-8 sequences byte by byte
+        # (warning C5321 marks the extension firing).
+        #
         # /wd silences warnings that fire beyond clang's -Wall -Wextra (the level
         # this build mirrors) on correct, idiomatic code rather than real bugs:
         #   4244 - narrowing on conversion to a smaller arithmetic type
@@ -129,7 +136,9 @@ if(WIN32)
         #   4310 - cast truncates a constant value (deliberate wraparound tests).
         #   4805 - "unsafe" bool/arithmetic mix in comparison (strong_type's
         #          heterogeneous comparisons are exact in the common type).
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /Zc:preprocessor /W4 /WX /wd4244 /wd4245 /wd4267 /wd4305 /wd4310 /wd4805")
+        # cl has no -march=native; /arch:AVX2 (which implies FMA) is the floor
+        # every desktop this builds on clears, in place of the SSE2 default.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2 /EHsc /permissive- /Zc:preprocessor /Zc:u8EscapeEncoding /W4 /WX /wd4244 /wd4245 /wd4267 /wd4305 /wd4310 /wd4805")
     endif()
     # cleanbuild.ps1 drives this as a Release build: optimization and NDEBUG come
     # from CMAKE_BUILD_TYPE=Release (like Linux's -O3). ide_build.ps1 is the
@@ -343,35 +352,27 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
 endif()
 
-# Catch2 v3. Under libstdc++, prefer a system install (apt install catch2),
-# since Ubuntu's package is built against libstdc++ and links cleanly. Under
-# libc++ we must build Catch2 from source against the same standard library
+# Catch2 v3, built from source by FetchContent so its objects carry the
+# suite's exact flags: the standard library (libc++ or libstdc++), sanitizer,
+# coverage. A Catch2 is usable only by a consumer on the same standard library
 # (mixing the two produces unresolved std::__cxx11 / std::__1 symbols at link
-# time), so we always go through FetchContent there.
-set(_have_catch2 FALSE)
-if(USE_LIBSTDCPP)
-    find_package(Catch2 3 QUIET)
-    if(Catch2_FOUND)
-        message(STATUS "Using system Catch2 ${Catch2_VERSION} (libstdc++)")
-        set(_have_catch2 TRUE)
-    endif()
-endif()
-if(NOT _have_catch2)
-    # Persist the FetchContent cache outside the build dir so cleanbuild.sh's
-    # `rm -rf tests/build/` doesn't trigger a full Catch2 rebuild every run.
-    # Skip update checks once the source is populated for faster reconfigures.
-    set(FETCHCONTENT_BASE_DIR "${CMAKE_CURRENT_LIST_DIR}/.fetchcontent"
-        CACHE PATH "FetchContent cache (persisted across builds)")
-    set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
-    message(STATUS "Fetching Catch2 v3.6.0 via FetchContent (cache: ${FETCHCONTENT_BASE_DIR})")
-    include(FetchContent)
-    FetchContent_Declare(
-        Catch2
-        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG        v3.6.0
-    )
-    FetchContent_MakeAvailable(Catch2)
-endif()
+# time), so the Linux .cu bucket, always libstdc++, gets its own build in the
+# CUDA section below. One tag pins both builds.
+set(CORVID_CATCH2_TAG v3.6.0)
+# Persist the FetchContent cache outside the build dir so cleanbuild.sh's
+# `rm -rf tests/build/` doesn't trigger a full Catch2 rebuild every run.
+# Skip update checks once the source is populated for faster reconfigures.
+set(FETCHCONTENT_BASE_DIR "${CMAKE_CURRENT_LIST_DIR}/.fetchcontent"
+    CACHE PATH "FetchContent cache (persisted across builds)")
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+message(STATUS "Fetching Catch2 ${CORVID_CATCH2_TAG} via FetchContent (cache: ${FETCHCONTENT_BASE_DIR})")
+include(FetchContent)
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        ${CORVID_CATCH2_TAG}
+)
+FetchContent_MakeAvailable(Catch2)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 # QUIC dependency: ngtcp2 (ExternalProject) linked against a preflight-built
@@ -567,45 +568,36 @@ if(USE_CLANG_TIDY)
     endif()
 endif()
 
-# CUDA (.cu) targets. The cleanbuild driver sets CORVID_ENABLE_CUDA=ON (and
-# passes the CUDA compiler + architecture) whenever the toolkit is present and
-# the build is a plain one (no sanitizer/coverage/scan). The CUDA compiler
-# differs by platform: nvcc with a g++-15 host on Linux (nvcc rejects gcc newer
-# than 15), and clang (clang++) on Windows, because nvcc 13.3's MSVC device
-# frontend has no C++23 dialect (see the flag block below). The .cu targets are
-# independent single-source executables that share no link line with a .cpp
-# binary, so they coexist with whatever compiler/stdlib the .cpp suite uses; the
-# libc++ link flags above are CXX-only and never reach this link line.
+# CUDA (.cu) targets. The cleanbuild driver sets CORVID_ENABLE_CUDA=ON and
+# passes the CUDA compiler and architecture whenever the toolkit is present and
+# the build is a plain one (no sanitizer/coverage/scan). The CUDA compiler is
+# clang (clang++) on both platforms: its unified C++23 frontend compiles host
+# and device together, where nvcc 13.3 cannot build the bucket on either (its
+# MSVC device frontend has no C++23 dialect, and its EDG frontend drops the
+# second argument of a C++23 multidimensional subscript in host templates; see
+# crossplatform.md, section 3). The nvcc + g++-15 pairing survives as an
+# opt-in bug-report leg (`cleanbuild.sh nvcc`), so the flag blocks below branch
+# on the compiler ID, not the platform. The .cu targets are independent
+# single-source executables that share no link line with a .cpp binary, so
+# they coexist with whatever compiler/stdlib the .cpp suite uses; the libc++
+# link flags above are CXX-only and never reach this link line.
 if(CORVID_ENABLE_CUDA)
     enable_language(CUDA)
     if(NOT CMAKE_CUDA_ARCHITECTURES)
-        # `native` resolves to the build host's GPU (sm_89 on an RTX 4090) under
-        # nvcc on Linux. On Windows the cleanbuild driver passes an explicit
-        # sm_NN: clang-CUDA's `native` detection does not work there.
+        # The cleanbuild drivers pass an explicit sm_NN resolved from nvidia-smi
+        # (clang-CUDA has no `native`); this fallback serves the nvcc leg, where
+        # `native` resolves to the build host's GPU.
         set(CMAKE_CUDA_ARCHITECTURES native)
     endif()
-    # The .cu bucket stays at C++23 while the .cpp suite builds as C++26:
-    # c++23 is the top of nvcc 13.3's --std list. CMake 3.28 cannot map
-    # CUDA_STANDARD 23 (it rejects the dialect as unsupported by nvcc), though
-    # nvcc 13.3 accepts -std=c++23. Clear CMake's default standard flag and
-    # pass c++23 ourselves so the compiler command carries a single -std (no
-    # "incompatible redefinition for option 'std'").
+    # The .cu bucket stays at C++23 while the .cpp suite builds as C++26: the
+    # toolkit's own headers are validated no further, and c++23 is the top of
+    # nvcc 13.3's --std list, which the opt-in nvcc leg still needs. CMake 3.28
+    # cannot map CUDA_STANDARD 23 (it rejects the dialect as unsupported by
+    # nvcc), though nvcc 13.3 accepts -std=c++23. Clear CMake's default
+    # standard flag and pass c++23 ourselves so the compiler command carries a
+    # single -std (no "incompatible redefinition for option 'std'").
     set(CMAKE_CUDA_STANDARD_DEFAULT "")
-    if(WIN32)
-        # Windows compiles the CUDA bucket with clang (clang++), not nvcc: nvcc
-        # 13.3's MSVC device frontend has no C++23 dialect (its -std=c++23 maps
-        # to --ms_c++14 and is dropped), so it cannot build Corvid's C++23
-        # headers, whereas clang's unified C++23 frontend compiles host and
-        # device together. -fms-runtime-lib=dll picks the dynamic (/MD) CRT to
-        # match the FetchContent Catch2 (clang defaults to the static /MT one);
-        # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
-        # than clang's last fully supported toolkit (codegen is unaffected).
-        # -gline-tables-only is the clang analog of the Linux side's -lineinfo:
-        # it embeds the SASS<->source line mapping (.nv_debug_line_sass) that
-        # compute-sanitizer (./cleanbuild.ps1 cudacheck) and Nsight attribute
-        # results from, while keeping device optimization intact. Release
-        # supplies the optimization (-O3 -DNDEBUG). See crossplatform.md.
-        #
+    if(CMAKE_CUDA_COMPILER_ID STREQUAL "Clang")
         # -Wall -Wextra -Werror brings the .cu bucket to the same rigor as the
         # .cpp suite. -Wno-missing-designated-field-initializers opts out of the
         # one -Wextra check that fires on the deliberate partial designated-init
@@ -613,15 +605,29 @@ if(CORVID_ENABLE_CUDA)
         # omitted fields zero-init as intended); the positional
         # -Wmissing-field-initializers stays on. Mirrors the cl /wd codes for
         # warnings that fire on correct, intentional code.
+        # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
+        # than clang's last fully supported toolkit (codegen is unaffected).
+        # -gline-tables-only embeds the SASS<->source line mapping
+        # (.nv_debug_line_sass) that compute-sanitizer (./cleanbuild.ps1
+        # cudacheck) and Nsight attribute results from, while keeping device
+        # optimization intact. See crossplatform.md.
         string(APPEND CMAKE_CUDA_FLAGS
-            " -std=c++23 -fms-runtime-lib=dll -Wall -Wextra -Werror"
+            " -std=c++23 -Wall -Wextra -Werror"
             " -Wno-missing-designated-field-initializers"
             " -Wno-unknown-cuda-version -gline-tables-only")
+        if(WIN32)
+            # -fms-runtime-lib=dll picks the dynamic (/MD) CRT to match the
+            # FetchContent Catch2 (clang defaults to the static /MT one).
+            # Release supplies the optimization (-O3 -DNDEBUG).
+            string(APPEND CMAKE_CUDA_FLAGS " -fms-runtime-lib=dll")
+        else()
+            # Linux configures without a build type, so the optimization is
+            # explicit, matching the .cpp suite's -O3.
+            string(APPEND CMAKE_CUDA_FLAGS " -O3")
+        endif()
     else()
-        # Linux uses nvcc (g++-15 host). -lineinfo adds source-line correlation
-        # to the optimized SASS so Nsight (and compute-sanitizer) can attribute
-        # results to source lines; unlike -G it leaves device optimization
-        # intact, so the runtime cost is negligible.
+        # The nvcc leg (g++-15 host). -lineinfo is nvcc's -gline-tables-only:
+        # source-line correlation in the optimized SASS without -G's cost.
         string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3 -lineinfo")
     endif()
     # Optional ptxas register/spill report (perf diagnostic), off by default so
@@ -631,7 +637,7 @@ if(CORVID_ENABLE_CUDA)
     # -Xcuda-ptxas; nvcc takes -Xptxas directly.
     option(CORVID_CUDA_PTXAS_VERBOSE "Report CUDA register/spill usage" OFF)
     if(CORVID_CUDA_PTXAS_VERBOSE)
-        if(WIN32)
+        if(CMAKE_CUDA_COMPILER_ID STREQUAL "Clang")
             string(APPEND CMAKE_CUDA_FLAGS " -Xcuda-ptxas -v")
         else()
             string(APPEND CMAKE_CUDA_FLAGS " -Xptxas -v")
@@ -881,8 +887,8 @@ foreach(SOURCE_FILE ${SOURCES})
 endforeach()
 
 # CUDA (.cu) test executables, the same single-source-per-executable model as
-# the .cpp suite above but compiled by the CUDA compiler (nvcc + g++-15 host on
-# Linux, clang++ on Windows). They use Catch2 like the rest of the suite; the
+# the .cpp suite above but compiled by the CUDA compiler (clang++ on both
+# platforms). They use Catch2 like the rest of the suite; the
 # Catch2 it links
 # differs by platform (see the CUDA_CATCH2_TARGET split below). notest_* opt out
 # of Catch2 and CTest, as in the .cpp loop. A .cu file reaches its headers
@@ -911,28 +917,82 @@ if(CORVID_ENABLE_CUDA)
         if(WIN32)
             # clang++ targets the MSVC ABI on Windows, so the .cu objects match
             # the clang-cl/cl .cpp suite's FetchContent Catch2 (also MSVC ABI).
-            # Reuse it directly. The Linux split below (a separate system
-            # Catch2) exists only because the .cpp suite there may be libc++
-            # while the .cu targets are libstdc++; no such ABI divergence here.
+            # Reuse it directly. The Linux split below (a separate libstdc++
+            # Catch2 build) exists only because the .cpp suite there may be
+            # libc++ while the .cu targets are libstdc++; no such ABI
+            # divergence here.
             set(CUDA_CATCH2_TARGET Catch2::Catch2)
         else()
-            # On Linux the .cu targets are libstdc++ (nvcc + g++-15 host), so
-            # they need the system (apt) libstdc++ Catch2 rather than the libc++
-            # FetchContent build the .cpp suite may be using (mixing ABIs gives
-            # unresolved std::__1 / std::__cxx11 symbols at link).
-            find_path(CUDA_CATCH2_INCLUDE_DIR catch2/catch_test_macros.hpp)
-            find_library(CUDA_CATCH2_LIBRARY NAMES Catch2)
-            if(NOT CUDA_CATCH2_INCLUDE_DIR OR NOT CUDA_CATCH2_LIBRARY)
-                message(FATAL_ERROR
-                    "CUDA tests use Catch2 but the system libstdc++ Catch2 was "
-                    "not found (apt install catch2).")
+            # On Linux the .cu targets are libstdc++ (the toolkit's headers
+            # refuse libc++ on x86 Linux), so they cannot link the FetchContent
+            # Catch2 when the .cpp suite is libc++ (mixing ABIs gives
+            # unresolved std::__1 / std::__cxx11 symbols at link). Build a
+            # libstdc++ Catch2 of the same tag as an ExternalProject, the
+            # ngtcp2/nghttp3 pattern: a separate CMake invocation whose
+            # install under tests/.local/ survives the build-dir wipe, so it
+            # builds once per checkout and compiler. Not Ubuntu's catch2
+            # package: that is 3.4, and 3.5 is where Catch2 put the NOLINT on
+            # its assertion decomposition (`Decomposer() <= expr`), without
+            # which clang-tidy reports bugprone-chained-comparison on every
+            # CHECK.
+            #
+            # The sub-build takes the suite's C++ compiler but none of its
+            # flags (a fresh cache), so it lands on the compiler's default
+            # standard library, libstdc++ on Linux for clang and gcc alike;
+            # `-stdlib=libstdc++` spells that out for clang. The suite's
+            # dialect and warning flags do not apply to Catch2's own sources,
+            # and Release is right for a test harness.
+            #
+            # The directories carry the compiler ID because CMake treats a
+            # changed CMAKE_CXX_COMPILER as invalidating the sub-build's
+            # whole cache: it deletes the cache and reconfigures with only
+            # the compiler re-applied, so the install prefix below reverts
+            # to /usr/local and the install step fails. One sub-build shared
+            # by the clang and gcc legs of a checkout did exactly that.
+            include(ExternalProject)
+            string(TOLOWER "${CMAKE_CXX_COMPILER_ID}" _cuda_catch2_cxx_id)
+            set(CUDA_CATCH2_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/catch2-external-${_cuda_catch2_cxx_id}")
+            set(CUDA_CATCH2_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/catch2-${_cuda_catch2_cxx_id}")
+            set(CUDA_CATCH2_LIB_DIR     "${CUDA_CATCH2_INSTALL_DIR}/lib")
+            set(CUDA_CATCH2_INCLUDE_DIR "${CUDA_CATCH2_INSTALL_DIR}/include")
+            set(_cuda_catch2_cxx_flags "")
+            if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+                set(_cuda_catch2_cxx_flags "-DCMAKE_CXX_FLAGS=-stdlib=libstdc++")
             endif()
+            # `CMAKE_INSTALL_LIBDIR=lib` pins a flat `lib/` (see ngtcp2), so
+            # the IMPORTED_LOCATION below is stable. Docs and extras are the
+            # CMake helper scripts and debugger pretty-printers; the tests
+            # need neither.
+            ExternalProject_Add(cuda_catch2_external
+                PREFIX            "${CUDA_CATCH2_PREFIX_DIR}"
+                GIT_REPOSITORY    https://github.com/catchorg/Catch2.git
+                GIT_TAG           ${CORVID_CATCH2_TAG}
+                GIT_SHALLOW       TRUE
+                UPDATE_DISCONNECTED TRUE
+                INSTALL_DIR       "${CUDA_CATCH2_INSTALL_DIR}"
+                CMAKE_GENERATOR   "Ninja"
+                CMAKE_ARGS
+                    -DCMAKE_INSTALL_PREFIX=${CUDA_CATCH2_INSTALL_DIR}
+                    -DCMAKE_INSTALL_LIBDIR=lib
+                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                    ${_cuda_catch2_cxx_flags}
+                    -DCATCH_INSTALL_DOCS=OFF
+                    -DCATCH_INSTALL_EXTRAS=OFF
+                BUILD_BYPRODUCTS
+                    "${CUDA_CATCH2_LIB_DIR}/libCatch2.a"
+            )
+            # As with ngtcp2: the include dir must exist at configure time for
+            # the IMPORTED target property below; the first build populates
+            # it.
+            file(MAKE_DIRECTORY "${CUDA_CATCH2_INCLUDE_DIR}")
             # The catch2_main.h that each test includes supplies main() via
             # Catch::Session, so only libCatch2 is needed (not libCatch2Main).
-            add_library(cuda_catch2 UNKNOWN IMPORTED)
+            add_library(cuda_catch2 STATIC IMPORTED)
             set_target_properties(cuda_catch2 PROPERTIES
-                IMPORTED_LOCATION "${CUDA_CATCH2_LIBRARY}"
+                IMPORTED_LOCATION "${CUDA_CATCH2_LIB_DIR}/libCatch2.a"
                 INTERFACE_INCLUDE_DIRECTORIES "${CUDA_CATCH2_INCLUDE_DIR}")
+            add_dependencies(cuda_catch2 cuda_catch2_external)
             set(CUDA_CATCH2_TARGET cuda_catch2)
         endif()
 
@@ -955,6 +1015,17 @@ if(CORVID_ENABLE_CUDA)
         # bare-name "catch2_main.h", as in the CXX loop above.
         target_include_directories(${EXECUTABLE_NAME} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}")
+        # libcu++ (<cuda/std/...>, <cuda/functional>), which the device code
+        # uses through "cuda_std.cuh" for its std vocabulary (numeric_limits,
+        # plus, max): the device twins of the host types, and the only ones
+        # nvcc accepts in device code. CUDA 13 ships it under include/cccl:
+        # nvcc searches that directory on its own, clang does not, so name it
+        # for both, as SYSTEM to keep its diagnostics out of -Werror.
+        list(GET CUDAToolkit_INCLUDE_DIRS 0 _corvid_cuda_include)
+        if(EXISTS "${_corvid_cuda_include}/cccl")
+            target_include_directories(${EXECUTABLE_NAME} SYSTEM PRIVATE
+                "${_corvid_cuda_include}/cccl")
+        endif()
         # Auto-link cuBLAS for sources that use it, matching `nvcc ... -lcublas`.
         file(STRINGS ${SOURCE_FILE} CUDA_USES_CUBLAS REGEX "cublas")
         if(CUDA_USES_CUBLAS)
@@ -1011,8 +1082,11 @@ if(WIN32)
     if(_corvid_nvcc)
         get_filename_component(_corvid_cuda_bin "${_corvid_nvcc}" DIRECTORY)
         get_filename_component(_corvid_cuda_root "${_corvid_cuda_bin}/.." ABSOLUTE)
+        # include/cccl is libcu++ (<cuda/std/...>), which clang does not
+        # search on its own; the build adds it per .cu target, and this covers
+        # the .cuh headers, which have no compile command.
         set(CORVID_CLANGD_CUDA_FLAGS
-            "-xcuda, --cuda-path=${_corvid_cuda_root}, --no-cuda-version-check, -std=c++23")
+            "-xcuda, --cuda-path=${_corvid_cuda_root}, --no-cuda-version-check, -std=c++23, -isystem, ${_corvid_cuda_root}/include/cccl")
     else()
         set(CORVID_CLANGD_CUDA_FLAGS "-xcuda, --no-cuda-version-check, -std=c++23")
     endif()

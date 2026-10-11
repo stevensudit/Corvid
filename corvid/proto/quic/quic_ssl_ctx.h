@@ -145,8 +145,7 @@ private:
     return SSL_TLSEXT_ERR_ALERT_FATAL;
   }
 
-  // Build the wire-format ALPN list (`<len><bytes>...`) for a single
-  // protocol.
+  // Build the wire-format ALPN list (`<len><bytes>...`) for a single protocol.
   [[nodiscard]] static std::string to_alpn_wire(
       std::string_view proto) noexcept {
     return try_or_terminate([&] {

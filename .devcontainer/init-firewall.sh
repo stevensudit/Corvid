@@ -81,8 +81,15 @@ for domain in \
     "eel.is" \
     "pypi.org" \
     "files.pythonhosted.org" \
+    "huggingface.co" \
+    "us.aws.cdn.hf.co" \
+    "download.pytorch.org" \
+    "download-r2.pytorch.org" \
     "archive.ubuntu.com" \
-    "security.ubuntu.com"; do
+    "security.ubuntu.com" \
+    "ppa.launchpadcontent.net" \
+    "keyserver.ubuntu.com" \
+    "apt.llvm.org"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then

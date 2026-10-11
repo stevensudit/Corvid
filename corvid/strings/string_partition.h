@@ -64,8 +64,7 @@ protected:
 #pragma endregion
 #pragma region string_partition
 
-// Three-way partition of a string around the first occurrence of a
-// separator.
+// Three-way partition of a string around the first occurrence of a separator.
 //
 // Modeled on Python `str.partition`. Construct on a view of the whole string
 // and a separator, then read the inherited `head`, `sep`, and `tail` views.

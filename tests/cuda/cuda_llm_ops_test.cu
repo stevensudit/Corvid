@@ -1,0 +1,1296 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <format>
+#include <limits>
+#include <ranges>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "corvid/containers/utils/interval.h"
+#include "corvid/cuda/bfloat16.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
+#include "corvid/cuda/cuda_cublas.cuh"
+#include "corvid/cuda/llm/llm_ops.cuh"
+#include "bfloat16_helpers.cuh"
+#include "catch2_main.h"
+#include "catch2/catch_template_test_macros.hpp"
+#include "catch2/matchers/catch_matchers_floating_point.hpp"
+#include "gpt2_oracle.h"
+
+// The whole test sits in a named namespace. A `using namespace corvid;` at
+// global scope would make `cuda` (libcu++'s namespace against corvid::cuda)
+// and `log` (corvid::infra::log against the C math function) ambiguous in the
+// host code nvcc appends after the translation unit, and clang sees the same
+// ambiguity wherever the test spells `cuda::`, which is why it is spelled
+// `corvid::cuda::` throughout.
+namespace corvid_tests {
+
+using namespace corvid;
+using namespace corvid::tests::gpt2;
+using Catch::Matchers::WithinAbs;
+using corvid::cuda::bfloat16_t;
+using corvid::cuda::cublas_handle;
+using corvid::cuda::cuda_buffer;
+using corvid::cuda::cuda_matrix;
+using corvid::llm::token_id;
+using corvid::tests::narrowed;
+using corvid::linalg::slope_of;
+using corvid::tests::widened;
+using matrix_types::col_ndx;
+using matrix_types::row_ndx;
+
+// The epsilon every layer norm test passes, GPT-2's own so the oracle case
+// matches.
+constexpr auto eps = 1e-5F;
+
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
+#pragma region layer_norm
+
+TEMPLATE_TEST_CASE("Device layer norm on hand-computed rows",
+    "[LlmOpsTest][cuda]", float, double) {
+  using T = TestType;
+  // Row 0 has mean 2.5 and biased variance 1.25. Row 1 is constant, so it
+  // normalizes to zero and the output is the bias alone.
+  const std::vector<T> in_storage{T{1}, T{2}, T{3}, T{4}, T{5}, T{5}, T{5},
+      T{5}};
+  const matrix_view<T> in_view(in_storage, {.row_count = 2, .col_count = 4});
+  constexpr std::array weight_storage{T{1}, T{2}, T{1}, T{2}};
+  constexpr std::array bias_storage{T{0}, T{0}, T{0.5}, T{0.5}};
+
+  const cuda_matrix<T> in(in_view);
+  cuda_buffer<T> weight(weight_storage.size());
+  REQUIRE(weight.load(weight_storage));
+  cuda_buffer<T> bias(bias_storage.size());
+  REQUIRE(bias.load(bias_storage));
+  cuda_matrix<T> out(in.extent());
+
+  REQUIRE(corvid::cuda::llm::layer_norm(out, in, weight, bias, eps));
+
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
+  constexpr auto tolerance = 1e-5;
+  const auto inv_std = T{1} / std::sqrt(T{1.25} + T{eps});
+  CHECK_THAT(out_storage[0], WithinAbs(T{-1.5} * inv_std, tolerance));
+  CHECK_THAT(out_storage[1], WithinAbs(T{-0.5} * inv_std * T{2}, tolerance));
+  CHECK_THAT(out_storage[2],
+      WithinAbs((T{0.5} * inv_std) + T{0.5}, tolerance));
+  CHECK_THAT(out_storage[3],
+      WithinAbs((T{1.5} * inv_std * T{2}) + T{0.5}, tolerance));
+  CHECK_THAT(out_storage[4], WithinAbs(0.0, tolerance));
+  CHECK_THAT(out_storage[5], WithinAbs(0.0, tolerance));
+  CHECK_THAT(out_storage[6], WithinAbs(0.5, tolerance));
+  CHECK_THAT(out_storage[7], WithinAbs(0.5, tolerance));
+
+  // In place gives the same values.
+  cuda_matrix<T> same(in_view);
+  REQUIRE(corvid::cuda::llm::layer_norm(same, same, weight, bias, eps));
+  std::vector<T> same_storage(same.size());
+  REQUIRE(same.as_view().store(matrix_lens<T>(same_storage, same.extent())));
+  CHECK(same_storage == out_storage);
+}
+
+TEST_CASE("Device layer norm matches the oracle",
+    "[LlmOpsTest][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+
+  // Every layer norm in the model, both per block and the final one, each fed
+  // its own dumped input and compared against its dumped output, as the CPU
+  // test does.
+  struct site {
+    std::string dump;
+    std::string param;
+  };
+  std::vector<site> sites;
+  for (auto n = 0UZ; n < n_layer; ++n)
+    for (const auto* ln : {"ln_1", "ln_2"})
+      sites.push_back(
+          {std::format("block_{}/{}", n, ln), std::format("h.{}.{}", n, ln)});
+  sites.push_back({"ln_f", "ln_f"});
+
+  for (const auto& [dump, param] : sites) {
+    DYNAMIC_SECTION(dump) {
+      const auto in_view = matrix_of(oracle.activations, dump + "/in", n_embd);
+      const auto expected =
+          matrix_of(oracle.activations, dump + "/out", n_embd);
+      REQUIRE(in_view.row_extent() == 14);
+
+      const cuda_matrix<float> in(in_view);
+      cuda_buffer<float> weight(n_embd);
+      REQUIRE(
+          weight.load(vector_of(oracle.weights, param + ".weight", n_embd)));
+      cuda_buffer<float> bias(n_embd);
+      REQUIRE(bias.load(vector_of(oracle.weights, param + ".bias", n_embd)));
+      cuda_matrix<float> out(in_view.extent());
+      std::vector<float> out_storage(out.size());
+      const float_matrix_lens out_lens(out_storage, out.extent());
+
+      REQUIRE(corvid::cuda::llm::layer_norm(out, in, weight, bias, eps));
+      REQUIRE(out.as_view().store(out_lens));
+
+      check_close(out_lens, expected, 1e-5F, 1e-5F);
+    }
+  }
+}
+
+TEST_CASE("Device layer norm over bfloat16_t is the float layer norm narrowed",
+    "[LlmOpsTest][cuda]") {
+  // The hand-computed rows again, whose values are exact in eight bits, so
+  // the bf16 kernel widens them to the same floats and its output is the
+  // float output rounded once, at the store.
+  const std::vector<float> in_values{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 5.0F, 5.0F,
+      5.0F};
+  const std::vector<float> weight_values{1.0F, 2.0F, 1.0F, 2.0F};
+  const std::vector<float> bias_values{0.0F, 0.0F, 0.5F, 0.5F};
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 4};
+
+  const cuda_matrix<float> in(float_matrix_view(in_values, extent));
+  const cuda_buffer<float> weight(weight_values);
+  const cuda_buffer<float> bias(bias_values);
+  cuda_matrix<float> out(extent);
+  REQUIRE(corvid::cuda::llm::layer_norm(out, in, weight, bias, eps));
+  std::vector<float> out_values(out.size());
+  REQUIRE(out.as_view().store(float_matrix_lens(out_values, extent)));
+
+  const auto in_narrowed = narrowed(in_values);
+  const auto weight_narrowed = narrowed(weight_values);
+  const auto bias_narrowed = narrowed(bias_values);
+  const cuda_matrix<bfloat16_t> in_bf16(
+      matrix_view<bfloat16_t>(in_narrowed, extent));
+  const cuda_buffer<bfloat16_t> weight_bf16(weight_narrowed);
+  const cuda_buffer<bfloat16_t> bias_bf16(bias_narrowed);
+  cuda_matrix<bfloat16_t> out_bf16(extent);
+  REQUIRE(corvid::cuda::llm::layer_norm(out_bf16, in_bf16, weight_bf16,
+      bias_bf16, eps));
+  std::vector<bfloat16_t> out_narrowed(out_bf16.size());
+  REQUIRE(
+      out_bf16.as_view().store(matrix_lens<bfloat16_t>(out_narrowed, extent)));
+  CHECK(out_narrowed == narrowed(out_values));
+
+  // And from the float rows straight into bfloat16, the residual stream's
+  // form, which is the same computation with the one rounding at the end.
+  cuda_matrix<bfloat16_t> out_mixed(extent);
+  REQUIRE(corvid::cuda::llm::layer_norm(out_mixed, in, weight, bias, eps));
+  std::vector<bfloat16_t> mixed_narrowed(out_mixed.size());
+  REQUIRE(out_mixed.as_view().store(
+      matrix_lens<bfloat16_t>(mixed_narrowed, extent)));
+  CHECK(mixed_narrowed == narrowed(out_values));
+}
+
+TEST_CASE(
+    "Device layer norm backward's gradients predict the change in a loss",
+    "[LlmOpsTest][cuda]") {
+  // A gradient is a prediction. Nudge one value by a small step, and the loss
+  // moves by that value's gradient times the step. This nudges an input in
+  // each row, a weight, and a bias, each up and then down, and checks every
+  // prediction against the loss the device `layer_norm` then gives.
+  //
+  // The loss is a weighted sum of the outputs, with the weights chosen by
+  // hand, since the gradient of such a loss with respect to the outputs is
+  // the weights themselves. Everything is in `double`, so that the step is
+  // small against the rounding.
+  using T = double;
+  using lens_t = matrix_lens<T>;
+  constexpr matrix_types::matrix_extent extent{.row_count = 3, .col_count = 8};
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+
+  std::vector<T> in_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(in_storage)) {
+    const auto row = static_cast<size_t>(ndx) / extent.col_count;
+    value = (3.0 * std::sin(0.37 * static_cast<double>(ndx))) +
+            static_cast<double>(row);
+  }
+  std::vector<T> out_gradient_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(out_gradient_storage))
+    value = std::cos(0.53 * static_cast<double>(ndx));
+  std::vector<T> weight_storage(extent.col_count);
+  for (auto [col, value] : std::views::enumerate(weight_storage))
+    value = 1.0 + (0.1 * static_cast<double>(col));
+  std::vector<T> bias_storage(extent.col_count);
+  for (auto [col, value] : std::views::enumerate(bias_storage))
+    value = 0.05 * static_cast<double>(col);
+  const lens_t in_lens(in_storage, extent);
+
+  // The loss over `in_storage`, `weight_storage`, and `bias_storage` as they
+  // stand, with the layer norm computed on the device.
+  const auto loss = [&] {
+    const cuda_matrix<T> in(in_lens);
+    const cuda_buffer<T> weight(weight_storage);
+    const cuda_buffer<T> bias(bias_storage);
+    cuda_matrix<T> out(extent);
+    REQUIRE(corvid::cuda::llm::layer_norm(out, in, weight, bias, eps));
+    std::vector<T> out_storage(out.size());
+    REQUIRE(out.as_view().store(lens_t(out_storage, extent)));
+    return corvid::linalg::dot_product(out_storage, out_gradient_storage);
+  };
+
+  const cuda_matrix<T> in(in_lens);
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, extent));
+  const cuda_buffer<T> weight(weight_storage);
+  cuda_matrix<T> in_gradient(extent);
+  cuda_buffer<T> weight_gradient(extent.col_count);
+  cuda_buffer<T> bias_gradient(extent.col_count);
+  REQUIRE(weight_gradient.zero());
+  REQUIRE(bias_gradient.zero());
+  cuda_buffer<corvid::cuda::llm::row_statistics<T>> statistics(
+      extent.row_count);
+  REQUIRE(corvid::cuda::llm::layer_norm_backward(in_gradient, weight_gradient,
+      bias_gradient, out_gradient, in, weight, eps, statistics));
+
+  std::vector<T> in_gradient_storage(in_gradient.size());
+  const lens_t in_gradient_lens(in_gradient_storage, extent);
+  REQUIRE(in_gradient.as_view().store(in_gradient_lens));
+  std::vector<T> weight_gradient_storage(extent.col_count);
+  REQUIRE(weight_gradient.store(weight_gradient_storage));
+  std::vector<T> bias_gradient_storage(extent.col_count);
+  REQUIRE(bias_gradient.store(bias_gradient_storage));
+
+  // An input in each row, on a different column each time.
+  for (const auto row : in_lens.row_indexes()) {
+    const col_ndx col{(*row * 3) + 1};
+    INFO("row " << *row << ", col " << *col);
+    CHECK_THAT(slope_of(in_lens[row, col], step, loss),
+        WithinAbs(in_gradient_lens[row, col], tolerance));
+  }
+  constexpr auto nudged_col = 5UZ;
+  CHECK_THAT(slope_of(weight_storage[nudged_col], step, loss),
+      WithinAbs(weight_gradient_storage[nudged_col], tolerance));
+  CHECK_THAT(slope_of(bias_storage[nudged_col], step, loss),
+      WithinAbs(bias_gradient_storage[nudged_col], tolerance));
+
+  // A second call adds to the weight and bias gradients.
+  REQUIRE(corvid::cuda::llm::layer_norm_backward(in_gradient, weight_gradient,
+      bias_gradient, out_gradient, in, weight, eps, statistics));
+  std::vector<T> twice(extent.col_count);
+  REQUIRE(weight_gradient.store(twice));
+  for (const auto [once, doubled] :
+      std::views::zip(weight_gradient_storage, twice))
+    CHECK_THAT(doubled, WithinAbs(2 * once, tolerance));
+  REQUIRE(bias_gradient.store(twice));
+  for (const auto [once, doubled] :
+      std::views::zip(bias_gradient_storage, twice))
+    CHECK_THAT(doubled, WithinAbs(2 * once, tolerance));
+}
+
+#pragma endregion
+#pragma region add
+
+TEST_CASE("Device residual adds match the oracle",
+    "[LlmOpsTest][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+
+  // Both adds of every block, each fed its own dumped operands. Adding two
+  // fp32 values is the same IEEE operation on the device and in the oracle,
+  // so the match is exact, with no tolerance at all.
+  struct site {
+    std::string residual;
+    std::string correction;
+    std::string sum;
+  };
+  std::vector<site> sites;
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    const auto block = std::format("block_{}", n);
+    const auto after_mlp =
+        (n + 1 < n_layer)
+            ? std::format("block_{}/ln_1/in", n + 1)
+            : std::string{"ln_f/in"};
+    sites.push_back(
+        {block + "/ln_1/in", block + "/attn/out", block + "/ln_2/in"});
+    sites.push_back({block + "/ln_2/in", block + "/mlp/out", after_mlp});
+  }
+
+  for (const auto& [residual, correction, sum] : sites) {
+    DYNAMIC_SECTION(sum) {
+      const auto a_view = matrix_of(oracle.activations, residual, n_embd);
+      const auto b_view = matrix_of(oracle.activations, correction, n_embd);
+      const auto expected = matrix_of(oracle.activations, sum, n_embd);
+      REQUIRE(a_view.row_extent() == 14);
+
+      const cuda_matrix<float> a(a_view);
+      const cuda_matrix<float> b(b_view);
+      cuda_matrix<float> out(a_view.extent());
+      std::vector<float> out_storage(out.size());
+      const float_matrix_lens out_lens(out_storage, out.extent());
+
+      REQUIRE(corvid::cuda::linalg::add(out, a, b));
+      REQUIRE(out.as_view().store(out_lens));
+
+      check_close(out_lens, expected, 0.0F, 0.0F);
+    }
+  }
+}
+
+#pragma endregion
+#pragma region gelu_new
+
+TEST_CASE("Device GELU on hand-computed values", "[LlmOpsTest][cuda]") {
+  // The same reference values as the CPU test, from torch's gelu with
+  // approximate="tanh".
+  const std::vector<float> in_storage{0.0F, 1.0F, -1.0F, 2.0F, -2.0F, 10.0F,
+      -10.0F};
+  const float_matrix_view in_view(in_storage,
+      {.row_count = 1, .col_count = in_storage.size()});
+  const cuda_matrix<float> in(in_view);
+  cuda_matrix<float> out(in.extent());
+
+  REQUIRE(corvid::cuda::llm::gelu_new(out, in));
+
+  std::vector<float> out_storage(out.size());
+  REQUIRE(out.as_view().store(float_matrix_lens(out_storage, out.extent())));
+  constexpr auto tolerance = 1e-6;
+  CHECK(out_storage[0] == 0.0F);
+  CHECK_THAT(out_storage[1], WithinAbs(0.841192, tolerance));
+  CHECK_THAT(out_storage[2], WithinAbs(-0.158808, tolerance));
+  CHECK_THAT(out_storage[3], WithinAbs(1.954598, tolerance));
+  CHECK_THAT(out_storage[4], WithinAbs(-0.045402, tolerance));
+  CHECK_THAT(out_storage[5], WithinAbs(10.0, tolerance));
+  CHECK_THAT(out_storage[6], WithinAbs(0.0, tolerance));
+
+  // In place gives the same values.
+  cuda_matrix<float> same(in_view);
+  REQUIRE(corvid::cuda::llm::gelu_new(same, same));
+  std::vector<float> same_storage(same.size());
+  REQUIRE(
+      same.as_view().store(float_matrix_lens(same_storage, same.extent())));
+  CHECK(same_storage == out_storage);
+}
+
+TEST_CASE("Device GELU over bfloat16_t is the float GELU narrowed",
+    "[LlmOpsTest][cuda]") {
+  // The same reference inputs, all exact in eight bits, so the bf16 result
+  // is the float result rounded once, at the store.
+  const std::vector<float> in_values{0.0F, 1.0F, -1.0F, 2.0F, -2.0F, 10.0F,
+      -10.0F};
+  const matrix_types::matrix_extent extent{.row_count = 1,
+      .col_count = in_values.size()};
+
+  const cuda_matrix<float> in(float_matrix_view(in_values, extent));
+  cuda_matrix<float> out(extent);
+  REQUIRE(corvid::cuda::llm::gelu_new(out, in));
+  std::vector<float> out_values(out.size());
+  REQUIRE(out.as_view().store(float_matrix_lens(out_values, extent)));
+
+  const auto in_narrowed = narrowed(in_values);
+  const cuda_matrix<bfloat16_t> in_bf16(
+      matrix_view<bfloat16_t>(in_narrowed, extent));
+  cuda_matrix<bfloat16_t> out_bf16(extent);
+  REQUIRE(corvid::cuda::llm::gelu_new(out_bf16, in_bf16));
+  std::vector<bfloat16_t> out_narrowed(out_bf16.size());
+  REQUIRE(
+      out_bf16.as_view().store(matrix_lens<bfloat16_t>(out_narrowed, extent)));
+  CHECK(out_narrowed == narrowed(out_values));
+}
+
+TEST_CASE("Device GELU backward's gradient predicts the change in a loss",
+    "[LlmOpsTest][cuda]") {
+  // A gradient is a prediction. Nudge one value by a small step, and the loss
+  // moves by that value's gradient times the step. This nudges every input,
+  // each up and then down, and checks every prediction against the loss the
+  // device `gelu_new` then gives.
+  //
+  // The loss is a weighted sum of the outputs, with the weights chosen by
+  // hand, since the gradient of such a loss with respect to the outputs is the
+  // weights themselves. Everything is in `double`, so that the step is small
+  // against the rounding. The inputs cover the tails, the dip, and zero.
+  using T = double;
+  using lens_t = matrix_lens<T>;
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 6};
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+
+  std::vector<T> in_storage{-10.0, -2.0, -0.75, 0.0, 0.5, 1.0, 2.0, 10.0, -1.0,
+      0.25, 3.0, -0.1};
+  REQUIRE(in_storage.size() == extent.size());
+  std::vector<T> out_gradient_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(out_gradient_storage))
+    value = std::cos(0.53 * static_cast<double>(ndx));
+  const lens_t in_lens(in_storage, extent);
+
+  // The loss over `in_storage` as it stands, with the GELU computed on the
+  // device.
+  const auto loss = [&] {
+    const cuda_matrix<T> in(in_lens);
+    cuda_matrix<T> out(extent);
+    REQUIRE(corvid::cuda::llm::gelu_new(out, in));
+    std::vector<T> out_storage(out.size());
+    REQUIRE(out.as_view().store(lens_t(out_storage, extent)));
+    return corvid::linalg::dot_product(out_storage, out_gradient_storage);
+  };
+
+  const cuda_matrix<T> in(in_lens);
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, extent));
+  cuda_matrix<T> in_gradient(extent);
+  REQUIRE(corvid::cuda::llm::gelu_new_backward(in_gradient, out_gradient, in));
+  std::vector<T> in_gradient_storage(in_gradient.size());
+  REQUIRE(in_gradient.as_view().store(lens_t(in_gradient_storage, extent)));
+
+  for (auto [value, gradient] :
+      std::views::zip(in_storage, in_gradient_storage))
+  {
+    INFO("in " << value);
+    CHECK_THAT(slope_of(value, step, loss), WithinAbs(gradient, tolerance));
+  }
+
+  // In place gives the same values.
+  cuda_matrix<T> same(matrix_view<T>(out_gradient_storage, extent));
+  REQUIRE(corvid::cuda::llm::gelu_new_backward(same, same, in));
+  std::vector<T> same_storage(same.size());
+  REQUIRE(same.as_view().store(lens_t(same_storage, extent)));
+  CHECK(same_storage == in_gradient_storage);
+}
+
+#pragma endregion
+#pragma region MLP
+
+TEST_CASE("Device MLP path matches the oracle", "[LlmOpsTest][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+  const cublas_handle blas;
+
+  // Every block's MLP, fed its own dumped `ln_2/out` and compared against its
+  // dumped `mlp/out`, as the CPU test does, with all three ops on the device.
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    DYNAMIC_SECTION("block_" << n) {
+      const auto dump = std::format("block_{}", n);
+      const auto param = std::format("h.{}.mlp", n);
+      const auto in_view =
+          matrix_of(oracle.activations, dump + "/ln_2/out", n_embd);
+      const auto expected =
+          matrix_of(oracle.activations, dump + "/mlp/out", n_embd);
+      REQUIRE(in_view.row_extent() == 14);
+
+      const cuda_matrix<float> in(in_view);
+      const cuda_matrix<float> fc_weight(
+          matrix_of(oracle.weights, param + ".c_fc.weight", n_hidden));
+      cuda_buffer<float> fc_bias(n_hidden);
+      REQUIRE(fc_bias.load(
+          vector_of(oracle.weights, param + ".c_fc.bias", n_hidden)));
+      const cuda_matrix<float> proj_weight(
+          matrix_of(oracle.weights, param + ".c_proj.weight", n_embd));
+      cuda_buffer<float> proj_bias(n_embd);
+      REQUIRE(proj_bias.load(
+          vector_of(oracle.weights, param + ".c_proj.bias", n_embd)));
+
+      cuda_matrix<float> hidden(
+          {.row_count = in_view.row_extent(), .col_count = n_hidden});
+      cuda_matrix<float> out(in_view.extent());
+      std::vector<float> out_storage(out.size());
+      const float_matrix_lens out_lens(out_storage, out.extent());
+
+      REQUIRE(corvid::cuda::linalg::linear_projection(blas, hidden, in,
+          fc_weight, fc_bias));
+      REQUIRE(corvid::cuda::llm::gelu_new(hidden, hidden));
+      REQUIRE(corvid::cuda::linalg::linear_projection(blas, out, hidden,
+          proj_weight, proj_bias));
+      REQUIRE(out.as_view().store(out_lens));
+
+      check_close(out_lens, expected, 1e-4F, 1e-4F);
+    }
+  }
+}
+
+#pragma endregion
+#pragma region embed_tokens
+
+TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
+    "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
+  using T = TestType;
+  // Three tokens in the vocabulary, width two, as the CPU test has them.
+  const std::vector<T> table_storage{T{1}, T{2}, T{10}, T{20}, T{100}, T{200}};
+  const matrix_view<T> table_view(table_storage,
+      {.row_count = 3, .col_count = 2});
+  const std::vector<token_id> id_storage{token_id{2}, token_id{0}};
+
+  const cuda_matrix<T> table(table_view);
+  cuda_buffer<token_id> ids(id_storage.size());
+  REQUIRE(ids.load(id_storage));
+  cuda_matrix<T> out({.row_count = id_storage.size(), .col_count = 2});
+
+  REQUIRE(corvid::cuda::llm::embed_tokens(out, ids, table));
+
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<T>{T{100}, T{200}, T{1}, T{2}});
+}
+
+TEMPLATE_TEST_CASE("Device embed tokens backward adds each row to its ID's",
+    "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
+  using T = TestType;
+  // Three rows of width two land on a table of three entries. The first and
+  // last rows share an ID, so that entry gets both, the entry no ID names
+  // keeps what it had, and every entry starts at 1 to show the adding.
+  const std::vector<token_id> id_storage{token_id{2}, token_id{0},
+      token_id{2}};
+  const std::vector<T> out_gradient_storage{T{1}, T{2}, T{10}, T{20}, T{100},
+      T{200}};
+  const std::vector<T> table_storage(6, T{1});
+  cuda_buffer<token_id> ids(id_storage.size());
+  REQUIRE(ids.load(id_storage));
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, {.row_count = 3, .col_count = 2}));
+  cuda_matrix<T> table_gradient(
+      matrix_view<T>(table_storage, {.row_count = 3, .col_count = 2}));
+
+  REQUIRE(corvid::cuda::llm::embed_tokens_backward(table_gradient,
+      out_gradient, ids));
+
+  std::vector<T> storage(table_gradient.size());
+  REQUIRE(table_gradient.as_view().store(
+      matrix_lens<T>(storage, table_gradient.extent())));
+  CHECK(storage == std::vector<T>{T{11}, T{21}, T{1}, T{1}, T{102}, T{203}});
+}
+
+TEMPLATE_TEST_CASE("Device embed positions on hand-computed rows",
+    "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
+  using T = TestType;
+  // A context of three positions, width two, under two tokens, as the CPU
+  // test has them.
+  const std::vector<T> table_storage{T{1}, T{2}, T{10}, T{20}, T{100}, T{200}};
+  const cuda_matrix<T> table(
+      matrix_view<T>(table_storage, {.row_count = 3, .col_count = 2}));
+  const std::vector<T> in_storage{T{0.5}, T{0.25}, T{-10}, T{5}};
+  cuda_matrix<T> out(
+      matrix_view<T>(in_storage, {.row_count = 2, .col_count = 2}));
+
+  REQUIRE(corvid::cuda::llm::embed_positions(out, table));
+
+  std::vector<T> out_storage(out.size());
+  REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<T>{T{1.5}, T{2.25}, T{0}, T{25}});
+}
+
+TEST_CASE("Device embeddings from bfloat16_t tables into a float residual",
+    "[LlmOpsTest][cuda]") {
+  // The two napkin tables held as `bfloat16_t`, gathered and added into a
+  // `float` residual, as the engine holds them. The values are exact in
+  // eight bits, so both halves are exact.
+  const auto table_narrowed =
+      narrowed({1.0F, 2.0F, 10.0F, 20.0F, 100.0F, 200.0F});
+  const cuda_matrix<bfloat16_t> table(matrix_view<bfloat16_t>(table_narrowed,
+      {.row_count = 3, .col_count = 2}));
+  const std::vector<token_id> id_storage{token_id{2}, token_id{0}};
+  cuda_buffer<token_id> ids(id_storage.size());
+  REQUIRE(ids.load(id_storage));
+  cuda_matrix<float> out({.row_count = id_storage.size(), .col_count = 2});
+
+  REQUIRE(corvid::cuda::llm::embed_tokens(out, ids, table));
+  std::vector<float> out_storage(out.size());
+  REQUIRE(out.as_view().store(float_matrix_lens(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<float>{100.0F, 200.0F, 1.0F, 2.0F});
+
+  REQUIRE(corvid::cuda::llm::embed_positions(out, table));
+  REQUIRE(out.as_view().store(float_matrix_lens(out_storage, out.extent())));
+  CHECK(out_storage == std::vector<float>{101.0F, 202.0F, 11.0F, 22.0F});
+}
+
+TEST_CASE("Device embed tokens match the oracle",
+    "[LlmOpsTest][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+
+  // The bisect prompt's IDs come from the logits dump, the only place the
+  // oracle wrote them. The dumped `embed/out` is the token embedding plus the
+  // position embedding, so `embed_positions` supplies the second half, and
+  // both halves are exact.
+  const auto id_storage =
+      ids_of(oracle.logits, std::format("prompt_{}/input_ids", bisect_prompt));
+  REQUIRE(id_storage.size() == 14);
+  const auto wte_view = matrix_of(oracle.weights, "wte.weight", n_embd);
+  const auto wpe_view = matrix_of(oracle.weights, "wpe.weight", n_embd);
+  REQUIRE(wte_view.row_extent() == n_vocab);
+  REQUIRE(wpe_view.row_extent() == n_ctx);
+  const auto expected = matrix_of(oracle.activations, "embed/out", n_embd);
+
+  cuda_buffer<token_id> ids(id_storage.size());
+  REQUIRE(ids.load(id_storage));
+  const cuda_matrix<float> wte(wte_view);
+  const cuda_matrix<float> wpe(wpe_view);
+  cuda_matrix<float> out(expected.extent());
+  std::vector<float> out_storage(out.size());
+  const float_matrix_lens out_lens(out_storage, out.extent());
+
+  REQUIRE(corvid::cuda::llm::embed_tokens(out, ids, wte));
+  REQUIRE(corvid::cuda::llm::embed_positions(out, wpe));
+  REQUIRE(out.as_view().store(out_lens));
+
+  check_close(out_lens, expected, 0.0F, 0.0F);
+}
+
+#pragma endregion
+#pragma region attend
+
+TEMPLATE_TEST_CASE("Device causal mask blanks the columns after the diagonal",
+    "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
+  using T = TestType;
+  const std::vector<T> ones(3UZ * 3, T{1});
+  cuda_matrix<T> scores(
+      matrix_view<T>(ones, {.row_count = 3, .col_count = 3}));
+  REQUIRE(corvid::cuda::llm::causal_mask(scores));
+
+  std::vector<T> storage(scores.size());
+  REQUIRE(scores.as_view().store(matrix_lens<T>(storage, scores.extent())));
+  const T blank{-std::numeric_limits<float>::infinity()};
+  CHECK(
+      storage ==
+      std::vector<T>{T{1}, blank, blank, T{1}, T{1}, blank, T{1}, T{1}, T{1}});
+}
+
+TEST_CASE("Device causal mask blanks each square of a stack on its own",
+    "[LlmOpsTest][cuda]") {
+  const std::vector<float> ones(4UZ * 2, 1.0F);
+  cuda_matrix<float> scores(
+      float_matrix_view(ones, {.row_count = 4, .col_count = 2}));
+  REQUIRE(corvid::cuda::llm::causal_mask(scores));
+
+  std::vector<float> storage(scores.size());
+  REQUIRE(scores.as_view().store(float_matrix_lens(storage, scores.extent())));
+  constexpr auto blank = -std::numeric_limits<float>::infinity();
+  CHECK(storage ==
+        std::vector<float>{1.0F, blank, 1.0F, 1.0F, 1.0F, blank, 1.0F, 1.0F});
+}
+
+TEST_CASE("Device causal mask over cached tokens starts past them",
+    "[LlmOpsTest][cuda]") {
+  // Two new tokens after one cached, for two heads. In each head's matrix,
+  // row 0 is token 1 and keeps columns 0 and 1, and row 1 is token 2 and
+  // keeps all three.
+  const std::vector<float> ones(4UZ * 3, 1.0F);
+  cuda_matrix<float> scores(
+      float_matrix_view(ones, {.row_count = 4, .col_count = 3}));
+  REQUIRE(corvid::cuda::llm::causal_mask(scores, 1));
+
+  std::vector<float> storage(scores.size());
+  REQUIRE(scores.as_view().store(float_matrix_lens(storage, scores.extent())));
+  constexpr auto blank = -std::numeric_limits<float>::infinity();
+  CHECK(storage == std::vector<float>{1.0F, 1.0F, blank, 1.0F, 1.0F, 1.0F,
+                       1.0F, 1.0F, blank, 1.0F, 1.0F, 1.0F});
+}
+
+// The queries, keys, and values of a host `qkv`, uploaded as three matrices.
+struct qkv_thirds {
+  cuda_matrix<float> queries;
+  cuda_matrix<float> keys;
+  cuda_matrix<float> values;
+};
+
+qkv_thirds split_qkv(float_matrix_view qkv) {
+  const auto width = qkv.col_extent() / 3;
+  const auto third = [&](size_t which) {
+    return cuda_matrix<float>(qkv[{row_ndx{0}, col_ndx{which * width}},
+        {.row_count = qkv.row_extent(), .col_count = width}]);
+  };
+  return {third(0), third(1), third(2)};
+}
+
+TEST_CASE("Device attention on three tokens of width two",
+    "[LlmOpsTest][cuda]") {
+  // The CPU test's napkin example, starting from its `qkv`. There, q and k
+  // equal the input rows [1, 0], [0, 1], [1, 1], and v is the input with its
+  // columns swapped.
+  const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+      0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+  const auto [queries, keys, values] = split_qkv(
+      float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
+  const cublas_handle blas;
+  cuda_matrix<float> out({.row_count = 3, .col_count = 2});
+  std::vector<float> out_storage(out.size());
+  const float_matrix_lens out_lens(out_storage, out.extent());
+  constexpr auto tolerance = 1e-5;
+
+  SECTION("one head of width two") {
+    cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
+    cuda_matrix<float> weights(scores.extent());
+    REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values, 1,
+        scores, weights));
+    REQUIRE(out.as_view().store(out_lens));
+    CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
+    CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
+    CHECK_THAT(out_storage[2], WithinAbs(0.669762, tolerance));
+    CHECK_THAT(out_storage[3], WithinAbs(0.330238, tolerance));
+    CHECK_THAT(out_storage[4], WithinAbs(0.751745, tolerance));
+    CHECK_THAT(out_storage[5], WithinAbs(0.751745, tolerance));
+  }
+
+  SECTION("two heads of width one") {
+    cuda_matrix<float> scores({.row_count = 2UZ * 3, .col_count = 3});
+    cuda_matrix<float> weights(scores.extent());
+    REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values, 2,
+        scores, weights));
+    REQUIRE(out.as_view().store(out_lens));
+    CHECK_THAT(out_storage[0], WithinAbs(0.0, tolerance));
+    CHECK_THAT(out_storage[1], WithinAbs(1.0, tolerance));
+    CHECK_THAT(out_storage[2], WithinAbs(0.5, tolerance));
+    CHECK_THAT(out_storage[3], WithinAbs(0.268941, tolerance));
+    CHECK_THAT(out_storage[4], WithinAbs(0.577681, tolerance));
+    CHECK_THAT(out_storage[5], WithinAbs(0.577681, tolerance));
+  }
+
+  SECTION("the softmax may write its weights over the scores") {
+    cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
+    REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values, 1,
+        scores, scores));
+    REQUIRE(out.as_view().store(out_lens));
+    CHECK_THAT(out_storage[2], WithinAbs(0.669762, tolerance));
+    CHECK_THAT(out_storage[3], WithinAbs(0.330238, tolerance));
+  }
+}
+
+TEST_CASE("Device attention over bfloat16_t on three tokens of width two",
+    "[LlmOpsTest][cuda]") {
+  // The napkin example with the values held as `bfloat16_t`, as the engine
+  // holds them, and the queries and keys as float. Only the weights are
+  // rounded to eight bits, so the rows match the float ones within a stated
+  // tolerance rather than bit for bit.
+  const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+      0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+  const auto [queries, keys, float_values] = split_qkv(
+      float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
+  cuda_matrix<bfloat16_t> values(float_values.extent());
+  REQUIRE(corvid::cuda::linalg::convert(values, float_values));
+  const cublas_handle blas;
+  cuda_matrix<bfloat16_t> out({.row_count = 3, .col_count = 2});
+  cuda_matrix<float> scores({.row_count = 3, .col_count = 3});
+  cuda_matrix<bfloat16_t> weights(scores.extent());
+  REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values, 1,
+      scores, weights));
+
+  std::vector<bfloat16_t> out_narrowed(out.size());
+  REQUIRE(out.as_view().store(
+      matrix_lens<bfloat16_t>(out_narrowed, out.extent())));
+  const auto out_values = widened(out_narrowed);
+  constexpr auto tolerance = 1e-2;
+  CHECK_THAT(out_values[0], WithinAbs(0.0, tolerance));
+  CHECK_THAT(out_values[1], WithinAbs(1.0, tolerance));
+  CHECK_THAT(out_values[2], WithinAbs(0.669762, tolerance));
+  CHECK_THAT(out_values[3], WithinAbs(0.330238, tolerance));
+  CHECK_THAT(out_values[4], WithinAbs(0.751745, tolerance));
+  CHECK_THAT(out_values[5], WithinAbs(0.751745, tolerance));
+}
+
+TEST_CASE("Device attention over cached tokens matches a full pass",
+    "[LlmOpsTest][cuda]") {
+  // The napkin example's `qkv`, as the CPU test uses it. Attending the last
+  // two tokens with one cached, or the last token with two cached, gives the
+  // rows that the full pass gives those tokens.
+  const std::vector<float> qkv_storage{1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+      0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+  const auto [queries, keys, values] = split_qkv(
+      float_matrix_view(qkv_storage, {.row_count = 3, .col_count = 6}));
+  const cublas_handle blas;
+
+  for (const auto head_count : {1UZ, 2UZ}) {
+    DYNAMIC_SECTION(head_count << " heads") {
+      cuda_matrix<float> full({.row_count = 3, .col_count = 2});
+      cuda_matrix<float> full_scores(
+          {.row_count = head_count * 3, .col_count = 3});
+      cuda_matrix<float> full_weights(full_scores.extent());
+      REQUIRE(corvid::cuda::llm::attend(blas, full, queries, keys, values,
+          head_count, full_scores, full_weights));
+      std::vector<float> full_storage(full.size());
+      REQUIRE(full.as_view().store(
+          float_matrix_lens(full_storage, full.extent())));
+      const float_matrix_view full_view(full_storage, full.extent());
+
+      for (const auto new_count : {1UZ, 2UZ, 3UZ}) {
+        const auto new_queries = queries[{row_ndx{3 - new_count}, col_ndx{0}},
+            matrix_types::matrix_extent::npos];
+        cuda_matrix<float> out({.row_count = new_count, .col_count = 2});
+        cuda_matrix<float> scores(
+            {.row_count = head_count * new_count, .col_count = 3});
+        cuda_matrix<float> weights(scores.extent());
+        REQUIRE(corvid::cuda::llm::attend(blas, out, new_queries, keys, values,
+            head_count, scores, weights));
+        std::vector<float> out_storage(out.size());
+        REQUIRE(
+            out.as_view().store(float_matrix_lens(out_storage, out.extent())));
+        check_close(float_matrix_view(out_storage, out.extent()),
+            full_view[{row_ndx{3 - new_count}, col_ndx{0}}, out.extent()],
+            0.0F, 0.0F);
+      }
+    }
+  }
+}
+
+TEST_CASE("Device attention backward's gradients predict the change in a loss",
+    "[LlmOpsTest][cuda]") {
+  // A gradient is a prediction. Nudge one value by a small step, and the loss
+  // moves by that value's gradient times the step. This nudges a query, a key,
+  // and a value in each row, each up and then down, and checks every
+  // prediction against the loss the device `attend` then gives, over two heads
+  // with nothing cached.
+  //
+  // The loss is a weighted sum of the outputs, with the weights chosen by
+  // hand, since the gradient of such a loss with respect to the outputs is the
+  // weights themselves. Everything is in `double`, so that the step is small
+  // against the rounding.
+  using T = double;
+  using lens_t = matrix_lens<T>;
+  constexpr auto token_count = 5UZ;
+  constexpr auto head_count = 2UZ;
+  constexpr matrix_types::matrix_extent extent{.row_count = token_count,
+      .col_count = 6};
+  constexpr matrix_types::matrix_extent stacked{
+      .row_count = head_count * token_count,
+      .col_count = token_count};
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+
+  std::vector<T> queries_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(queries_storage))
+    value = std::sin(0.37 * static_cast<double>(ndx));
+  std::vector<T> keys_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(keys_storage))
+    value = std::cos(0.29 * static_cast<double>(ndx));
+  std::vector<T> values_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(values_storage))
+    value = std::sin((0.53 * static_cast<double>(ndx)) + 1.0);
+  std::vector<T> out_gradient_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(out_gradient_storage))
+    value = std::cos(0.43 * static_cast<double>(ndx));
+  const lens_t queries_lens(queries_storage, extent);
+  const lens_t keys_lens(keys_storage, extent);
+  const lens_t values_lens(values_storage, extent);
+  const cublas_handle blas;
+
+  // The loss over the queries, keys, and values as they stand, with the
+  // attention computed on the device.
+  const auto loss = [&] {
+    const cuda_matrix<T> queries(queries_lens);
+    const cuda_matrix<T> keys(keys_lens);
+    const cuda_matrix<T> values(values_lens);
+    cuda_matrix<T> scores(stacked);
+    cuda_matrix<T> weights(stacked);
+    cuda_matrix<T> out(extent);
+    REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values,
+        head_count, scores, weights));
+    std::vector<T> out_storage(out.size());
+    REQUIRE(out.as_view().store(lens_t(out_storage, extent)));
+    return corvid::linalg::dot_product(out_storage, out_gradient_storage);
+  };
+
+  // The forward step once more, keeping its weights for the backward step.
+  const cuda_matrix<T> queries(queries_lens);
+  const cuda_matrix<T> keys(keys_lens);
+  const cuda_matrix<T> values(values_lens);
+  cuda_matrix<T> scores(stacked);
+  cuda_matrix<T> weights(stacked);
+  cuda_matrix<T> out(extent);
+  REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values,
+      head_count, scores, weights));
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, extent));
+  cuda_matrix<T> queries_gradient(extent);
+  cuda_matrix<T> keys_gradient(extent);
+  cuda_matrix<T> values_gradient(extent);
+  cuda_matrix<T> weights_gradient(stacked);
+  REQUIRE(corvid::cuda::llm::attend_backward(blas, queries_gradient,
+      keys_gradient, values_gradient, out_gradient, queries, keys, values,
+      weights, head_count, weights_gradient));
+
+  // One of `lens` in each row, on a different column each time, against its
+  // `gradient`.
+  const auto check =
+      [&](std::string_view name, const lens_t& lens,
+          const cuda_matrix<T>& gradient) {
+        std::vector<T> gradient_storage(gradient.size());
+        const lens_t gradient_lens(gradient_storage, extent);
+        REQUIRE(gradient.as_view().store(gradient_lens));
+        for (const auto row : lens.row_indexes()) {
+          const col_ndx col{(*row * 2) % extent.col_count};
+          INFO(name << " row " << *row << ", col " << *col);
+          CHECK_THAT(slope_of(lens[row, col], step, loss),
+              WithinAbs(gradient_lens[row, col], tolerance));
+        }
+      };
+  check("query", queries_lens, queries_gradient);
+  check("key", keys_lens, keys_gradient);
+  check("value", values_lens, values_gradient);
+}
+
+TEST_CASE("Device attention path matches the oracle",
+    "[LlmOpsTest][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+  const cublas_handle blas;
+
+  // Every block's attention, fed its own dumped `ln_1/out` and compared
+  // against its dumped `attn/out`, as the CPU test does, with the two
+  // projections and the heads all on the device. The attention projection is
+  // one product here, sliced into its thirds afterward.
+  for (auto n = 0UZ; n < n_layer; ++n) {
+    DYNAMIC_SECTION("block_" << n) {
+      const auto dump = std::format("block_{}", n);
+      const auto param = std::format("h.{}.attn", n);
+      const auto in_view =
+          matrix_of(oracle.activations, dump + "/ln_1/out", n_embd);
+      const auto expected =
+          matrix_of(oracle.activations, dump + "/attn/out", n_embd);
+      const auto token_count = in_view.row_extent();
+      REQUIRE(token_count == 14);
+
+      const cuda_matrix<float> in(in_view);
+      const cuda_matrix<float> attn_weight(
+          matrix_of(oracle.weights, param + ".c_attn.weight", n_qkv));
+      cuda_buffer<float> attn_bias(n_qkv);
+      REQUIRE(attn_bias.load(
+          vector_of(oracle.weights, param + ".c_attn.bias", n_qkv)));
+      const cuda_matrix<float> proj_weight(
+          matrix_of(oracle.weights, param + ".c_proj.weight", n_embd));
+      cuda_buffer<float> proj_bias(n_embd);
+      REQUIRE(proj_bias.load(
+          vector_of(oracle.weights, param + ".c_proj.bias", n_embd)));
+
+      cuda_matrix<float> qkv({.row_count = token_count, .col_count = n_qkv});
+      const matrix_types::matrix_extent third{.row_count = token_count,
+          .col_count = n_embd};
+      const auto queries = qkv[third];
+      const auto keys = qkv[{row_ndx{0}, col_ndx{n_embd}}, third];
+      const auto values = qkv[{row_ndx{0}, col_ndx{2 * n_embd}}, third];
+      cuda_matrix<float> heads_out(in_view.extent());
+      cuda_matrix<float> scores(
+          {.row_count = n_head * token_count, .col_count = token_count});
+      cuda_matrix<float> weights(scores.extent());
+      cuda_matrix<float> out(in_view.extent());
+      std::vector<float> out_storage(out.size());
+      const float_matrix_lens out_lens(out_storage, out.extent());
+
+      REQUIRE(corvid::cuda::linalg::linear_projection(blas, qkv, in,
+          attn_weight, attn_bias));
+      REQUIRE(corvid::cuda::llm::attend(blas, heads_out, queries, keys, values,
+          n_head, scores, weights));
+      REQUIRE(corvid::cuda::linalg::linear_projection(blas, out, heads_out,
+          proj_weight, proj_bias));
+      REQUIRE(out.as_view().store(out_lens));
+
+      check_close(out_lens, expected, 1e-4F, 1e-4F);
+
+      // The last five tokens with nine cached get the same head outputs,
+      // bit for bit, as on the CPU.
+      constexpr auto new_count = 5UZ;
+      const auto suffix_queries =
+          queries[{row_ndx{token_count - new_count}, col_ndx{0}},
+              matrix_types::matrix_extent::npos];
+      cuda_matrix<float> suffix_out(
+          {.row_count = new_count, .col_count = n_embd});
+      cuda_matrix<float> suffix_scores(
+          {.row_count = n_head * new_count, .col_count = token_count});
+      cuda_matrix<float> suffix_weights(suffix_scores.extent());
+      REQUIRE(corvid::cuda::llm::attend(blas, suffix_out, suffix_queries, keys,
+          values, n_head, suffix_scores, suffix_weights));
+      std::vector<float> heads_storage(heads_out.size());
+      const float_matrix_lens heads_lens(heads_storage, heads_out.extent());
+      REQUIRE(heads_out.as_view().store(heads_lens));
+      std::vector<float> suffix_storage(suffix_out.size());
+      const float_matrix_lens suffix_lens(suffix_storage, suffix_out.extent());
+      REQUIRE(suffix_out.as_view().store(suffix_lens));
+      check_close(suffix_lens,
+          heads_lens[{row_ndx{token_count - new_count}, col_ndx{0}},
+              suffix_out.extent()],
+          0.0F, 0.0F);
+    }
+  }
+}
+
+#pragma endregion
+#pragma region logits
+
+TEST_CASE("Device logits over bfloat16_t are stored as float",
+    "[LlmOpsTest][cuda]") {
+  // Two tokens of width three against a vocabulary of two, with values whose
+  // float partial sums are exact, so the logits are the exact products and
+  // are never rounded to bfloat16.
+  const auto in_narrowed =
+      narrowed({1.5F, 2.25F, 3.125F, 4.0625F, 5.5F, 6.75F});
+  const auto vocab_narrowed =
+      narrowed({1.25F, 0.75F, 1.0F, 0.5F, 1.125F, 2.5F});
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 3};
+  const cublas_handle blas;
+  const cuda_matrix<bfloat16_t> in(
+      matrix_view<bfloat16_t>(in_narrowed, extent));
+  const cuda_matrix<bfloat16_t> vocab(
+      matrix_view<bfloat16_t>(vocab_narrowed, extent));
+  cuda_matrix<float> logits({.row_count = 2, .col_count = 2});
+  REQUIRE(corvid::cuda::llm::compute_logits(blas, logits, in, vocab));
+
+  std::vector<float> logit_values(logits.size());
+  REQUIRE(logits.as_view().store(
+      float_matrix_lens(logit_values, logits.extent())));
+  CHECK(logit_values ==
+        std::vector<float>{6.6875F, 11.09375F, 15.953125F, 25.09375F});
+}
+
+#pragma endregion
+#pragma region pick_greedy
+
+TEST_CASE("Device greedy picks the largest logit in each row",
+    "[LlmOpsTest][cuda]") {
+  // Five rows, each wider than a block of threads so that every thread walks
+  // several columns: the largest first, last, in the middle, tied (the first
+  // wins), and every value alike.
+  constexpr auto cols = 1000UZ;
+  struct row_case {
+    std::vector<size_t> peaks;
+    token_id expected;
+  };
+  const std::vector<row_case> rows{
+      {{0}, token_id{0}},
+      {{cols - 1}, token_id{cols - 1}},
+      {{500}, token_id{500}},
+      {{300, 700}, token_id{300}},
+      {{}, token_id{0}},
+  };
+  std::vector<float> storage(rows.size() * cols, -1.0F);
+  const float_matrix_lens logits_lens(storage,
+      {.row_count = rows.size(), .col_count = cols});
+  for (const auto [spec, logits_row] :
+      std::views::zip(rows, logits_lens.rows()))
+    for (const auto peak : spec.peaks) logits_row[col_ndx{peak}] = -0.5F;
+
+  const cuda_matrix<float> logits(
+      float_matrix_view(storage, logits_lens.extent()));
+  cuda_buffer<token_id> picks(rows.size());
+  REQUIRE(corvid::cuda::llm::pick_greedy(picks, logits));
+  std::vector<token_id> picked(rows.size());
+  REQUIRE(picks.store(picked));
+
+  for (const auto [spec, pick] : std::views::zip(rows, picked))
+    CHECK(pick == spec.expected);
+}
+
+TEST_CASE("Device greedy picks match the host on every prompt",
+    "[LlmOpsTest][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+
+  // Every row of each prompt's dumped logits, picked on the device and on the
+  // host.
+  for (const auto prompt : iota(5)) {
+    DYNAMIC_SECTION("prompt_" << prompt) {
+      const auto logits_view = matrix_of(oracle.logits,
+          std::format("prompt_{}/logits", prompt), n_vocab);
+      const cuda_matrix<float> logits(logits_view);
+      cuda_buffer<token_id> picks(logits_view.row_extent());
+      REQUIRE(corvid::cuda::llm::pick_greedy(picks, logits));
+      std::vector<token_id> picked(logits_view.row_extent());
+      REQUIRE(picks.store(picked));
+
+      for (const auto [pick, logits_row] :
+          std::views::zip(picked, logits_view.rows()))
+        CHECK(pick == corvid::llm::pick_greedy(logits_row));
+    }
+  }
+}
+
+#pragma endregion
+#pragma region cross_entropy
+
+TEMPLATE_TEST_CASE("Device cross-entropy on hand-computed rows",
+    "[LlmOpsTest][cuda]", float, double) {
+  using T = TestType;
+  // Two rows of the same three logits, whose softmax is the probabilities
+  // below.
+  //
+  // The label of a row is the entry it should have predicted: the likeliest
+  // entry for the first row, the least likely for the second. Each loss is the
+  // negated logarithm of its label's probability, and each gradient is the
+  // probabilities, less 1 at the label, halved for the mean over the two rows.
+  const std::vector<T> logit_storage{T{2}, T{1}, T{0}, T{2}, T{1}, T{0}};
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 3};
+  const std::vector<token_id> label_storage{token_id{0}, token_id{2}};
+  constexpr std::array probabilities{0.66524096, 0.24472847, 0.09003057};
+
+  const cuda_matrix<T> logits(matrix_view<T>(logit_storage, extent));
+  const cuda_buffer<token_id> labels(label_storage);
+  cuda_matrix<T> gradient(extent);
+  cuda_buffer<T> losses(extent.row_count);
+  REQUIRE(corvid::cuda::llm::cross_entropy(gradient, losses, logits,
+      labels.as_span(), extent.row_count));
+
+  std::vector<T> gradient_storage(gradient.size());
+  const matrix_lens<T> gradient_lens(gradient_storage, extent);
+  REQUIRE(gradient.as_view().store(gradient_lens));
+  std::vector<T> loss_storage(losses.size());
+  REQUIRE(losses.store(loss_storage));
+  constexpr auto tolerance = 1e-6;
+  CHECK_THAT(loss_storage[0], WithinAbs(0.40760596, tolerance));
+  CHECK_THAT(loss_storage[1], WithinAbs(2.40760596, tolerance));
+  for (const auto [label, gradient_row] :
+      std::views::zip(label_storage, gradient_lens.rows()))
+    for (const auto [col, probability] : std::views::enumerate(probabilities))
+    {
+      const auto entry = static_cast<size_t>(col);
+      const auto target = (entry == *label) ? 1.0 : 0.0;
+      CHECK_THAT(gradient_row[col_ndx{entry}],
+          WithinAbs((probability - target) / 2.0, tolerance));
+    }
+
+  // In place, over the logits, gives the same values.
+  cuda_matrix<T> same(matrix_view<T>(logit_storage, extent));
+  REQUIRE(corvid::cuda::llm::cross_entropy(same, losses, same,
+      labels.as_span(), extent.row_count));
+  std::vector<T> same_storage(same.size());
+  REQUIRE(same.as_view().store(matrix_lens<T>(same_storage, extent)));
+  CHECK(same_storage == gradient_storage);
+  std::vector<T> same_losses(losses.size());
+  REQUIRE(losses.store(same_losses));
+  CHECK(same_losses == loss_storage);
+}
+
+TEST_CASE("Device cross-entropy's gradient predicts the change in the loss",
+    "[LlmOpsTest][cuda]") {
+  // A gradient is a prediction. Nudge one logit by a small step, and the loss
+  // moves by that logit's gradient times the step. This makes the nudge and
+  // checks the prediction.
+  //
+  // The label of a row is the ID it should have predicted, whose probability
+  // sets its loss. The logits have a column per vocabulary entry, so the ID
+  // is a column of them.
+  constexpr auto cols = 600UZ;
+  constexpr token_id label{123};
+  constexpr col_ndx label_col{*label};
+  constexpr auto step = 1e-4;
+
+  // Row 0 is the row as it is. Each pair of rows after it is a copy with one
+  // logit nudged, up in the first and down in the second. The pairs of rows
+  // contain nudged versions of the label's column, another column, and the
+  // last column.
+  constexpr std::array nudged{label_col, col_ndx{7}, col_ndx{cols - 1}};
+  const auto up_row_of = [](size_t nudge) { return row_ndx{1 + (2 * nudge)}; };
+  const double_matrix_lens::extent_t extent{
+      .row_count = 1 + (2 * nudged.size()),
+      .col_count = cols};
+
+  // The logits are a wave across the columns, the same in every row, in
+  // `double` so that the difference of two close losses keeps its digits. The
+  // row is wider than a block of threads, so every thread walks several
+  // columns.
+  std::vector<double> logit_storage(extent.size());
+  const double_matrix_lens logits_lens(logit_storage, extent);
+  for (const auto logits_row : logits_lens.rows())
+    for (auto [col, logit] :
+        std::views::zip(logits_row.range_interval(), logits_row))
+      logit = 3.0 * std::sin(0.37 * static_cast<double>(*col));
+
+  // Apply nudge to the specified columns in the up and down rows.
+  for (const auto [nudge, col] : std::views::enumerate(nudged)) {
+    const auto up_row = up_row_of(nudge);
+    logits_lens[up_row, col] += step;
+    logits_lens[up_row + 1, col] -= step;
+  }
+
+  // Calculate losses and gradients. Every row has the same label. A label
+  // count of 1 leaves each row's gradient that of its own loss, undivided.
+  const cuda_matrix<double> logits(logits_lens);
+  const cuda_buffer<token_id> labels(
+      std::vector<token_id>(extent.row_count, label));
+  cuda_matrix<double> gradient(extent);
+  cuda_buffer<double> losses(extent.row_count);
+  REQUIRE(corvid::cuda::llm::cross_entropy(gradient, losses, logits,
+      labels.as_span(), 1));
+
+  // Copy the gradient and loss data from the device to the host.
+  std::vector<double> gradient_storage(gradient.size());
+  const double_matrix_lens gradient_lens(gradient_storage, extent);
+  REQUIRE(gradient.as_view().store(gradient_lens));
+  std::vector<double> loss_storage(losses.size());
+  REQUIRE(losses.store(loss_storage));
+
+  // The loss of the first row as it is, calculated against the formula on the
+  // host.
+  const auto base_row = logits_lens[row_ndx{0}];
+  const auto peak = std::ranges::max(base_row);
+  auto total = 0.0;
+  for (const auto logit : base_row) total += std::exp(logit - peak);
+  CHECK_THAT(loss_storage[0],
+      WithinAbs(std::log(total) + peak - base_row[label_col], 1e-12));
+
+  // The prediction. The up row's loss less the down row's, over the distance
+  // between them, is the slope of the loss at that logit, and the gradient
+  // of the row as it is must be that slope.
+  for (const auto [nudge, col] : std::views::enumerate(nudged)) {
+    INFO("logit " << *col);
+    const auto up_row = up_row_of(nudge);
+    const auto slope =
+        (loss_storage[*up_row] - loss_storage[*(up_row + 1)]) / (2 * step);
+    CHECK_THAT((gradient_lens[row_ndx{0}, col]), WithinAbs(slope, 1e-7));
+  }
+}
+
+#pragma endregion
+#pragma region adamw
+
+TEST_CASE("Device AdamW steps on hand-computed values", "[LlmOpsTest][cuda]") {
+  // Three parameters with the averages at zero, stepped twice against the same
+  // gradient. The corrections undo the zero start exactly, so the corrected
+  // averages are the gradient and its square on both steps, and each
+  // parameter moves by the learning rate against the sign of its gradient
+  // (nothing for a gradient of zero), less its decay.
+  using T = double;
+  const corvid::cuda::llm::adamw_options<T> options{.learning_rate = 0.1,
+      .beta_1 = 0.9,
+      .beta_2 = 0.999,
+      .eps = 1e-8,
+      .weight_decay = 0.01};
+  const std::vector<T> parameter_storage{1.0, -2.0, 0.5};
+  const std::vector<T> gradient_storage{0.3, -4.0, 0.0};
+  cuda_buffer<T> parameters(parameter_storage);
+  const cuda_buffer<T> gradient(gradient_storage);
+  cuda_buffer<T> mean(parameter_storage.size());
+  cuda_buffer<T> mean_square(parameter_storage.size());
+  REQUIRE(mean.zero());
+  REQUIRE(mean_square.zero());
+  std::vector<T> storage(parameter_storage.size());
+  constexpr auto tolerance = 1e-7;
+
+  // Step 1: 1 - 0.1 * (1 + 0.01 * 1), -2 - 0.1 * (-1 + 0.01 * -2), and
+  // 0.5 - 0.1 * (0 + 0.01 * 0.5).
+  REQUIRE(corvid::cuda::llm::adamw_step(parameters, gradient, mean,
+      mean_square, 1, options));
+  REQUIRE(parameters.store(storage));
+  CHECK_THAT(storage[0], WithinAbs(0.899, tolerance));
+  CHECK_THAT(storage[1], WithinAbs(-1.898, tolerance));
+  CHECK_THAT(storage[2], WithinAbs(0.4995, tolerance));
+
+  // Step 2, the same again from where step 1 left each parameter.
+  REQUIRE(corvid::cuda::llm::adamw_step(parameters, gradient, mean,
+      mean_square, 2, options));
+  REQUIRE(parameters.store(storage));
+  CHECK_THAT(storage[0], WithinAbs(0.798101, tolerance));
+  CHECK_THAT(storage[1], WithinAbs(-1.796102, tolerance));
+  CHECK_THAT(storage[2], WithinAbs(0.4990005, tolerance));
+
+  // The averages after two steps: 0.19 times the gradient, and 0.001999 times
+  // its square.
+  REQUIRE(mean.store(storage));
+  CHECK_THAT(storage[0], WithinAbs(0.057, tolerance));
+  CHECK_THAT(storage[1], WithinAbs(-0.76, tolerance));
+  CHECK_THAT(storage[2], WithinAbs(0.0, tolerance));
+  REQUIRE(mean_square.store(storage));
+  CHECK_THAT(storage[0], WithinAbs(0.00017991, tolerance));
+  CHECK_THAT(storage[1], WithinAbs(0.031984, tolerance));
+  CHECK_THAT(storage[2], WithinAbs(0.0, tolerance));
+}
+
+#pragma endregion
+
+} // namespace corvid_tests
+
+// NOLINTEND(readability-function-cognitive-complexity)

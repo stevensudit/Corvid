@@ -26,9 +26,17 @@
 
 namespace corvid::cuda {
 
-// Device-side warp helpers: the calling thread's lane and warp, the active
-// mask, and typed wrappers over the `_sync` shuffle and sync intrinsics that
-// default the mask to the active lanes.
+// Device-side warp helpers.
+//
+// Contains the calling thread's lane and warp, the active mask, and typed
+// wrappers over the `_sync` shuffle and sync intrinsics that default the mask
+// to the active lanes.
+//
+// The shuffles are the intrinsics' own overloads, so `T` is one of the scalar
+// types they take. For any other `T`, use libcu++'s
+// `cuda::device::warp_shuffle_idx`, `_up`, `_down`, and `_xor`, which move a
+// trivially copyable type by 32-bit words. Note that there is no penalty to
+// always using libcu++'s shuffles.
 class cuda_warp {
 public:
   // Lane ID within the warp (0..31).
@@ -36,6 +44,13 @@ public:
 
   // Warp ID within the block.
   __device__ static unsigned warp_id() { return threadIdx.x / warpSize; }
+
+  // The number of warps in the block, which must be one-dimensional and a
+  // multiple of `warpSize`.
+  __device__ static unsigned warps_in_block() { return blockDim.x / warpSize; }
+
+  // The most warps a block can hold, since a block is at most 1024 threads.
+  static constexpr auto max_warps_per_block = 32U;
 
   // Mask of active threads in the warp.
   __device__ static uint32_t active_mask() { return __activemask(); }

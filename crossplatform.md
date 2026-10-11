@@ -1,34 +1,35 @@
 # Cross-Platform Build
 
-Status: Windows port complete, including CUDA, device tooling, and lint, and the
-Windows-only CUDA cell (CUDA plus Direct3D 11 interop) is now built. The portable
-suite builds and passes on Linux (clang), native Windows (clang++, the default),
-and native Windows (MSVC cl): 51 of 51 portable tests per Windows compiler. The
-filesys OS-handle layer (`os_enums` / `os_error` / `os_file` / `os_event`) is
-cross-platform via per-platform implementation headers, which makes
-`owner_thread_dispatcher` portable (see section 5). The
-cross-platform CUDA bucket builds and runs natively on Windows under clang++ (4 of
-4 registered `.cu` pass on the GPU, plus the cuBLAS tutorials); device correctness
-runs via `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via
-Nsight Visual Studio Edition, and `./cleanbuild.ps1 tidy` is clean. The full Linux
-suite (portable plus linux buckets, plus CUDA under nvcc) stays green. Two
-Windows-only buckets now hold the new GPU work: `tests/windows/` (plain-C++ tests
-for the SDL3 and D3D11 wrappers) and `tests/cuda/windows/` (the CUDA-D3D11 interop
-test plus the fractal, raymarch, and voxel viewers). These grow a new graphics
-substrate under `corvid/sdl/` and `corvid/cuda/windows/`, plus a Dear ImGui live
-tuning panel; see section 11. This document records how cross-platform capability
-is structured and maintained; update it when the structure changes.
+Status: Windows port complete, including CUDA, device tooling, and lint, and
+the Windows-only CUDA cell (CUDA plus Direct3D 11 interop) is now built. The
+portable suite builds and passes on Linux (clang), native Windows (clang++, the
+default), and native Windows (MSVC cl): 51 of 51 portable tests per Windows
+compiler. The filesys OS-handle layer (`os_enums` / `os_error` / `os_file` /
+`os_event`) is cross-platform via per-platform implementation headers, which
+makes `owner_thread_dispatcher` portable (see section 5). The cross-platform
+CUDA bucket builds and runs natively on Windows under clang++ (4 of 4
+registered `.cu` pass on the GPU, plus the cuBLAS tutorials); device
+correctness runs via `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and
+device debugging via Nsight Visual Studio Edition, and `./cleanbuild.ps1 tidy`
+is clean. The full Linux suite (portable plus linux buckets, plus CUDA under
+clang++) stays green. Two Windows-only buckets now hold the new GPU work:
+`tests/windows/` (plain-C++ tests for the SDL3 and D3D11 wrappers) and
+`tests/cuda/windows/` (the CUDA-D3D11 interop test plus the fractal, raymarch,
+and voxel viewers). These grow a new graphics substrate under `corvid/sdl/` and
+`corvid/cuda/windows/`, plus a Dear ImGui live tuning panel; see section 11.
+This document records how cross-platform capability is structured and
+maintained; update it when the structure changes.
 
 ## 1. Goal and shape
 
-Corvid keeps every Linux capability it has. The Windows port does not reduce the
-library to a lowest-common-denominator subset. Instead the tree is partitioned
-into buckets and the build system selects what each platform compiles. The
-concrete motivation is CUDA development on native Windows (WSL CUDA is painful),
-so the portable library core and the CUDA tests must build and debug under
-native Windows. The Linux-only networking stack (epoll, io_uring, QUIC, HTTP/3)
-is never expected to compile on Windows; it is excluded from the Windows build,
-not ported. No IOCP port is planned.
+Corvid keeps every Linux capability it has. The Windows port does not reduce
+the library to a lowest-common-denominator subset. Instead the tree is
+partitioned into buckets and the build system selects what each platform
+compiles. The concrete motivation is CUDA development on native Windows (WSL
+CUDA is painful), so the portable library core and the CUDA tests must build
+and debug under native Windows. The Linux-only networking stack (epoll,
+io_uring, QUIC, HTTP/3) is never expected to compile on Windows; it is excluded
+from the Windows build, not ported. No IOCP port is planned.
 
 There is no macOS support, and none is planned, because the maintainer has no
 machine capable of running macOS and Apple does not permit running it in a VM
@@ -59,13 +60,13 @@ stack. CUDA is its own bucket, not a sub-case of linux, because building the
 `.cu` tests on Windows is the whole point.
 
 These are the populated cells of a two-axis space: platform (portable /
-Linux-only / Windows-only) crossed with whether a target needs the CUDA toolkit.
-The cross-platform `cuda` bucket stays platform-neutral (it builds on Linux and
-Windows alike); the two Windows-only cells are the newest. `windows` holds
-plain-C++ tests (the SDL3 and D3D11 wrappers) that need no CUDA toolchain, and
-`cuda/windows` holds CUDA targets whose Windows graphics dependencies (Direct3D
-interop via `cudaGraphicsD3D11*`, the Windows SDK's d3d11/dxgi) do not exist on
-Linux. Section 11 covers them.
+Linux-only / Windows-only) crossed with whether a target needs the CUDA
+toolkit. The cross-platform `cuda` bucket stays platform-neutral (it builds on
+Linux and Windows alike); the two Windows-only cells are the newest. `windows`
+holds plain-C++ tests (the SDL3 and D3D11 wrappers) that need no CUDA
+toolchain, and `cuda/windows` holds CUDA targets whose Windows graphics
+dependencies (Direct3D interop via `cudaGraphicsD3D11*`, the Windows SDK's
+d3d11/dxgi) do not exist on Linux. Section 11 covers them.
 
 The `notest_` filename prefix means "build the executable but do not register a
 CTest" (servers, demos, tutorials); it is orthogonal to bucket. The io_uring
@@ -74,36 +75,84 @@ prefix) to serialize their memlock pressure.
 
 ### Include style
 
-Test sources include library headers root-relative (`corvid/...`), with the repo
-root on the include path. A test's includes therefore do not depend on how deep
-the file sits, so moving a test between buckets is free. The shared
+Test sources include library headers root-relative (`corvid/...`), with the
+repo root on the include path. A test's includes therefore do not depend on how
+deep the file sits, so moving a test between buckets is free. The shared
 `tests/catch2_main.h` is included by bare name.
 
 ## 3. Toolchains
 
-| Platform | Portable suite          | CUDA bucket    |
-|----------|-------------------------|----------------|
-| Linux    | clang + libc++          | nvcc + g++-15  |
-| Windows  | clang++ (default), cl   | clang++        |
+| Platform | Portable suite          | CUDA bucket         |
+|----------|-------------------------|---------------------|
+| Linux    | clang + libc++          | clang++ + libstdc++ |
+| Windows  | clang++ (default), cl   | clang++             |
 
-On Windows the portable suite builds with clang++ by default: the same GNU-style
-LLVM driver used on Linux, but targeting the MSVC ABI against the MSVC STL (no
-libc++). It keeps clangd's flags aligned and carries clang's sanitizers. MSVC cl
-is supported as a second compiler, mirroring the clang/gcc choice on Linux; cl
-is genuinely different from clang and catches real conformance divergences (see
-section 6).
+On Windows the portable suite builds with clang++ by default: the same
+GNU-style LLVM driver used on Linux, but targeting the MSVC ABI against the
+MSVC STL (no libc++). It keeps clangd's flags aligned and carries clang's
+sanitizers. MSVC cl is supported as a second compiler, mirroring the clang/gcc
+choice on Linux; cl is genuinely different from clang and catches real
+conformance divergences (see section 6).
 
-The CUDA bucket on Windows also builds with clang++ (clang's CUDA frontend),
-*not* nvcc. This is forced, not a preference: nvcc 13.3's MSVC device frontend
-(`cudafe++`/`cicc`) has no C++23 dialect. Its highest `--ms_c++NN` is
-`--ms_c++20`; asked for `-std=c++23` with an MSVC host it prints "not supported
-with the configured host compiler" and silently falls back to `--ms_c++14`
-(confirmed via `nvcc --dryrun`). Corvid is a C++23 library (it uses
-`std::is_scoped_enum_v`, `std::forward_like`, `std::range_format`, deducing
-this), so the `.cu` tests cannot compile under nvcc on Windows. clang's unified
-C++23 frontend compiles host and device together and has no such gap. This is a
-host-specific nvcc limitation: on Linux, nvcc + g++-15 builds the same `.cu` at
-C++23 fine (the EDG GNU dialect does support C++23), so Linux keeps nvcc.
+The CUDA bucket builds with clang++ (clang's CUDA frontend) on both platforms,
+*not* nvcc. This is forced, not a preference. On Windows, nvcc 13.3's MSVC
+device frontend (`cudafe++`/`cicc`) has no C++23 dialect. Its highest
+`--ms_c++NN` is `--ms_c++20`; asked for `-std=c++23` with an MSVC host it
+prints "not supported with the configured host compiler" and silently falls
+back to `--ms_c++14` (confirmed via `nvcc --dryrun`). Corvid is a C++23 library
+(it uses `std::is_scoped_enum_v`, `std::forward_like`, `std::range_format`,
+deducing this), so the `.cu` tests cannot compile under nvcc on Windows. On
+Linux, nvcc + g++-15 accepts `-std=c++23` (the EDG GNU dialect does support
+it), and that pairing was the Linux CUDA leg until 2026-09-21, when it turned
+out that nvcc's frontend silently drops the second argument of a C++23
+multidimensional `operator[]` in any dependent context (a function template, a
+generic lambda, a host-device template), so `m[from, extent]` came out as
+`m[from]`: an element where a view was meant. Device code and plain functions
+are unaffected. clang's unified C++23 frontend compiles host and device
+together and has neither gap, and the switch also lifts the g++-15 pin that
+nvcc's host-compiler check imposed. The nvcc + g++-15 pairing survives as an
+opt-in bug-report leg, `./cleanbuild.sh nvcc`, known not to build: besides the
+subscript drop it needs `--expt-relaxed-constexpr` to call `constexpr` host
+functions from device code, and under that flag it hoists a defaulted
+`basic_delim` argument into device storage and fails on the host variable it
+points at. The corvid-free repro is in section 3's "nvcc subscript repro"
+below.
+
+Two constraints of clang-CUDA on Linux. The toolkit's headers refuse libc++ on
+x86 Linux (`host_defines.h`: "libc++ is not supported on x86 system"), so the
+`.cu` bucket links libstdc++ and its own libstdc++ Catch2 (an ExternalProject
+under `tests/.local/`, the same tag as the `.cpp` suite's FetchContent build)
+even when the `.cpp` suite is libc++; the standard library, not the compiler,
+is what still differs between the two platforms' CUDA legs (MSVC STL on
+Windows). And identifying clang as a CUDA compiler needs CMake 4 (4.4
+verified): Ubuntu 24.04's CMake 3.28 probes clang with `sm_52`, `sm_30`,
+`sm_20`, none of which the 13.3 `ptxas` accepts, so the configure fails with
+"CUDA compiler identification is unknown"; CMake 4 tries `sm_75` first for a
+13.x toolkit. The Dockerfile installs the `cmake` wheel from PyPI for that
+reason (the Kitware apt repository is outside the container's allowlist).
+
+#### nvcc subscript repro
+
+```cpp
+struct block { int rows; };
+struct grid {
+  int operator[](int r) const { return r; }                       // element
+  block operator[](int r, int rows) const { return block{rows}; } // C++23
+};
+template<typename M> auto f(const M& m) {
+  auto s = m[1, 3];
+  static_assert(std::same_as<decltype(s), block>, "dropped");  // fires
+  return s;
+}
+```
+
+`nvcc -std=c++23 -ccbin g++-15 -c repro.cu` fails the `static_assert`; the same
+file compiles under `g++-15 -std=c++23` and under `clang++ -std=c++23 -xcuda`.
+The host-side `.cudafe1.cpp` shows the rewritten call as `m[1]`. Spelling the
+call `m.operator[](1, 3)` or as a named method sidesteps it. Filed with NVIDIA
+on 2026-09-21 as bug 6818043 (the developer bug tracker; the page needs a
+Developer Program login, so there is no public link). Retire the nvcc leg's
+"known broken" note, or the leg itself, when a toolkit ships the fix.
 
 Two consequences of the clang++/CUDA choice, both enforced by `cleanbuild.ps1`:
 
@@ -115,22 +164,26 @@ Two consequences of the clang++/CUDA choice, both enforced by `cleanbuild.ps1`:
   why clang-cl was retired in favor of clang++.
 - CUDA rides only with the default clang++ build, never with cl: CMake forbids
   mixing a cl (MSVC-frontend) host with a clang++ (GNU-frontend) CUDA compiler
-  ("mixed frontend variants ... not supported"). `./cleanbuild.ps1 cl` therefore
-  builds the portable suite only; CUDA development happens under the default
-  clang++.
+  ("mixed frontend variants ... not supported"). `./cleanbuild.ps1 cl`
+  therefore builds the portable suite only; CUDA development happens under the
+  default clang++.
 
-clang++ defaults to the static (`/MT`) CRT; the Windows build forces the dynamic
-(`/MD`) one with `-fms-runtime-lib=dll` on both the `.cpp` and `.cu` flags, so
-the suite, the FetchContent Catch2, and the CUDA objects share one CRT and ASAN
-keeps its dynamic runtime. `CMAKE_CUDA_ARCHITECTURES` is passed explicitly
-(`cleanbuild.ps1` resolves the GPU's compute capability from `nvidia-smi`, e.g.
-8.9 -> sm_89): clang-CUDA's `native` arch detection does not work on Windows and
-silently produces a binary whose kernels never run.
+clang++ defaults to the static (`/MT`) CRT; the Windows build forces the
+dynamic (`/MD`) one with `-fms-runtime-lib=dll` on both the `.cpp` and `.cu`
+flags, so the suite, the FetchContent Catch2, and the CUDA objects share one
+CRT and ASAN keeps its dynamic runtime. `CMAKE_CUDA_ARCHITECTURES` is passed
+explicitly (`cleanbuild.ps1` resolves the GPU's compute capability from
+`nvidia-smi`, e.g. 8.9 -> sm_89): clang-CUDA's `native` arch detection does not
+work on Windows and silently produces a binary whose kernels never run.
 
 Versions used during bring-up: clang++ and clang-format from the LLVM Windows
-installer, kept at the same major as the Linux Dockerfile pins; MSVC STL 14.51
-and Windows SDK via VS 2026 (MSVC `_MSC_VER` 1951); CMake 4.3, Ninja, nvcc 13.3
-(toolkit headers/libs and `ptxas`; the compiler driver is clang++).
+installer (23.1.1), kept at the same major as the Linux Dockerfile pins, which
+also gates the image build on clang-format 23.1.1 or later so that both
+formatters agree; MSVC STL 14.51 and Windows SDK via VS 2026 (MSVC `_MSC_VER`
+1951); CMake 4.3, Ninja, nvcc 13.3 (toolkit headers/libs and `ptxas`; the
+compiler driver is clang++). Linux: clang 23 from the LLVM apt repository,
+CMake 4.4 from the PyPI wheel, the same 13.3 toolkit from the nvidia/cuda base
+image.
 
 ## 4. Building
 
@@ -141,8 +194,9 @@ build-and-test skill.
 The `.cpp` suite builds as C++26 where the toolchain allows (clang with
 libc++, gcc, and both Windows compilers), while the code stays C++23: C++26
 features are permitted only behind their feature-test gates. One leg stays
-at C++23: the `.cu` bucket, because `c++23` is the top of nvcc 13.3's `--std`
-list.
+at C++23: the `.cu` bucket, so that the toolkit's headers are used the way
+they are validated and the opt-in nvcc leg, whose `--std` list tops out at
+`c++23`, keeps a chance of building.
 
 The gcc leg also builds with `-freflection` (gcc 16 or newer), which opens
 the C++26 reflection layer of the proxy system,
@@ -209,22 +263,34 @@ configure and full recompile):
   `.cu` needs the default clang++ in a plain mode.
 - `./cleanbuild.ps1 cl`: portable suite via MSVC cl (no CUDA; see section 3).
 - `./cleanbuild.ps1 asan`: ASAN (which carries UBSAN), clang++ only.
-- `./cleanbuild.ps1 tidy`: run clang-tidy (`USE_CLANG_TIDY=ON`) during the build,
-  then a grouped warning summary, mirroring the Linux tidy run. clang++ only
-  (clang-tidy is the clang analyzer; cl has no analog). It keeps asserts live so
-  assert facts reach clang-analyzer: the build type stays Release (an empty one
-  makes the GNU-clang platform pull the debug CRT, which then will not link the
-  /MD Catch2), but the default `-DNDEBUG` is dropped via a `CMAKE_CXX_FLAGS_RELEASE`
-  override. LLVM is not on PATH, so the clang-tidy path is passed explicitly.
+- `./cleanbuild.ps1 tidy`: run clang-tidy (`USE_CLANG_TIDY=ON`) during the
+  build, then a grouped warning summary, mirroring the Linux tidy run. clang++
+  only (clang-tidy is the clang analyzer; cl has no analog). It keeps asserts
+  live so assert facts reach clang-analyzer: the build type stays Release (an
+  empty one makes the GNU-clang platform pull the debug CRT, which then will
+  not link the /MD Catch2), but the default `-DNDEBUG` is dropped via a
+  `CMAKE_CXX_FLAGS_RELEASE` override. LLVM is not on PATH, so the clang-tidy
+  path is passed explicitly. Both scripts build tidy in its own tree,
+  `tests/build-tidy`, where every object was compiled under clang-tidy, so the
+  build is incremental: ninja rebuilds and clang-tidy re-analyzes exactly the
+  translation units whose sources or headers changed, and the plain tree is
+  never disturbed. CMake's clang-tidy launcher covers only C, C++, and
+  Objective-C, so the build analyzes no `.cu` file; both scripts follow the
+  build with their own pass over every `.cu` in the compile database, one
+  clang-tidy process per file in parallel, each with `--cuda-host-only`.
+  Without that flag clang-tidy analyzes the driver's first job, the device
+  compilation, where the standard library under `__CUDA_ARCH__` reports
+  host-only statics as dynamically initialized; the host compilation still
+  parses every kernel and device function.
 
-The script enters a VS Developer shell for INCLUDE/LIB (skipped if already inside
-one), configures Ninja with the chosen compiler, builds with `-k 0`, and runs
-ctest. CUDA auto-enables when `nvcc` is on PATH and the mode is the default
-clang++ plain one: it passes `CORVID_ENABLE_CUDA=ON`, `CMAKE_CUDA_COMPILER`
-pointing at `clang++`, and an explicit `CMAKE_CUDA_ARCHITECTURES` from
-`nvidia-smi`. When it does reconfigure, it uses `cmake --fresh` rather than
-wiping `tests/build`, because clangd holds an open handle on
-`compile_commands.json` there.
+The script enters a VS Developer shell for INCLUDE/LIB (skipped if already
+inside one), configures Ninja with the chosen compiler, builds with `-k 0`, and
+runs ctest. CUDA auto-enables when `nvcc` is on PATH and the mode is the
+default clang++ plain one: it passes `CORVID_ENABLE_CUDA=ON`,
+`CMAKE_CUDA_COMPILER` pointing at `clang++`, and an explicit
+`CMAKE_CUDA_ARCHITECTURES` from `nvidia-smi`. When it does reconfigure, it uses
+`cmake --fresh` rather than wiping `tests/build`, because clangd holds an open
+handle on `compile_commands.json` there.
 
 ### Driver parity
 
@@ -244,7 +310,7 @@ layering check was until it was ported.
 | single test by name    | yes              | yes     |                              |
 | `clean`                | yes              | yes     |                              |
 | `reconfigure`          | yes              | yes     |                              |
-| `tidy` plus summary    | yes              | yes     | Windows adds a `.cu` pass    |
+| `tidy` plus summary    | yes              | yes     | own tree, plus a `.cu` pass  |
 | `asan` (carries UBSAN) | yes              | yes     |                              |
 | `ubsan` alone          | yes              | no      | static-CRT runtime vs `/MD`  |
 | `tsan`, `msan`         | yes              | no      | no MSVC analog               |
@@ -253,25 +319,34 @@ layering check was until it was ported.
 | `all` config sweep     | yes              | no      | comprehensive.cmake driver   |
 | second compiler        | `gcc`            | `cl`    | different roles, section 3   |
 | standard library       | libc++, libstdc++| no      | MSVC STL only                |
-| CUDA bucket            | nvcc plus g++-15 | clang++ | section 3                    |
+| CUDA bucket            | clang++          | clang++ | section 3                    |
+| `nvcc` bug-report leg  | opt-in           | no      | section 3                    |
 | `cudacheck`            | no               | yes     | not ported yet               |
 
-The Linux-only analysis modes (libc++/libstdc++ choice, msan/tsan, analyze-build
-scan, llvm-cov coverage, compiler-rt/lld swaps) have no MSVC analog and are
-absent by design. `cudacheck` is the one row that is asymmetric only because
-nobody has ported it: `compute-sanitizer` ships with the Linux toolkit too.
+The Linux-only analysis modes (libc++/libstdc++ choice, msan/tsan,
+analyze-build scan, llvm-cov coverage, compiler-rt/lld swaps) have no MSVC
+analog and are absent by design. `cudacheck` is the one row that is asymmetric
+only because nobody has ported it: `compute-sanitizer` ships with the Linux
+toolkit too.
 
 Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
 
-- clang++: `-Wall -Wextra -Werror -fms-runtime-lib=dll`, plus the plain
-  `-std=c++26` CMake emits from `CMAKE_CXX_STANDARD=26` (which clangd parses
-  correctly, unlike the clang-cl `/std` form the retired path had to work
-  around). `-fms-runtime-lib=dll` selects the `/MD` CRT (see section 3).
-- cl: `/std:c++latest` (cl has no `/std:c++26`), then `/EHsc /permissive-
-  /Zc:preprocessor /W4 /WX /wd4244 /wd4245 /wd4267 /wd4305 /wd4310
-  /wd4805`. `/permissive-` turns on conformant two-phase name lookup;
+- clang++: `-march=native -Wall -Wextra -Werror -fms-runtime-lib=dll`, plus
+  the plain `-std=c++26` CMake emits from `CMAKE_CXX_STANDARD=26` (which
+  clangd parses correctly, unlike the clang-cl `/std` form the retired path
+  had to work around). `-march=native` matches the Linux legs, so the same
+  loops vectorize the same way on both; without it the Windows build was
+  SSE2 only. `-fms-runtime-lib=dll` selects the `/MD` CRT (see section 3).
+- cl: `/std:c++latest` (cl has no `/std:c++26`), then `/arch:AVX2 /EHsc
+  /permissive- /Zc:preprocessor /Zc:u8EscapeEncoding /W4 /WX /wd4244
+  /wd4245 /wd4267 /wd4305 /wd4310 /wd4805`. cl has no `-march=native`, so
+  `/arch:AVX2` (which implies FMA) is a fixed floor in place of the SSE2
+  default. `/permissive-` turns on conformant two-phase name lookup;
   `/Zc:preprocessor` selects the conformant preprocessor, without which cl
-  corrupts raw string literals passed through Catch2 macros. The `/wd` codes
+  corrupts raw string literals passed through Catch2 macros;
+  `/Zc:u8EscapeEncoding` makes a `\x` escape in a `u8` literal one code
+  unit, without which cl re-encodes `\xC2` as the two UTF-8 bytes of U+00C2
+  and the byte-by-byte UTF-8 tests fail (warning C5321). The `/wd` codes
   silence MSVC-only warnings that fire on correct, intentional code.
 
 The CUDA flags live in the `CORVID_ENABLE_CUDA` block. On Windows the warning
@@ -281,11 +356,37 @@ that fires on the deliberate partial designated-init idiom for C DESC structs
 (the positional `-Wmissing-field-initializers` stays on, like the cl `/wd`
 codes). Plus `-std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the
 last silences the note that CUDA 13.3 is newer than clang's last fully
-supported toolkit) and `-gline-tables-only` (section 8). On Linux the nvcc form
-is `-std=c++23 -O3 -lineinfo`; raising its host warnings to `-Wextra` (via nvcc
-`-Xcompiler`) is a separate follow-up. The `.cu` bucket stays at C++23 on both
-platforms while the `.cpp` suite builds as C++26, because `c++23` is the top
-of nvcc 13.3's `--std` list.
+supported toolkit) and `-gline-tables-only` (section 8). Linux takes the same
+clang set minus `-fms-runtime-lib=dll`, plus an explicit `-O3` because the
+Linux configure carries no build type. The opt-in nvcc leg keeps its old form,
+`-std=c++23 -O3 -lineinfo`. The `.cu` bucket stays at C++23 on both platforms
+while the `.cpp` suite builds as C++26 (section 4).
+
+### Deferred: `-fno-math-errno`
+
+Not adopted as of 2026-09-18; the analysis is kept here so the decision can
+be made later without redoing it.
+
+Without the flag, clang on every leg (the MSVC target and glibc alike)
+keeps the C rule that `sqrt` of a negative input sets `errno` to `EDOM`. The
+generated code for a `std::sqrt` call is then the inline `sqrtss`
+instruction, a NaN test on the result, and a fallback `call sqrtf` on the
+never-taken negative path, so the cost is a compare and a branch per call
+and a function that cannot be treated as pure. Measured on
+"corvid/llm/llm_ops.h" at `-O3`: `layer_norm` carries one such
+fallback per row; with `-fno-math-errno` the call disappears and the
+`sqrtss` sits in a straight line with the multiply that consumes it.
+
+The flag changes only whether the C math functions set `errno`. It is not
+fast-math: no reassociation, no reciprocal substitution, no change to
+rounding, so oracle gates that match torch to the ulp are unaffected.
+Nothing in Corvid reads `errno` after a math call; every `errno` use in the
+tree is in filesys and proto, reading a syscall's result, which the flag
+does not touch.
+
+If adopted, it goes on every clang and gcc leg for parity, the same reason
+`-march=native` is on the Windows clang leg. cl needs nothing: its `sqrt`
+is an intrinsic under `/O2` and it does not model `errno` for it.
 
 ## 5. Header portability conventions
 
@@ -296,26 +397,35 @@ adding code the portable bucket will compile, follow these:
 - POSIX reach is guarded, not assumed. Two "soft" headers do thread-label work
   behind a `#ifdef _WIN32` guard: `infra/log.h` (Linux uses
   `pthread_getname_np` + `syscall(SYS_gettid)`, Windows uses
-  `std::this_thread::get_id`) and `concurrency/jthread_stoppable_sleep.h` (Linux
-  uses `pthread_setname_np`, Windows is a no-op). `owner_thread_dispatcher` is
-  portable, built on the filesys `os_event`; `sim/sim_game.h` (epoll) stays in
-  the linux bucket.
+  `std::this_thread::get_id`) and `concurrency/jthread_stoppable_sleep.h`
+  (Linux uses `pthread_setname_np`, Windows is a no-op).
+  `owner_thread_dispatcher` is portable, built on the filesys `os_event`;
+  `sim/sim_game.h` (epoll) stays in the linux bucket.
 - The filesys OS-handle wrappers are the one place with per-platform files
   rather than guards. Each public entry header (`corvid/filesys/os_enums.h`,
   `os_error.h`, `os_file.h`, `os_event.h`) selects a `details/linux_*.h` or
   `details/windows_*.h` implementation, and the shared contract lives in a CRTP
-  base header (`os_*_base.h`) that both implementations include; see
-  "corvid/filesys/CLAUDE.md" for the structure. `epoll.h` and `net_socket.h`
-  remain Linux-only and say so with an `#ifdef _WIN32` `#error`.
+  base header (`details/os_*_base.h`) that both implementations include; see
+  "corvid/filesys/CLAUDE.md" for the structure. Single-platform headers carry
+  the platform as a filename prefix: `linux_epoll.h`, `linux_mmap.h`, and
+  `net_socket.h` remain Linux-only and say so with an `#ifdef _WIN32` `#error`;
+  `windows_mmap.h` is the Windows-only counterpart, guarded by `#ifndef
+  _WIN32`.
 - Empty-base and member elision: use `CORVID_NO_UNIQUE_ADDRESS` (from
   `corvid/meta/crossplatform.h`), not the raw `[[no_unique_address]]`. MSVC
-  silently ignores the standard attribute and needs `[[msvc::no_unique_address]]`;
-  the macro picks the right spelling. The raw attribute being ignored on MSVC is
-  a real layout bug, not cosmetic.
+  silently ignores the standard attribute and needs
+  `[[msvc::no_unique_address]]`; the macro picks the right spelling. The raw
+  attribute being ignored on MSVC is a real layout bug, not cosmetic.
 - Diagnostic pragmas: use the `PRAGMA_DIAG` / `PRAGMA_IGNORED` family from
   `crossplatform.h` to silence a known-safe warning at its single call site. Do
   not reach for a blanket `/D_CRT_SECURE_NO_WARNINGS`, which would hide future
   unsafe instances.
+- C++23 library additions are not uniformly implemented: the MSVC STL has
+  P2278R4 (`std::span::const_iterator`, `cbegin`, `crbegin`) and libc++ 23
+  does not, which a Windows-authored `enum_span` hit on the next Linux build.
+  `enum_span` derives its const iterators from a `std::span<const T>` instead.
+  Before using a C++23 library feature that only one platform's build has
+  exercised, check the other standard library's status page.
 
 ## 6. Windows conformance notes
 
@@ -327,20 +437,28 @@ is byte-for-byte unaffected:
 
 - Parse-context iterators are checked class types, not `const char*`. Build a
   `basic_string_view` from the iterator pair `{ctx.begin(), ctx.end()}`, not
-  from pointer plus size, and compare a `from_chars` result against `sv.data() +
-  sv.size()`, not `sv.end()`. Applied in `formatting.h`, `enum_formatter.h`,
+  from pointer plus size, and compare a `from_chars` result against `sv.data()
+  + sv.size()`, not `sv.end()`. Applied in `formatting.h`, `enum_formatter.h`,
   `enum_registry.h`.
 - Shifts in bit code use the value's own unsigned type, for example
-  `std::underlying_type_t<E>{1} << n`, not a plain `int` `1 << n`. The latter is
-  undefined once the count reaches the int width, and MSVC flags it (C4334).
+  `std::underlying_type_t<E>{1} << n`, not a plain `int` `1 << n`. The latter
+  is undefined once the count reaches the int width, and MSVC flags it (C4334).
+- `assert` in device code expands to MSVC's `_wassert`, which only nvcc's own
+  headers declare as host and device; clang's CUDA wrapper does that for
+  glibc's `__assert_fail` and nothing for MSVC. `corvid/meta/crossplatform.h`
+  ("Device assert") supplies the device `_wassert`, forwarding to the runtime's
+  `__assertfail`, so templates that assert (such as `interval`) compile in
+  kernels when asserts are live. It must be declared before those templates,
+  since a non-dependent call binds to the overloads seen at the template's
+  definition, which is why it sits in the earliest header.
 
 MSVC cl, the conformance-mode second compiler, needed a few more, each isolated
 with a minimal repro:
 
 - The sequence-enum `operator*` (underlying-value deref) is not found by cl's
-  two-phase lookup inside template bodies. A using-declaration
-  `using corvid::enums::sequence::ops::operator*;` in the consuming namespace
-  (see `corvid/ecs/entity_ids.h`) covers the ordinary cases. It does not reach a
+  two-phase lookup inside template bodies. A using-declaration `using
+  corvid::enums::sequence::ops::operator*;` in the consuming namespace (see
+  `corvid/ecs/entity_ids.h`) covers the ordinary cases. It does not reach a
   dependent enum non-type parameter used in a template-argument context, for
   example `tuple_element_t<*SID, ...>`; there, spell the underlying value as
   `std::to_underlying(SID)`.
@@ -387,15 +505,16 @@ so the run is clean on both:
 
 clang++ carries clang's sanitizers. `./cleanbuild.ps1 asan` builds with
 `-fsanitize=address,undefined` (ASAN carries UBSAN). Standalone UBSAN is not a
-separate Windows mode: LLVM ships only a static-CRT UBSAN runtime, which clashes
-with the `/MD` build, and ASAN's dynamic runtime resolves the UBSAN handlers, so
-the combined mode is the supported path. tsan and msan have no Windows support
-here. Because clang++ drives the link, the `-fsanitize=address,undefined` on the
-link line is honored and clang++ pulls in the dynamic asan runtime + thunk
-itself, so the `if(SANITIZER AND WIN32)` block now only fails-fast on unsupported
-configurations (cl, or a non-asan sanitizer); the retired clang-cl path had to
-add the `clang_rt` libs and `/DEBUG`/`/OPT:NOICF` by hand, because CMake linked
-clang-cl through lld-link directly, bypassing the driver.
+separate Windows mode: LLVM ships only a static-CRT UBSAN runtime, which
+clashes with the `/MD` build, and ASAN's dynamic runtime resolves the UBSAN
+handlers, so the combined mode is the supported path. tsan and msan have no
+Windows support here. Because clang++ drives the link, the
+`-fsanitize=address,undefined` on the link line is honored and clang++ pulls in
+the dynamic asan runtime + thunk itself, so the `if(SANITIZER AND WIN32)` block
+now only fails-fast on unsupported configurations (cl, or a non-asan
+sanitizer); the retired clang-cl path had to add the `clang_rt` libs and
+`/DEBUG`/`/OPT:NOICF` by hand, because CMake linked clang-cl through lld-link
+directly, bypassing the driver.
 
 One toolchain limitation is worth recording: any C++ rethrow of an in-flight
 exception crashes under ASAN on Windows (clang 22 and 23 with dynamic
@@ -406,12 +525,13 @@ out under ASAN-on-Windows (via `__has_feature(address_sanitizer)`).
 
 ASAN instruments host code; the device-side analog is `./cleanbuild.ps1
 cudacheck`. It builds the cuda bucket and runs each registered `.cu` test under
-NVIDIA `compute-sanitizer` across its four tools (memcheck, racecheck, synccheck,
-initcheck) with `--error-exitcode 1`. The CUDA build's `-gline-tables-only` (the
-clang analog of nvcc `-lineinfo`) maps a fault to its `.cu` source line. A test
-that launches no kernel and touches no device memory (host-only, or device
-functions exercised on the host) makes no instrumentable CUDA call;
-compute-sanitizer reports that and cudacheck records it as a skip, not a fault.
+NVIDIA `compute-sanitizer` across its four tools (memcheck, racecheck,
+synccheck, initcheck) with `--error-exitcode 1`. The CUDA build's
+`-gline-tables-only` (the clang analog of nvcc `-lineinfo`) maps a fault to its
+`.cu` source line. A test that launches no kernel and touches no device memory
+(host-only, or device functions exercised on the host) makes no instrumentable
+CUDA call; compute-sanitizer reports that and cudacheck records it as a skip,
+not a fault.
 
 ## 8. IDE, F5, and clangd
 
@@ -427,23 +547,24 @@ compute-sanitizer reports that and cudacheck records it as a skip, not a fault.
   truth for include paths and link libraries, so the IDE build and `cleanbuild`
   cannot diverge on dependencies (the scripts name no flags or `-l` libs of
   their own). The `IDE_DEBUG` knob (in `tests/CMakeLists.txt`) switches the
-  baked-in optimization to `-O0 -g` (a PDB on Windows, where the `/MD` CRT stays
-  put so the debug exe still links the Catch2 in this tree), keeps asserts live,
-  forces a `.exe` suffix so one path template serves both platforms, and routes
-  output to `debug_bin/`. The first build pays a one-time configure plus Catch2
-  build; later builds reuse the configured tree and relink just the named
-  target. A `.cu` builds the same way (clang++ on Windows, nvcc/g++-15 on Linux)
-  and also produces a PDB.
-- The `.cu` clangd block in `.clangd.win.in` puts clangd into `-xcuda` mode with
-  the toolkit path (substituted from nvcc at configure time), so `.cu`/`.cuh`
-  parse without flagging `__global__` or `<<<...>>>`.
-- `.vscode/tasks.json` and `launch.json` are OS-scoped: the build task picks the
-  platform script, and launch.json carries both a Linux (CodeLLDB) and a Windows
-  (cppvsdbg, since clang++ emits a PDB) debug config. The run task and both debug
-  configs point at the fixed `tests/build-debug/debug_bin/<stem>.exe` the scripts
-  produce (one cross-platform template, hence the forced `.exe` suffix). One
-  committed `.vscode` serves a native-Windows checkout and a Remote-WSL checkout
-  of the same repo.
+  baked-in optimization to `-O0 -g` (a PDB on Windows, where the `/MD` CRT
+  stays put so the debug exe still links the Catch2 in this tree), keeps
+  asserts live, forces a `.exe` suffix so one path template serves both
+  platforms, and routes output to `debug_bin/`. The first build pays a one-time
+  configure plus Catch2 build; later builds reuse the configured tree and
+  relink just the named target. A `.cu` builds the same way (clang++ on both
+  platforms) and on Windows also produces a PDB.
+- The `.cu` clangd block in `.clangd.win.in` puts clangd into `-xcuda` mode
+  with the toolkit path (substituted from nvcc at configure time), so
+  `.cu`/`.cuh` parse without flagging `__global__` or `<<<...>>>`.
+- `.vscode/tasks.json` and `launch.json` are OS-scoped: the build task picks
+  the platform script, and launch.json carries both a Linux (CodeLLDB) and a
+  Windows (cppvsdbg, since clang++ emits a PDB) debug config. The run task and
+  both debug configs point at the fixed
+  `tests/build-debug/debug_bin/<stem>.exe` the scripts produce (one
+  cross-platform template, hence the forced `.exe` suffix). One committed
+  `.vscode` serves a native-Windows checkout and a Remote-WSL checkout of the
+  same repo.
 - Device-side `.cu` debugging on Windows is NVIDIA Nsight Visual Studio Edition
   (full Visual Studio), not VSCode: Nsight VSCode Edition drives `cuda-gdb`,
   which is Linux/WSL-only. clang++ `-g -O0` emits the same NVIDIA device-debug
@@ -459,17 +580,17 @@ compute-sanitizer reports that and cudacheck records it as a skip, not a fault.
 - Partition by subdirectory bucket.
 - Root-relative `corvid/...` includes with the repo root on the include path.
 - Sequencing: portable Windows port first, CUDA on Windows second.
-- Keep the `notest_` prefix. (Retiring `iou_` for a `linux/io_uring/` subdir was
-  considered but deferred; the `RESOURCE_LOCK` still keys on the filename
+- Keep the `notest_` prefix. (Retiring `iou_` for a `linux/io_uring/` subdir
+  was considered but deferred; the `RESOURCE_LOCK` still keys on the filename
   prefix.)
 - clangd everywhere, no IntelliSense.
 - Toolchain: clang++ (default) and cl for the portable suite; clang++ for CUDA.
   clang-cl was the original default but was retired: nvcc 13.3 cannot build the
   C++23 `.cu` bucket with an MSVC host, so CUDA uses clang's CUDA frontend, and
-  CMake will not mix a clang-cl (MSVC-frontend) host with a clang++ (GNU-frontend)
-  CUDA compiler. Unifying the `.cpp` suite on clang++ too makes the platform
-  uniformly GNU-like (see section 3). cl stays as the genuinely-different MSVC
-  conformance second compiler.
+  CMake will not mix a clang-cl (MSVC-frontend) host with a clang++
+  (GNU-frontend) CUDA compiler. Unifying the `.cpp` suite on clang++ too makes
+  the platform uniformly GNU-like (see section 3). cl stays as the
+  genuinely-different MSVC conformance second compiler.
 - The three `proto.h`-umbrella parser tests: json_parser and utf8_checker move
   to portable with narrowed includes; http_header_block stays Linux.
 - Concurrency: all primitives are portable. `owner_thread_dispatcher` rides on
@@ -483,49 +604,50 @@ chosen by transitive-include analysis: a source reaching an epoll / io_uring /
 socket / QUIC header is linux, a `.cu` source is cuda, and the rest are
 portable. Five tests were narrowed from an umbrella include to a specific
 portable header so they could move to portable (json_parser, utf8_checker,
-notifiable, tombstone, timerfuse). The library-header bucketing is summarized in
-section 5; the per-test move list lives in the git history for the partition
+notifiable, tombstone, timerfuse). The library-header bucketing is summarized
+in section 5; the per-test move list lives in the git history for the partition
 commit.
 
 ## 11. Windows-only CUDA cell
 
-The newest bucket cell is Windows-only CUDA targets. These are `.cu` executables
-that depend on Windows-specific GPU-adjacent APIs (Direct3D interop via
-`cudaGraphicsD3D11*` plus the Windows SDK's d3d11/dxgi, or the NVIDIA Video Codec
-SDK's NVENC/NVDEC), so they cannot build on Linux. They do not fit the existing
-`cuda` bucket, which builds on both platforms and assumes no platform-specific
-dependencies. The D3D11-interop side is now built; NVENC/NVDEC remain future.
+The newest bucket cell is Windows-only CUDA targets. These are `.cu`
+executables that depend on Windows-specific GPU-adjacent APIs (Direct3D interop
+via `cudaGraphicsD3D11*` plus the Windows SDK's d3d11/dxgi, or the NVIDIA Video
+Codec SDK's NVENC/NVDEC), so they cannot build on Linux. They do not fit the
+existing `cuda` bucket, which builds on both platforms and assumes no
+platform-specific dependencies. The D3D11-interop side is now built;
+NVENC/NVDEC remain future.
 
 Shape of the cell (all of the open items below are resolved):
 
-- Sources live in a Windows-only CUDA sub-area, globbed only when `WIN32` and the
-  CUDA toolkit are both present, the way the linux bucket gates its Linux-only
-  `.cpp`. Leading candidate `tests/cuda/windows/`, keeping them under the CUDA
-  bucket (reusing the clang++ `.cu` toolchain and Catch2 wiring) with Windows as a
-  sub-condition; the alternative is a `tests/windows/` platform bucket symmetric
-  to `tests/linux/`.
-- The library headers for these features are genuinely Windows-only (they pull in
-  `<d3d11.h>` / `nvEncodeAPI.h`), so they belong in a Windows-only location (for
-  example `corvid/cuda/windows/`) rather than `#ifdef _WIN32` guards threaded
-  through otherwise-portable headers, following the precedent of the
+- Sources live in a Windows-only CUDA sub-area, globbed only when `WIN32` and
+  the CUDA toolkit are both present, the way the linux bucket gates its
+  Linux-only `.cpp`. Leading candidate `tests/cuda/windows/`, keeping them
+  under the CUDA bucket (reusing the clang++ `.cu` toolchain and Catch2 wiring)
+  with Windows as a sub-condition; the alternative is a `tests/windows/`
+  platform bucket symmetric to `tests/linux/`.
+- The library headers for these features are genuinely Windows-only (they pull
+  in `<d3d11.h>` / `nvEncodeAPI.h`), so they belong in a Windows-only location
+  (for example `corvid/cuda/windows/`) rather than `#ifdef _WIN32` guards
+  threaded through otherwise-portable headers, following the precedent of the
   genuinely-Linux `owner_thread_dispatcher` staying in the linux bucket.
 - Each target links the Windows libs it needs. Direct3D interop needs only the
-  Windows SDK (d3d11.lib, dxgi.lib), already present; NVENC/NVDEC needs the NVIDIA
-  Video Codec SDK, a separate download and so a new external dependency to wire up
-  (analogous to the Linux ngtcp2 / openssl prebuilds).
+  Windows SDK (d3d11.lib, dxgi.lib), already present; NVENC/NVDEC needs the
+  NVIDIA Video Codec SDK, a separate download and so a new external dependency
+  to wire up (analogous to the Linux ngtcp2 / openssl prebuilds).
 
 Decided (first target, 2026-06-18). The three open items are resolved: CUDA
 graphics targets live in `tests/cuda/windows/` (globbed only on `WIN32`, under
 the CUDA bucket), while Windows-only plain-C++ tests (such as the SDL wrapper
 tests) live in a separate `tests/windows/` bucket that needs no CUDA toolchain,
-so both of the section 11 candidate subdirs exist, split by whether CUDA is involved;
-the genuinely Windows-only library headers (D3D11, CUDA-D3D interop) live in
-`corvid/cuda/windows/`; and the first target needs only D3D interop (Windows
-SDK), not the Video Codec SDK. That first
-target is a CUDA-driven fractal viewer: a kernel writes a texture that Direct3D
-presents via `cudaGraphicsD3D11*` interop, so the frame never crosses PCIe.
-D3D11, not D3D12, because the present is a single full-screen texture and is
-never the bottleneck; D3D11's map/unmap gives zero-copy interop without D3D12's
+so both of the section 11 candidate subdirs exist, split by whether CUDA is
+involved; the genuinely Windows-only library headers (D3D11, CUDA-D3D interop)
+live in `corvid/cuda/windows/`; and the first target needs only D3D interop
+(Windows SDK), not the Video Codec SDK. That first target is a CUDA-driven
+fractal viewer: a kernel writes a texture that Direct3D presents via
+`cudaGraphicsD3D11*` interop, so the frame never crosses PCIe. D3D11, not
+D3D12, because the present is a single full-screen texture and is never the
+bottleneck; D3D11's map/unmap gives zero-copy interop without D3D12's
 external-memory and fence ceremony. The app owns its own `ID3D11Device` plus a
 flip-model swapchain (uncapped present); SDL3 supplies only the window, input,
 and event loop, with the `HWND` pulled from it.
@@ -535,18 +657,18 @@ SDL3 is a new external dependency, brought in as a prebuilt drop in
 `scripts/fetch_sdl3.ps1`), checked at configure time with a `FATAL_ERROR` hint
 like the Linux OpenSSL prebuild. Prebuilt rather than FetchContent-from-source
 because SDL exposes a C API: there is no C++ ABI to match against the stdlib
-(the reason Catch2 must be source-built), so an MSVC-built SDL links cleanly from
-clang++, and a C DLL's CRT is independent of the app's, so one `SDL3.dll` serves
-both the Release and debug build paths. The shared DLL is staged next to each
-windows-cell executable. The wrappers this viewer brings into existence are the
-reusable substrate for later, larger GPU work, and they split by portability:
-the SDL3 window/input/event wrappers live in `corvid/sdl/` (SDL is
+(the reason Catch2 must be source-built), so an MSVC-built SDL links cleanly
+from clang++, and a C DLL's CRT is independent of the app's, so one `SDL3.dll`
+serves both the Release and debug build paths. The shared DLL is staged next to
+each windows-cell executable. The wrappers this viewer brings into existence
+are the reusable substrate for later, larger GPU work, and they split by
+portability: the SDL3 window/input/event wrappers live in `corvid/sdl/` (SDL is
 cross-platform, a portable peer to `corvid/cuda/`, not part of the Windows-only
-cell), while the genuinely Windows-only D3D11 and CUDA-D3D interop wrappers live
-in `corvid/cuda/windows/`.
+cell), while the genuinely Windows-only D3D11 and CUDA-D3D interop wrappers
+live in `corvid/cuda/windows/`.
 
-The cell has since grown well past that first viewer. Two more `notest_` viewers
-followed the same interop pattern: an SDF raymarch viewer
+The cell has since grown well past that first viewer. Two more `notest_`
+viewers followed the same interop pattern: an SDF raymarch viewer
 (`tests/cuda/windows/notest_raymarch_viewer.cu`) and a CUDA voxel viewer
 (`notest_voxel_viewer.cu`) that ray-marches a voxel world (terrain, per-voxel
 materials, a filtered color grid, and a free-SDF avatar) per pixel on the GPU,
@@ -562,24 +684,24 @@ viewers are `notest_` GUI apps, not CTest targets.
 
 Dear ImGui is a second new external dependency, for the viewers' live tuning
 panel. Unlike SDL3 it ships no prebuilt binaries and no CMakeLists, so it is
-brought in by FetchContent (source only) and compiled into a small static library
-from the core plus its SDL3 and D3D11 backends (`corvid_require_imgui` in
-`tests/CMakeLists.txt`, gated like `corvid_require_sdl3` on a source actually
-pulling in an ImGui header). The vendored sources are not clean under the
-project's `-Wall -Wextra -Werror`, so the lib builds with `-w`; because `-w` does
-not reach clang-tidy, the global `CMAKE_CXX_CLANG_TIDY` is also cleared on that
-target so `./cleanbuild.ps1 tidy` stays clean. The overlay itself is wrapped
-RAII-style in `corvid/cuda/windows/imgui_overlay.h`.
+brought in by FetchContent (source only) and compiled into a small static
+library from the core plus its SDL3 and D3D11 backends (`corvid_require_imgui`
+in `tests/CMakeLists.txt`, gated like `corvid_require_sdl3` on a source
+actually pulling in an ImGui header). The vendored sources are not clean under
+the project's `-Wall -Wextra -Werror`, so the lib builds with `-w`; because
+`-w` does not reach clang-tidy, the global `CMAKE_CXX_CLANG_TIDY` is also
+cleared on that target so `./cleanbuild.ps1 tidy` stays clean. The overlay
+itself is wrapped RAII-style in `corvid/cuda/windows/imgui_overlay.h`.
 
 Resolved this round (detail in sections 7 and 8): device correctness via
-`./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via Nsight
-Visual Studio Edition, with the CUDA build's `-gline-tables-only` giving both
-source attribution; `./cleanbuild.ps1 tidy` brought clean (the MSVC-STL-only
-findings carry NOLINTs, section 6); and `cuda-gdb` ruled out (Windows has none;
-the project left WSL on purpose). One thing verified only structurally, not
-interactively: that Nsight VSE sets a live device breakpoint in a clang-built
-kernel. The debug info is provably present and in NVIDIA's format, but the GUI
-session itself was not driven from the build harness.
+`./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via
+Nsight Visual Studio Edition, with the CUDA build's `-gline-tables-only` giving
+both source attribution; `./cleanbuild.ps1 tidy` brought clean (the
+MSVC-STL-only findings carry NOLINTs, section 6); and `cuda-gdb` ruled out
+(Windows has none; the project left WSL on purpose). One thing verified only
+structurally, not interactively: that Nsight VSE sets a live device breakpoint
+in a clang-built kernel. The debug info is provably present and in NVIDIA's
+format, but the GUI session itself was not driven from the build harness.
 
 Implemented: window resize, multi-monitor, and device-lost recovery
 (2026-06-20). Resize is a cross-layer rebuild, not a swapchain-local change.
@@ -630,16 +752,16 @@ Device-lost recovery shares this teardown-and-rebuild machinery. `Present` and
 `ResizeBuffers` can return `DXGI_ERROR_DEVICE_REMOVED` /
 `DXGI_ERROR_DEVICE_RESET` (`d3d11_swapchain::is_device_lost` classifies the
 `hr_status`); on that the viewer recreates everything downstream of the lost
-device (the device, swapchain, render texture, and CUDA registration), resetting
-the grow-only capacity, then continues. The rebuild path is therefore written
-as "(re)create from the current size," not "resize." The swapchain rebuild is
-`d3d11_swapchain::reset(device, hwnd)`, which releases the old swapchain and
-flushes D3D11's deferred destruction (`ClearState` + `Flush`) before creating
-the new one, because DXGI binds only one flip-model swapchain to an `HWND` at a
-time (a plain move-assignment would build the replacement before releasing the
-original, and the deferred teardown would not have freed the `HWND` yet). With
-that sequence owned by the wrapper, the device and swapchain are held as plain
-values; no `std::optional` empty state is needed.
+device (the device, swapchain, render texture, and CUDA registration),
+resetting the grow-only capacity, then continues. The rebuild path is therefore
+written as "(re)create from the current size," not "resize." The swapchain
+rebuild is `d3d11_swapchain::reset(device, hwnd)`, which releases the old
+swapchain and flushes D3D11's deferred destruction (`ClearState` + `Flush`)
+before creating the new one, because DXGI binds only one flip-model swapchain
+to an `HWND` at a time (a plain move-assignment would build the replacement
+before releasing the original, and the deferred teardown would not have freed
+the `HWND` yet). With that sequence owned by the wrapper, the device and
+swapchain are held as plain values; no `std::optional` empty state is needed.
 
 Gotchas handled in the implementation: `ResizeBuffers` fails unless all
 outstanding back-buffer references are released first, so `resize()` resets
@@ -653,21 +775,21 @@ which differ under DPI scaling. The window is created resizable, and
 `sdl_event` exposes the pixel-size-changed event.
 
 Known SDL limitation, cross-DPI resize (investigated 2026-06-20, accepted as
-upstream). Dragging a window that straddles two monitors of different scale (for
-example a 150% portrait display next to a 100% landscape one) can momentarily
-collapse the window's client height to 0 (it first jumps larger, then
-collapses). This is SDL's own `WM_DPICHANGED` handling: SDL applies Windows'
-suggested rectangle via `SetWindowPos`, which scales the window by the DPI ratio
-and, interacting with the in-flight modal resize drag, drives the height to 0.
-It is in SDL, not in this code: `d3d11_swapchain::resize()` only follows the
-window size, and a logging build confirmed the minimum size (below) is honored
-for an ordinary drag at constant DPI but is bypassed on the DPI-transition
-resize. SDL3 has no hint or window flag to opt out (the SDL2
+upstream). Dragging a window that straddles two monitors of different scale
+(for example a 150% portrait display next to a 100% landscape one) can
+momentarily collapse the window's client height to 0 (it first jumps larger,
+then collapses). This is SDL's own `WM_DPICHANGED` handling: SDL applies
+Windows' suggested rectangle via `SetWindowPos`, which scales the window by the
+DPI ratio and, interacting with the in-flight modal resize drag, drives the
+height to 0. It is in SDL, not in this code: `d3d11_swapchain::resize()` only
+follows the window size, and a logging build confirmed the minimum size (below)
+is honored for an ordinary drag at constant DPI but is bypassed on the
+DPI-transition resize. SDL3 has no hint or window flag to opt out (the SDL2
 `SDL_HINT_WINDOWS_DPI_SCALING` / `_DPI_AWARENESS` knobs were removed and not
 replaced), `SDL_WINDOW_HIGH_PIXEL_DENSITY` does not affect this path (tried),
 and resizing the window back during the event is reported to flash and revert,
-so there is no clean fix. The consequence is contained rather than cured, by two
-guards that are correct in their own right:
+so there is no clean fix. The consequence is contained rather than cured, by
+two guards that are correct in their own right:
 
 - A minimum window size (`sdl_window::set_minimum_size`, 640x480 in the viewer)
   keeps an ordinary drag from shrinking the window to nothing. It is honored on
@@ -682,11 +804,133 @@ guards that are correct in their own right:
 ## 12. Shared developer context across Windows and WSL
 
 The project `CLAUDE.md` is checked in and travels with `git pull`. The global
-`~/.claude/CLAUDE.md` and the auto-memory folder do not. To share one memory
-store, keep the physical store on NTFS (for example
-`C:\code\Corvid\.claude-shared\memory`), junction the Windows per-project memory
-directory to it (`mklink /J`, no admin needed), and symlink the WSL per-project
-memory directory to the same folder via `/mnt/c/...`. The per-project memory
-directory name is derived from a hash of the project path, which differs between
-the WSL and `C:\` paths, so the sharing is not automatic. Edit memories from one
-machine at a time.
+`~/.claude/CLAUDE.md` and the auto-memory folder do not. Claude Code keeps
+auto-memory in a per-project directory named after the project path, with the
+separators turned into dashes: `c--code-Corvid` for `C:\code\Corvid` on
+Windows, `-workspace` for `/workspace` in the dev container. The two names
+differ, so the sharing is not automatic.
+
+One physical store serves both sides. It lives on NTFS at
+`C:\code\claude-memory`, outside the Corvid tree, and is its own git
+repository. On Windows, `%USERPROFILE%\.claude\projects\c--code-Corvid\memory`
+is a junction to it (`mklink /J`, no admin needed). In the dev container,
+`.devcontainer/steve/devcontainer.json` bind-mounts `/mnt/c/code/claude-memory`
+at `/home/node/.claude/projects/-workspace/memory`. The Dockerfile pre-creates
+the mount target so that a fresh config volume has it owned by `node`;
+otherwise Docker creates the intermediate directories as root and Claude Code
+cannot write there.
+
+The same config mounts the store a second time, at `/mnt/c/code/claude-memory`
+inside the container. That mount is transitional. The earlier scheme made the
+per-project memory directory a symlink to that path, and the mount keeps the
+path resolving until nothing depends on it.
+
+These bind mounts are personal. The generic `.devcontainer/devcontainer.json`
+has none of them. Its mounts are all named volumes, so a container built from
+it shares no Claude state with Windows. In the steve config the rest of
+`/home/node/.claude` is likewise a named volume, which leaves the memory
+directory as the only part of it that Windows sees. The WSL distribution
+itself holds no Claude configuration: Claude Code runs on Windows and inside
+the container, never in the distribution directly.
+
+Edit memories from one machine at a time.
+
+## 13. Linux container host
+
+Not adopted as of 2026-10-02: WSL containers (`wslc`), which Microsoft made
+generally available on 2026-09-29. The Linux legs keep running in the dev
+container under Docker inside the WSL distribution. The analysis is kept here
+so the decision can be revisited without redoing it.
+
+### The current arrangement
+
+Docker runs inside the WSL distribution, and the Linux checkout of the repo
+lives on that distribution's ext4 filesystem. The dev container bind-mounts
+the checkout at `/workspace`. The container and the files therefore share one
+virtual machine (VM) and one kernel, and a build reads and writes ext4
+directly. This is deliberate. Only the personal mounts in
+`.devcontainer/steve/devcontainer.json` (the Claude memory store and the
+dotfiles) cross into NTFS, through `/mnt/c`.
+
+### What `wslc` changes
+
+`wslc.exe` is a Windows-side command-line tool. It needs WSL 2.9.3 or later,
+and everything below was checked against 3.0.1.0. A container it starts does
+not run inside a distribution. Each `wslc` session is its own VM with its own
+storage VHD, so the distribution's ext4 filesystem belongs to a different VM
+and `-v` cannot bind from it. That leaves three places for the repo:
+
+- A Windows path, `-v C:\code\Corvid:/workspace`. `wslc` shares it into the
+  session VM over virtiofs, which the architecture post puts at about twice
+  the speed of plan9. It is still a cross-OS filesystem under a workload of
+  many small files and `stat` calls, and the Linux and Windows legs would
+  share one working tree, `tests/build` included.
+- A VHD volume, `wslc volume create --driver vhd`. This is native ext4, but
+  the repo then lives inside the `wslc` session, where neither Windows nor
+  the distribution can reach it except through a container.
+- The distribution, through the `wslc-remote` wrapper. It runs a userspace
+  NFSv3 server in the distribution and mounts the export into the session VM
+  over loopback. That puts a network filesystem where a plain bind mount is
+  today, and the wrapper is one person's community-supported project.
+
+Each of the three gives up the thing the current arrangement has, a native
+filesystem that the container and the distribution's own tools both reach
+directly.
+
+The shared memory store is not a counterexample. It already crosses the OS
+boundary, but it is a few small Markdown files touched a handful of times per
+session, so the latency never shows. A build tree is the opposite workload.
+Under `wslc` those personal mounts would get shorter, with a virtiofs share of
+the `C:\` path replacing the hop through `/mnt/c`.
+
+### Run arguments
+
+The filesystem is the smaller obstacle. `.devcontainer/devcontainer.json`
+passes three kinds of run argument, and `wslc run` and `wslc create` accept
+one of them:
+
+| Argument                         | Needed for           | `wslc` |
+|----------------------------------|----------------------|--------|
+| `--gpus all`                     | the cuda bucket      | yes    |
+| `--cap-add=NET_ADMIN`, `NET_RAW` | `init-firewall.sh`   | no     |
+| `--security-opt seccomp=...`     | io_uring, sanitizers | no     |
+
+`init-firewall.sh` builds the container's outbound allowlist with iptables
+and ipset, which need both capabilities. `seccomp-corvid.json` is Docker's
+default profile plus the three io_uring syscalls the linux bucket uses and
+the `personality` flag the sanitizers set to disable address space layout
+randomization (ASLR). `wslc` 3.0.1.0 has no option for either, and none for
+`--privileged`.
+
+### Not tested
+
+None of these would change the decision while the two options are missing, so
+they were left alone:
+
+- Which capabilities and seccomp filter a `wslc` container gets by default.
+- How long the suite takes to build over virtiofs.
+- Whether the dev containers CLI's `wslc` support (added in 0.88.0) passes
+  `runArgs` through or rejects the ones `wslc` lacks.
+- Whether `-v` accepts a `\\wsl.localhost\` path as a way back into the
+  distribution's filesystem.
+- `wslc compose`, which is announced but not shipped. The dev container does
+  not use compose.
+
+### When to revisit
+
+Revisit when `wslc` can express the capabilities and the seccomp profile, or
+when a test shows its defaults already cover the firewall and io_uring. Then
+measure the suite's build time over virtiofs before moving the checkout, since
+that cost is what the current arrangement exists to avoid.
+
+### Sources
+
+Read on 2026-10-02:
+
+- Announcement:
+  https://blogs.windows.com/windowsdeveloper/2026/09/29/wsl-containers-now-generally-available/
+- Architecture (session model, virtiofs, VHD volumes):
+  https://devblogs.microsoft.com/commandline/wslc-architecture-deep-dive/
+- Documentation: https://learn.microsoft.com/en-us/windows/wsl/wsl-container
+- `wslc-remote`: https://github.com/craigloewen-msft/wslc-remote
+- The option lists come from `wslc run --help` and `wslc create --help`.

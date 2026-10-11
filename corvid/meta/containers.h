@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <functional>
 #include <iterator>
 #include <ranges>
 #include <type_traits>
@@ -84,6 +85,46 @@ template<auto field = extract_field::value>
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Integer auto ndx) {
   return (ndx != -1) ? &container_element_v<field>(&c[ndx]) : nullptr;
+}
+
+#pragma endregion
+#pragma region Overlap
+
+namespace details {
+
+// The half-open address range of the memory behind `r`, as untyped pointers.
+[[nodiscard]] constexpr std::pair<const void*, const void*> address_range(
+    const ContiguousSizedRange auto& r) noexcept {
+  const auto* first = std::ranges::data(r);
+  return {first, first + std::ranges::size(r)};
+}
+
+} // namespace details
+
+// Whether the memory behind `a` and `b` has no bytes in common, so that one
+// can be written while the other is read.
+//
+// The ranges need not have the same element type, since the comparison is on
+// the byte extents.
+[[nodiscard]] constexpr bool is_disjoint(const ContiguousSizedRange auto& a,
+    const ContiguousSizedRange auto& b) noexcept {
+  const auto [a_first, a_last] = details::address_range(a);
+  const auto [b_first, b_last] = details::address_range(b);
+  const std::less_equal<> at_or_before;
+  return at_or_before(a_last, b_first) || at_or_before(b_last, a_first);
+}
+
+// Whether the memory behind `a` and `b` is exactly the same or has no bytes
+// in common, which are the only two ways an in-place operation may alias.
+//
+// The ranges need not have the same element type, since the comparison is on
+// the byte extents.
+[[nodiscard]] constexpr bool
+is_same_or_disjoint(const ContiguousSizedRange auto& a,
+    const ContiguousSizedRange auto& b) noexcept {
+  const auto [a_first, a_last] = details::address_range(a);
+  const auto [b_first, b_last] = details::address_range(b);
+  return ((a_first == b_first) && (a_last == b_last)) || is_disjoint(a, b);
 }
 
 #pragma endregion

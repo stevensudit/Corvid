@@ -212,8 +212,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 3);
 
     // Note: All of these casts are strictly unnecessary. They're just to
-    // suppress spurious warnings of precision lost due to the implicit
-    // cast.
+    // suppress spurious warnings of precision lost due to the implicit cast.
     e = make_safely<e0_3>(int8_t(0 - 1));
     CHECK(*e == 3);
     e = make_safely<e0_3>(int8_t(0 - 2));
@@ -1103,9 +1102,8 @@ TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
 #pragma region EnumStringView
 
 // Shows that a bare literal or enum value is validated by the parameter type,
-// with no ceremony at the call site.
-// Enum names are interned in static storage, so the returned view
-// outlives the parameter it came from.
+// with no ceremony at the call site. Enum names are interned in static
+// storage, so the returned view outlives the parameter it came from.
 // NOLINTNEXTLINE(bugprone-dangling-handle)
 constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return s; }
 
@@ -1268,8 +1266,8 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
 
 // Sparse enum registered with the segmented syntax: two runs separated by a
 // gap. '|' delimits segments; each segment's first comma-field is its absolute
-// start value, the rest are names.
-// The underlying type is the point of these segment fixtures.
+// start value, the rest are names. The underlying type is the point of these
+// segment fixtures.
 // NOLINTBEGIN(performance-enum-size)
 enum class seg_basic : int { a = 0, b = 1, x = 10, y = 11, z = 12 };
 consteval auto corvid_enum_spec(seg_basic*) {

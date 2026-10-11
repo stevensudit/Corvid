@@ -40,8 +40,7 @@ using mode = timeouts::mode;
 // by passing the desired `now` to `sweeper::tick` directly.
 static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
-// The duration cap leaves centuries of usable range below the pause
-// sentinel.
+// The duration cap leaves centuries of usable range below the pause sentinel.
 static_assert(timeouts::max_timeout > std::chrono::years{100});
 
 #pragma region Fixture

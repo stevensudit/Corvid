@@ -5,7 +5,7 @@
 #include <cuda_runtime.h>
 
 #include "corvid/cuda/cuda_device.cuh"
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_event.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
@@ -46,9 +46,9 @@ int main() {
   }
 
   // --- Device memory ---
-  cuda_ptr<float> d_A(n);
-  cuda_ptr<float> d_B(n);
-  cuda_ptr<float> d_C(n);
+  cuda_buffer<float> d_A(n);
+  cuda_buffer<float> d_B(n);
+  cuda_buffer<float> d_C(n);
   *d_A;
   *d_B;
   *d_C;
@@ -65,9 +65,9 @@ int main() {
   dim3 gridDim(ceil_div(n, block_size)); // enough blocks to cover n
 
   add<<<gridDim, blockDim>>>(n, d_C, d_A, d_B); // warm-up
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
-  if (auto timer = cuda_timer{ms}; true) {
+  if (auto timer = cuda_scope_timer{ms}; true) {
     add<<<gridDim, blockDim>>>(n, d_C, d_A, d_B);
     *cuda_last_status{}; // check for launch errors
   }
@@ -83,9 +83,9 @@ int main() {
   dim3 gridDimS(32 * mp_count);
 
   add<<<gridDimS, blockDimS>>>(n, d_C, d_A, d_B); // warm-up
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
-  if (auto timer = cuda_timer{ms}; true) {
+  if (auto timer = cuda_scope_timer{ms}; true) {
     add<<<gridDimS, blockDimS>>>(n, d_C, d_A, d_B);
     *cuda_last_status{}; // check for launch errors
   }
@@ -96,7 +96,8 @@ int main() {
 
   // Check for errors (all values should be 3.0f)
   float maxError = 0.0F;
-  for (auto i = 0; i < n; ++i) maxError = fmax(maxError, fabs(h_C[i] - 3.0F));
+  for (auto i = 0; i < n; ++i)
+    maxError = std::fmax(maxError, std::fabs(h_C[i] - 3.0F));
   std::println("Max error: {}", maxError);
 
   return 0;

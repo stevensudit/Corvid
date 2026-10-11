@@ -24,12 +24,14 @@
 
 namespace corvid::cuda {
 
-// Device-side index and launch-geometry helpers for a kernel body: each
-// thread's coordinates and the grid's strides, typed as the caller wants,
-// and the host-side block count for a launch.
+// Device-side index and launch-geometry helpers for a kernel body.
+//
+// Contains each thread's coordinates and the grid's strides, typed as the
+// caller wants, and the host-side block count for a launch.
 class cuda_kernel {
 public:
-  // Thread in each dimension.
+  // Thread in each dimension. (See also: `kernel_coord`.)
+
   template<typename T = int>
   __device__ static T x_thread() {
     return static_cast<T>(threadIdx.x);
@@ -43,7 +45,23 @@ public:
     return static_cast<T>(threadIdx.z);
   }
 
+  // Block in each dimension.
+
+  template<typename T = int>
+  __device__ static T x_block() {
+    return static_cast<T>(blockIdx.x);
+  }
+  template<typename T = int>
+  __device__ static T y_block() {
+    return static_cast<T>(blockIdx.y);
+  }
+  template<typename T = int>
+  __device__ static T z_block() {
+    return static_cast<T>(blockIdx.z);
+  }
+
   // Block dim in each dimension.
+
   template<typename T = int>
   __device__ static T x_block_dim() {
     return static_cast<T>(blockDim.x);
@@ -61,15 +79,15 @@ public:
 
   template<typename T = int>
   __device__ static T x_index() {
-    return static_cast<T>((blockIdx.x * blockDim.x) + threadIdx.x);
+    return (x_block<T>() * x_block_dim<T>()) + x_thread<T>();
   }
   template<typename T = int>
   __device__ static T y_index() {
-    return static_cast<T>((blockIdx.y * blockDim.y) + threadIdx.y);
+    return (y_block<T>() * y_block_dim<T>()) + y_thread<T>();
   }
   template<typename T = int>
   __device__ static T z_index() {
-    return static_cast<T>((blockIdx.z * blockDim.z) + threadIdx.z);
+    return (z_block<T>() * z_block_dim<T>()) + z_thread<T>();
   }
   template<typename T = int>
   __device__ static T index() {

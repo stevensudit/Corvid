@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
@@ -23,8 +24,8 @@
 #include <cublas_v2.h>
 
 #include "../strings/cstring_view.h"
+#include "./bfloat16.cuh"
 #include "./cuda_handle.cuh"
-#include "./cuda_ptr.cuh"
 #include "./cuda_status.cuh"
 
 // Wrappers for cuBLAS, the CUDA Basic Linear Algebra Subprograms library.
@@ -68,7 +69,7 @@ public:
   cublas_last_status(cublasStatus_t status)
       : value_{static_cast<cublas_status>(status)} {}
 
-  [[nodiscard]] bool ok() const { return value_ == cublas_status::success; }
+  [[nodiscard]] bool ok() const { return (value_ == cublas_status::success); }
   [[nodiscard]] explicit operator bool() const { return ok(); }
 
   [[nodiscard]] cublas_status status() const { return value_; }
@@ -103,6 +104,66 @@ private:
 };
 
 #pragma endregion
+#pragma region gemm_traits
+
+// How cuBLAS multiplies matrices of `T`. Contains the type they are declared
+// as, the type the product accumulates in, and the type of `alpha` and `beta`.
+//
+// A `float` or `double` product accumulates in its own type. A `bfloat16_t`
+// product accumulates in `float`, which is also the type of its scalars, and
+// is stored back as `bfloat16_t`.
+//
+// cuBLAS also multiplies `__half`, `cuComplex`, and `cuDoubleComplex`, which
+// this wrapper does not cover.
+template<typename T>
+struct gemm_traits;
+
+template<>
+struct gemm_traits<float> {
+  using scalar_t = float;
+  static constexpr auto data_type = CUDA_R_32F;
+  static constexpr auto compute_type = CUBLAS_COMPUTE_32F;
+};
+
+template<>
+struct gemm_traits<double> {
+  using scalar_t = double;
+  static constexpr auto data_type = CUDA_R_64F;
+  static constexpr auto compute_type = CUBLAS_COMPUTE_64F;
+};
+
+template<>
+struct gemm_traits<bfloat16_t> {
+  using scalar_t = float;
+  static constexpr auto data_type = CUDA_R_16BF;
+  static constexpr auto compute_type = CUBLAS_COMPUTE_32F;
+};
+
+// An element type that `multiply` has `gemm_traits` for.
+template<typename T>
+concept GemmElement = requires { typename gemm_traits<T>::scalar_t; };
+
+// The type of `alpha` and `beta` in a product of `T`.
+template<GemmElement T>
+using gemm_scalar_t = gemm_traits<T>::scalar_t;
+
+// Whether cuBLAS stores a product of `T` as `Out`.
+//
+// A product is stored as its own type. A `bfloat16_t` product is also stored
+// as `float`, the type it accumulates in.
+template<GemmElement T, GemmElement Out>
+inline constexpr bool gemm_stores_as_v = std::same_as<T, Out>;
+
+template<>
+inline constexpr bool gemm_stores_as_v<bfloat16_t, float> = true;
+
+// An operand type `T` and a result type `Out` that `multiply` stores a
+// product of `T` as.
+template<typename T, typename Out>
+concept GemmOutput =
+    GemmElement<T> && GemmElement<Out> && gemm_stores_as_v<T, Out>;
+
+#pragma endregion
 #pragma region cublas_handle
 
 // RAII owner of the cuBLAS library handle that every cuBLAS call takes.
@@ -125,20 +186,140 @@ public:
 #pragma endregion
 #pragma region Multiply
 
-  // General Matrix Multiply (GEMM) wrapper.
+  // General Matrix Multiply (GEMM), `C = alpha * op(A) * op(B) + beta * C`.
   //
-  // C = alpha * op(A) * op(B) + beta * C
+  // These are:
+  //   m      rows of `op(A)` and of `C`
+  //   n      columns of `op(B)` and of `C`
+  //   k      columns of `op(A)` and rows of `op(B)`, the summed dimension
+  //   alpha  scale applied to the product
+  //   A      device matrix, `m` by `k` after `op_a`
+  //   lda    leading dimension of `A` as stored
+  //   B      device matrix, `k` by `n` after `op_b`
+  //   ldb    leading dimension of `B` as stored
+  //   beta   scale applied to the existing `C` before the product is added;
+  //          zero ignores its contents, one accumulates onto them
+  //   C      device matrix, `m` by `n`, read when `beta` is nonzero, written
+  //   ldc    leading dimension of `C`
+  //   op_a   whether `A` is used as stored or transposed
+  //   op_b   likewise for `B`
   //
-  // Where op(X) is X or its transpose. C, A, and B are column-major (cuBLAS
-  // default) and every leading dimension is `n`.
+  // Note that `C` is both the addend and the result. cuBLAS scales what it
+  // holds by `beta`, adds the product, and writes the sum back over it, so
+  // there is no separate output. With `beta` at zero, `C` is not read at all;
+  // it is effectively zeroed out.
+  //
+  // Every matrix is column-major, as cuBLAS defines it. `op(X)` is `X` as
+  // stored when its flag is `none`, and the transpose of `X` as stored when
+  // it is `transpose`. The dimensions describe the operands of the product:
+  // `op(A)` is `m` by `k`, `op(B)` is `k` by `n`, and `C` is `m` by `n`. So a
+  // buffer passed with `transpose` holds the other shape, `k` by `m` for `A`
+  // and `n` by `k` for `B`.
+  //
+  // A leading dimension is the element distance between the starts of
+  // consecutive columns of a buffer as stored, which the flags do not change.
+  // For a packed buffer it is the stored row count: `lda` is `m` under `none`
+  // and `k` under `transpose`, `ldb` is `k` or `n` likewise, and `ldc` is `m`.
+  // A larger value addresses a block of a taller stored matrix.
+  //
+  // `alpha` scales the product. `beta` scales `C` before the product is
+  // added, so zero leaves `C` unread and one accumulates onto it.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
+  [[nodiscard]] cublas_last_status
+  multiply(int m, int n, int k, gemm_scalar_t<T> alpha, const T* A, int lda,
+      const T* B, int ldb, gemm_scalar_t<T> beta, Out* C, int ldc,
+      cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    return gemm(handle_, as_raw(op_a), as_raw(op_b), m, n, k, &alpha, A, lda,
+        B, ldb, &beta, C, ldc);
+  }
 
-  // Simple square multiply.
-  [[nodiscard]] cublas_last_status multiply(int n, float alpha,
-      const cuda_ptr<float>& A, const cuda_ptr<float>& B, float beta,
-      cuda_ptr<float>& C, cublas_operation opA = cublas_operation::none,
-      cublas_operation opB = cublas_operation::none) const {
-    return cublasSgemm(handle_, as_raw(opA), as_raw(opB), n, n, n, &alpha, A,
-        n, B, n, &beta, C, n);
+  // GEMM over row-major matrices, `C = alpha * op(A) * op(B) + beta * C`.
+  //
+  // The same letters as `multiply`, read row-major: `op(A)` is `m` by `k`,
+  // `op(B)` is `k` by `n`, `C` is `m` by `n`, and a leading dimension is the
+  // element distance between the starts of consecutive rows of a buffer as
+  // stored, which for a packed buffer is its column count. `C` is in-out here
+  // too, read scaled by `beta` and then overwritten with the result.
+  //
+  // cuBLAS reads a row-major buffer as the transpose of the matrix it holds.
+  // Transposing both sides of the product gives `C^T = (op(A) * op(B))^T`,
+  // which is the same as `op(B)^T * op(A)^T`. So the call is `multiply` with
+  // the operands swapped and `m` and `n` swapped, and it all cancels out to
+  // give us a row-major result.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
+  [[nodiscard]] cublas_last_status
+  multiply_row_major(int m, int n, int k, gemm_scalar_t<T> alpha, const T* A,
+      int lda, const T* B, int ldb, gemm_scalar_t<T> beta, Out* C, int ldc,
+      cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    // The swap is deliberate, as the doc block explains.
+    // NOLINTNEXTLINE(readability-suspicious-call-argument)
+    return multiply(n, m, k, alpha, B, ldb, A, lda, beta, C, ldc, op_b, op_a);
+  }
+
+  // Square multiply, where every dimension and leading dimension is `n`.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
+  [[nodiscard]] cublas_last_status multiply(int n, gemm_scalar_t<T> alpha,
+      const T* A, const T* B, gemm_scalar_t<T> beta, Out* C,
+      cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    return multiply(n, n, n, alpha, A, n, B, n, beta, C, n, op_a, op_b);
+  }
+
+#pragma endregion
+#pragma region Batched multiply
+
+  // GEMM over a batch of column-major matrices at fixed strides.
+  //
+  // For each instance, `C[i] = alpha * op(A[i]) * op(B[i]) + beta * C[i]`.
+  //
+  // The letters are those of `multiply` and describe one instance. Every
+  // instance shares them. These are added:
+  //   stride_a     element distance from `A[i]` to `A[i + 1]`
+  //   stride_b     likewise for `B`
+  //   stride_c     likewise for `C`
+  //   batch_count  how many instances
+  //
+  // `A`, `B`, and `C` point at instance 0. A stride is free to be shorter than
+  // its instance, so the instances of one buffer can be interleaved blocks of
+  // a wider stored matrix, each reached through the shared leading dimension.
+  //
+  // No stride is permitted to be zero, and no two instances of `C` may share
+  // an element.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
+  [[nodiscard]] cublas_last_status
+  multiply_batched(int m, int n, int k, gemm_scalar_t<T> alpha, const T* A,
+      int lda, long long stride_a, const T* B, int ldb, long long stride_b,
+      gemm_scalar_t<T> beta, Out* C, int ldc, long long stride_c,
+      int batch_count, cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    return gemm_strided_batched(handle_, as_raw(op_a), as_raw(op_b), m, n, k,
+        &alpha, A, lda, stride_a, B, ldb, stride_b, &beta, C, ldc, stride_c,
+        batch_count);
+  }
+
+  // GEMM over a batch of row-major matrices at fixed strides.
+  //
+  // The same letters as `multiply_batched`, read row-major as in
+  // `multiply_row_major`, which also explains the swap. The strides travel
+  // with their operands.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
+  [[nodiscard]] cublas_last_status multiply_batched_row_major(int m, int n,
+      int k, gemm_scalar_t<T> alpha, const T* A, int lda, long long stride_a,
+      const T* B, int ldb, long long stride_b, gemm_scalar_t<T> beta, Out* C,
+      int ldc, long long stride_c, int batch_count,
+      cublas_operation op_a = cublas_operation::none,
+      cublas_operation op_b = cublas_operation::none) const {
+    // The swap is deliberate, as the doc block explains.
+    // NOLINTNEXTLINE(readability-suspicious-call-argument)
+    return multiply_batched(n, m, k, alpha, B, ldb, stride_b, A, lda, stride_a,
+        beta, C, ldc, stride_c, batch_count, op_b, op_a);
   }
 
 #pragma endregion
@@ -149,6 +330,36 @@ private:
 
   static cublasHandle_t make(on_failure policy) {
     return create<cublasCreate, cublas_last_status>(policy);
+  }
+
+  // The GEMM routine for every `GemmOutput` pair, which is `cublasGemmEx`
+  // with the operands' `gemm_traits` and the result's data type.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
+  static cublasStatus_t
+  gemm(cublasHandle_t handle, cublasOperation_t op_a, cublasOperation_t op_b,
+      int m, int n, int k, const gemm_scalar_t<T>* alpha, const T* A, int lda,
+      const T* B, int ldb, const gemm_scalar_t<T>* beta, Out* C, int ldc) {
+    using traits = gemm_traits<T>;
+    return cublasGemmEx(handle, op_a, op_b, m, n, k, alpha, A,
+        traits::data_type, lda, B, traits::data_type, ldb, beta, C,
+        gemm_traits<Out>::data_type, ldc, traits::compute_type,
+        CUBLAS_GEMM_DEFAULT);
+  }
+
+  // The strided-batched GEMM routine for every `GemmOutput` pair.
+  template<typename T, typename Out>
+  requires GemmOutput<T, Out>
+  static cublasStatus_t gemm_strided_batched(cublasHandle_t handle,
+      cublasOperation_t op_a, cublasOperation_t op_b, int m, int n, int k,
+      const gemm_scalar_t<T>* alpha, const T* A, int lda, long long stride_a,
+      const T* B, int ldb, long long stride_b, const gemm_scalar_t<T>* beta,
+      Out* C, int ldc, long long stride_c, int batch_count) {
+    using traits = gemm_traits<T>;
+    return cublasGemmStridedBatchedEx(handle, op_a, op_b, m, n, k, alpha, A,
+        traits::data_type, lda, stride_a, B, traits::data_type, ldb, stride_b,
+        beta, C, gemm_traits<Out>::data_type, ldc, stride_c, batch_count,
+        traits::compute_type, CUBLAS_GEMM_DEFAULT);
   }
 
   [[nodiscard]] static cublasOperation_t as_raw(cublas_operation op) {

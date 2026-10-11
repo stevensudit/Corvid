@@ -7,7 +7,7 @@
 #include <cuda_runtime.h>
 
 #include "corvid/cuda/saxpy.cuh"
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "catch2_main.h"
 
@@ -43,7 +43,7 @@ using namespace corvid::cuda;
 TEST_CASE("cuda saxpy kernel runs on the device", "[cuda]") {
   float h_out = 0.0F;
   {
-    cuda_ptr<float> d_out;
+    cuda_buffer<float> d_out;
     REQUIRE(d_out.ok());
     // Runs a single grid of a single block of a single thread.
     saxpy_kernel<<<1, 1>>>(2.0F, 3.0F, 4.0F, d_out.get());

@@ -233,7 +233,7 @@ inline namespace ops {
 //
 // The precedent for this is `std::optional`.
 template<SequentialEnum E>
-[[nodiscard]] constexpr auto operator*(E v) noexcept {
+[[nodiscard]] constexpr CUDA_HOST_DEVICE auto operator*(E v) noexcept {
   return as_underlying<E>(v);
 }
 
@@ -831,6 +831,8 @@ struct sequence_enum_names_spec
   //
   // Names only: unlike `lookup`, it never interprets numeric text. The
   // inter-segment gaps never appear in the scan.
+  //
+  // Note: Never call this directly; use `enum_find_by_name` instead.
   [[nodiscard]] constexpr std::optional<E> find_enum_by_name(
       std::string_view sv) const noexcept {
     if (sv.empty()) return {};

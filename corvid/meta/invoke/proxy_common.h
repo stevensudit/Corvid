@@ -117,8 +117,7 @@ inline namespace literals {
 // UDL for method keys: `"name"_method` is a `method_key<"name">`.
 //
 // This must be a literal operator template. The literal itself binds as the
-// `fixed_string` template argument, which is what lets it reach NTTP
-// position.
+// `fixed_string` template argument, which is what lets it reach NTTP position.
 //
 // The ordinary `(const char*, size_t)` form cannot work, because function
 // parameters are runtime values, never constant expressions, even under
@@ -1206,12 +1205,11 @@ constexpr inline ancestry_t view_ancestry_for{
 // them, so in any facade's flattened list every inherited slot carries its
 // declaring facade.
 //
-// The owner is what keeps per-facade conformance intact through flattening
-// (an inherited method binds through `proxy_impl<Owner, T>`), and it is the
-// identity that dedup uses to collapse a shared ancestor reached through
-// more than one composition path (a diamond). The method's compile-time
-// surface is re-exposed so slot packs can be probed the way method packs
-// were.
+// The owner is what keeps per-facade conformance intact through flattening (an
+// inherited method binds through `proxy_impl<Owner, T>`), and it is the
+// identity that dedup uses to collapse a shared ancestor reached through more
+// than one composition path (a diamond). The method's compile-time surface is
+// re-exposed so slot packs can be probed the way method packs were.
 template<typename Owner, typename M>
 struct slot {
   using owner_t = Owner;
@@ -1976,11 +1974,10 @@ struct vtable_builder<facade<Es...>>
   //
   // Deliberately a member rather than an `entry_traits` hook, and with a
   // spelled-out return type: an entry's helper is shared by every facade
-  // listing that entry, and in a diamond the ancestry's back-references
-  // reach a sibling's table build while the shared helper is still
-  // mid-instantiation, which a deduced return type cannot survive. A member
-  // is unique per (facade, born, type, mode) and so is only ever entered
-  // once.
+  // listing that entry, and in a diamond the ancestry's back-references reach
+  // a sibling's table build while the shared helper is still
+  // mid-instantiation, which a deduced return type cannot survive. A member is
+  // unique per (facade, born, type, mode) and so is only ever entered once.
   template<typename Born, typename T, storage_mode StorageMode,
       typename... Bs2>
   static consteval owning_bases_t
@@ -2158,8 +2155,7 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
 // The concept for when facade `D` (transitively) extends facade `B` through
 // `extends` composition entries.
 //
-// Strict: false when `D` is `B` itself. `ExtendsOrIs` is the reflexive
-// form.
+// Strict: false when `D` is `B` itself. `ExtendsOrIs` is the reflexive form.
 template<typename D, typename B>
 concept Extends =
     Facade<D> && Facade<B> &&

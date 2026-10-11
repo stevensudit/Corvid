@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Fail fast.
-set -e
+# Fail fast, through pipes too: a failed build behind `| tee` (the tidy log)
+# must stop the script like an untee'd one does, not report tee's success.
+set -e -o pipefail
 
 # Side effect on first run after a fresh clone: CMake regenerates `.clangd`
 # at the project root from `.clangd.in` via `configure_file`. The generated
@@ -14,9 +15,10 @@ set -e
 # (default) or "gcc" to pick the compiler. The standard library defaults to
 # match the compiler (clang -> libc++, gcc -> libstdc++); pass "libstdcpp" or
 # "libcxx" to override, except gcc + libc++ is rejected because the libc++ path
-# is clang-only. Add "tidy" to run clang-tidy during the
-# build. Add a sanitizer mode ("asan" [which includes ubsan], "tsan", "ubsan",
-# or "msan") to instrument the build with the corresponding LLVM sanitizer.
+# is clang-only. Add "tidy" to run clang-tidy during the build, in its own
+# tree (tests/build-tidy) so the analysis is incremental. Add a sanitizer mode
+# ("asan" [which includes ubsan], "tsan", "ubsan", or "msan") to instrument
+# the build with the corresponding LLVM sanitizer.
 # The "msan" mode self-installs its instrumented dependencies (libc++ and
 # OpenSSL) via the scripts/ helpers when missing, cloning from github.com; the
 # first run after a container rebuild takes ~15 minutes, later runs skip it.
@@ -31,14 +33,17 @@ set -e
 # without building or running anything; also standalone. The default is clang
 # with `libcxx`, no tidy, no sanitizer, no coverage, no scan.
 #
-# CUDA: when nvcc and g++-15 are installed and the mode is plain (no sanitizer,
-# coverage, or scan), the *.cu sources in tests/ build alongside the *.cpp
-# suite as their own nvcc/libstdc++ executables, regardless of the compiler and
-# standard library chosen for the C++ files. Pass a *.cu filename to build and
-# run just one.
+# CUDA: when the CUDA toolkit and clang++ are installed and the mode is plain
+# (no sanitizer, coverage, or scan), the *.cu sources in tests/ build alongside
+# the *.cpp suite as their own clang++/libstdc++ executables, regardless of the
+# compiler and standard library chosen for the C++ files. Pass a *.cu filename
+# to build and run just one. Pass "nvcc" to compile the CUDA bucket with nvcc
+# and its g++-15 host instead; that leg is kept for bug reports and is known
+# not to build (see crossplatform.md, section 3).
 #
 # Pass "clean-all" to delete the buildable outputs and stop: the release tree
-# (tests/build), the IDE debug tree (tests/build-debug), any legacy in-source
+# (tests/build), the tidy tree (tests/build-tidy), the IDE debug tree
+# (tests/build-debug), any legacy in-source
 # strays at the repo root, and the compiled Catch2 objects inside the
 # dependency caches (they are not keyed by sanitizer mode, so a stale mode's
 # objects could otherwise survive into later links). Standalone; builds
@@ -58,6 +63,7 @@ set -e
 
 choice=""
 compiler=""
+cuda_compiler="clang"
 use_tidy=false
 sanitizer=""
 use_coverage=false
@@ -67,7 +73,7 @@ use_clean=false
 test_name=""
 target_name=""
 
-usage="Usage: $0 [all | reconfigure | clean-all | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [clean] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
+usage="Usage: $0 [all | reconfigure | clean-all | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [nvcc] [clean] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
 # Enforce the core/utils band layering before any build (fast, static, and
 # build-independent). See corvid/deps.md.
@@ -119,14 +125,14 @@ if [[ "${1:-}" == "clean-all" ]]; then
   fi
   rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
   rm -rf CMakeFiles .ninja_deps .ninja_log
-  rm -rf tests/build tests/build-debug
+  rm -rf tests/build tests/build-tidy tests/build-debug
   rm -rf tests/.fetchcontent/catch2-build tests/.fetchcontent-debug/catch2-build
-  echo "Removed tests/build, tests/build-debug, and the Catch2 object caches (downloaded sources and prebuilt deps preserved)."
+  echo "Removed tests/build, tests/build-tidy, tests/build-debug, and the Catch2 object caches (downloaded sources and prebuilt deps preserved)."
   exit 0
 fi
 
 if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \
-      && "$1" != "clang" && "$1" != "gcc" \
+      && "$1" != "clang" && "$1" != "gcc" && "$1" != "nvcc" \
       && "$1" != "tidy" && "$1" != "--tidy" \
       && "$1" != "asan" && "$1" != "tsan" && "$1" != "ubsan" \
       && "$1" != "msan" && "$1" != "coverage" && "$1" != "scan" \
@@ -148,6 +154,9 @@ for arg in "$@"; do
       ;;
     clang|gcc)
       compiler="$arg"
+      ;;
+    nvcc)
+      cuda_compiler="nvcc"
       ;;
     tidy|--tidy)
       use_tidy=true
@@ -208,22 +217,50 @@ if $use_reconfigure; then
   fi
 fi
 
-# CUDA (.cu) targets build automatically in plain modes when the toolchain is
-# present, independently of the compiler/stdlib chosen for the .cpp files: each
-# .cu is its own single-source executable (nvcc, g++-15 host, libstdc++) and
-# shares no link line with a .cpp binary. nvcc rejects gcc newer than 15, so we
-# pin its host compiler to g++-15 and target the build host's GPU (native).
-# Skip CUDA under sanitizers/coverage/scan: clang's instrumentation does not
-# apply to nvcc, and those flags would break the g++-15-driven CUDA link.
+# CUDA (.cu) targets build automatically in plain modes when the toolkit is
+# present (nvcc on PATH stands for the toolkit), independently of the
+# compiler/stdlib chosen for the .cpp files: each .cu is its own single-source
+# executable that shares no link line with a .cpp binary. The CUDA compiler is
+# clang++ (its unified frontend compiles host and device together), against
+# libstdc++ because the toolkit's headers refuse libc++ on x86 Linux. As on
+# Windows, the GPU architecture is resolved explicitly from nvidia-smi
+# (8.9 -> sm_89), since clang-CUDA has no `native`. Skip CUDA under
+# sanitizers/coverage/scan: the sanitizer runtime is a .cpp-suite concern that
+# would not match the CUDA link.
+#
+# The "nvcc" word swaps in nvcc with a g++-15 host (nvcc rejects gcc newer than
+# 15) and lets nvcc pick the architecture (`native`). It is the toolkit's own
+# compiler, kept as a bug-report leg; it does not build the bucket today
+# (crossplatform.md, section 3).
 CUDA_OPTION=""
 if [[ -z "$sanitizer" ]] && ! $use_coverage && ! $use_scan; then
   if command -v nvcc >/dev/null 2>&1; then
-    if command -v g++-15 >/dev/null 2>&1; then
-      CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+    if [[ "$cuda_compiler" == "nvcc" ]]; then
+      if command -v g++-15 >/dev/null 2>&1; then
+        CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_COMPILER=$(command -v nvcc) -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+      else
+        echo "$0: 'nvcc' needs g++-15 as the nvcc host compiler" >&2
+        exit 1
+      fi
     else
-      # nvcc without its host compiler means a broken container image, not a
-      # non-CUDA machine, so say so rather than dropping the bucket silently.
-      echo "$0: warning: nvcc found but g++-15 is missing; skipping CUDA targets" >&2
+      clangxx_for_cuda="$(command -v clang++ || true)"
+      cuda_arch="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '. ' || true)"
+      # Identifying clang++ as the CUDA compiler needs CMake 4: 3.28 probes
+      # clang with sm_52/30/20, which the 13.3 ptxas rejects, and the configure
+      # dies with "CUDA compiler identification is unknown". The devcontainer
+      # installs the PyPI wheel ahead of Ubuntu's package.
+      cmake_major="$(cmake --version 2>/dev/null | sed -n 's/^cmake version \([0-9]*\).*/\1/p')"
+      if [[ -z "$clangxx_for_cuda" ]]; then
+        # The toolkit without clang++ means a broken container image, not a
+        # non-CUDA machine, so say so rather than dropping the bucket silently.
+        echo "$0: warning: CUDA toolkit found but clang++ is missing; skipping CUDA targets" >&2
+      elif [[ -z "$cuda_arch" ]]; then
+        echo "$0: warning: CUDA toolkit found but no GPU arch from nvidia-smi; skipping CUDA targets" >&2
+      elif [[ "${cmake_major:-0}" -lt 4 ]]; then
+        echo "$0: warning: CUDA with clang++ needs CMake 4 (found ${cmake_major:-none}); skipping CUDA targets" >&2
+      else
+        CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_COMPILER=$clangxx_for_cuda -DCMAKE_CUDA_ARCHITECTURES=$cuda_arch"
+      fi
     fi
   fi
 fi
@@ -231,7 +268,7 @@ fi
 # A requested .cu source needs that toolchain and a plain mode; fail clearly
 # rather than configuring a build that silently produces no target.
 if [[ "$test_name" == *.cu && -z "$CUDA_OPTION" ]]; then
-  echo "$0: '$test_name' needs CUDA (nvcc + g++-15) in a plain build mode (no sanitizer/coverage/scan)" >&2
+  echo "$0: '$test_name' needs the CUDA toolkit, clang++, and a GPU, in a plain build mode (no sanitizer/coverage/scan)" >&2
   exit 1
 fi
 
@@ -364,8 +401,15 @@ else
   NDEBUG_OPTION=""
 fi
 
-# Define the build directory (assuming you're using an out-of-source build)
+# Define the build directory (assuming you're using an out-of-source build).
+# tidy gets its own tree: every object in it was compiled under clang-tidy, so
+# an incremental build there re-analyzes exactly the TUs whose sources or
+# headers changed, while the plain tree's objects and compile_commands.json
+# stay untouched (tidy keeps asserts live, so the two configurations differ).
 buildRoot="tests/build"
+if $use_tidy; then
+  buildRoot="tests/build-tidy"
+fi
 buildDir="$buildRoot/release_bin"
 sigFile="$buildRoot/.cleanbuild-config"
 
@@ -375,18 +419,23 @@ sigFile="$buildRoot/.cleanbuild-config"
 # nvcc/find_package probing that would only reproduce identical build files)
 # and let ninja rebuild incrementally. A changed option, a first run, or an
 # explicit "clean" falls through to the wipe-and-reconfigure path. Some modes
-# always take that path: tidy because clang-tidy runs as part of compilation,
-# so an incremental no-op build would analyze nothing and report a falsely
-# clean summary; msan because the ignorelist affects codegen but is not a
-# ninja dependency, so an incremental build would keep stale objects after an
-# ignorelist edit (CCACHE_EXTRAFILES only fixes ccache hits on recompiles, not
-# skipped recompiles); scan and reconfigure because they are configure-only.
-# Editing CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake
-# itself when the lists file is newer than the cache.
+# always take that path: msan because the ignorelist affects codegen but is
+# not a ninja dependency, so an incremental build would keep stale objects
+# after an ignorelist edit (CCACHE_EXTRAFILES only fixes ccache hits on
+# recompiles, not skipped recompiles); scan and reconfigure because they are
+# configure-only. Editing CMakeLists.txt still reconfigures: `cmake --build`
+# re-runs CMake itself when the lists file is newer than the cache.
+#
+# tidy reuses its tree like any other mode. clang-tidy runs as part of each
+# compilation, so an incremental build analyzes the TUs ninja rebuilds and no
+# others; the summary therefore covers this run's TUs, and a finding left
+# unfixed in an untouched TU was reported by the run that last compiled it.
+# ninja does not know .clang-tidy is an input, so pass "clean" after editing
+# it to re-analyze everything.
 configSig="$LIBSTD_OPTION|$TIDY_OPTION|$SAN_OPTION|$COV_OPTION|$CUDA_OPTION|$NDEBUG_OPTION|CC=$CC|CXX=$CXX"
 
 reuse=false
-if ! $use_clean && ! $use_tidy && ! $use_scan && ! $use_reconfigure &&
+if ! $use_clean && ! $use_scan && ! $use_reconfigure &&
   [[ "$sanitizer" != "msan" ]] &&
   [[ -f "$sigFile" && "$(cat "$sigFile")" == "$configSig" ]]; then
   reuse=true
@@ -493,6 +542,54 @@ else
   fi
 fi
 
+# CMake's clang-tidy launcher covers only C, CXX, OBJC, and OBJCXX, so the
+# build above analyzed no .cu TU, and the CUDA-only headers they pull in
+# (corvid/cuda/**) would otherwise be a tidy blind spot. Run a standalone pass
+# over the .cu sources in the compile DB (which carries their clang-CUDA
+# commands) and append it to the same log, so the summary below includes the
+# CUDA findings. Mirrors cleanbuild.ps1.
+#
+# Host-only: clang-tidy analyzes the driver's first job, which for CUDA is the
+# device compilation, where the standard library under __CUDA_ARCH__ raises
+# false dynamic-initialization findings on host-only statics. The host
+# compilation still parses every kernel and device function, so device-code
+# findings survive; only the device-side view of the standard library goes.
+#
+# Parallel: one clang-tidy process per file, at ~1.2 GB and ~20 s for the LLM
+# tests, throttled to half the logical cores. Each file writes its own log
+# under tidy-cu/, concatenated in name order so files do not interleave. Every
+# .cu is re-analyzed on every tidy run (the pass is outside ninja); it is a
+# fraction of a minute.
+if $use_tidy && [[ -n "$CUDA_OPTION" ]]; then
+  mapfile -t cu_sources < <(jq -r '.[].file | select(endswith(".cu"))' "$buildRoot/compile_commands.json" | sort -u)
+  # A named test scopes this pass too: just that file for a .cu, none for a
+  # .cpp (the compile DB always lists every .cu, since the configure is
+  # unfiltered).
+  if [[ -n "$test_name" ]]; then
+    if [[ "$test_name" == *.cu ]]; then
+      mapfile -t cu_sources < <(printf '%s\n' "${cu_sources[@]}" | grep -F "/$test_name" || true)
+    else
+      cu_sources=()
+    fi
+  fi
+  if [[ ${#cu_sources[@]} -gt 0 ]]; then
+    echo "Running clang-tidy on ${#cu_sources[@]} CUDA source(s) (the build launcher skips .cu)..."
+    cuLogDir="$buildRoot/tidy-cu"
+    rm -rf "$cuLogDir"
+    mkdir -p "$cuLogDir"
+    jobs=$(( $(nproc) / 2 ))
+    (( jobs < 1 )) && jobs=1
+    # clang-tidy exits nonzero on a compile error inside a TU; the log carries
+    # it and the summary shows it, so do not let set -e stop the script here.
+    printf '%s\0' "${cu_sources[@]}" \
+      | xargs -0 -n 1 -P "$jobs" sh -c \
+          'clang-tidy -p "$1" --quiet --extra-arg=--cuda-host-only "$3" > "$2/$(basename "$3").log" 2>&1' \
+          _ "$buildRoot" "$cuLogDir" \
+      || true
+    cat "$cuLogDir"/*.log >> "$tidyLogFile"
+  fi
+fi
+
 # Run the registered CTest suite. `notest_*` sources are built but not
 # registered, so ctest naturally skips them -- except a single `notest_*` file
 # requested by name, which is run directly below.
@@ -547,19 +644,21 @@ fi
 
 # In tidy mode, clang-tidy warnings stream through the build phase but get
 # buried under the ctest run that follows. Summarize them at the very end so
-# the bottom-line state is visible. Filter out diagnostics in
+# the bottom-line state is visible. Errors count too: the standalone .cu pass
+# above reports a TU that fails to compile as [clang-diagnostic-error] and
+# does not stop the script. Filter out diagnostics in
 # .fetchcontent/ or .local/ (FetchContent'd Catch2, prebuilt OpenSSL, ngtcp2
 # ExternalProject sources) so only Corvid-owned issues appear.
 if $use_tidy; then
   echo
   echo "==================== clang-tidy summary ===================="
-  warn_lines=$(grep -E ': warning: .*\[[A-Za-z][A-Za-z0-9._-]*\]' "$tidyLogFile" \
+  warn_lines=$(grep -E ': (warning|error): .*\[[A-Za-z][A-Za-z0-9._-]*\]' "$tidyLogFile" \
                | grep -v -F '.fetchcontent/' \
                | grep -v -F '.local/' \
                || true)
   if [[ -n "$warn_lines" ]]; then
     warn_count=$(printf '%s\n' "$warn_lines" | wc -l)
-    echo "$warn_count warning(s):"
+    echo "$warn_count finding(s):"
     echo
     printf '%s\n' "$warn_lines"
     echo
@@ -569,7 +668,7 @@ if $use_tidy; then
         | sort | uniq -c | sort -rn \
         | sed 's/^/  /'
   else
-    echo "clean: no warnings"
+    echo "clean: no warnings or errors"
   fi
   echo
   echo "Full log: $tidyLogFile"

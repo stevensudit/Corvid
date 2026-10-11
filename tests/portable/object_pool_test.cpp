@@ -703,11 +703,11 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     CHECK(tok.get_ptr(pool) == nullptr);
   }
 
-  // `token(borrowed&&)` after shutdown: the sealed slot refuses the detach,
-  // so the ctor returns the slot on the spot. The handle ends up empty either
+  // `token(borrowed&&)` after shutdown: the sealed slot refuses the detach, so
+  // the ctor returns the slot on the spot. The handle ends up empty either
   // way, and the token cannot escalate: the seal must not be cleared, or a
-  // gen-0 token could reacquire a shut-down slot.
-  // Both blocks check the handle after a detach that had to fail.
+  // gen-0 token could reacquire a shut-down slot. Both blocks check the handle
+  // after a detach that had to fail.
   // NOLINTBEGIN(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   if (true) {
     object_pool<int, 1> pool;

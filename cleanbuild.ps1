@@ -34,8 +34,9 @@
 #   ./cleanbuild.ps1 cl                  portable suite via MSVC cl (no CUDA;
 #                                        builds in tests/build-cl)
 #   ./cleanbuild.ps1 asan                ASAN (+UBSAN) build + ctest (clang++ only)
-#   ./cleanbuild.ps1 tidy                run clang-tidy during the build, then a
-#                                        warning summary (clang++ only)
+#   ./cleanbuild.ps1 tidy                run clang-tidy during the build, in its
+#                                        own incremental tree (tests/build-tidy),
+#                                        then a warning summary (clang++ only)
 #   ./cleanbuild.ps1 cudacheck           CUDA tests under compute-sanitizer (the
 #                                        device analog of asan; memcheck etc.)
 [CmdletBinding()]
@@ -82,8 +83,9 @@ foreach ($a in $Rest) {
 }
 
 # "clean-all" deletes the buildable outputs and stops: the release tree
-# (tests/build), the cl tree (tests/build-cl), the IDE debug tree
-# (tests/build-debug), any legacy in-source strays at the repo root, and the
+# (tests/build), the cl tree (tests/build-cl), the tidy tree (tests/build-tidy),
+# the IDE debug tree (tests/build-debug), any legacy in-source strays at the
+# repo root, and the
 # Catch2 build dirs inside the dependency caches (Catch2 objects are not
 # mode-keyed, so a stale sanitizer mode's objects could otherwise poison later
 # links). Standalone; builds nothing. The downloaded sources and prebuilt deps
@@ -96,7 +98,8 @@ if ($cleanAll) {
   }
   foreach ($target in 'CMakeCache.txt', 'cmake_install.cmake',
     'ClangExeProject.sln', 'build.ninja', 'CMakeFiles', '.ninja_deps',
-    '.ninja_log', 'tests/build', 'tests/build-cl', 'tests/build-debug',
+    '.ninja_log', 'tests/build', 'tests/build-cl', 'tests/build-tidy',
+    'tests/build-debug',
     'tests/.fetchcontent/catch2-build',
     'tests/.fetchcontent-debug/catch2-build') {
     $path = Join-Path $repo $target
@@ -105,9 +108,9 @@ if ($cleanAll) {
       throw "clean-all: failed to remove '$path' (open handle? close clangd/IDE and retry)"
     }
   }
-  Write-Host ('Removed tests/build, tests/build-cl, tests/build-debug, and ' +
-    'the Catch2 object caches (downloaded sources and prebuilt deps ' +
-    'preserved).')
+  Write-Host ('Removed tests/build, tests/build-cl, tests/build-tidy, ' +
+    'tests/build-debug, and the Catch2 object caches (downloaded sources ' +
+    'and prebuilt deps preserved).')
   exit 0
 }
 if ($sanitizer -and $compiler -eq 'cl') {
@@ -146,6 +149,13 @@ if ($compiler -eq 'clang') {
 } else {
   $cxx = 'cl'
   $bldDir = Join-Path $repo 'tests/build-cl'
+}
+# tidy gets its own tree too: every object in it was compiled under clang-tidy,
+# so an incremental build there re-analyzes exactly the TUs whose sources or
+# headers changed, while the plain tree's objects and compile_commands.json
+# stay untouched (tidy keeps asserts live, so the two configurations differ).
+if ($tidy) {
+  $bldDir = Join-Path $repo 'tests/build-tidy'
 }
 
 # Bring in the MSVC environment (INCLUDE/LIB, and cl/link on PATH) unless we are
@@ -230,9 +240,12 @@ if ($tidy) {
   # (keeping -O so the /MD CRT and layout match the normal Release build; the
   # CRT comes from -fms-runtime-lib=dll, not the build type). The build type
   # MUST stay Release: an empty build type makes the GNU-clang platform pull the
-  # debug CRT (msvcrtd), which then fails to link against the /MD Catch2.
+  # debug CRT (msvcrtd), which then fails to link against the /MD Catch2. The
+  # CUDA Release flags carry their own -DNDEBUG, so override them too; while
+  # only the C++ ones were, the .cu TUs compiled with asserts stripped and an
+  # ill-formed assert in linear_algebra.cuh passed here but not on Linux.
   $cfg += @('-DUSE_CLANG_TIDY=ON', "-DCLANG_TIDY_EXE=$clangTidy",
-    '-DCMAKE_CXX_FLAGS_RELEASE=-O2')
+    '-DCMAKE_CXX_FLAGS_RELEASE=-O2', '-DCMAKE_CUDA_FLAGS_RELEASE=-O3')
 }
 $cfg += $cudaArgs
 $mode = if ($reconfigure) { 'reconfigure' } elseif ($tidy) { 'tidy' } elseif ($cudacheck) { 'cudacheck' } elseif ($sanitizer) { $sanitizer } else { 'plain' }
@@ -246,14 +259,19 @@ Write-Host "Compiler: $compiler   Mode: $mode ($cfgLabel)$(if ($testName) { "   
 # and let ninja rebuild incrementally. A changed option, a first run, or an
 # explicit `clean` falls through to the fresh configure, which wipes
 # CMakeFiles/ (where ninja keeps every object file) and so recompiles
-# everything. tidy always takes the fresh path: clang-tidy runs as part of
-# compilation, so an incremental no-op build would analyze nothing and report
-# a falsely clean summary. reconfigure always configures (that is its job).
-# Editing CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake when
-# the lists file is newer than the cache. Mirrors cleanbuild.sh.
+# everything. reconfigure always configures (that is its job). Editing
+# CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake when the
+# lists file is newer than the cache. Mirrors cleanbuild.sh.
+#
+# tidy reuses its tree like any other mode. clang-tidy runs as part of each
+# compilation, so an incremental build analyzes the TUs ninja rebuilds and no
+# others; the summary therefore covers this run's TUs, and a finding left
+# unfixed in an untouched TU was reported by the run that last compiled it.
+# ninja does not know .clang-tidy is an input, so pass `clean` after editing
+# it to re-analyze everything.
 $sigFile = Join-Path $bldDir '.cleanbuild-config'
 $configSig = ($cfg -join '|')
-$reuse = -not ($clean -or $tidy -or $reconfigure) -and (Test-Path $sigFile) -and
+$reuse = -not ($clean -or $reconfigure) -and (Test-Path $sigFile) -and
   (Test-Path (Join-Path $bldDir 'CMakeCache.txt')) -and
   ((Get-Content $sigFile -Raw).Trim() -eq $configSig)
 
@@ -316,8 +334,19 @@ if ($tidy) {
 # so .cu TUs and the CUDA-only headers they pull in (corvid/cuda/**) would
 # otherwise be a tidy blind spot. Run a standalone pass over the .cu sources from
 # the compile DB (which carries their clang-CUDA commands) and append it to the
-# same log, so the summary below includes the CUDA findings. Sequential: clang's
-# CUDA frontend parses each TU twice (host + device), so this adds time.
+# same log, so the summary below includes the CUDA findings.
+#
+# Host-only: clang-tidy analyzes the driver's first job, which for CUDA is the
+# device compilation, where the MSVC STL under __CUDA_ARCH__ raises false
+# dynamic-initialization findings on host-only statics. The host compilation
+# still parses every kernel and device function, so device-code findings
+# survive; only the device-side view of the standard library goes.
+#
+# Parallel: one clang-tidy process per file, at ~1.2 GB and ~20 s for the LLM
+# tests, throttled to the physical core count. Each file's output is gathered
+# as one string so files do not interleave in the log. Every .cu is
+# re-analyzed on every tidy run (the pass is outside ninja); it is a fraction
+# of a minute.
 if ($tidy -and $cudaArgs) {
   $db = Join-Path $bldDir 'compile_commands.json'
   $cuSources = @((Get-Content $db -Raw | ConvertFrom-Json) |
@@ -330,9 +359,9 @@ if ($tidy -and $cudaArgs) {
   }
   if ($cuSources.Count) {
     Write-Host "Running clang-tidy on $($cuSources.Count) CUDA source(s) (the build launcher skips .cu)..."
-    foreach ($src in $cuSources) {
-      & $clangTidy -p $bldDir --quiet $src 2>&1 | Add-Content $tidyLog
-    }
+    $cuSources | ForEach-Object -Parallel {
+      & $using:clangTidy -p $using:bldDir --quiet --extra-arg=--cuda-host-only $_ 2>&1 | Out-String
+    } -ThrottleLimit ([Math]::Max(1, [int]([Environment]::ProcessorCount / 2))) | Add-Content $tidyLog
   }
 }
 
@@ -418,15 +447,17 @@ if ($stem -like 'notest_*') {
 
 # tidy mode: clang-tidy warnings streamed past during the build and got buried
 # under the ctest run. Summarize them at the end so the bottom-line state is
-# visible, mirroring cleanbuild.sh. Filter out .fetchcontent (the FetchContent'd
-# Catch2) so only Corvid-owned findings appear; group by check.
+# visible, mirroring cleanbuild.sh. Errors count too: the standalone .cu pass
+# reports a TU that fails to compile as [clang-diagnostic-error] and does not
+# stop the script. Filter out .fetchcontent (the FetchContent'd Catch2) so only
+# Corvid-owned findings appear; group by check.
 if ($tidy) {
   Write-Host ''
   Write-Host '==================== clang-tidy summary ===================='
-  $warn = @(Select-String -Path $tidyLog -Pattern ': warning: .*\[[A-Za-z][A-Za-z0-9._-]*\]' |
+  $warn = @(Select-String -Path $tidyLog -Pattern ': (warning|error): .*\[[A-Za-z][A-Za-z0-9._-]*\]' |
     Where-Object { $_.Line -notmatch '\.fetchcontent' } | ForEach-Object { $_.Line })
   if ($warn.Count) {
-    Write-Host "$($warn.Count) warning(s):"
+    Write-Host "$($warn.Count) finding(s):"
     Write-Host ''
     $warn | ForEach-Object { Write-Host $_ }
     Write-Host ''
@@ -435,7 +466,7 @@ if ($tidy) {
       Group-Object | Sort-Object Count -Descending |
       ForEach-Object { Write-Host ('  {0,5}  {1}' -f $_.Count, $_.Name) }
   } else {
-    Write-Host 'clean: no warnings'
+    Write-Host 'clean: no warnings or errors'
   }
   Write-Host ''
   Write-Host "Full log: $tidyLog"

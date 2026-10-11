@@ -191,9 +191,9 @@ public:
   // The value as the `Child` itself, not a bare `SV`, so the child's
   // invariants carry through `value`, `operator*`, and `operator->`. As with
   // `std::optional`, `value` throws `std::bad_optional_access` when `null`,
-  // while `operator*` and `operator->` are undefined when `null` (asserted in
-  // debug builds). On an rvalue wrapper, `value` and `operator*` return the
-  // child by value so the result cannot dangle.
+  // while `operator*` and `operator->` are undefined when `null`. On an rvalue
+  // wrapper, `value` and `operator*` return the child by value so the result
+  // cannot dangle.
   [[nodiscard]] constexpr const child_t& value() const& {
     if (null()) throw std::bad_optional_access{};
     return as_child();

@@ -6,7 +6,7 @@
 #include <cuda_runtime.h>
 
 #include "corvid/cuda/cuda_device.cuh"
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_event.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
@@ -83,17 +83,17 @@ __global__ void reduce_block(const float* in, float* block_sums, int n) {
 int main() {
   int n = 42;
   test<<<4, 256>>>(n); // warm-up
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
   // Fill an array using one thread per element.
   n = 1024;
 
   std::vector<int> h_I(n);
-  cuda_ptr<int> d_I(n);
+  cuda_buffer<int> d_I(n);
   *d_I;
 
   iota<<<1, n>>>(n, d_I);
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
   *d_I.store(h_I);
 
@@ -108,11 +108,11 @@ int main() {
 
   const auto cells = static_cast<size_t>(w) * h;
   std::vector<int> h_M(cells);
-  cuda_ptr<int> d_M(cells);
+  cuda_buffer<int> d_M(cells);
   *d_M;
 
   fill_multiplication_grid<<<1, dim3(w, h)>>>(w, h, d_M);
-  *cuda_timer::synchronize();
+  *cuda_scope_timer::synchronize();
 
   *d_M.store(h_M);
 

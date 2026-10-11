@@ -1,0 +1,757 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#pragma once
+
+#include <cassert>
+#include <cmath>
+#include <concepts>
+#include <cstddef>
+#include <type_traits>
+
+#include <cuda_runtime.h>
+
+#include "../../containers/utils/matrix_view.h"
+#include "../../meta/concepts.h"
+#include "../../meta/containers.h"
+#include "../bfloat16.cuh"
+#include "../cuda_buffer.cuh"
+#include "../cuda_cublas.cuh"
+#include "../cuda_kernel.cuh"
+#include "../cuda_matrix.cuh"
+#include "../cuda_reduce.cuh"
+#include "../cuda_status.cuh"
+#include "../cuda_std.cuh"
+
+// Row and matrix arithmetic on the device, one free function per op.
+//
+// Every op writes into a caller-owned output (a `cuda_matrix` or a
+// `cuda_matrix_lens`), launches on the default stream, and returns whether its
+// launches were accepted, so a fault inside a kernel surfaces at the next
+// synchronizing call, such as a `store`. Shape mismatches are contract
+// violations.
+namespace corvid::cuda::linalg {
+
+using matrix_types::col_ndx;
+using matrix_types::row_ndx;
+
+#pragma region Launch geometry
+
+// One-thread-per-element kernels launch this many threads per block, in
+// enough blocks to cover every element.
+inline constexpr auto threads_per_block = 256U;
+
+// The block count that covers `size` elements.
+[[nodiscard]] inline unsigned blocks_for(size_t size) noexcept {
+  return cuda_kernel::blocks_for_threads(static_cast<unsigned>(size),
+      threads_per_block);
+}
+
+// The most rows a 2-D grid can cover, the limit on its y dimension in the
+// CUDA programming guide's compute capability table.
+inline constexpr auto max_grid_rows = 65535UZ;
+
+// The grid of `threads_per_block` blocks that covers `extent`, rows along y
+// and columns along x, for a kernel whose threads each own one `kernel_coord`.
+// Designed for use in a launch statement.
+//
+// The row count must not exceed `max_grid_rows`.
+[[nodiscard]] inline dim3 grid_for(matrix_extent extent) noexcept {
+  assert(extent.row_count <= max_grid_rows);
+  return {blocks_for(extent.col_count),
+      static_cast<unsigned>(extent.row_count)};
+}
+
+// The grid that covers a matrix or view.
+template<typename M>
+requires requires(const M& m) {
+  { m.extent() } -> std::convertible_to<matrix_extent>;
+}
+[[nodiscard]] dim3 grid_for(const M& m) noexcept {
+  return grid_for(m.extent());
+}
+
+#pragma endregion
+#pragma region Views
+
+// The view an op with the output `Out` takes as an input, which an owning
+// `cuda_matrix` or a lens converts to at the call.
+template<DeviceMatrixLike Out>
+using input_view_t = cuda_matrix_view<device_element_t<Out>>;
+
+// The buffer an op with the output `Out` takes as a per-column input, such as
+// a bias.
+template<DeviceMatrixLike Out>
+using input_buffer_t = cuda_buffer<device_element_t<Out>>;
+
+#pragma endregion
+#pragma region gemm
+
+namespace details {
+
+// Write `bias` across every row of `out`, `extent` in size, one thread per
+// element.
+template<typename T>
+__global__ void
+fill_rows(kernel_matrix_lens<T> out, matrix_extent extent, const T* bias) {
+  if (const kernel_coord at; at.is_within(extent)) out[at] = bias[at.col];
+}
+
+// The extent of `op(x)`.
+template<typename T>
+[[nodiscard]] matrix_extent
+op_extent(cuda_matrix_lens<T> x, cublas_operation op) noexcept {
+  return (op == cublas_operation::none) ? x.extent() : x.extent().transposed();
+}
+
+} // namespace details
+
+// The scalars and transpose flags of a `gemm`, named at the call site.
+//
+// `scale` multiplies the product and `addend_scale` the addend, whether that
+// is a matrix or a bias row. `op_a` and `op_b` take each operand as stored or
+// transposed.
+template<GemmElement T>
+struct gemm_options {
+  gemm_scalar_t<T> scale = 1;
+  gemm_scalar_t<T> addend_scale = 1;
+  cublas_operation op_a = cublas_operation::none;
+  cublas_operation op_b = cublas_operation::none;
+};
+
+// General Matrix Multiply (GEMM) over row-major matrices, with a matrix
+// addend. The formula is:
+//
+// `out = scale * op(a) * op(b) + addend_scale * addend`
+//
+// where `op(x)` is `x` or its transpose, as the options select.
+//
+// The shapes must agree: `op(a)` has a row per row of `out`, `op(b)` has a
+// column per column of `out`, and `op(a)` has as many columns as `op(b)` has
+// rows.
+//
+// `addend` picks what the product is added to:
+//
+//   empty (the default)  out = scale * op(a) * op(b)
+//   `out` itself         out = scale * op(a) * op(b) + addend_scale * out
+//   another matrix       out = scale * op(a) * op(b) + addend_scale * addend
+//
+// Another matrix must have the extent of `out`.
+//
+// `a` and `b` share an element type. `out` holds that type or, for
+// `bfloat16_t` operands, `float`.
+//
+// The distinction between `addend` and `out` is this layer's. Down in
+// `cublas_handle::multiply_row_major` and below, `C` is one in-out matrix that
+// is read scaled by `beta` and overwritten with the result. So `out` is always
+// `C`, another matrix is copied into `out` before the call, and an empty
+// addend or a zero `addend_scale` passes `beta` as zero, under which cuBLAS
+// never reads `out`.
+//
+// `out` must not be `a` or `b`. Returns false when a launch or copy is
+// refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable A, DeviceMatrixViewable B>
+requires std::same_as<device_value_t<A>, device_value_t<B>> &&
+         GemmOutput<device_value_t<A>, device_element_t<Out>>
+[[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out, const A& a,
+    const B& b, gemm_options<device_value_t<A>> options = {},
+    input_view_t<Out> addend = {}) {
+  const auto& out_lens = out.as_lens();
+  const cuda_matrix_view<device_value_t<A>> a_view = a;
+  const cuda_matrix_view<device_value_t<A>> b_view = b;
+  const auto op_a_extent = details::op_extent(a_view, options.op_a);
+  [[maybe_unused]] const auto op_b_extent =
+      details::op_extent(b_view, options.op_b);
+  assert((out_lens.row_extent() == op_a_extent.row_count) &&
+         (out_lens.col_extent() == op_b_extent.col_count));
+  assert(op_a_extent.col_count == op_b_extent.row_count);
+  // Aliasing is a question about memory, not element type. In a
+  // mixed-precision product `out` and the inputs differ in type, so compare
+  // as `const void*`.
+  [[maybe_unused]] const void* const out_address = out_lens.get();
+  assert((out_address != a_view.get()) && (out_address != b_view.get()));
+
+  // To create the `out`/`addend` distinction, we need to initialize `C` with a
+  // copy of the `addend`, if there's anything there for us.
+  const auto has_addend = !addend.empty() && (options.addend_scale != 0);
+  if (has_addend && (addend.get() != out_lens.get())) {
+    assert(addend.extent() == out_lens.extent());
+    // Copy `addend` into `out`, as part of the same default stream as `blas`.
+    if (!out_lens.load(addend)) return false;
+  }
+  const gemm_scalar_t<device_value_t<A>> beta =
+      has_addend ? options.addend_scale : 0;
+
+  // Each leading dimension is its view's stride, the row length as stored.
+  const auto m = static_cast<int>(out_lens.row_extent());
+  const auto n = static_cast<int>(out_lens.col_extent());
+  const auto k = static_cast<int>(op_a_extent.col_count);
+  const auto lda = static_cast<int>(a_view.stride());
+  const auto ldb = static_cast<int>(b_view.stride());
+  const auto ldc = static_cast<int>(out_lens.stride());
+  return blas
+      .multiply_row_major(m, n, k, options.scale, a_view.get(), lda,
+          b_view.get(), ldb, beta, out_lens.get(), ldc, options.op_a,
+          options.op_b)
+      .ok();
+}
+
+// GEMM over row-major matrices, with a bias row added to every row.
+//
+// `out = scale * op(a) * op(b) + addend_scale * bias`, where `bias` has an
+// element per column of `out` and is the addend of every row. The operands
+// and options are those of the matrix-addend `gemm`.
+//
+// `bias` must not be empty. `out` must not be `a` or `b`. Returns false when a
+// launch is refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable A, DeviceMatrixViewable B>
+requires std::same_as<device_value_t<A>, device_value_t<B>> &&
+         GemmOutput<device_value_t<A>, device_element_t<Out>>
+[[nodiscard]] bool gemm(const cublas_handle& blas, Out&& out, const A& a,
+    const B& b, const input_buffer_t<Out>& bias,
+    gemm_options<device_value_t<A>> options = {}) {
+  const auto& out_lens = out.as_lens();
+  assert(bias);
+  assert(bias.size() == out_lens.col_extent());
+
+  // We can't directly add `bias` as part of the GEMM operation because `bias`
+  // is a row vector and GEMM expects a matrix for `addend`. In principle, we
+  // could pass an `addend_scale` of 0 and then do the `bias` add in a separate
+  // kernel, but we can get the same effect cheaper by broadcasting `bias` into
+  // `out`, turning it into a matrix that we then use as the `addend`.
+  // Essentially: Ctrl+C, Ctrl+V FTW.
+  details::fill_rows<<<grid_for(out_lens), threads_per_block>>>(
+      kernel_matrix_lens{out_lens}, out_lens.extent(), bias.get());
+  if (!cuda_last_status{}) return false;
+
+  return gemm(blas, out_lens, a, b, options, out_lens);
+}
+
+#pragma endregion
+#pragma region gemm_batched
+
+// How the operands of a `gemm_batched` divide into instances.
+//
+// Each operand is one matrix that holds every instance as an equal piece, and
+// its axis is the one it divides along. Under `rows`, a matrix of B * R rows
+// is B pieces of R rows each, stacked. Under `cols`, a matrix of B * C columns
+// is B pieces of C columns each, side by side.
+//
+// `count` is how many instances there are, and must divide the extent of each
+// operand along its axis.
+struct gemm_batch {
+  size_t count{};
+  matrix_axis a = matrix_axis::rows;
+  matrix_axis b = matrix_axis::rows;
+  matrix_axis out = matrix_axis::rows;
+};
+
+namespace details {
+
+// A batched operand, as a view of instance 0 and the element distance from
+// each instance to the next.
+template<typename T>
+struct batch_pieces {
+  cuda_matrix_lens<T> first;
+  size_t stride{};
+};
+
+// Divide `whole` into `count` equal pieces along `axis`.
+//
+// `count` must divide the extent of `whole` along `axis`.
+template<typename T>
+[[nodiscard]] batch_pieces<T>
+split_batch(cuda_matrix_lens<T> whole, matrix_axis axis, size_t count) {
+  auto piece = whole.extent();
+  assert(count && (piece[axis] % count == 0));
+  piece[axis] /= count;
+
+  // Stacked pieces are a piece's worth of stored rows apart. Side-by-side
+  // pieces are a piece's width apart, and share the stride of `whole` as their
+  // leading dimension.
+  const auto stride =
+      (axis == matrix_axis::rows)
+          ? piece.row_count * whole.stride()
+          : piece.col_count;
+  return {whole[piece], stride};
+}
+
+} // namespace details
+
+// Batched GEMM over row-major matrices. For each instance `i`, the formula is:
+//
+// `out[i] = scale * op(a[i]) * op(b[i])`
+//
+// where `op(x)` is `x` or its transpose, as the options select.
+//
+// Each operand is one matrix holding every instance as an equal piece, divided
+// along the axis that `batch` names for it. The pieces of one operand share an
+// extent, and the shapes of the pieces must agree as the operands of `gemm`
+// do.
+//
+// There is no addend, so `addend_scale` is unused.
+//
+// `out` must not overlap `a` or `b`. Returns false when the launch is refused,
+// leaving `out` unspecified.
+template<DeviceMatrixLike Out>
+requires GemmElement<device_element_t<Out>>
+[[nodiscard]] bool gemm_batched(const cublas_handle& blas, Out&& out,
+    input_view_t<Out> a, input_view_t<Out> b, gemm_batch batch,
+    gemm_options<device_element_t<Out>> options = {}) {
+  const auto& out_lens = out.as_lens();
+  assert(out_lens.is_disjoint(a));
+  assert(out_lens.is_disjoint(b));
+  const auto out_pieces =
+      details::split_batch(out_lens, batch.out, batch.count);
+  const auto a_pieces = details::split_batch(a, batch.a, batch.count);
+  const auto b_pieces = details::split_batch(b, batch.b, batch.count);
+
+  const auto op_a_extent = details::op_extent(a_pieces.first, options.op_a);
+  [[maybe_unused]] const auto op_b_extent =
+      details::op_extent(b_pieces.first, options.op_b);
+  assert((out_pieces.first.row_extent() == op_a_extent.row_count) &&
+         (out_pieces.first.col_extent() == op_b_extent.col_count));
+  assert(op_a_extent.col_count == op_b_extent.row_count);
+
+  // Each leading dimension is the stride of the whole operand, which its
+  // pieces inherit.
+  const auto m = static_cast<int>(out_pieces.first.row_extent());
+  const auto n = static_cast<int>(out_pieces.first.col_extent());
+  const auto k = static_cast<int>(op_a_extent.col_count);
+  const auto lda = static_cast<int>(a.stride());
+  const auto ldb = static_cast<int>(b.stride());
+  const auto ldc = static_cast<int>(out_lens.stride());
+  return blas
+      .multiply_batched_row_major(m, n, k, options.scale, a.get(), lda,
+          static_cast<long long>(a_pieces.stride), b.get(), ldb,
+          static_cast<long long>(b_pieces.stride), 0, out_lens.get(), ldc,
+          static_cast<long long>(out_pieces.stride),
+          static_cast<int>(batch.count), options.op_a, options.op_b)
+      .ok();
+}
+
+#pragma endregion
+#pragma region linear_projection
+
+// `linear_projection` projects each row of `in` through `weight` and adds
+// `bias`, writing into `out`.
+//
+// The contract is that of the CPU `corvid::linalg::linear_projection`, which
+// also holds the worked explanation.
+//
+// `out` has a row per row of `in` and a column per column of `weight`,
+// `weight` has a row per column of `in`, and `bias` has an element per column
+// of `weight`. `in` and `weight` share an element type, and `out` and `bias`
+// hold that type or, for `bfloat16_t` operands, `float`. `out` must not be
+// `in` or `weight`.
+//
+// Returns false when a launch is refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable In,
+    DeviceMatrixViewable Weight>
+requires std::same_as<device_value_t<In>, device_value_t<Weight>> &&
+         GemmOutput<device_value_t<In>, device_element_t<Out>>
+[[nodiscard]] bool linear_projection(const cublas_handle& blas, Out&& out,
+    const In& in, const Weight& weight, const input_buffer_t<Out>& bias) {
+  return gemm(blas, out, in, weight, bias);
+}
+
+namespace details {
+
+// `add_column_sums` adds the sum of each column of `in`, `extent` in size, to
+// `out`, one thread per column.
+//
+// The rows are summed in order, so the result does not depend on how the
+// launch is scheduled.
+template<DeviceFloating T, DeviceFloating From>
+__global__ void
+add_column_sums(T* out, kernel_matrix_view<From> in, matrix_extent extent) {
+  const auto col = cuda_kernel::x_index<size_t>();
+  if (col >= extent.col_count) return;
+
+  compute_t<T> total{};
+  for (const auto row : iota(extent.row_count)) total += widen(in[row, col]);
+
+  out[col] = narrow<T>(widen(out[col]) + total);
+}
+
+} // namespace details
+
+// `linear_projection_backward` computes how much the loss moves per unit of
+// each value of a projection's input from how much it moves per unit of each
+// value of its output, writing into `in_gradient`, and adds how much it moves
+// per unit of each weight and bias to `weight_gradient` and `bias_gradient`.
+//
+// This is the backward step of `linear_projection`, whose forward step is
+// `out = in * weight + bias`, with `bias` added to every row. A gradient is
+// how much the loss moves per unit of a value. For R rows, I input values,
+// and J output values:
+//
+//   in_gradient      [R, I]  the gradient with respect to `in`, written
+//   weight_gradient  [I, J]  the gradient with respect to `weight`, added to
+//   bias_gradient    [J]     the gradient with respect to `bias`, added to
+//   out_gradient     [R, J]  the gradient with respect to the forward `out`
+//   in               [R, I]  the forward `in`
+//   weight           [I, J]  the forward `weight`
+//
+// Nudging `in[r, i]` by a small `step` moves `out[r, j]` by `weight[i, j]`
+// times `step` for every `j`, and the loss by `out_gradient[r, j]` times
+// that. Per unit of `step`:
+//
+//   in_gradient[r, i] = sum over j of out_gradient[r, j] * weight[i, j]
+//
+// which is the product of `out_gradient` and the transposed `weight`.
+//
+// Nudging `weight[i, j]` moves `out[r, j]` by `in[r, i]` times `step` in
+// every row, so
+//
+//   weight_gradient[i, j] = sum over r of in[r, i] * out_gradient[r, j]
+//
+// which is the product of the transposed `in` and `out_gradient`.
+//
+// Nudging `bias[j]` moves `out[r, j]` by `step` in every row, so
+//
+//   bias_gradient[j] = sum over r of out_gradient[r, j]
+//
+// which is the sum of column `j` of `out_gradient`.
+//
+// A caller that spreads one batch over several calls accumulates one batch
+// gradient, since the weight and bias gradients are added to and never
+// overwritten. Zero them before the first call.
+//
+// `in_gradient` and `in` must have the same extent, as must `weight_gradient`
+// and `weight`. `out_gradient` has a row per row of `in` and a column per
+// column of `weight`, and `bias_gradient` an element per column of `weight`.
+// `out_gradient`, `in`, and `weight` share an element type, and the three
+// gradients hold the type cuBLAS stores a product of it as. `in_gradient`
+// must not overlap `out_gradient`, `in`, or `weight`, and `weight_gradient`
+// must not be `in` or `out_gradient`. Returns false when a launch or copy is
+// refused, leaving the three gradients unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable OutGradient,
+    DeviceMatrixViewable In, DeviceMatrixViewable Weight>
+requires std::same_as<device_value_t<OutGradient>, device_value_t<In>> &&
+         std::same_as<device_value_t<OutGradient>, device_value_t<Weight>> &&
+         GemmOutput<device_value_t<OutGradient>, device_element_t<Out>>
+[[nodiscard]] bool linear_projection_backward(const cublas_handle& blas,
+    Out&& in_gradient, cuda_matrix_lens<device_element_t<Out>> weight_gradient,
+    input_buffer_t<Out>& bias_gradient, const OutGradient& out_gradient,
+    const In& in, const Weight& weight) {
+  const auto& in_gradient_lens = in_gradient.as_lens();
+  const cuda_matrix_view<device_value_t<OutGradient>> out_gradient_view =
+      out_gradient;
+  const cuda_matrix_view<device_value_t<OutGradient>> in_view = in;
+  const cuda_matrix_view<device_value_t<OutGradient>> weight_view = weight;
+  const auto width = weight_view.col_extent();
+  assert(in_gradient_lens.extent() == in_view.extent());
+  assert(weight_gradient.extent() == weight_view.extent());
+  assert((out_gradient_view.row_extent() == in_view.row_extent()) &&
+         (out_gradient_view.col_extent() == width));
+  assert(bias_gradient.size() == width);
+  assert(in_gradient_lens.is_disjoint(in_view));
+
+  if (!gemm(blas, in_gradient_lens, out_gradient_view, weight_view,
+          {.op_b = cublas_operation::transpose}))
+    return false;
+  if (!gemm(blas, weight_gradient, in_view, out_gradient_view,
+          {.op_a = cublas_operation::transpose}, weight_gradient))
+    return false;
+
+  details::add_column_sums<<<blocks_for(width), threads_per_block>>>(
+      bias_gradient.get(), kernel_matrix_view{out_gradient_view},
+      out_gradient_view.extent());
+  return cuda_last_status{}.ok();
+}
+
+#pragma endregion
+#pragma region add and subtract
+
+namespace details {
+
+// Combine the elements of `a` and `b` through `op`, writing into `out`, all
+// `extent` in size, one thread per element.
+template<DeviceFloating To, DeviceFloating A, DeviceFloating B, typename Op>
+__global__ void
+combine_elements(kernel_matrix_lens<To> out, kernel_matrix_view<A> a,
+    kernel_matrix_view<B> b, matrix_extent extent, Op op) {
+  if (const kernel_coord at; at.is_within(extent))
+    out[at] = narrow<To>(op(widen(a[at]), widen(b[at])));
+}
+
+// Combine `a` and `b` elementwise through `op`, writing into `out`.
+//
+// All three views must have the same extent. `out` can be the same view as
+// `a` or as `b`, but must not otherwise overlap either. Returns false when
+// the launch is refused, leaving `out` unspecified.
+template<DeviceFloating To, DeviceFloating A, DeviceFloating B, typename Op>
+[[nodiscard]] bool combine(cuda_matrix_lens<To> out, cuda_matrix_view<A> a,
+    cuda_matrix_view<B> b, Op op) {
+  assert(a.extent() == b.extent());
+  assert(out.extent() == a.extent());
+  assert(out.is_same_or_disjoint(a));
+  assert(out.is_same_or_disjoint(b));
+
+  combine_elements<<<grid_for(out), threads_per_block>>>(
+      kernel_matrix_lens{out}, kernel_matrix_view{a}, kernel_matrix_view{b},
+      out.extent(), op);
+  return cuda_last_status{}.ok();
+}
+
+} // namespace details
+
+// Add `a` and `b` elementwise, writing into `out`.
+//
+// All three must have the same extent. `out` can be the same view as `a` or
+// as `b`, adding in place, but must not otherwise overlap either. The three
+// may differ in element type, and each sum is rounded once, to `out`'s.
+// Returns false when the launch is refused, leaving `out` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable A, DeviceMatrixViewable B>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<A>> && DeviceFloating<device_value_t<B>>
+[[nodiscard]] bool add(Out&& out, const A& a, const B& b) {
+  return details::combine(out.as_lens(),
+      cuda_matrix_view<device_value_t<A>>(a),
+      cuda_matrix_view<device_value_t<B>>(b), ::cuda::std::plus<>{});
+}
+
+// Subtract `b` from `a` elementwise, writing into `out`.
+//
+// All three must have the same extent. `out` can be the same view as `a` or
+// as `b`, subtracting in place, but must not otherwise overlap either. The
+// three may differ in element type, and each difference is rounded once, to
+// `out`'s. Returns false when the launch is refused, leaving `out`
+// unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable A, DeviceMatrixViewable B>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<A>> && DeviceFloating<device_value_t<B>>
+[[nodiscard]] bool subtract(Out&& out, const A& a, const B& b) {
+  return details::combine(out.as_lens(),
+      cuda_matrix_view<device_value_t<A>>(a),
+      cuda_matrix_view<device_value_t<B>>(b), ::cuda::std::minus<>{});
+}
+
+#pragma endregion
+#pragma region softmax
+
+// What `exponentiate_row` reduces. Consists of the row's largest value and the
+// sum of its shifted exponentials.
+template<DeviceFloating T>
+struct row_exponentials {
+  T peak;
+  T total;
+};
+
+// Write the exponential of each of the thread's `columns` of row `row` of
+// `in`, shifted down by the row's largest value, into the matching row of
+// `out`, and return that largest value and the row's total.
+//
+// This is a softmax short of the division by the total, so a softmax divides
+// `out` by `total` and a loss has `peak` and `total` to take a logarithm
+// from. Shifting every value by the same amount leaves the weights unchanged,
+// and shifting by the maximum keeps `exp` at or below 1.
+//
+// Every thread of the block must call it, with the row's columns shared out
+// as a `kernel_col_range` does. A thread past the last column brings the
+// identity to both block reductions.
+//
+// In-place is safe. Each element is read only by the thread that writes it,
+// and every read of `in` precedes that thread's write.
+template<DeviceFloating To, DeviceFloating From>
+__device__ row_exponentials<compute_t<From>>
+exponentiate_row(kernel_matrix_lens<To> out, kernel_matrix_view<From> in,
+    size_t row, kernel_col_range columns) {
+  auto peak = ::cuda::std::numeric_limits<compute_t<From>>::lowest();
+  for (const auto col : columns)
+    peak = ::cuda::std::max(peak, widen(in[row, col]));
+
+  peak = cuda_reduce::block_max(peak);
+
+  compute_t<From> total{};
+  for (const auto col : columns) {
+    const auto weight = std::exp(widen(in[row, col]) - peak);
+    out[row, col] = narrow<To>(weight);
+    total += weight;
+  }
+  total = cuda_reduce::block_sum(total);
+
+  return {peak, total};
+}
+
+namespace details {
+
+// Turn one row of `in`, `cols` wide, into weights that sum to 1, writing into
+// the matching row of `out`.
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and every `blockDim.x` after it.
+//
+// In-place is safe, as `exponentiate_row` is, and the division reads only
+// what the thread itself wrote.
+template<DeviceFloating To, DeviceFloating From>
+__global__ void apply_softmax(kernel_matrix_lens<To> out,
+    kernel_matrix_view<From> in, size_t cols) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const kernel_col_range columns{cols};
+  const auto [peak, total] = exponentiate_row(out, in, row, columns);
+
+  for (const auto col : columns)
+    out[row, col] = narrow<To>(widen(out[row, col]) / total);
+}
+
+} // namespace details
+
+// Turn each row of `in` into weights that sum to 1, writing into `out`.
+//
+// The contract is that of the CPU `corvid::linalg::softmax`, applied to each
+// row. A weight is the exponential of its score divided by the sum of the
+// row's exponentials, and large scores do not overflow.
+//
+// `out` and `in` must have the same extent, with at least one column. `out`
+// can be the same view as `in`, applying it in place, but must not otherwise
+// overlap it. `out` may hold another element type than `in`, each weight
+// rounded to it. Returns false when the launch is refused, leaving `out`
+// unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable In>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<In>>
+[[nodiscard]] bool softmax(Out&& out, const In& in) {
+  const auto& out_lens = out.as_lens();
+  const cuda_matrix_view<device_value_t<In>> in_view = in;
+  assert(out_lens.extent() == in_view.extent());
+  assert(in_view.col_extent() > 0);
+  assert(out_lens.is_same_or_disjoint(in_view));
+
+  details::apply_softmax<<<static_cast<unsigned>(out_lens.row_extent()),
+      threads_per_block>>>(kernel_matrix_lens{out_lens},
+      kernel_matrix_view{in_view}, out_lens.col_extent());
+  return cuda_last_status{}.ok();
+}
+
+namespace details {
+
+// Turn one row of `out_gradient`, `cols` wide, into the gradient with respect
+// to the matching row of a softmax's input, writing into the row of
+// `in_gradient`, with `out` holding the weights that softmax wrote.
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and every `blockDim.x` after it. The row's weighted sum of
+// `out_gradient` is a block-wide sum.
+//
+// In-place is safe. Every read of `out_gradient` precedes the block sum, and
+// each thread writes only the columns it read.
+template<DeviceFloating G, DeviceFloating T>
+__global__ void apply_softmax_backward(kernel_matrix_lens<G> in_gradient,
+    kernel_matrix_view<G> out_gradient, kernel_matrix_view<T> out,
+    size_t cols) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const kernel_col_range columns{cols};
+
+  compute_t<G> weighted{};
+  for (const auto col : columns)
+    weighted += widen(out_gradient[row, col]) * widen(out[row, col]);
+
+  weighted = cuda_reduce::block_sum(weighted);
+
+  for (const auto col : columns)
+    in_gradient[row, col] = narrow<G>(
+        widen(out[row, col]) * (widen(out_gradient[row, col]) - weighted));
+}
+
+} // namespace details
+
+// `softmax_backward` computes how much the loss moves per unit of each score
+// in a softmax's input from how much it moves per unit of each weight in its
+// output, writing into `in_gradient`.
+//
+// This is the backward step of `softmax`, reading the weights it wrote, `out`,
+// rather than the scores it read, since the weights alone fix the slopes. In
+// one row, each weight is its score's exponential over the row's total.
+// Nudging score `k` by a small `step` grows its exponential by `out[k] *
+// total * step`, and the total by the same amount. So `out[k]` goes up by
+// `out[k] * step` from the top and down by `out[k] * out[k] * step` from the
+// bottom, while every other `out[c]` goes down by `out[c] * out[k] * step`
+// from the bottom alone. The loss moves by each weight's move times
+// `out_gradient[c]`, summed. Per unit of `step`:
+//
+//   in_gradient[r, k] = out[r, k] * (out_gradient[r, k] - weighted)
+//
+// where `weighted` is the row's sum of `out[r, c] * out_gradient[r, c]`. A
+// weight of zero (a masked score) gets a gradient of zero.
+//
+// All three must have the same extent, with at least one column. `in_gradient`
+// can be `out_gradient`, applying it in place, but must not otherwise overlap
+// it, and must not overlap `out`. The gradients share an element type, and
+// `out` may hold another (the type the forward step wrote). Returns false when
+// the launch is refused, leaving `in_gradient` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable Weights>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<Weights>>
+[[nodiscard]] bool softmax_backward(Out&& in_gradient,
+    input_view_t<Out> out_gradient, const Weights& out) {
+  const auto& in_gradient_lens = in_gradient.as_lens();
+  const cuda_matrix_view<device_value_t<Weights>> out_view = out;
+  assert(in_gradient_lens.extent() == out_gradient.extent());
+  assert(in_gradient_lens.extent() == out_view.extent());
+  assert(out_view.col_extent() > 0);
+  assert(in_gradient_lens.is_same_or_disjoint(out_gradient));
+  assert(in_gradient_lens.is_disjoint(out_view));
+
+  details::apply_softmax_backward<<<in_gradient_lens.row_extent(),
+      threads_per_block>>>(kernel_matrix_lens{in_gradient_lens},
+      kernel_matrix_view{out_gradient}, kernel_matrix_view{out_view},
+      in_gradient_lens.col_extent());
+  return cuda_last_status{}.ok();
+}
+
+#pragma endregion
+#pragma region convert
+
+namespace details {
+
+// Convert the elements of `in` to those of `out`, both `extent` in size, one
+// thread per element.
+template<DeviceFloating To, DeviceFloating From>
+__global__ void convert_elements(kernel_matrix_lens<To> out,
+    kernel_matrix_view<From> in, matrix_extent extent) {
+  if (const kernel_coord at; at.is_within(extent))
+    out[at] = narrow<To>(widen(in[at]));
+}
+
+} // namespace details
+
+// Convert every element of `in` to the element type of `out`, writing into
+// `out`.
+//
+// A value that the element type of `out` cannot hold exactly rounds to
+// nearest even. `out` and `in` must have the same extent and must not
+// overlap. Returns false when the launch is refused, leaving `out`
+// unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable In>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<In>>
+[[nodiscard]] bool convert(Out&& out, const In& in) {
+  const auto& out_lens = out.as_lens();
+  const cuda_matrix_view<device_value_t<In>> in_view = in;
+  assert(out_lens.extent() == in_view.extent());
+  assert(out_lens.is_disjoint(in_view));
+
+  details::convert_elements<<<grid_for(out_lens), threads_per_block>>>(
+      kernel_matrix_lens{out_lens}, kernel_matrix_view{in_view},
+      out_lens.extent());
+  return cuda_last_status{}.ok();
+}
+
+#pragma endregion
+
+} // namespace corvid::cuda::linalg

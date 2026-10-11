@@ -1,0 +1,428 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#include <cstddef>
+#include <limits>
+#include <ranges>
+#include <span>
+#include <string_view>
+#include <type_traits>
+#include <vector>
+
+#include "corvid/containers/utils/matrix_view.h"
+#include "corvid/enums/enum_conversion.h"
+#include "catch2_main.h"
+
+using namespace corvid;
+
+using lens_t = matrix_lens<float>;
+using row_ndx = lens_t::row_ndx;
+using col_ndx = lens_t::col_ndx;
+using coord = lens_t::coord;
+using extent = lens_t::extent_t;
+
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
+namespace {
+
+// A `rows` by `cols` matrix whose value is 10 * row + col.
+std::vector<float> make_storage(size_t rows, size_t cols) {
+  std::vector<float> storage(rows * cols);
+  const lens_t m(storage, {.row_count = rows, .col_count = cols});
+  for (const auto r : m.row_indexes())
+    for (const auto c : m.col_indexes())
+      m[r, c] = static_cast<float>((10 * *r) + *c);
+  return storage;
+}
+
+} // namespace
+
+TEST_CASE("Index types", "[MatrixViewTest]") {
+  constexpr auto max = std::numeric_limits<size_t>::max();
+  static_assert(*row_ndx::npos == max);
+  static_assert(*col_ndx::npos == max);
+  static_assert(
+      (coord::npos.row == row_ndx::npos) &&
+      (coord::npos.col == col_ndx::npos));
+  static_assert(
+      (extent::npos.row_count == max) && (extent::npos.col_count == max));
+  static_assert(extent{}.row_count == extent::npos.row_count);
+
+  // Sequence arithmetic and comparison; `npos` is one past the last index.
+  row_ndx r{};
+  ++r;
+  r += 2;
+  CHECK(*r == 3);
+  CHECK(r < row_ndx{5});
+  CHECK(r != row_ndx::npos);
+  auto top = row_ndx{max - 1};
+  ++top;
+  CHECK(top == row_ndx::npos);
+
+  // Only `npos` is named; every other value prints numerically.
+  using namespace corvid::strings;
+  CHECK(enum_as_string(row_ndx::npos) == "npos");
+  CHECK(enum_as_string(row_ndx{3}) == "3");
+  CHECK(enum_as_string(col_ndx::npos) == "npos");
+  CHECK(enum_as_string(col_ndx{}) == "0");
+}
+
+TEST_CASE("Packed view indexes row-major", "[MatrixViewTest]") {
+  std::vector<float> storage(2UZ * 3);
+  lens_t m(storage, {.row_count = 2, .col_count = 3});
+  REQUIRE(m.row_extent() == 2);
+  REQUIRE(m.col_extent() == 3);
+  REQUIRE(m.extent().row_count == 2);
+  REQUIRE(m.extent().col_count == 3);
+  REQUIRE(m.size() == 6);
+  REQUIRE(m.stride() == 3);
+  REQUIRE_FALSE(m.empty());
+  REQUIRE(m.as_span().data() == storage.data());
+  REQUIRE(m.as_span().size() == 6);
+
+  // `end_*` is one past; the intervals are closed.
+  CHECK(m.end_row() == row_ndx{2});
+  CHECK(m.end_col() == col_ndx{3});
+  CHECK(m.row_indexes() == interval<row_ndx>{row_ndx{0}, row_ndx{1}});
+  CHECK(m.col_indexes().size() == 3);
+  CHECK(m.col_indexes().back() == col_ndx{2});
+
+  m[row_ndx{1}, col_ndx{2}] = 5.0F;
+  m[coord{row_ndx{0}, col_ndx{1}}] = 7.0F;
+  CHECK(storage[5] == 5.0F);
+  CHECK(storage[1] == 7.0F);
+
+  // A row, whole and trimmed at either end.
+  const auto second = m[row_ndx{1}];
+  CHECK(second.size() == 3);
+  CHECK(second.data() == storage.data() + 3);
+  CHECK(second[col_ndx{2}] == 5.0F);
+  const auto tail = m.row_as_span(row_ndx{1}, col_ndx{1});
+  CHECK(tail.size() == 2);
+  CHECK(tail.data() == storage.data() + 4);
+  const auto middle = m.row_as_span(row_ndx{1}, col_ndx{1}, col_ndx{2});
+  CHECK(middle.size() == 1);
+  CHECK(middle[col_ndx{0}] == storage[4]);
+  CHECK(m.row_as_span(row_ndx{0}, col_ndx{3}).empty());
+
+  const lens_t unset;
+  CHECK(unset.empty());
+  CHECK(unset.size() == 0);
+  CHECK(unset.row_indexes().empty());
+  CHECK(unset.col_indexes().empty());
+  CHECK(unset.as_span().empty());
+}
+
+TEST_CASE("Element-type aliases", "[MatrixViewTest]") {
+  static_assert(std::is_same_v<float_matrix_lens, matrix_lens<float>>);
+  static_assert(std::is_same_v<float_matrix_view, matrix_view<float>>);
+  static_assert(std::is_same_v<double_matrix_lens, matrix_lens<double>>);
+  static_assert(std::is_same_v<double_matrix_view, matrix_view<double>>);
+}
+
+TEST_CASE("Mutable view converts to read-only", "[MatrixViewTest]") {
+  std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
+  lens_t m(storage, {.row_count = 2, .col_count = 2});
+  const matrix_view<float> ro = m;
+  CHECK(ro[row_ndx{1}, col_ndx{0}] == 3.0F);
+  CHECK(ro.as_span().data() == m.as_span().data());
+
+  const std::span<const float> bytes = storage;
+  const matrix_lens deduced(bytes, {.row_count = 2, .col_count = 2});
+  static_assert(std::is_same_v<decltype(deduced), const matrix_view<float>>);
+  CHECK(deduced[row_ndx{0}, col_ndx{1}] == 2.0F);
+}
+
+TEST_CASE("Slice keeps the stride", "[MatrixViewTest]") {
+  auto storage = make_storage(2, 6);
+  lens_t m(storage, {.row_count = 2, .col_count = 6});
+
+  // A block of columns by extent.
+  const auto block =
+      m[{row_ndx{0}, col_ndx{2}}, {.row_count = 2, .col_count = 3}];
+  REQUIRE(block.row_extent() == 2);
+  REQUIRE(block.col_extent() == 3);
+  REQUIRE(block.stride() == 6);
+  CHECK(block.as_span().size() == 9);
+  CHECK(block[row_ndx{0}, col_ndx{0}] == 2.0F);
+  CHECK(block[row_ndx{1}, col_ndx{2}] == 14.0F);
+  CHECK(block[row_ndx{1}].size() == 3);
+  CHECK(block[row_ndx{1}, col_ndx{0}] == 12.0F);
+
+  // Writes through the block land in the original storage.
+  block[row_ndx{1}, col_ndx{1}] = -1.0F;
+  CHECK(m[row_ndx{1}, col_ndx{3}] == -1.0F);
+
+  // Slicing a slice composes.
+  const auto inner =
+      block[{row_ndx{0}, col_ndx{1}}, {.row_count = 2, .col_count = 1}];
+  CHECK(inner.col_extent() == 1);
+  CHECK(inner[row_ndx{0}, col_ndx{0}] == 3.0F);
+  CHECK(inner.stride() == 6);
+
+  // Half-open corners trim both dimensions.
+  const auto corner =
+      m[{row_ndx{1}, col_ndx{1}}, coord{row_ndx{2}, col_ndx{4}}];
+  CHECK(corner.row_extent() == 1);
+  CHECK(corner.col_extent() == 3);
+  CHECK(corner[row_ndx{0}, col_ndx{0}] == 11.0F);
+  CHECK(corner[row_ndx{0}, col_ndx{2}] == -1.0F);
+
+  // `coord::npos`, the default extent, and a half-specified extent all run to
+  // the end.
+  const auto to_end = m[{row_ndx{1}, col_ndx{4}}, coord::npos];
+  CHECK(to_end.row_extent() == 1);
+  CHECK(to_end.col_extent() == 2);
+  CHECK(to_end[row_ndx{0}, col_ndx{1}] == 15.0F);
+  const auto rest = m[{row_ndx{1}, col_ndx{4}}, extent::npos];
+  CHECK(rest.as_span().data() == to_end.as_span().data());
+  CHECK(rest.col_extent() == 2);
+  const auto strip = m[{row_ndx{0}, col_ndx{3}}, {.row_count = 1}];
+  CHECK(strip.row_extent() == 1);
+  CHECK(strip.col_extent() == 3);
+  CHECK(strip[row_ndx{0}, col_ndx{2}] == 5.0F);
+
+  // An extent alone is the window of that extent at the origin.
+  const auto window = m[{.row_count = 1, .col_count = 2}];
+  CHECK(window.as_span().data() == m.as_span().data());
+  CHECK(window.row_extent() == 1);
+  CHECK(window.col_extent() == 2);
+  CHECK(window.stride() == 6);
+  CHECK(window[row_ndx{0}, col_ndx{1}] == 1.0F);
+  CHECK(m.slice(window.extent()).as_span().data() == window.as_span().data());
+
+  // The named form is the same slice, by extent, by corner, and to the end.
+  CHECK(m.slice({row_ndx{0}, col_ndx{2}}, {.row_count = 2, .col_count = 3})
+            .as_span()
+            .data() == block.as_span().data());
+  CHECK(m.slice({row_ndx{1}, col_ndx{1}}, coord{row_ndx{2}, col_ndx{4}})
+            .col_extent() == corner.col_extent());
+  CHECK(m.slice({row_ndx{1}, col_ndx{4}}).as_span().data() ==
+        rest.as_span().data());
+
+  // A lens slices to a lens, and a view to a view.
+  static_assert(std::is_same_v<decltype(block), const lens_t>);
+  const matrix_view<float> read_only{m};
+  static_assert(std::is_same_v<decltype(read_only[{row_ndx{0}, col_ndx{0}},
+                                   {.row_count = 1, .col_count = 1}]),
+      matrix_view<float>>);
+
+  // Empty slices at either edge are fine.
+  CHECK(m[{row_ndx{2}, col_ndx{0}}, extent::npos].empty());
+  CHECK(m[{row_ndx{0}, col_ndx{6}}, extent::npos].empty());
+  CHECK(m[{row_ndx{0}, col_ndx{0}}, coord{row_ndx{0}, col_ndx{0}}].empty());
+}
+
+TEST_CASE("Strided view over a larger buffer", "[MatrixViewTest]") {
+  // Three rows of four, viewed as three rows of two.
+  auto storage = make_storage(3, 4);
+  const lens_t m(storage, {.row_count = 3, .col_count = 2}, 4);
+  CHECK(m.stride() == 4);
+  CHECK(m.size() == 6);
+  CHECK(m.as_span().size() == 10);
+  CHECK(m[row_ndx{2}, col_ndx{1}] == 21.0F);
+  CHECK(m[row_ndx{1}].size() == 2);
+
+  // The buffer only has to reach the last element of the last row.
+  const lens_t tight(std::span{storage}.first(10),
+      {.row_count = 3, .col_count = 2}, 4);
+  CHECK(tight[row_ndx{2}, col_ndx{1}] == 21.0F);
+}
+
+TEST_CASE("Packed view over the start of a larger buffer",
+    "[MatrixViewTest]") {
+  std::vector<float> storage{0.0F, 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F};
+
+  // The view takes the elements of its extent and leaves the rest.
+  const lens_t m(storage, {.row_count = 2, .col_count = 3});
+  CHECK(m.is_packed());
+  CHECK(m.as_span().size() == 6);
+  CHECK(m[row_ndx{1}, col_ndx{2}] == 5.0F);
+
+  // A buffer of exactly the extent's size can say so.
+  const lens_t exact(std::span{storage}.first(6),
+      {.row_count = 2, .col_count = 3}, matrix_types::exact_size);
+  CHECK(exact.as_span().size() == 6);
+}
+
+TEST_CASE("Rows as a range", "[MatrixViewTest]") {
+  static_assert(std::ranges::random_access_range<decltype(lens_t{}.rows())>);
+  static_assert(std::ranges::view<decltype(lens_t{}.rows())>);
+
+  std::vector<float> storage(3UZ * 4);
+  const lens_t m(storage, {.row_count = 3, .col_count = 4});
+
+  if (true) {
+    // Each row comes in order, as a writable span of its columns.
+    auto expected_row = 0UZ;
+    for (auto row : m.rows()) {
+      CHECK(row.size() == 4);
+      row[col_ndx{0}] = static_cast<float>(expected_row);
+      ++expected_row;
+    }
+    CHECK(expected_row == 3);
+    CHECK(storage[0] == 0.0F);
+    CHECK(storage[4] == 1.0F);
+    CHECK(storage[8] == 2.0F);
+  }
+
+  if (true) {
+    // The range of a temporary slice stays valid after the temporary is
+    // gone, and honors the slice's stride.
+    const auto sub_rows =
+        m[{row_ndx{0}, col_ndx{2}}, {.row_count = 3, .col_count = 2}].rows();
+    for (auto row : sub_rows) row[col_ndx{1}] = 9.0F;
+    CHECK(storage[3] == 9.0F);
+    CHECK(storage[7] == 9.0F);
+    CHECK(storage[11] == 9.0F);
+    CHECK(storage[2] == 0.0F);
+  }
+
+  if (true) {
+    // Two views' rows walk together, and a read-only view yields read-only
+    // rows.
+    std::vector<float> copy_storage(storage.size());
+    const lens_t copy(copy_storage, m.extent());
+    const matrix_view<float> source = m;
+    for (auto [out_row, in_row] : std::views::zip(copy.rows(), source.rows()))
+      std::ranges::copy(in_row, out_row.begin());
+    CHECK(copy_storage == storage);
+    static_assert(
+        std::is_same_v<std::ranges::range_value_t<decltype(source.rows())>,
+            enum_span<const float, col_ndx>>);
+  }
+}
+
+TEST_CASE("Matrix view arithmetic in place", "[MatrixViewTest]") {
+  std::vector<float> storage{1.0F, 2.0F, 3.0F, 4.0F};
+  std::vector<float> other_storage{10.0F, 20.0F, 30.0F, 40.0F};
+  const lens_t m(storage, {.row_count = 2, .col_count = 2});
+  const matrix_view<float> other(other_storage,
+      {.row_count = 2, .col_count = 2});
+
+  m += other;
+  CHECK(storage == std::vector<float>{11.0F, 22.0F, 33.0F, 44.0F});
+  m -= other;
+  CHECK(storage == std::vector<float>{1.0F, 2.0F, 3.0F, 4.0F});
+
+  // The named forms are the same operations returning the lens itself, and
+  // a writable view converts to the read-only operand.
+  CHECK(&m.add(m) == &m);
+  CHECK(storage == std::vector<float>{2.0F, 4.0F, 6.0F, 8.0F});
+  CHECK(&m.subtract(m) == &m);
+  CHECK(storage == std::vector<float>{0.0F, 0.0F, 0.0F, 0.0F});
+
+  // A strided operand is walked by rows.
+  std::vector<float> wide_storage{1.0F, -1.0F, 2.0F, -1.0F};
+  const lens_t wide(wide_storage, {.row_count = 2, .col_count = 1}, 2);
+  const lens_t narrow(storage, {.row_count = 2, .col_count = 1}, 2);
+  narrow += wide;
+  CHECK(storage == std::vector<float>{1.0F, 0.0F, 2.0F, 0.0F});
+}
+
+TEST_CASE("Empty window past the last row of a strided view",
+    "[MatrixViewTest]") {
+  // The footprint of a strided lens ends with its last row's columns, short
+  // of a full stride, so the row past the last starts beyond it.
+  auto storage = make_storage(4, 8);
+  const lens_t strided(storage, {.row_count = 4, .col_count = 2}, 8);
+  REQUIRE(strided.as_span().size() == 26);
+  const auto tail = strided[{row_ndx{4}, col_ndx{0}}, extent::npos];
+  CHECK(tail.empty());
+  CHECK(tail.row_extent() == 0);
+  CHECK(tail.col_extent() == 2);
+  CHECK(tail.as_span().empty());
+  const auto corner = strided[{row_ndx{4}, col_ndx{2}},
+      extent{.row_count = 0, .col_count = 0}];
+  CHECK(corner.empty());
+  CHECK(corner.as_span().empty());
+}
+
+TEST_CASE("Overlap of windows", "[MatrixViewTest]") {
+  // Windows of a 4 by 8 parent, named by their first row and column and
+  // their row and column counts.
+  auto storage = make_storage(4, 8);
+  const lens_t m(storage, {.row_count = 4, .col_count = 8});
+  const auto window = [&](size_t row, size_t col, size_t rows, size_t cols) {
+    return m[{row_ndx{row}, col_ndx{col}},
+        {.row_count = rows, .col_count = cols}];
+  };
+
+  // Column windows side by side share no element, although each row of one
+  // lies between two rows of the other, so their footprints interleave.
+  const auto left = window(0, 0, 4, 2);
+  const auto right = window(0, 2, 4, 2);
+  CHECK_FALSE(is_disjoint(left.as_span(), right.as_span()));
+  CHECK(left.is_disjoint(right));
+  CHECK(right.is_disjoint(left));
+  CHECK(left.is_same_or_disjoint(right));
+
+  // A window starting further left and one row further down overlaps another
+  // only where both their rows and their columns meet.
+  const auto upper_right = window(0, 4, 2, 4);
+  CHECK_FALSE(upper_right.is_disjoint(window(1, 0, 2, 6)));
+  CHECK(upper_right.is_disjoint(window(1, 0, 2, 4)));
+  CHECK(upper_right.is_disjoint(window(2, 0, 2, 8)));
+  CHECK(upper_right.is_disjoint(window(0, 0, 2, 4)));
+  CHECK_FALSE(upper_right.is_disjoint(window(0, 0, 2, 5)));
+
+  // A window is the same as itself and as a view of itself, while a
+  // sub-window of it is neither the same nor disjoint.
+  CHECK_FALSE(upper_right.is_disjoint(upper_right));
+  CHECK(upper_right.is_same_or_disjoint(upper_right));
+  const matrix_view<float> as_view = upper_right;
+  CHECK(upper_right.is_same(as_view));
+  CHECK(upper_right.is_same_or_disjoint(as_view));
+  CHECK_FALSE(upper_right.is_same(window(0, 4, 1, 4)));
+  CHECK_FALSE(upper_right.is_same_or_disjoint(window(0, 4, 1, 4)));
+  CHECK_FALSE(upper_right.is_same_or_disjoint(window(1, 5, 1, 1)));
+
+  // An empty window reaches nothing.
+  CHECK(upper_right.is_disjoint(window(0, 4, 0, 4)));
+  CHECK(window(0, 4, 0, 4).is_disjoint(upper_right));
+
+  // Lenses whose strides differ are judged by their footprints, so a packed
+  // lens over the first two rows of the same storage overlaps.
+  const lens_t packed(storage, {.row_count = 4, .col_count = 4}, 4);
+  CHECK_FALSE(packed.is_disjoint(upper_right));
+  std::vector<float> other_storage(8);
+  const lens_t elsewhere(other_storage, {.row_count = 2, .col_count = 4});
+  CHECK(elsewhere.is_disjoint(upper_right));
+}
+
+TEST_CASE("Extent transposes", "[MatrixViewTest]") {
+  constexpr extent wide{.row_count = 2, .col_count = 3};
+  constexpr auto tall = wide.transposed();
+  STATIC_CHECK(tall.row_count == 3);
+  STATIC_CHECK(tall.col_count == 2);
+}
+
+TEST_CASE("Extent count along an axis", "[MatrixViewTest]") {
+  using matrix_types::matrix_axis;
+  constexpr extent wide{.row_count = 2, .col_count = 3};
+  STATIC_CHECK(wide[matrix_axis::rows] == 2);
+  STATIC_CHECK(wide[matrix_axis::cols] == 3);
+
+  // The named form is the same count.
+  STATIC_CHECK(wide.count(matrix_axis::cols) == 3);
+
+  // Through a mutable extent, the count is assignable.
+  auto halved = wide;
+  halved[matrix_axis::rows] /= 2;
+  CHECK(halved == extent{.row_count = 1, .col_count = 3});
+}
+
+// NOLINTEND(readability-function-cognitive-complexity)

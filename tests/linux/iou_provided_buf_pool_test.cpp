@@ -98,7 +98,7 @@ TEST_CASE("BufCountFromDivision", "[IouProvidedBufPool]") {
   }
   if (true) {
     // 8 MB slab (4 hugepages) / 1 MB = 8 buffers (power of two).
-    constexpr auto slab = 4 * buffer_pool_base::hugepage_size;
+    constexpr auto slab = 4 * memory_map::default_hugepage_size;
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::m01);
     CHECK(*pool);

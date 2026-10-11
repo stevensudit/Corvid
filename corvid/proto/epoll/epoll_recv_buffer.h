@@ -70,8 +70,7 @@ struct epoll_recv_buffer {
   // True while an `epoll_recv_buffer_view` is live. Loop-thread-only. When
   // set, `handle_readable` still recvs into the buffer (extending `end`
   // atomically) but suppresses the `on_data` dispatch. The in-flight parser
-  // holds the view and will observe new bytes on its next `active_view`
-  // call.
+  // holds the view and will observe new bytes on its next `active_view` call.
   bool view_active{};
 
   // Minimum capacity to maintain when compacting. This is used to avoid

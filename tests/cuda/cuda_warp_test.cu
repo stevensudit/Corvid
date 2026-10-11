@@ -5,7 +5,7 @@
 
 #include <cuda_runtime.h>
 
-#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_warp.cuh"
 #include "catch2_main.h"
@@ -54,7 +54,7 @@ __global__ void warp_kernel(lane_record* out) {
 #pragma region cuda_warp
 
 TEST_CASE("cuda_warp lane queries and shuffles", "[cuda]") {
-  cuda_ptr<lane_record> d_out{lanes};
+  cuda_buffer<lane_record> d_out{lanes};
   REQUIRE(d_out.ok());
   warp_kernel<<<1, lanes>>>(d_out.get());
   lane_record out[lanes]{};
@@ -70,9 +70,9 @@ TEST_CASE("cuda_warp lane queries and shuffles", "[cuda]") {
     CHECK(rec.warp_id == 0);
     CHECK(rec.active_mask == cuda_warp::all_mask);
     CHECK(rec.shuffle == 50);
-    CHECK(rec.shuffle_up == static_cast<int>(lane == 0 ? 0 : lane - 1) * 10);
+    CHECK(rec.shuffle_up == static_cast<int>((lane == 0) ? 0 : lane - 1) * 10);
     CHECK(rec.shuffle_down ==
-          static_cast<int>(lane == lanes - 1 ? lane : lane + 1) * 10);
+          static_cast<int>((lane == lanes - 1) ? lane : lane + 1) * 10);
     CHECK(rec.shuffle_xor == static_cast<int>(lane ^ 1U) * 10);
     CHECK(rec.reduced == warp_sum);
   }

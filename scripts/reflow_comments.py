@@ -12,7 +12,9 @@
 # under 65 columns AND could absorb the next line's first word within 79.
 # The 65-column slack matters: author-typed text that clang-format wrapped is
 # already near-greedy, and a strict greedy test would flag nearly every
-# committed paragraph in the repo (including the license header).
+# committed paragraph in the repo (including the license header). A paragraph
+# is also misflowed when its whole last line fits on the line before it (an
+# orphan tail such as a lone "rows."), whatever that line's width.
 #
 # What is NOT touched (each guard was earned by a bad refill in dry-run):
 #  - the license header (first 17 lines of every file);
@@ -20,6 +22,7 @@
 #  - paragraphs containing runs of multiple spaces (quoted examples where
 #    whitespace is significant, e.g. dedent/fill examples in textwrap.h);
 #  - indented continuations, bullets (-, *), numbered list items (1. );
+#  - banner lines made only of punctuation (// ==========);
 #  - NOLINT and clang-format directive lines;
 #  - TODO/FIXME lines (they start their own paragraph);
 #  - heading lines ending with ':' (e.g. "Overview:") stand alone, and a
@@ -29,13 +32,26 @@
 #  - paragraphs listed in SKIP below (path:firstline keys; these go stale as
 #    line numbers shift, so prune entries once fixed or obsolete).
 #
+# The glue check reports and never rewrites. A colon or semicolon followed by
+# a lowercase word mid-line ("so C must be out: passing addend would...") is
+# usually an em dash in disguise gluing two sentences together. Each hit is
+# printed as a GLUE line for the author to rewrite as two sentences or with a
+# connective. Colons that end a line or introduce code, an example, or a list
+# are not matched. False positives are expected (quoted code such as
+# `a; b`, or a genuine "for example: foo"), so hits are advisory. To triage
+# one, reread the sentence with the colon or semicolon replaced by an em
+# dash. If it still reads naturally, the punctuation is glue and the
+# sentence wants splitting. If the em dash reads wrong ("Note: ", "the rule
+# is simple: ..."), the colon is doing its own job and the hit is noise.
+#
 # Usage:
 #   python scripts/reflow_comments.py [paths...]          # dry run (default)
 #   python scripts/reflow_comments.py [paths...] --apply  # rewrite files
 #
 # Paths may be files or directories (searched recursively for .h/.cuh/.cpp/
 # .cu); the default is corvid/. Dry-run prints each flagged paragraph as
-# OLD/NEW lines for review. Run format_all and the test suite after --apply.
+# OLD/NEW lines for review, and both modes print GLUE lines. Run format_all
+# and the test suite after --apply.
 
 import glob
 import os
@@ -53,16 +69,25 @@ RAGGED_BELOW = 65
 # Known-bad paragraphs, keyed by forward-slash path and first line number.
 SKIP = {
     "corvid/lang/ast_pred.h:510",  # colon-less heading "Distribute OR over AND"
+    "tests/linux/iou_loop_test.cpp:1408",  # next line documents the member
+    "tests/portable/ecs_test.cpp:2371",  # colon-less heading line
+    "tests/portable/ecs_test.cpp:6797",  # colon-less heading line
+    "tests/portable/lang_test.cpp:219",  # formula broken before its RHS
+    "tests/portable/lang_test.cpp:229",  # formula broken before its RHS
+    "tests/portable/pid_controller_test.cpp:150",  # two label lines
 }
 
 pat = re.compile(r"^(\s*)// (.*\S)\s*$")
 item = re.compile(r"\d+\. ")
+banner = re.compile(r"[=\-*#_~]{4,}$")
 label = re.compile(r"\S[^:]{0,29}: ")
+glue = re.compile(r"[a-z`)][:;] [a-z`]")
 
 
 def breaks_para(c):
     return (c.startswith(("```", " ", "-", "* ", "clang-format", "TODO",
-                          "FIXME")) or "NOLINT" in c or item.match(c))
+                          "FIXME")) or "NOLINT" in c or item.match(c)
+            or banner.match(c))
 
 
 def paragraphs(lines):
@@ -98,6 +123,21 @@ def paragraphs(lines):
         yield start, i, indent, content
 
 
+def glue_lines(lines):
+    """Yield (index, content) for comment lines with colon/semicolon glue."""
+    in_fence = False
+    for i in range(LICENSE_LINES, len(lines)):
+        m = pat.match(lines[i])
+        if not m:
+            continue
+        c = m.group(2)
+        if c.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and glue.search(c):
+            yield i, c
+
+
 def collect_files():
     files = []
     for root in ROOTS:
@@ -112,18 +152,23 @@ def collect_files():
 
 
 def main():
-    total = skipped = 0
+    total = skipped = glued = 0
     for path in collect_files():
         lines = open(path, encoding="utf-8").read().splitlines()
+        for i, c in glue_lines(lines):
+            glued += 1
+            print(f"GLUE {path}:{i + 1}: {c}")
         out = lines[:]
         hits = []
         for start, end, indent, content in reversed(list(paragraphs(lines))):
             room = len(indent) + 3  # the "// " prefix
-            flagged = any(
+            ragged = any(
                 room + len(content[k]) < RAGGED_BELOW and
                 room + len(content[k]) + 1 + len(content[k + 1].split()[0])
                 <= LIMIT for k in range(len(content) - 1))
-            if not flagged:
+            orphan = (len(content) > 1 and
+                      room + len(content[-2]) + 1 + len(content[-1]) <= LIMIT)
+            if not (ragged or orphan):
                 continue
             key = f"{path.replace(os.sep, '/')}:{start + 1}"
             if any("  " in c for c in content) or key in SKIP:
@@ -156,7 +201,7 @@ def main():
             open(path, "w", encoding="utf-8",
                  newline="").write("\n".join(out) + "\n")
     print(f"{'applied' if APPLY else 'flagged'} {total} paragraphs, "
-          f"skipped {skipped}")
+          f"skipped {skipped}, {glued} glue lines")
 
 
 if __name__ == "__main__":

@@ -591,8 +591,7 @@ public:
   const_weak_proxy() = default;
 
   // Conversion constructors from a shared handle of either flavor, of `F` or
-  // of a facade that extends it (the upcast happens here, so `lock` is
-  // cheap).
+  // of a facade that extends it (the upcast happens here, so `lock` is cheap).
   //
   // Intentionally implicit.
   template<Facade D>

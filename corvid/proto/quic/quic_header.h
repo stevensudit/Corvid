@@ -100,8 +100,7 @@ consteval auto corvid_enum_spec(quic_status*) {
 
 #pragma region is_soft_error
 
-// True if `s` is a per-packet drop that should NOT take the connection
-// down.
+// True if `s` is a per-packet drop that should NOT take the connection down.
 //
 // Currently soft:
 //   `decrypt`     - AEAD packet protection check failed (RFC 9001 sec. 5.2:

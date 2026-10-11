@@ -1016,8 +1016,8 @@ TEST_CASE("HoleyOps", "[BitMaskTest]") {
   // Tests for op~ and flip with bit masks that have holes (non-contiguous
   // valid bits). rb has valid bits 101 (red and blue, no green).
   if (true) {
-    // op~ inverts all bits, including invalid ones.
-    // For rb (no clipping), ~black sets all bits including invalid ones.
+    // op~ inverts all bits, including invalid ones. For rb (no clipping),
+    // ~black sets all bits including invalid ones.
     CHECK(~rb::black != rb::purple); // Not equal because invalid bits set
     CHECK((~rb::black & rb::purple) == rb::purple); // Valid bits all set
   }

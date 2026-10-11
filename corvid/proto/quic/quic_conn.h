@@ -139,8 +139,7 @@ consteval auto corvid_enum_spec(quic_close_kind*) {
 // callback wrappers (nghttp3, etc.): the wrapper static is the firewall via
 // `try_callback`, the virtual / C++ method behind it can throw.
 //
-// Defaults are no-op `true`, so concrete plugins override only what they
-// need.
+// Defaults are no-op `true`, so concrete plugins override only what they need.
 class quic_conn_handlers {
 public:
   using time_point_t = steady_now_clock::time_point_t;

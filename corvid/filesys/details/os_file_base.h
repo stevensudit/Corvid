@@ -21,8 +21,8 @@
 #include <string>
 #include <string_view>
 
-#include "../strings/no_zero.h"
-#include "os_error.h"
+#include "../../strings/no_zero.h"
+#include "../os_error.h"
 
 namespace corvid { inline namespace filesys {
 

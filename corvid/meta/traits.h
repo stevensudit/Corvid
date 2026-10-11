@@ -22,6 +22,7 @@
 #include <functional>
 #include <initializer_list>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -184,6 +185,27 @@ constexpr bool is_span_impl_v<std::span<T, N>> = true;
 template<typename T>
 constexpr bool is_span_v = details::is_span_impl_v<std::remove_cvref_t<T>>;
 
+// Determine the element count of `T` when it is fixed at compile time (a C
+// array, a `std::array`, or a static-extent `std::span`), else
+// `std::dynamic_extent`.
+namespace details {
+template<typename T>
+constexpr size_t static_size_impl_v = std::dynamic_extent;
+
+template<typename T, size_t Size>
+constexpr size_t static_size_impl_v<T[Size]> = Size;
+
+template<typename T, size_t Size>
+constexpr size_t static_size_impl_v<std::array<T, Size>> = Size;
+
+template<typename T, size_t Extent>
+constexpr size_t static_size_impl_v<std::span<T, Extent>> = Extent;
+} // namespace details
+
+template<typename T>
+constexpr size_t static_size_v =
+    details::static_size_impl_v<std::remove_cvref_t<T>>;
+
 // Helper for span compatibility check.
 template<typename T, typename V>
 constexpr bool is_span_compatible_impl() noexcept {
@@ -207,6 +229,10 @@ constexpr bool is_span_compatible_v = is_span_compatible_impl<T, V>();
 template<typename T>
 constexpr bool is_initializer_list_v =
     is_specialization_of_v<T, std::initializer_list>;
+
+// The element type of range `R`, without its constness.
+template<typename R>
+using element_of_t = std::remove_cv_t<std::ranges::range_value_t<R>>;
 
 #pragma endregion
 #pragma endregion

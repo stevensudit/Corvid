@@ -1,0 +1,85 @@
+GPT-2 tokenizer corpus for corvid/cuda/llm.
+
+This file is a fixture. Its reference encoding lives beside it in
+corpus_tokens.json, produced by scripts/llm_oracle/gpt2_oracle.py.
+Every line is chosen to exercise one clause of the pre-tokenizer's
+split rule, or to catch a shortcut that passes plain English.
+
+== Contractions ==
+I'm sure it's fine; they're here, we've won, you'll see, he'd know,
+she'll say I'd rather not. Don't. Can't. Won't. O'Neil's dog.
+It's 'quoted' and 'tis the season. 'S' alone. Rock'n'roll.
+
+== Letters, digits, and the space that precedes them ==
+word  two   three    four (multiple spaces before words)
+abc123def 42 4096 1234567890 3.14159 1,000,000 -17 +5 1e10 0x7f
+camelCaseWord snake_case_word kebab-case-word ALLCAPS MiXeD
+supercalifragilisticexpialidocious antidisestablishmentarianism
+
+== Punctuation runs ==
+Hello, world! What?! ... --- *** ((())) [[]] {{}} <<>> ~~~ ^^^
+a.b.c a-b-c a_b_c a/b/c a\b\c a|b|c a&b&c a=b=c a+b+c a*b*c
+email@example.com https://example.com/path?q=1&r=2#frag
+"double" 'single' `backtick` #hashtag @mention $100 50% 3°
+
+== Whitespace ==
+trailing spaces   
+	leading tab
+tabs	between	words
+
+
+two blank lines above, and a line with only spaces below
+    
+mixed 	 	 whitespace 	 run
+non-breaking space and ideographic　space and en space and NELhere
+
+== Latin with diacritics ==
+café naïve résumé über straße Ångström Grønland
+precomposed é versus decomposed é (combining acute accent)
+Turkish dotless ı and dotted İ, Polish Łódź, Czech Řím
+
+== Other scripts ==
+Greek: Αλφα βήτα γάμμα δέλτα
+Cyrillic: Съешь же ещё этих мягких французских булок
+Arabic: السلام عليكم ورحمة الله
+Hebrew: שלום עולם
+Devanagari: नमस्ते दुनिया (vowel signs are marks, not letters)
+Thai: สวัสดีชาวโลก (no spaces between words)
+Japanese: 日本語のテキストです。漢字とひらがなとカタカナ。
+Chinese: 你好，世界！这是一个测试。
+Korean: 안녕하세요 세계
+
+== Digits in other scripts ==
+Arabic-Indic ١٢٣, Devanagari १२३, fullwidth １２３, Roman numeral Ⅷ
+superscript x² and fraction ½ (No, not Nd: number but not digit)
+
+== Symbols and emoji ==
+emoji 🚀🌕 sequence 👨‍👩‍👧 flag 🇺🇸 skin tone 👍🏽
+math ∀x∈ℝ: x²≥0 ∑ ∫ ∞ ≠ ≤ ≥ arrows ←→↑↓
+currency €100 £50 ¥500 ₹200 punctuation – — “quotes” ‘single’ …
+
+== Long and repetitive ==
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+the the the the the the the the the the the the the the the the the
+
+== Prose, to make up the token count for the gradient batch ==
+Corvid is a header-only C++23 library with minimal external
+dependencies. All headers live under corvid/. The build compiles the
+test suite as C++26 where the toolchain allows, but the code stays
+C++23: C++26 features are permitted only inside headers gated on their
+feature-test macro, such as the reflection layer under meta/invoke/.
+When a function can fail, prefer returning a status over void. Token
+is reserved for things that are literally named tokens; do not use the
+word loosely to mean handle, callback, view, ticket, or marker.
+This is a C++ library, so we minimize how much raw C surfaces in
+calling code: wrap C dependencies in C++-native idioms rather than
+exposing them directly. RAII for every C resource, a variant over a
+tagged union, a typed status over a bare error code. Keep the C behind
+the wrapper; do not let it leak out.
+
+Byte-level BPE can encode any byte sequence, including bytes that are
+not valid UTF-8. This file is valid UTF-8 throughout; invalid input is
+a separate unit test, since a text fixture cannot carry it.
+
+The end. No trailing newline after this line, on purpose.

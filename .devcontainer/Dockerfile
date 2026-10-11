@@ -16,9 +16,10 @@
 FROM ubuntu:24.04 AS gcc-build
 ARG GCC_VERSION=16.2.0
 # SHA-512 of gcc-${GCC_VERSION}.tar.xz, from the release's sha512.sum on
-# gcc.gnu.org, cross-checked against the bytes ftp.gnu.org serves. Pins the
-# exact source the image builds, since HTTPS alone trusts whatever the server
-# sends. A version bump updates both ARGs.
+# gcc.gnu.org. Pins the exact source the image builds, since HTTPS alone
+# trusts whatever the server sends. A version bump updates both ARGs. The
+# tarball comes from gcc.gnu.org's own release area rather than ftp.gnu.org,
+# which serves the same bytes but goes unreachable for stretches.
 ARG GCC_SHA512=c51c30ca7422d0cbecf504b2e0f33c3aca31e0f90a76b65217f465163fa6fa17b3f5de39e145c47e5bab90ac0ce7fff3b03c8d553ae36e01faaea5a50f8648d1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl xz-utils build-essential flex bison patch \
@@ -26,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 COPY gcc-constexpr-strret.patch gcc_constexpr_strret_check.cpp /tmp/corvid/
 RUN curl -fsSL -o /tmp/gcc-${GCC_VERSION}.tar.xz \
-      https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz && \
+      https://gcc.gnu.org/pub/gcc/releases/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz && \
     echo "${GCC_SHA512}  /tmp/gcc-${GCC_VERSION}.tar.xz" | sha512sum -c - && \
     tar -xJ -C /tmp -f /tmp/gcc-${GCC_VERSION}.tar.xz && \
     rm /tmp/gcc-${GCC_VERSION}.tar.xz && \
@@ -78,15 +79,15 @@ RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test
 # Node.js was the base image; on the CUDA base it's an install step.
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 
-# Basic development tools, toolchain, and iptables/ipset. gcc-15 is the nvcc
-# host compiler (nvcc 13.3 rejects gcc newer than 15; see cleanbuild.sh). The
-# PPA's gcc-16 snapshot contributes only libstdc++-16-dev, which the clang +
-# libstdc++ leg picks up from /usr/lib/gcc (its <format> gets a local patch
-# below); its compilers are not installed, so the only gcc 16 is the 16.2
-# built in the gcc-build stage. catch2
-# is the system libstdc++ Catch2 that the
-# CUDA tests link against (tests/CMakeLists.txt requires it once nvcc and
-# g++-15 are both present; the .cpp suite uses its own FetchContent Catch2).
+# Basic development tools, toolchain, and iptables/ipset. gcc-15 is the host
+# compiler of the opt-in nvcc leg (`cleanbuild.sh nvcc`; nvcc 13.3 rejects gcc
+# newer than 15). The PPA's gcc-16 snapshot contributes only libstdc++-16-dev,
+# which the clang + libstdc++ legs (the .cpp suite's libstdcpp mode and the
+# CUDA bucket, whose toolkit headers refuse libc++) pick up from /usr/lib/gcc
+# (its <format> gets a local patch below); its compilers are not installed, so
+# the only gcc 16 is the 16.2 built in the gcc-build stage. Ubuntu's cmake
+# package (3.28) is installed for its dependencies only; the CMake that runs is
+# the PyPI wheel installed below, see there.
 RUN apt-get update && apt-get install -y --no-install-recommends \
   less \
   git \
@@ -112,7 +113,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
   llvm-23 \
   ccache strace patch \
-  gcc-15 g++-15 libstdc++-16-dev catch2 \
+  gcc-15 g++-15 libstdc++-16-dev \
   && apt-get install -y --reinstall coreutils manpages manpages-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -131,6 +132,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-unidiff python3-termcolor python3-dateutil \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Python 3.14 from the deadsnakes PPA, for the LLM oracle venv
+# (scripts/llm_oracle/setup.sh): Ubuntu 24.04 ships 3.12, and the oracle
+# should run the same interpreter on both platforms. The system python3 stays
+# 3.12 for the tooling above. The PPA host and the key server it verifies
+# through are in the firewall allowlist.
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
+  && add-apt-repository -y ppa:deadsnakes/ppa \
+  && apt-get install -y --no-install-recommends python3.14 python3.14-venv \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# CMake 4 from the PyPI wheel, ahead of Ubuntu's 3.28 on PATH. Identifying
+# clang++ as the CUDA compiler needs it: 3.28 probes clang with sm_52/30/20,
+# which the 13.3 ptxas rejects, so the configure fails with "CUDA compiler
+# identification is unknown"; CMake 4 tries sm_75 first for a 13.x toolkit.
+# The wheel rather than apt.kitware.com because the container's network
+# allowlist does not include the latter (see crossplatform.md, section 3).
+# Sits after the apt step above because `python3 -m venv` needs python3-venv.
+RUN python3 -m venv /opt/cmake && /opt/cmake/bin/pip install --no-cache-dir cmake \
+  && ln -s /opt/cmake/bin/cmake /opt/cmake/bin/ctest /opt/cmake/bin/cpack /usr/local/bin/
+
 # gcc 16.2 from the gcc-build stage. gcc adds no rpath, so binaries it links
 # find its libstdc++ through ld.so.conf; the 000- name sorts ahead of the
 # system paths so /opt/gcc-16/lib64 wins over the PPA snapshot's libstdc++.
@@ -146,6 +167,15 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
     --slave /usr/bin/lldb lldb /usr/bin/lldb-23 && \
     update-alternatives --install /usr/bin/gcc gcc /opt/gcc-16/bin/gcc-16 100 \
     --slave /usr/bin/g++ g++ /opt/gcc-16/bin/g++-16
+
+# llvm.sh installs from a moving snapshot of the 23.x release branch, so the
+# point release cannot be chosen at install time. The tree is formatted with
+# clang-format 23.1.1 (the Windows LLVM install), and the 23.1.0 snapshots
+# space a requires-clause `U&&` differently, so the image build fails below
+# 23.1.1 instead of producing a formatter that disagrees with the checked-in
+# formatting. The trailing `~` makes a "23.1.1~++<date>" snapshot pass.
+RUN dpkg --compare-versions \
+    "$(dpkg-query -W -f='${Version}' clang-format-23)" ge 1:23.1.1~
 
 # The PPA snapshot's <format> gets one local patch, libstdcxx-format-clang.patch,
 # so that clang can constant-evaluate format strings with a dynamic width or

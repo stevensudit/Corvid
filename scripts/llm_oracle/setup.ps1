@@ -1,0 +1,24 @@
+# Create the oracle venv under tests/.local/llm/venv and install its
+# dependencies. Windows counterpart of setup.sh; rerun it to move the venv
+# to a new interpreter or new pins (--clear rebuilds it in place).
+#
+# Torch comes from the CPU-only wheel index: the oracle runs on the CPU,
+# where GPT-2 124M in fp32 takes seconds, and the CPU wheel is a fraction of
+# the size of the CUDA one. Everything else comes from PyPI.
+#
+# Pass -Python to pick the interpreter (default: the py launcher's 3.14).
+param(
+  [string]$Python = "py -3.14"
+)
+$ErrorActionPreference = "Stop"
+$Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+$Venv = Join-Path $Root "tests\.local\llm\venv"
+
+Invoke-Expression "$Python -m venv --clear `"$Venv`""
+& "$Venv\Scripts\python.exe" -m pip install --upgrade pip
+& "$Venv\Scripts\pip.exe" install --index-url https://download.pytorch.org/whl/cpu torch==2.14.0
+& "$Venv\Scripts\pip.exe" install -r "$Root\scripts\llm_oracle\requirements.txt"
+
+Write-Host ""
+Write-Host "Oracle venv ready. Generate the GPT-2 artifacts with:"
+Write-Host "  $Venv\Scripts\python.exe $Root\scripts\llm_oracle\gpt2_oracle.py"

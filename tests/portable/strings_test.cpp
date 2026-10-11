@@ -546,8 +546,7 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK(std::string{digits.begin(), digits.end()} == "123");
   }
   // `is_title` follows the `as_titled` word rule, Python `istitle`-style: at
-  // least
-  // one letter, uppercase exactly at word starts.
+  // least one letter, uppercase exactly at word starts.
   if (true) {
     CHECK(strings::is_title("Hello World"));
     CHECK(strings::is_title("A"));
@@ -725,11 +724,10 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
     // Locate(span<ch>).
     CHECK(strings::locate(s, std::span{"xfz", 3}) == location{5U, 1U});
 
-    // locate(array<ch>).
-    // So this is supposed to return the location, which is a pos of 8 and a
-    // value of 1, meaning 'i'. Instead, it's treating the array as a string.
-    // Or, rather, as a SingleLocateValue = StringViewConvertible<T> ||
-    // is_char_v<T>. So lets's sniff it out.
+    // locate(array<ch>). So this is supposed to return the location, which is
+    // a pos of 8 and a value of 1, meaning 'i'. Instead, it's treating the
+    // array as a string. Or, rather, as a SingleLocateValue =
+    // StringViewConvertible<T> || is_char_v<T>. So lets's sniff it out.
     CHECK((strings::locate(s, std::array{'x', 'i', 'y'})) ==
           ((location{8U, 1U})));
     // Locate(init<sv>).
@@ -1210,8 +1208,7 @@ TEST_CASE("LocateUtilities", "[StringUtilsTest]") {
   CHECK(strings::as_pos_range(s, vals, loc) == pos_range{3U, 5U});
 
   // Not-found yields npos_range, as does a locate_not-style location whose
-  // pos_value indexes no value (regression: that used to read out of
-  // bounds).
+  // pos_value indexes no value (regression: that used to read out of bounds).
   CHECK(strings::as_pos_range(s, vals, nloc) == npos_range);
   CHECK(
       strings::as_pos_range(s, vals, location{1U, vals.size()}) == npos_range);
@@ -1946,8 +1943,7 @@ TEST_CASE("Textwrap", "[StringUtilsTest]") {
           "\nusage: frob [-x] file...\n  -x  enable X mode");
   }
   // The consteval overload dedents a literal at compile time, returning a
-  // zero-terminated view of a static constant and leaving nothing for
-  // runtime.
+  // zero-terminated view of a static constant and leaving nothing for runtime.
   if (true) {
     constexpr auto usage = textwrap::dedent<R"(
       usage: frob [-x] file...
@@ -2218,9 +2214,9 @@ TEST_CASE("Fnmatch", "[StringUtilsTest]") {
 TEST_CASE("PurePath", "[StringUtilsTest]") {
   namespace pure_path = strings::pure_path;
 
-  // `match` right-anchors a relative pattern. Expectations here and below
-  // are pinned against CPython 3.14 `PurePosixPath` (which is
-  // case-sensitive, hence via the `_case` variants).
+  // `match` right-anchors a relative pattern. Expectations here and below are
+  // pinned against CPython 3.14 `PurePosixPath` (which is case-sensitive,
+  // hence via the `_case` variants).
   if (true) {
     CHECK(pure_path::match_case("a/b/c.py", "c.py"));
     CHECK(pure_path::match_case("a/b/c.py", "*.py"));

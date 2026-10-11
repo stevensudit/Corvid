@@ -1548,8 +1548,8 @@ TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
   auto w_raw_bewt = wrap(raw_endpoint, bound_endpoint_with_timeout{});
   const size_t sz_raw_bewt = sizeof(w_raw_bewt) + overhead;
 
-  // submit_*_buffer: raw BufCompletionInvocable + iou_buffer.
-  // iou_buffer has no default constructor; compute algebraically.
+  // submit_*_buffer: raw BufCompletionInvocable + iou_buffer. iou_buffer has
+  // no default constructor; compute algebraically.
   const size_t sz_raw_buf =
       sizeof(raw_buf) + sizeof(iou_loop::buffer) + overhead;
 

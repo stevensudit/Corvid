@@ -380,12 +380,11 @@ public:
   // facade that extends `D` therefore matches, and through a diamond, the
   // common base can sidecast to either sibling.
   //
-  // On success, the target moves into the result (whose table carries the
-  // same birth, so further casts in either direction still work) and the
-  // source is left empty. On failure, including an empty source, the
-  // result is empty and the source is untouched. Consuming only on success
-  // is why this is spelled as a method on an rvalue rather than a
-  // conversion.
+  // On success, the target moves into the result (whose table carries the same
+  // birth, so further casts in either direction still work) and the source is
+  // left empty. On failure, including an empty source, the result is empty and
+  // the source is untouched. Consuming only on success is why this is spelled
+  // as a method on an rvalue rather than a conversion.
   template<Facade D>
   requires Extends<D, F>
   [[nodiscard]] proxy<D, Policy> try_downcast() && noexcept {

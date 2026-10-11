@@ -81,6 +81,8 @@ enum class win_error_code : uint32_t {
   io_incomplete = ERROR_IO_INCOMPLETE,             // 996
   io_pending = ERROR_IO_PENDING,                   // 997
   noaccess = ERROR_NOACCESS,                       // 998
+  file_invalid = ERROR_FILE_INVALID,               // 1006
+  mapped_alignment = ERROR_MAPPED_ALIGNMENT,       // 1132
   intr = WSAEINTR,                                 // 10004
   badf = WSAEBADF,                                 // 10009
   acces = WSAEACCES,                               // 10013
@@ -128,6 +130,7 @@ consteval auto corvid_enum_spec(win_error_code*) {
       "122,insufficient_buffer,invalid_name|"
       "232,no_data,pipe_not_connected,more_data|"
       "995,operation_aborted,io_incomplete,io_pending,noaccess|"
+      "1006,file_invalid|1132,mapped_alignment|"
       "10004,intr,,,,,badf,,,,acces,fault,,,,,,,,inval,,mfile,,,,,,,,,,,"
       "wouldblock,inprogress,already,notsock,destaddrreq,msgsize,prototype,"
       "noprotoopt,protonosupport,socktnosupport,opnotsupp,pfnosupport,"

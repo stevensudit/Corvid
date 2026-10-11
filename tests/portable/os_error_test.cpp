@@ -67,6 +67,35 @@ TEST_CASE("os_error capture") {
 #endif
 }
 
+TEST_CASE("os_error throw_if_error") {
+  // `ok` does not throw.
+  CHECK_NOTHROW(os_error{}.throw_if_error());
+  CHECK_NOTHROW(os_error{}.throw_if_error("unused"));
+
+  // Anything else throws a `system_error` carrying the code in the system
+  // category, with `what_arg` as the message prefix when given.
+  const os_error err{os_error::code_t::acces};
+  CHECK_THROWS_AS(err.throw_if_error(), std::system_error);
+  try {
+    err.throw_if_error("open");
+    FAIL("did not throw");
+  }
+  catch (const std::system_error& e) {
+    CHECK(e.code().value() == static_cast<int>(err.raw()));
+    CHECK(e.code().category() == std::system_category());
+    CHECK(std::string_view{e.what()}.starts_with("open"));
+    CHECK(std::string_view{e.what()}.contains(err.message()));
+  }
+  try {
+    err.throw_if_error();
+    FAIL("did not throw");
+  }
+  catch (const std::system_error& e) {
+    CHECK_FALSE(std::string_view{e.what()}.starts_with(':'));
+    CHECK(std::string_view{e.what()}.contains(err.message()));
+  }
+}
+
 TEST_CASE("os_error formatting") {
   // Named codes format as their name. These names exist on every platform,
   // which on Windows also pins the sparse registration's value alignment.

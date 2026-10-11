@@ -82,10 +82,9 @@ class runtime_core;
 // Hall escapes) seed it forward rather than each starting fresh, so anything
 // one pass accepts the others can process in full.
 //
-// The value is sized so each pass's guard fires before the real C++ stack
-// runs out. This is the case even in unoptimized builds, whose frames are
-// several times fatter, on the smallest common default stack (1MB on
-// Windows).
+// The value is sized so each pass's guard fires before the real C++ stack runs
+// out. This is the case even in unoptimized builds, whose frames are several
+// times fatter, on the smallest common default stack (1MB on Windows).
 inline constexpr size_t max_depth = 256;
 
 #pragma region symbol
@@ -149,8 +148,7 @@ consteval auto corvid_enum_spec(kind*) {
 // a heap-allocated string, cons cell, or function (closure or primitive).
 //
 // A `value` is small and cheap. Copying is always shallow and never touches
-// heap data. The owning runtime must outlive every `value` handed out from
-// it.
+// heap data. The owning runtime must outlive every `value` handed out from it.
 //
 // Nil doubles as the empty list, in the classic Lisp tradition: a proper list
 // chains cons cells through `tail` and terminates at nil. The standalone
@@ -769,8 +767,7 @@ public:
 #pragma endregion
 
 protected:
-  // A fresh runtime owns one environment from the start: the empty root
-  // scope.
+  // A fresh runtime owns one environment from the start: the empty root scope.
   runtime_core() {
     envs_.push_back(
         std::make_unique<environment>(environment::allow::ctor, nullptr));
@@ -788,8 +785,7 @@ private:
   void do_pin(const gc_pin& pin) { pins_.push_back(&pin); }
   void do_unpin(const gc_pin& pin) noexcept { std::erase(pins_, &pin); }
 
-  // Mark `obj` for the current epoch, returning whether it was newly
-  // reached.
+  // Mark `obj` for the current epoch, returning whether it was newly reached.
   [[nodiscard]] bool do_mark(gc_object& obj) const noexcept {
     if (obj.marked_gen_ == gen_) return false;
     obj.marked_gen_ = gen_;

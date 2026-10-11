@@ -25,8 +25,8 @@
 
 using namespace corvid;
 
-// Minimal scoped enum used by POS-parameter and at() tests.
-// It has no arithmetic operators, which exercises the as_sz/as_pos casts.
+// Minimal scoped enum used by POS-parameter and at() tests. It has no
+// arithmetic operators, which exercises the as_sz/as_pos casts.
 enum class slot_t : size_t {};
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -413,7 +413,7 @@ TEST_CASE("WordType", "[FixedBitset]") {
   // the bitset, and reads through it agree with test().
   if (true) {
     // Mutable: write a known pattern directly into the words.
-    fixed_bitset<24> b;  // 3 × uint8_t
+    fixed_bitset<24> b;  // 3 x uint8_t
     b.array()[0] = 0x01; // bit 0 set in word 0
     b.array()[1] = 0x02; // bit 9 set in word 1
     b.array()[2] = 0x80; // bit 23 set in word 2
@@ -446,29 +446,29 @@ TEST_CASE("ForcedWord", "[FixedBitset]") {
     static_assert(std::is_same_v<fb64x8::word_t, uint8_t>);
     static_assert(fb64x8::bits_per_word_v == 8);
     static_assert(fb64x8::word_count_v == 8);
-    static_assert(sizeof(fb64x8) == 8); // 8 × uint8_t
+    static_assert(sizeof(fb64x8) == 8); // 8 x uint8_t
 
     // Force a larger word for a small bitset (padding in the top word).
     using fb8x64 = fixed_bitset<8, size_t, void, 64>;
     static_assert(std::is_same_v<fb8x64::word_t, uint64_t>);
     static_assert(fb8x64::bits_per_word_v == 64);
     static_assert(fb8x64::word_count_v == 1);
-    static_assert(sizeof(fb8x64) == 8); // 1 × uint64_t
+    static_assert(sizeof(fb8x64) == 8); // 1 x uint64_t
 
     // 24 bits in a single uint32_t (8 padding bits).
     using fb24x32 = fixed_bitset<24, size_t, void, 32>;
     static_assert(std::is_same_v<fb24x32::word_t, uint32_t>);
     static_assert(fb24x32::word_count_v == 1);
-    static_assert(sizeof(fb24x32) == 4); // 1 × uint32_t
+    static_assert(sizeof(fb24x32) == 4); // 1 x uint32_t
 
     // 96 bits in two uint64_t words (32 padding bits in the top word).
     using fb96x64 = fixed_bitset<96, size_t, void, 64>;
     static_assert(std::is_same_v<fb96x64::word_t, uint64_t>);
     static_assert(fb96x64::word_count_v == 2);
-    static_assert(sizeof(fb96x64) == 16); // 2 × uint64_t
+    static_assert(sizeof(fb96x64) == 16); // 2 x uint64_t
   }
 
-  // Runtime: fixed_bitset<64, size_t, void, 8> -- 8 × uint8_t, no padding.
+  // Runtime: fixed_bitset<64, size_t, void, 8>: 8 x uint8_t, no padding.
   if (true) {
     fixed_bitset<64, size_t, void, 8> b;
     b.set(0);
@@ -495,7 +495,7 @@ TEST_CASE("ForcedWord", "[FixedBitset]") {
     CHECK(b.all());
   }
 
-  // Runtime: fixed_bitset<8, size_t, void, 64> -- 1 × uint64_t, 56 pad bits.
+  // Runtime: fixed_bitset<8, size_t, void, 64>: 1 x uint64_t, 56 pad bits.
   if (true) {
     using fb8 = fixed_bitset<8, size_t, void, 64>;
     fb8 b;
@@ -556,7 +556,7 @@ TEST_CASE("ForcedWord", "[FixedBitset]") {
     CHECK((rot.array()[0] & ~uint64_t{0xFF}) == uint64_t{0});
   }
 
-  // Runtime: fixed_bitset<24, size_t, void, 32> -- 1 × uint32_t, 8 pad bits.
+  // Runtime: fixed_bitset<24, size_t, void, 32>: 1 x uint32_t, 8 pad bits.
   if (true) {
     using fb24 = fixed_bitset<24, size_t, void, 32>;
     fb24 b;
@@ -658,9 +658,9 @@ TEST_CASE("Reference", "[FixedBitset]") {
     fixed_bitset<64> a;
     fixed_bitset<64> b;
     a.set(2);
-    b[5] = a[2]; // b[5] ← true (bit 2 of a)
+    b[5] = a[2]; // b[5] <- true (bit 2 of a)
     CHECK(b.test(5));
-    b[5] = a[3]; // b[5] ← false (bit 3 of a is clear)
+    b[5] = a[3]; // b[5] <- false (bit 3 of a is clear)
     CHECK_FALSE(b.test(5));
   }
 

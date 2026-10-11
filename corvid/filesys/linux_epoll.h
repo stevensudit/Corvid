@@ -18,7 +18,7 @@
 
 // Linux-only: `epoll` has no Windows counterpart.
 #ifdef _WIN32
-#error "\"epoll.h\" is Linux-only."
+#error "\"linux_epoll.h\" is Linux-only."
 #endif
 #include <optional>
 #include <sys/epoll.h>

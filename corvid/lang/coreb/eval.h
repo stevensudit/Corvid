@@ -642,8 +642,7 @@ private:
     return rt.cons(args[0], args[1]);
   }
 
-  // The `list` builtin: construct a list of the arguments, so `(list)` is
-  // nil.
+  // The `list` builtin: construct a list of the arguments, so `(list)` is nil.
   static prim_result prim_list(runtime_core& rt, std::span<const value> args) {
     return rt.list_of(args);
   }

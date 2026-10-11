@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "containers/core/hash_combiner.h"
+#include "containers/utils/enum_span.h"
 #include "containers/utils/enum_vector.h"
 #include "containers/core/optional_ptr.h"
 #include "containers/core/opt_find.h"
@@ -30,3 +31,4 @@
 #include "containers/core/fixed_bitset.h"
 #include "containers/core/scoped_value.h"
 #include "containers/utils/object_pool.h"
+#include "containers/utils/matrix_view.h"
