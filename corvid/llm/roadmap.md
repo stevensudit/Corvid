@@ -1790,6 +1790,45 @@ twelve-block walk inherits in float, not the ops'. `softmax_backward` and
 tokens, and `embed_tokens_backward` a hand-computed test with a repeated ID.
 Next: slice 5, LoRA, AdamW, and the training loop.
 
+Status (2026-10-11, slice 5: LoRA, AdamW, and the training loop): the trainer
+now owns a low-rank adapter per block on the attention projection, and `step`
+runs `forward` and `backward` and then moves the adapters one AdamW step. The
+adapter is the engine's `c_attn_adapter`, two views and a scale. The
+projection's weight stays as it is, and `apply_block` adds `scale * (ln_1_out x
+a) x b` to the queries, keys, and values, a third at a time, through a new
+`adapter_hidden` activation [T, R]. The engine's `forward`, `next_token`, and
+`generate` take one adapter per block, so the adapted model runs without a
+merge; with adapters, `next_token` caches nothing, since the cache holds the
+base model's keys and values. The trainer's `lora_adapter` holds `a` [768, 8]
+and `b` [8, 2304] as `trained_parameter`s, each with its gradient and AdamW's
+two running averages. `a` starts random within 1 over the square root of its
+row count and `b` at zero, so a fresh adapter adds nothing and the first step's
+loss is the base model's exactly. The backward step, `backward_adapter`, is
+four GEMMs off the `qkv_gradient` that slice 4 kept as one matrix: `scale *
+qkv_gradient x b^T` for the gradient with respect to `adapter_hidden`, `scale *
+adapter_hidden^T x qkv_gradient` added to b's, `ln_1_out^T` times the first
+added to a's, and the first times `a^T` added to `ln_1_out`'s gradient as the
+adapter's share, which flows on to the earlier blocks. The new device op
+`adamw_step` keeps a running average of each gradient and of its square,
+divides each by what a constant gradient would have accumulated so far, and
+moves the parameter by the learning rate times the first over the square root
+of the second, less the decoupled weight decay. Its defaults are a learning
+rate of 2e-4, betas of 0.9 and 0.999, an eps of 1e-8, and a decay of 0.01, with
+no gradient clipping. The training text is "park.txt", a public-domain National
+Park Service article of 2,276 tokens, eight batches of 4 x 64. Gate, on the RTX
+4090 (Windows): the oracle gates of slices 1 to 4 pass unchanged with fresh
+adapters in place; block 0's adapter gradients match a host recomputation in
+double after one step; `adamw_step` matches two hand-computed steps; and at a
+learning rate of 1e-3, four passes over the text take the mean loss from 4.34
+to 4.04, 3.74, and 3.48, after which the greedy continuation of the text's
+first 16 tokens goes from the base model's "is Robertson, a professor of
+environmental science at the University of California, Berkeley," to "ali
+National Park, Alaska / The National Park Service has been working to mitigate
+the", matching 3 of the text's own next 16 tokens where the base model matched
+1 (the text continues "ali National Park & Preserve, Klondike Gold Rush
+National Historical Park,"). Every gate this stage set has passed. Next: stage
+6.
+
 ### 6. A model that can hold an opinion
 
 GPT-2 124M is too weak for a preference to mean anything. The experiment

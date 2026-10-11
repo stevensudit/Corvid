@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <format>
@@ -384,6 +385,162 @@ TEST_CASE(
   // And fed the trainer's, which carries the whole gap to the oracle's.
   check_close_to_scale(float_matrix_view(from_own_narrowed, row_extent),
       float_matrix_view(expected, row_extent), block_parameter_gradient_ratio);
+}
+
+TEST_CASE(
+    "Device adapter gradients of the first block match a host recomputation "
+    "in double",
+    "[Gpt2TrainerTest][oracle][cuda]") {
+  // One step moves `b` off zero, so that `a`'s gradient has something to be.
+  // Then a fresh forward and backward over the stepped adapters leave block
+  // 0's scratches, the ones the walk reaches last, for the recomputation.
+  //
+  // The gradient with respect to `adapter_hidden` is `scale` times
+  // `qkv_gradient x b^T`, `b`'s is `scale` times `adapter_hidden^T x
+  // qkv_gradient`, and `a`'s is `ln_1_out^T` times the first, each summed over
+  // the batch's rows in `double`.
+  oracle_batch batch;
+  const matrix_view<token_id> ids(batch.id_storage,
+      {.row_count = n_grad_batch, .col_count = n_grad_seq});
+  float loss{};
+  REQUIRE(batch.trainer.step(loss, ids));
+  REQUIRE(batch.trainer.forward(loss, ids));
+  REQUIRE(batch.trainer.backward());
+
+  constexpr auto first = 0UZ;
+  const auto& adapter = batch.trainer.adapters()[first];
+  const auto rank = adapter.a.value.col_extent();
+  const auto scale = static_cast<double>(adapter.scale);
+  const auto b = download(adapter.b.value);
+  std::vector<double> a_gradient(n_embd * rank);
+  std::vector<double> b_gradient(rank * n_qkv);
+  std::vector<double> hidden_gradient_row(rank);
+  for (const auto& sequence : batch.trainer.sequences()) {
+    const auto qkv_gradient = download(sequence.qkv_gradient);
+    const auto hidden =
+        download(sequence.blocks[first].activations.adapter_hidden);
+    const auto in = download(sequence.blocks[first].activations.ln_1_out);
+    for (const auto row : iota(n_grad_seq)) {
+      const std::span<const float> gradient_row(
+          qkv_gradient.data() + (row * n_qkv), n_qkv);
+      const std::span<const float> hidden_row(hidden.data() + (row * rank),
+          rank);
+      const std::span<const float> in_row(in.data() + (row * n_embd), n_embd);
+
+      for (const auto [k_signed, hidden_value] :
+          std::views::enumerate(hidden_row))
+      {
+        const auto k = static_cast<size_t>(k_signed);
+        const std::span<const float> b_row(b.data() + (k * n_qkv), n_qkv);
+        const std::span<double> b_gradient_row(b_gradient.data() + (k * n_qkv),
+            n_qkv);
+
+        // The row's gradient with respect to `adapter_hidden[row, k]`, and
+        // its share of `b`'s gradient.
+        auto total = 0.0;
+        for (const auto [gradient, weight] :
+            std::views::zip(gradient_row, b_row))
+          total += gradient * weight;
+        hidden_gradient_row[k] = scale * total;
+        for (auto [acc, gradient] :
+            std::views::zip(b_gradient_row, gradient_row))
+          acc += scale * hidden_value * gradient;
+
+        // And its share of `a`'s.
+        for (const auto [c_signed, x] : std::views::enumerate(in_row))
+          a_gradient[(static_cast<size_t>(c_signed) * rank) + k] +=
+              x * hidden_gradient_row[k];
+      }
+    }
+  }
+
+  const matrix_types::matrix_extent a_extent{.row_count = n_embd,
+      .col_count = rank};
+  const matrix_types::matrix_extent b_extent{.row_count = rank,
+      .col_count = n_qkv};
+  const std::vector<float> a_narrowed(a_gradient.begin(), a_gradient.end());
+  const std::vector<float> b_narrowed(b_gradient.begin(), b_gradient.end());
+  const auto a_device = download(adapter.a.gradient);
+  const auto b_device = download(adapter.b.gradient);
+  INFO("a");
+  check_close_to_scale(float_matrix_view(a_device, a_extent),
+      float_matrix_view(a_narrowed, a_extent), recomputation_ratio);
+  INFO("b");
+  check_close_to_scale(float_matrix_view(b_device, b_extent),
+      float_matrix_view(b_narrowed, b_extent), recomputation_ratio);
+}
+
+TEST_CASE(
+    "Device LoRA training lowers the loss on a text and changes its "
+    "continuation",
+    "[Gpt2TrainerTest][oracle][cuda]") {
+  // A fresh adapter adds nothing, so the first step's loss is the base
+  // model's on that batch. A few passes over the text, a batch of 4 x 64
+  // tokens per step, should leave each pass's mean loss below the one
+  // before, and the adapted model continuing the text's opening more like
+  // the text than the base model does.
+  auto oracle = oracle_dumps::load();
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
+  const gpt2_engine<float> engine(model);
+  const auto ids = encode_text(read_file(fixture_path("park.txt")));
+  constexpr auto sequence_count = 4UZ;
+  constexpr auto token_count = 64UZ;
+  constexpr auto batch_size = sequence_count * token_count;
+  constexpr auto batch_count = 8UZ;
+  constexpr auto pass_count = 4UZ;
+  REQUIRE(ids.size() >= batch_count * batch_size);
+  const auto batch_of = [&](size_t batch) {
+    return matrix_view<token_id>(
+        std::span{ids}.subspan(batch * batch_size, batch_size),
+        {.row_count = sequence_count, .col_count = token_count});
+  };
+  // A learning rate well above the default, since a few dozen steps must show.
+  trainer_t trainer(engine, sequence_count, token_count, {},
+      {.learning_rate = 1e-3F});
+
+  // How many of the first `continuation_count` tokens the model picks after
+  // the text's opening are the text's own.
+  constexpr auto prompt_count = 16UZ;
+  constexpr auto continuation_count = 16UZ;
+  const std::vector<token_id> prompt(ids.begin(), ids.begin() + prompt_count);
+  const auto continued =
+      std::span{ids}.subspan(prompt_count, continuation_count);
+  const auto matches_of = [&](std::span<const token_id> generated) {
+    auto matches = 0UZ;
+    for (const auto [pick, actual] :
+        std::views::zip(generated.subspan(prompt_count), continued))
+      matches += (pick == actual);
+    return matches;
+  };
+
+  // The base model's loss on the first batch, and its continuation.
+  float base_loss{};
+  REQUIRE(trainer.forward(base_loss, batch_of(0)));
+  auto before = prompt;
+  REQUIRE(engine.generate(before, continuation_count));
+  INFO("before: " << decode_ids(std::span{before}.subspan(prompt_count)));
+
+  std::array<float, pass_count> pass_losses{};
+  for (auto [pass, pass_loss] : std::views::enumerate(pass_losses)) {
+    for (const auto batch : iota(batch_count)) {
+      float loss{};
+      REQUIRE(trainer.step(loss, batch_of(batch)));
+      if (!pass && !batch) CHECK(loss == base_loss);
+      pass_loss += loss;
+    }
+    pass_loss /= static_cast<float>(batch_count);
+    if (pass) CHECK(pass_loss < pass_losses[pass - 1]);
+  }
+  std::string loss_report;
+  for (const auto pass_loss : pass_losses)
+    loss_report += std::format("{} ", pass_loss);
+  INFO("mean loss by pass: " << loss_report);
+
+  auto after = prompt;
+  REQUIRE(engine.generate(after, continuation_count, trainer.adapter_views()));
+  INFO("after: " << decode_ids(std::span{after}.subspan(prompt_count)));
+  INFO("text: " << decode_ids(continued));
+  CHECK(matches_of(after) > matches_of(before));
 }
 
 #pragma endregion

@@ -107,12 +107,16 @@ public:
   // (`attn_out`, `ln_2_in`, and `mlp_out`) are `wide_t`. The rest feed a
   // product against the parameters and are `element_t`.
   //
-  // `hidden_pre` is the one activation with no CPU counterpart. It holds the
-  // MLP's widened rows as `mlp.c_fc` wrote them, before `gelu_new`, with the
-  // extent of `hidden`. It may be `hidden` itself, which applies `gelu_new` in
-  // place.
+  // `hidden_pre` and `adapter_hidden` have no CPU counterpart. `hidden_pre`
+  // holds the MLP's widened rows as `mlp.c_fc` wrote them, before `gelu_new`,
+  // with the extent of `hidden`. It may be `hidden` itself, which applies
+  // `gelu_new` in place. `adapter_hidden` holds the attention projection
+  // adapter's narrowed rows, `ln_1_out x a` as `c_attn_adapter` describes,
+  // with a row per new token and a column per rank, and is not read without
+  // an adapter.
   struct block_activations {
     cuda_matrix_lens<element_t> ln_1_out;
+    cuda_matrix_lens<element_t> adapter_hidden;
     cuda_matrix_lens<wide_t> queries;
     cuda_matrix_lens<wide_t> scores;
     cuda_matrix_lens<element_t> weights;
@@ -127,12 +131,15 @@ public:
 
   // Owned device storage for every activation of `apply_block`, for
   // `new_count` new tokens of width `width` and MLP width `hidden_width`,
-  // attended by `head_count` heads after `cached_count` cached tokens.
+  // attended by `head_count` heads after `cached_count` cached tokens, with an
+  // adapter of rank `lora_rank`.
   //
   // Every activation has its own buffer except `hidden_pre`, which shares
-  // `hidden`.
+  // `hidden`. `adapter_hidden` has `lora_rank` columns, so none without an
+  // adapter.
   struct block_activation_buffers {
     cuda_matrix<element_t> ln_1_out;
+    cuda_matrix<element_t> adapter_hidden;
     cuda_matrix<wide_t> queries;
     cuda_matrix<wide_t> scores;
     cuda_matrix<element_t> weights;
@@ -145,8 +152,10 @@ public:
 
     // Allocate every buffer, or throw.
     block_activation_buffers(size_t new_count, size_t width,
-        size_t hidden_width, size_t head_count, size_t cached_count = 0)
+        size_t hidden_width, size_t head_count, size_t cached_count = 0,
+        size_t lora_rank = 0)
         : ln_1_out({.row_count = new_count, .col_count = width}),
+          adapter_hidden({.row_count = new_count, .col_count = lora_rank}),
           queries({.row_count = new_count, .col_count = width}),
           scores({.row_count = head_count * new_count,
               .col_count = cached_count + new_count}),
@@ -160,6 +169,7 @@ public:
     [[nodiscard]] block_activations lenses() noexcept {
       return {
           .ln_1_out = ln_1_out,
+          .adapter_hidden = adapter_hidden,
           .queries = queries,
           .scores = scores,
           .weights = weights,
@@ -172,6 +182,31 @@ public:
           .mlp_out = mlp_out,
       };
     }
+  };
+
+#pragma endregion
+#pragma region c_attn_adapter
+
+  // A low-rank adapter (LoRA) on the attention projection, as caller-owned
+  // device views.
+  //
+  // The projection's weight stays as it is, and the adapter adds
+  // `scale * (ln_1_out x a) x b` to its output, which is the queries, keys,
+  // and values side by side. For width C and rank R:
+  //
+  //   a      [C, R]   the down projection, whose output is `adapter_hidden`
+  //   b      [R, 3C]  the up projection, a third per output
+  //                   scale  alpha / R, where alpha sets the adapter's
+  //                   strength
+  //
+  // A default-constructed adapter is none, and `operator bool` is whether
+  // there is one.
+  struct c_attn_adapter {
+    cuda_matrix_view<element_t> a;
+    cuda_matrix_view<element_t> b;
+    wide_t scale{};
+
+    explicit operator bool() const noexcept { return !a.empty(); }
   };
 
 #pragma endregion
@@ -235,6 +270,11 @@ public:
   // `in` and at least as many rows, the first of them holding the cached
   // tokens' keys and values, and the new tokens' rows are written.
   //
+  // With `adapter`, the attention projection also adds the adapter's
+  // correction to the queries, keys, and values, through
+  // `acts.adapter_hidden`, which must then have a row per new token and a
+  // column per rank.
+  //
   // The activation views must have the extents `block_activations` states for
   // that extent and may share storage only as it allows. Returns false when a
   // launch is refused, leaving `out`, the new rows of `keys` and `values`,
@@ -242,7 +282,7 @@ public:
   [[nodiscard]] bool apply_block(cuda_matrix_lens<wide_t> out,
       cuda_matrix_view<wide_t> in, size_t block_index,
       const block_activations& acts, cuda_matrix_lens<wide_t> keys,
-      cuda_matrix_lens<element_t> values) const {
+      cuda_matrix_lens<element_t> values, c_attn_adapter adapter = {}) const {
     const auto& params = blocks_[block_index];
     assert(keys.row_extent() >= in.row_extent());
     assert(values.extent() == keys.extent());
@@ -273,6 +313,8 @@ public:
       return false;
     if (!linear_projection(blas_, new_values, acts.ln_1_out,
             params.attn_c_attn_value_weight(), params.attn_c_attn_value_bias))
+      return false;
+    if (adapter && !add_adapter(acts, new_keys, new_values, adapter))
       return false;
     if (!attend(blas_, acts.heads_out, acts.queries, keys, values, head_count_,
             acts.scores, acts.weights))
@@ -306,11 +348,14 @@ public:
   // the context holds. `acts` is reused by every block, so it holds the last
   // block's activations on return. Its `ln_2_in` may be `residual`, the
   // in-place form, but no other buffer may overlap `residual`, and none may
-  // overlap `out`. Returns false when a launch or transfer is refused,
-  // leaving `out`, `residual`, the activations, and `cache` unspecified.
+  // overlap `out`. `adapters`, when given, holds one `c_attn_adapter` per
+  // block, each applied in its block. Returns false when a launch or transfer
+  // is refused, leaving `out`, `residual`, the activations, and `cache`
+  // unspecified.
   [[nodiscard]] bool forward(cuda_matrix_lens<element_t> out,
       cuda_matrix_lens<wide_t> residual, std::span<const token_id> new_ids,
-      const block_activations& acts, kv_cache& cache) const {
+      const block_activations& acts, kv_cache& cache,
+      std::span<const c_attn_adapter> adapters = {}) const {
     const auto cached_count = cache.ids.size();
     const auto total_count = cached_count + new_ids.size();
     const auto context_length = wpe_.row_extent();
@@ -318,6 +363,7 @@ public:
     assert(total_count <= context_length);
     assert(residual.extent() == out.extent());
     assert(is_disjoint(out.as_span(), residual.as_span()));
+    assert(adapters.empty() || (adapters.size() == blocks_.size()));
 
     const cuda_buffer<token_id> device_ids(new_ids);
     if (!embed_tokens(residual, device_ids, wte_)) return false;
@@ -336,12 +382,14 @@ public:
             .values = cuda_matrix<element_t>(context)});
     }
     const matrix_extent in_use{.row_count = total_count, .col_count = width};
+    const c_attn_adapter none;
     for (const auto [block_index, store] : std::views::enumerate(cache.blocks))
     {
       const auto keys = store.keys[in_use];
       const auto values = store.values[in_use];
+      const auto& adapter = adapters.empty() ? none : adapters[block_index];
       if (!apply_block(residual, residual, static_cast<size_t>(block_index),
-              acts, keys, values))
+              acts, keys, values, adapter))
         return false;
     }
     if (!layer_norm(out, residual, ln_f_weight_, ln_f_bias_,
@@ -360,32 +408,38 @@ public:
   // The engine caches the last list it ran, as the CPU
   // `corvid::llm::gpt2_engine::next_token` describes, and downloads only the
   // pick. The cache makes this one caller at a time, `const` notwithstanding.
+  // It holds the base model's keys and values, so a call with `adapters` (one
+  // `c_attn_adapter` per block) reuses nothing and leaves the cache as it was.
   // On failure (no IDs, more than the context holds, or a refused launch or
   // transfer), returns false, leaving `out` untouched.
-  [[nodiscard]] bool
-  next_token(token_id& out, std::span<const token_id> ids) const {
+  [[nodiscard]] bool next_token(token_id& out, std::span<const token_id> ids,
+      std::span<const c_attn_adapter> adapters = {}) const {
     const auto total_count = ids.size();
     if (!total_count || (total_count > wpe_.row_extent())) return false;
     const auto width = wte_.col_extent();
     const auto vocab_size = wte_.row_extent();
+    kv_cache fresh;
+    auto& cache = adapters.empty() ? cache_ : fresh;
 
     // Keep the cached tokens that `ids` starts with, short of its last one,
     // since the logits need that token's row of the trunk, which is not
     // cached.
     const auto matched_count = static_cast<size_t>(
-        std::ranges::mismatch(cache_.ids, ids).in1 - cache_.ids.begin());
+        std::ranges::mismatch(cache.ids, ids).in1 - cache.ids.begin());
     const auto cached_count = std::min(matched_count, total_count - 1);
-    cache_.ids.resize(cached_count);
+    cache.ids.resize(cached_count);
     const auto new_ids = ids.subspan(cached_count);
     const auto new_count = new_ids.size();
 
     const matrix_extent extent{.row_count = new_count, .col_count = width};
     cuda_matrix<element_t> trunk(extent);
     cuda_matrix<wide_t> residual(extent);
+    const auto lora_rank =
+        adapters.empty() ? 0 : adapters.front().a.col_extent();
     block_activation_buffers buffers(new_count, width,
         blocks_.front().mlp_c_fc_weight.col_extent(), head_count_,
-        cached_count);
-    if (!forward(trunk, residual, new_ids, buffers.lenses(), cache_))
+        cached_count, lora_rank);
+    if (!forward(trunk, residual, new_ids, buffers.lenses(), cache, adapters))
       return false;
 
     cuda_matrix<wide_t> logits({.row_count = 1, .col_count = vocab_size});
@@ -403,12 +457,13 @@ public:
   // Append up to `count` greedy picks to `ids`, one `next_token` at a time,
   // stopping early at `end_of_text`, which is not appended.
   //
-  // On failure (`next_token` fails), returns false, leaving the picks made
-  // so far appended.
-  [[nodiscard]] bool generate(std::vector<token_id>& ids, size_t count) const {
+  // `adapters` is passed to each `next_token`. On failure (`next_token`
+  // fails), returns false, leaving the picks made so far appended.
+  [[nodiscard]] bool generate(std::vector<token_id>& ids, size_t count,
+      std::span<const c_attn_adapter> adapters = {}) const {
     for (auto step = 0UZ; step < count; ++step) {
       token_id next{};
-      if (!next_token(next, ids)) return false;
+      if (!next_token(next, ids, adapters)) return false;
       if (next == gpt2_end_of_text) return true;
       ids.push_back(next);
     }
@@ -542,6 +597,42 @@ private:
   [[noreturn]] static void raise_refused() {
     throw std::runtime_error{
         "gpt2_engine: converting a parameter on the device was refused"};
+  }
+
+#pragma endregion
+#pragma region Helpers
+
+  // Add `adapter`'s correction to the queries, the new keys, and the new
+  // values that the attention projection has just written, from `ln_1_out`,
+  // through `acts.adapter_hidden`.
+  //
+  // One product narrows the layer norm's output to the adapter's rank, and
+  // one per third widens it back and adds it in, scaled.
+  [[nodiscard]] bool add_adapter(const block_activations& acts,
+      cuda_matrix_lens<wide_t> new_keys,
+      cuda_matrix_lens<element_t> new_values, c_attn_adapter adapter) const {
+    const auto width = acts.ln_1_out.col_extent();
+    const auto lora_rank = adapter.a.col_extent();
+    assert(adapter.a.row_extent() == width);
+    assert((adapter.b.row_extent() == lora_rank) &&
+           (adapter.b.col_extent() == 3 * width));
+    assert((acts.adapter_hidden.row_extent() == acts.ln_1_out.row_extent()) &&
+           (acts.adapter_hidden.col_extent() == lora_rank));
+
+    if (!gemm(blas_, acts.adapter_hidden, acts.ln_1_out, adapter.a))
+      return false;
+    const matrix_extent third{.row_count = lora_rank, .col_count = width};
+    const auto b_third = [&](size_t which) {
+      return adapter.b[{row_ndx{0}, col_ndx{which * width}}, third];
+    };
+    if (!gemm(blas_, acts.queries, acts.adapter_hidden, b_third(0),
+            {.scale = adapter.scale}, acts.queries))
+      return false;
+    if (!gemm(blas_, new_keys, acts.adapter_hidden, b_third(1),
+            {.scale = adapter.scale}, new_keys))
+      return false;
+    return gemm(blas_, new_values, acts.adapter_hidden, b_third(2),
+        {.scale = adapter.scale}, new_values);
   }
 
 #pragma endregion

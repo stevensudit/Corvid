@@ -1073,5 +1073,106 @@ requires DeviceFloating<device_element_t<Out>>
 }
 
 #pragma endregion
+#pragma region adamw
+
+// The settings of an `adamw_step`.
+//
+// `learning_rate` is about how far a parameter moves per step, `beta_1` and
+// `beta_2` are how much of the running averages of the gradient and of its
+// square survive each step, `eps` keeps the division away from zero, and
+// `weight_decay` is the share of itself a parameter sheds per unit of learning
+// rate.
+template<DeviceFloating T>
+struct adamw_options {
+  T learning_rate = static_cast<T>(2e-4);
+  T beta_1 = static_cast<T>(0.9);
+  T beta_2 = static_cast<T>(0.999);
+  T eps = static_cast<T>(1e-8);
+  T weight_decay = static_cast<T>(0.01);
+};
+
+namespace details {
+
+// Move each of `count` parameters one AdamW step against its gradient,
+// updating the two running averages beside it, one thread per element.
+//
+// `mean_correction` and `mean_square_correction` are what a constant gradient
+// would have accumulated in each average by this step, which the averages are
+// divided by.
+template<DeviceFloating T, DeviceFloating G>
+__global__ void apply_adamw(T* parameters, const G* gradient, G* mean,
+    G* mean_square, size_t count, adamw_options<G> options, G mean_correction,
+    G mean_square_correction) {
+  const auto ndx = cuda_kernel::x_index<size_t>();
+  if (ndx >= count) return;
+
+  const auto grad = gradient[ndx];
+  const auto avg =
+      (options.beta_1 * mean[ndx]) + ((1 - options.beta_1) * grad);
+  const auto avg_square =
+      (options.beta_2 * mean_square[ndx]) +
+      ((1 - options.beta_2) * grad * grad);
+  mean[ndx] = avg;
+  mean_square[ndx] = avg_square;
+
+  const auto direction =
+      (avg / mean_correction) /
+      (std::sqrt(avg_square / mean_square_correction) + options.eps);
+  const auto value = widen(parameters[ndx]);
+  parameters[ndx] = narrow<T>(
+      value -
+      (options.learning_rate * (direction + (options.weight_decay * value))));
+}
+
+} // namespace details
+
+// `adamw_step` moves each parameter one step against its gradient, as AdamW
+// does, writing into `parameters` and updating `mean` and `mean_square`.
+//
+// A plain step would move each parameter by `learning_rate` times its
+// gradient. AdamW smooths and rescales that. `mean` is a running average of
+// the gradient, which smooths out a gradient that flips sign from batch to
+// batch, and `mean_square` is a running average of its square, which tracks
+// how large the gradient typically is.
+//
+// The move is the learning rate times the first over the square root of the
+// second, so a parameter moves about `learning_rate` per step whatever the
+// size of its gradient. Both averages start at zero and would read low for the
+// first steps, so each is divided by what a constant gradient would have
+// accumulated by step `step`, which is `1 - beta^step`. Separately, each
+// parameter sheds `learning_rate * weight_decay` of itself, the decoupled
+// weight decay that is the W in AdamW. Per element:
+//
+//   mean         = beta_1 * mean + (1 - beta_1) * gradient
+//   mean_square  = beta_2 * mean_square + (1 - beta_2) * gradient^2
+//   corrected    = mean / (1 - beta_1^step)
+//   scale        = sqrt(mean_square / (1 - beta_2^step)) + eps
+//   parameter   -= learning_rate * (corrected / scale
+//                                   + weight_decay * parameter)
+//
+// `step` counts from 1, and the averages must start at zero. The four
+// buffers must have the same size. `parameters` may hold another element type
+// than the rest, which share the type of `options`. Returns false when the
+// launch is refused, leaving `parameters`, `mean`, and `mean_square`
+// unspecified.
+template<DeviceFloating T, DeviceFloating G>
+[[nodiscard]] bool
+adamw_step(cuda_buffer<T>& parameters, const cuda_buffer<G>& gradient,
+    cuda_buffer<G>& mean, cuda_buffer<G>& mean_square, size_t step,
+    const adamw_options<G>& options) {
+  const auto count = parameters.size();
+  assert(step > 0);
+  assert((gradient.size() == count) && (mean.size() == count) &&
+         (mean_square.size() == count));
+
+  const auto power = static_cast<G>(step);
+  details::apply_adamw<<<blocks_for(count), threads_per_block>>>(
+      parameters.get(), gradient.get(), mean.get(), mean_square.get(), count,
+      options, 1 - std::pow(options.beta_1, power),
+      1 - std::pow(options.beta_2, power));
+  return cuda_last_status{}.ok();
+}
+
+#pragma endregion
 
 } // namespace corvid::cuda::llm

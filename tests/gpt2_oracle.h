@@ -266,16 +266,31 @@ inline greedy_continuation read_greedy_continuation() {
   return result;
 }
 
-// Decode `ids` to text through the tokenizer, loaded from the merges fixture.
-inline std::string decode_ids(std::span<const token_id> ids) {
+// The tokenizer, loaded from the merges fixture.
+inline gpt2_tokenizer load_tokenizer() {
   gpt2_tokenizer tok;
   const auto merges = read_file(fixture_path("merges.txt"));
   const auto merges_span =
       corvid::strings::conversion::as_byte_span<char8_t>(merges);
   REQUIRE(tok.load({merges_span.data(), merges_span.size()}));
+  return tok;
+}
+
+// Decode `ids` to text through the tokenizer.
+inline std::string decode_ids(std::span<const token_id> ids) {
+  const auto tok = load_tokenizer();
   std::u8string bytes;
   REQUIRE(tok.decode(bytes, ids));
   return {bytes.begin(), bytes.end()};
+}
+
+// Encode `text` to IDs through the tokenizer.
+inline std::vector<token_id> encode_text(std::string_view text) {
+  const auto tok = load_tokenizer();
+  const auto bytes = corvid::strings::conversion::as_byte_span<char8_t>(text);
+  std::vector<token_id> ids;
+  REQUIRE(tok.encode(ids, {bytes.data(), bytes.size()}));
+  return ids;
 }
 
 #pragma endregion

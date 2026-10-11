@@ -1235,6 +1235,61 @@ TEST_CASE("Device cross-entropy's gradient predicts the change in the loss",
 }
 
 #pragma endregion
+#pragma region adamw
+
+TEST_CASE("Device AdamW steps on hand-computed values", "[LlmOpsTest][cuda]") {
+  // Three parameters with the averages at zero, stepped twice against the same
+  // gradient. The corrections undo the zero start exactly, so the corrected
+  // averages are the gradient and its square on both steps, and each
+  // parameter moves by the learning rate against the sign of its gradient
+  // (nothing for a gradient of zero), less its decay.
+  using T = double;
+  const corvid::cuda::llm::adamw_options<T> options{.learning_rate = 0.1,
+      .beta_1 = 0.9,
+      .beta_2 = 0.999,
+      .eps = 1e-8,
+      .weight_decay = 0.01};
+  const std::vector<T> parameter_storage{1.0, -2.0, 0.5};
+  const std::vector<T> gradient_storage{0.3, -4.0, 0.0};
+  cuda_buffer<T> parameters(parameter_storage);
+  const cuda_buffer<T> gradient(gradient_storage);
+  cuda_buffer<T> mean(parameter_storage.size());
+  cuda_buffer<T> mean_square(parameter_storage.size());
+  REQUIRE(mean.zero());
+  REQUIRE(mean_square.zero());
+  std::vector<T> storage(parameter_storage.size());
+  constexpr auto tolerance = 1e-7;
+
+  // Step 1: 1 - 0.1 * (1 + 0.01 * 1), -2 - 0.1 * (-1 + 0.01 * -2), and
+  // 0.5 - 0.1 * (0 + 0.01 * 0.5).
+  REQUIRE(corvid::cuda::llm::adamw_step(parameters, gradient, mean,
+      mean_square, 1, options));
+  REQUIRE(parameters.store(storage));
+  CHECK_THAT(storage[0], WithinAbs(0.899, tolerance));
+  CHECK_THAT(storage[1], WithinAbs(-1.898, tolerance));
+  CHECK_THAT(storage[2], WithinAbs(0.4995, tolerance));
+
+  // Step 2, the same again from where step 1 left each parameter.
+  REQUIRE(corvid::cuda::llm::adamw_step(parameters, gradient, mean,
+      mean_square, 2, options));
+  REQUIRE(parameters.store(storage));
+  CHECK_THAT(storage[0], WithinAbs(0.798101, tolerance));
+  CHECK_THAT(storage[1], WithinAbs(-1.796102, tolerance));
+  CHECK_THAT(storage[2], WithinAbs(0.4990005, tolerance));
+
+  // The averages after two steps: 0.19 times the gradient, and 0.001999 times
+  // its square.
+  REQUIRE(mean.store(storage));
+  CHECK_THAT(storage[0], WithinAbs(0.057, tolerance));
+  CHECK_THAT(storage[1], WithinAbs(-0.76, tolerance));
+  CHECK_THAT(storage[2], WithinAbs(0.0, tolerance));
+  REQUIRE(mean_square.store(storage));
+  CHECK_THAT(storage[0], WithinAbs(0.00017991, tolerance));
+  CHECK_THAT(storage[1], WithinAbs(0.031984, tolerance));
+  CHECK_THAT(storage[2], WithinAbs(0.0, tolerance));
+}
+
+#pragma endregion
 
 } // namespace corvid_tests
 

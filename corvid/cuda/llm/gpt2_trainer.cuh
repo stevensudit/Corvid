@@ -17,9 +17,13 @@
 #pragma once
 
 #include <cassert>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <random>
 #include <ranges>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include "../../containers/utils/interval.h"
@@ -39,13 +43,17 @@
 // sequences and measures how badly it predicts each token from the ones
 // before it, as one number, the loss. Every activation on the way is kept in
 // its own storage, which is what the backward pass reads to find how much the
-// loss moves per unit of each parameter, its gradient.
+// loss moves per unit of each parameter, its gradient. What training moves is
+// not the model but a low-rank adapter (LoRA) on each block's attention
+// projection, which `step` nudges by AdamW and the engine can then run with.
 //
 //   gpt2_trainer<float> trainer(engine, 4, 64);
 //   float loss{};
 //   if (!trainer.forward(loss, ids)) ...
 //   if (!trainer.backward()) ...
 //   const auto& gradients = trainer.gradients();
+//   for (...) if (!trainer.step(loss, batch_ids)) ...
+//   if (!engine.generate(ids, 20, trainer.adapter_views())) ...
 namespace corvid::cuda::llm {
 
 #pragma region gpt2_trainer
@@ -59,8 +67,9 @@ namespace corvid::cuda::llm {
 // actually follows it.
 //
 // The buffers for all of it are allocated at construction, for one batch
-// shape. Each `forward` overwrites them, and each `backward` overwrites the
-// gradients.
+// shape, and so are the adapters, one per block. Each `forward` overwrites the
+// buffers, each `backward` overwrites the gradients, and each `step` moves the
+// adapters.
 template<typename T>
 requires DeviceFloating<T> && GemmElement<T>
 class gpt2_trainer {
@@ -68,14 +77,87 @@ public:
   using element_t = T;
   using engine_t = gpt2_engine<element_t>;
   using wide_t = engine_t::wide_t;
+  using c_attn_adapter = engine_t::c_attn_adapter;
 
+#pragma region Adapters
+
+  // The shape of the adapters on the attention projections.
+  //
+  //   rank   R, the width of an adapter's narrow middle
+  //   alpha  the adapters' strength, applied as alpha / R
+  //   seed   seeds the down projections' random start
+  struct lora_options {
+    size_t rank = 8;
+    wide_t alpha = 16;
+    uint32_t seed = 0;
+  };
+
+  // A parameter that the optimizer moves, with its gradient and its AdamW
+  // state.
+  //
+  // For a parameter of extent E:
+  //
+  //   value        E  the parameter, as the forward pass reads it
+  //   gradient     E  the gradient of the batch's loss with respect to it
+  //   mean         E  AdamW's running average of the gradient
+  //   mean_square  E  AdamW's running average of its square
+  //
+  // The averages start at zero, as `adamw_step` requires.
+  struct trained_parameter {
+    cuda_matrix<element_t> value;
+    cuda_matrix<wide_t> gradient;
+    cuda_buffer<wide_t> mean;
+    cuda_buffer<wide_t> mean_square;
+
+    // Take `start` as the parameter's value, allocating the rest, or throw.
+    explicit trained_parameter(cuda_matrix<element_t>&& start)
+        : value(std::move(start)), gradient(value.extent()),
+          mean(value.size()), mean_square(value.size()) {
+      mean.zero().or_throw();
+      mean_square.zero().or_throw();
+    }
+
+    // Move `value` one AdamW step against `gradient`, the `step`th.
+    [[nodiscard]] bool
+    update(size_t step, const adamw_options<wide_t>& options) {
+      return adamw_step(value.buffer(), gradient.buffer(), mean, mean_square,
+          step, options);
+    }
+  };
+
+  // One block's adapter on its attention projection, owned, as the engine's
+  // `c_attn_adapter` views it.
+  //
+  // `a` starts small and random and `b` at zero, so a fresh adapter adds
+  // nothing until its first step, and the model runs as it was.
+  struct lora_adapter {
+    trained_parameter a;
+    trained_parameter b;
+    wide_t scale;
+
+    // Allocate for width `width` under `options`, drawing `a` from `rng`, or
+    // throw.
+    lora_adapter(size_t width, const lora_options& options, std::mt19937& rng)
+        : a(uniform_matrix({.row_count = width, .col_count = options.rank},
+              rng)),
+          b(zero_matrix({.row_count = options.rank, .col_count = 3 * width})),
+          scale(options.alpha / static_cast<wide_t>(options.rank)) {}
+
+    // The adapter as `apply_block` takes it.
+    [[nodiscard]] c_attn_adapter views() const noexcept {
+      return {.a = a.value, .b = b.value, .scale = scale};
+    }
+  };
+
+#pragma endregion
 #pragma region Buffers
 
   // What one block's pass over one sequence leaves behind.
   //
-  // For T tokens of width C and MLP width F:
+  // For T tokens of width C and MLP width F, with an adapter of rank R:
   //
-  //   activations  the engine's `block_activation_buffers`
+  //   activations  the engine's `block_activation_buffers`, its
+  //                `adapter_hidden` [T, R] among them
   //   hidden_pre   [T, F]  the MLP's widened rows before `gelu_new`
   //   keys         [T, C]  the block's keys
   //   values       [T, C]  the block's values
@@ -90,8 +172,9 @@ public:
 
     // Allocate every buffer, or throw.
     block_buffers(size_t token_count, size_t width, size_t hidden_width,
-        size_t head_count)
-        : activations(token_count, width, hidden_width, head_count),
+        size_t head_count, size_t lora_rank)
+        : activations(token_count, width, hidden_width, head_count, 0,
+              lora_rank),
           hidden_pre(activations.hidden.extent()),
           keys(activations.queries.extent()), values(keys.extent()) {}
 
@@ -106,7 +189,7 @@ public:
   // What the passes over one sequence leave behind.
   //
   // For T tokens of width C through L blocks of H heads and MLP width F, with
-  // V vocabulary entries:
+  // V vocabulary entries and adapters of rank R:
   //
   //   ids                [T]               the sequence's token IDs
   //   residuals          [L + 1] x [T, C]  the residual stream entering each
@@ -138,6 +221,8 @@ public:
   //                                        to its scores
   //   ln_1_out_gradient  [T, C]            the gradient with respect to a
   //                                        block's `ln_1_out`
+  //   adapter_hidden_gradient  [T, R]      the gradient with respect to a
+  //                                        block's `adapter_hidden`
   //
   // The last token of a sequence predicts nothing, since nothing follows it,
   // so the logits and losses have a row for every token but the last, and the
@@ -159,10 +244,12 @@ public:
     cuda_matrix<wide_t> qkv_gradient;
     cuda_matrix<wide_t> weights_gradient;
     cuda_matrix<wide_t> ln_1_out_gradient;
+    cuda_matrix<wide_t> adapter_hidden_gradient;
 
     // Allocate every buffer for `token_count` tokens through the model of
-    // `engine`, or throw.
-    sequence_buffers(const engine_t& engine, size_t token_count)
+    // `engine` with adapters of rank `lora_rank`, or throw.
+    sequence_buffers(const engine_t& engine, size_t token_count,
+        size_t lora_rank)
         : ids(token_count),
           trunk({.row_count = token_count,
               .col_count = engine.wte_.col_extent()}),
@@ -180,7 +267,9 @@ public:
                   engine.blocks_.front().attn_c_attn_weight.col_extent()}),
           weights_gradient({.row_count = engine.head_count_ * token_count,
               .col_count = token_count}),
-          ln_1_out_gradient(trunk.extent()) {
+          ln_1_out_gradient(trunk.extent()),
+          adapter_hidden_gradient(
+              {.row_count = token_count, .col_count = lora_rank}) {
       // The backward pass writes every row of the trunk's gradient but the
       // last, which stays zero from here on.
       trunk_gradient.buffer().zero().or_throw();
@@ -192,7 +281,7 @@ public:
       blocks.reserve(block_count);
       for (auto block = 0UZ; block < block_count; ++block)
         blocks.emplace_back(token_count, trunk.col_extent(), hidden_width,
-            engine.head_count_);
+            engine.head_count_, lora_rank);
     }
 
     // The rows of `trunk` that predict, which is every row but the last.
@@ -303,20 +392,33 @@ public:
 #pragma region Construction
 
   // Allocate the buffers for batches of `sequence_count` sequences of
-  // `token_count` tokens each, or throw.
+  // `token_count` tokens each, and the adapters `lora` shapes, or throw.
   //
   // There must be at least one sequence, of at least two tokens and no more
-  // than the context holds.
+  // than the context holds, and the rank must not be zero. `adamw` sets how
+  // `step` moves the adapters.
   gpt2_trainer(const engine_t& engine, size_t sequence_count,
-      size_t token_count)
-      : engine_{engine}, gradients_(engine), statistics_(token_count),
+      size_t token_count, lora_options lora = {},
+      adamw_options<wide_t> adamw = {})
+      : engine_{engine}, adamw_{adamw}, gradients_(engine),
+        statistics_(token_count),
         norm_in_gradient_({.row_count = token_count,
             .col_count = engine.wte_.col_extent()}) {
     assert(sequence_count);
     assert((token_count > 1) && (token_count <= engine.wpe_.row_extent()));
+    assert(lora.rank);
     sequences_.reserve(sequence_count);
     for (auto sequence = 0UZ; sequence < sequence_count; ++sequence)
-      sequences_.emplace_back(engine, token_count);
+      sequences_.emplace_back(engine, token_count, lora.rank);
+
+    std::mt19937 rng(lora.seed);
+    const auto block_count = engine.blocks_.size();
+    adapters_.reserve(block_count);
+    adapter_views_.reserve(block_count);
+    for (auto block = 0UZ; block < block_count; ++block) {
+      adapters_.emplace_back(engine.wte_.col_extent(), lora, rng);
+      adapter_views_.push_back(adapters_.back().views());
+    }
   }
 
 #pragma endregion
@@ -379,8 +481,8 @@ public:
 #pragma endregion
 #pragma region Backward pass
 
-  // Fill `gradients()` by calculating how much the loss of the last `forward`
-  // moves per unit of each parameter.
+  // Fill `gradients()` and the adapters' gradients by calculating how much the
+  // loss of the last `forward` moves per unit of each parameter.
   //
   // Each sequence's backward pass adds into the one set of gradients, so the
   // set is the batch's. For GPT-2 with T tokens in a sequence, walking back
@@ -397,8 +499,9 @@ public:
   //            |  ln_f weight [C]              |  gradients [C], added to
   // block n,   |  residual_gradient,           |  residual_gradient, now with
   // n from 11  |  block n's activations and    |  respect to residuals[n],
-  // down to 0  |  its parameters, and          |  its twelve parameter
-  //            |  residuals[n]                 |  gradients, added to
+  // down to 0  |  its parameters, its adapter, |  its twelve parameter
+  //            |  and residuals[n]             |  gradients and its
+  //            |                               |  adapter's two, added to
   // embed      |  residual_gradient, ids [T]   |  wpe gradient [:T] and wte
   //            |                               |  gradient, added to
   //
@@ -412,6 +515,10 @@ public:
   // fill), returns false, leaving the gradients and the buffers unspecified.
   [[nodiscard]] bool backward() {
     if (!gradients_.zero()) return false;
+    for (auto& adapter : adapters_)
+      if (!adapter.a.gradient.buffer().zero() ||
+          !adapter.b.gradient.buffer().zero())
+        return false;
     for (auto& sequence : sequences_)
       if (!backward_sequence(sequence)) return false;
     return true;
@@ -420,6 +527,37 @@ public:
   // What the last `backward` left behind.
   [[nodiscard]] const parameter_gradients& gradients() const noexcept {
     return gradients_;
+  }
+
+#pragma endregion
+#pragma region Training step
+
+  // Run `forward` and `backward` over the batch `ids`, then move every
+  // adapter parameter one AdamW step, setting `loss` to the batch's loss
+  // before the step.
+  //
+  // Only the adapters move. The model's own parameters keep their gradients
+  // in `gradients()` and stay as they are. On failure, returns false, leaving
+  // the adapters and the buffers unspecified.
+  [[nodiscard]] bool step(wide_t& loss, matrix_view<token_id> ids) {
+    if (!forward(loss, ids) || !backward()) return false;
+    ++step_count_;
+    for (auto& adapter : adapters_)
+      if (!adapter.a.update(step_count_, adamw_) ||
+          !adapter.b.update(step_count_, adamw_))
+        return false;
+    return true;
+  }
+
+  // The adapters, one per block.
+  [[nodiscard]] std::span<const lora_adapter> adapters() const noexcept {
+    return adapters_;
+  }
+
+  // The adapters as the engine takes them, to run the model with them.
+  [[nodiscard]] std::span<const c_attn_adapter>
+  adapter_views() const noexcept {
+    return adapter_views_;
   }
 
 #pragma endregion
@@ -440,7 +578,8 @@ private:
     {
       const auto entering = static_cast<size_t>(block_index);
       if (!engine_.apply_block(residuals[entering + 1], residuals[entering],
-              entering, block.lenses(), block.keys, block.values))
+              entering, block.lenses(), block.keys, block.values,
+              adapter_views_[entering]))
         return false;
     }
     if (!layer_norm(sequence.trunk, residuals.back(), engine_.ln_f_weight_,
@@ -617,6 +756,7 @@ private:
             gradients.attn_c_attn_weight, gradients.attn_c_attn_bias,
             sequence.qkv_gradient, acts.ln_1_out, params.attn_c_attn_weight))
       return false;
+    if (!backward_adapter(sequence, block_index)) return false;
 
     // Fill `norm_in_gradient_` and add to ln_1's gradients, then add the
     // direct share, which is `residual_gradient` as it stands. The layer
@@ -629,12 +769,76 @@ private:
     return add(residual_gradient, residual_gradient, norm_in_gradient_);
   }
 
+  // `backward_adapter` walks the gradient back through block `block_index`'s
+  // adapter for one sequence, from `qkv_gradient` to `ln_1_out_gradient`,
+  // adding to the adapter's gradients.
+  //
+  // The adapter added `scale * adapter_hidden x b` to the projection's output
+  // [T, 3C], with `adapter_hidden` as `ln_1_out x a` [T, R]. Nudging
+  // `adapter_hidden[t, k]` by a small `step` moves the output's `[t, j]` by
+  // `scale * b[k, j] * step` for every `j`, and the loss by `qkv_gradient[t,
+  // j]` times that, so the gradient with respect to `adapter_hidden` is
+  // `scale` times `qkv_gradient x b^T`. Nudging `b[k, j]` moves `[t, j]` by
+  // `scale * adapter_hidden[t, k] * step` in every row `t`, so b's gradient is
+  // `scale` times `adapter_hidden^T x qkv_gradient`. From there the walk is a
+  // projection's without a bias. a's gradient is `ln_1_out^T x
+  // adapter_hidden_gradient`, and `ln_1_out` gets a second share,
+  // `adapter_hidden_gradient x a^T`, beside the one the weight gave it.
+  [[nodiscard]] bool
+  backward_adapter(sequence_buffers& sequence, size_t block_index) {
+    auto& adapter = adapters_[block_index];
+    const auto& acts = sequence.blocks[block_index].activations;
+    const auto& blas = engine_.blas_;
+    auto& hidden_gradient = sequence.adapter_hidden_gradient;
+
+    if (!gemm(blas, hidden_gradient, sequence.qkv_gradient, adapter.b.value,
+            {.scale = adapter.scale, .op_b = cublas_operation::transpose}))
+      return false;
+    if (!gemm(blas, adapter.b.gradient, acts.adapter_hidden,
+            sequence.qkv_gradient,
+            {.scale = adapter.scale, .op_a = cublas_operation::transpose},
+            adapter.b.gradient))
+      return false;
+    if (!gemm(blas, adapter.a.gradient, acts.ln_1_out, hidden_gradient,
+            {.op_a = cublas_operation::transpose}, adapter.a.gradient))
+      return false;
+    return gemm(blas, sequence.ln_1_out_gradient, hidden_gradient,
+        adapter.a.value, {.op_b = cublas_operation::transpose},
+        sequence.ln_1_out_gradient);
+  }
+
+  // A matrix of `extent` filled with values drawn evenly from `-bound` to
+  // `bound`, with `bound` 1 over the square root of the row count, which keeps
+  // a product against it about the size of its input.
+  [[nodiscard]] static cuda_matrix<element_t>
+  uniform_matrix(matrix_extent extent, std::mt19937& rng) {
+    const auto bound = 1 / std::sqrt(static_cast<wide_t>(extent.row_count));
+    std::uniform_real_distribution<wide_t> draw(-bound, bound);
+    std::vector<element_t> host(extent.size());
+    for (auto& value : host) value = static_cast<element_t>(draw(rng));
+    return cuda_matrix<element_t>(matrix_view<element_t>(host, extent));
+  }
+
+  // A matrix of `extent` filled with zeros.
+  [[nodiscard]] static cuda_matrix<element_t> zero_matrix(
+      matrix_extent extent) {
+    cuda_matrix<element_t> result(extent);
+    result.buffer().zero().or_throw();
+    return result;
+  }
+
 #pragma endregion
 #pragma region Data members
 
   const engine_t& engine_;
+  adamw_options<wide_t> adamw_;
   std::vector<sequence_buffers> sequences_;
   parameter_gradients gradients_;
+  // One adapter per block, and the same as the engine takes them.
+  std::vector<lora_adapter> adapters_;
+  std::vector<c_attn_adapter> adapter_views_;
+  // How many steps `step` has taken, which AdamW's corrections count from.
+  size_t step_count_{};
   cuda_buffer<row_statistics<wide_t>> statistics_;
   // A layer norm's input gradient, before the residual path's direct share is
   // added to it.
