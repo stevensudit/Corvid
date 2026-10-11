@@ -22,6 +22,7 @@
 #include <limits>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "corvid/containers/utils/interval.h"
@@ -533,6 +534,33 @@ TEMPLATE_TEST_CASE("Device embed tokens on hand-computed rows",
   CHECK(out_storage == std::vector<T>{T{100}, T{200}, T{1}, T{2}});
 }
 
+TEMPLATE_TEST_CASE("Device embed tokens backward adds each row to its ID's",
+    "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
+  using T = TestType;
+  // Three rows of width two land on a table of three entries. The first and
+  // last rows share an ID, so that entry gets both, the entry no ID names
+  // keeps what it had, and every entry starts at 1 to show the adding.
+  const std::vector<token_id> id_storage{token_id{2}, token_id{0},
+      token_id{2}};
+  const std::vector<T> out_gradient_storage{T{1}, T{2}, T{10}, T{20}, T{100},
+      T{200}};
+  const std::vector<T> table_storage(6, T{1});
+  cuda_buffer<token_id> ids(id_storage.size());
+  REQUIRE(ids.load(id_storage));
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, {.row_count = 3, .col_count = 2}));
+  cuda_matrix<T> table_gradient(
+      matrix_view<T>(table_storage, {.row_count = 3, .col_count = 2}));
+
+  REQUIRE(corvid::cuda::llm::embed_tokens_backward(table_gradient,
+      out_gradient, ids));
+
+  std::vector<T> storage(table_gradient.size());
+  REQUIRE(table_gradient.as_view().store(
+      matrix_lens<T>(storage, table_gradient.extent())));
+  CHECK(storage == std::vector<T>{T{11}, T{21}, T{1}, T{1}, T{102}, T{203}});
+}
+
 TEMPLATE_TEST_CASE("Device embed positions on hand-computed rows",
     "[LlmOpsTest][cuda]", float, double, bfloat16_t) {
   using T = TestType;
@@ -801,6 +829,102 @@ TEST_CASE("Device attention over cached tokens matches a full pass",
       }
     }
   }
+}
+
+TEST_CASE("Device attention backward's gradients predict the change in a loss",
+    "[LlmOpsTest][cuda]") {
+  // A gradient is a prediction. Nudge one value by a small step, and the loss
+  // moves by that value's gradient times the step. This nudges a query, a key,
+  // and a value in each row, each up and then down, and checks every
+  // prediction against the loss the device `attend` then gives, over two heads
+  // with nothing cached.
+  //
+  // The loss is a weighted sum of the outputs, with the weights chosen by
+  // hand, since the gradient of such a loss with respect to the outputs is the
+  // weights themselves. Everything is in `double`, so that the step is small
+  // against the rounding.
+  using T = double;
+  using lens_t = matrix_lens<T>;
+  constexpr auto token_count = 5UZ;
+  constexpr auto head_count = 2UZ;
+  constexpr matrix_types::matrix_extent extent{.row_count = token_count,
+      .col_count = 6};
+  constexpr matrix_types::matrix_extent stacked{
+      .row_count = head_count * token_count,
+      .col_count = token_count};
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+
+  std::vector<T> queries_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(queries_storage))
+    value = std::sin(0.37 * static_cast<double>(ndx));
+  std::vector<T> keys_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(keys_storage))
+    value = std::cos(0.29 * static_cast<double>(ndx));
+  std::vector<T> values_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(values_storage))
+    value = std::sin((0.53 * static_cast<double>(ndx)) + 1.0);
+  std::vector<T> out_gradient_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(out_gradient_storage))
+    value = std::cos(0.43 * static_cast<double>(ndx));
+  const lens_t queries_lens(queries_storage, extent);
+  const lens_t keys_lens(keys_storage, extent);
+  const lens_t values_lens(values_storage, extent);
+  const cublas_handle blas;
+
+  // The loss over the queries, keys, and values as they stand, with the
+  // attention computed on the device.
+  const auto loss = [&] {
+    const cuda_matrix<T> queries(queries_lens);
+    const cuda_matrix<T> keys(keys_lens);
+    const cuda_matrix<T> values(values_lens);
+    cuda_matrix<T> scores(stacked);
+    cuda_matrix<T> weights(stacked);
+    cuda_matrix<T> out(extent);
+    REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values,
+        head_count, scores, weights));
+    std::vector<T> out_storage(out.size());
+    REQUIRE(out.as_view().store(lens_t(out_storage, extent)));
+    return corvid::linalg::dot_product(out_storage, out_gradient_storage);
+  };
+
+  // The forward step once more, keeping its weights for the backward step.
+  const cuda_matrix<T> queries(queries_lens);
+  const cuda_matrix<T> keys(keys_lens);
+  const cuda_matrix<T> values(values_lens);
+  cuda_matrix<T> scores(stacked);
+  cuda_matrix<T> weights(stacked);
+  cuda_matrix<T> out(extent);
+  REQUIRE(corvid::cuda::llm::attend(blas, out, queries, keys, values,
+      head_count, scores, weights));
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, extent));
+  cuda_matrix<T> queries_gradient(extent);
+  cuda_matrix<T> keys_gradient(extent);
+  cuda_matrix<T> values_gradient(extent);
+  cuda_matrix<T> weights_gradient(stacked);
+  REQUIRE(corvid::cuda::llm::attend_backward(blas, queries_gradient,
+      keys_gradient, values_gradient, out_gradient, queries, keys, values,
+      weights, head_count, weights_gradient));
+
+  // One of `lens` in each row, on a different column each time, against its
+  // `gradient`.
+  const auto check =
+      [&](std::string_view name, const lens_t& lens,
+          const cuda_matrix<T>& gradient) {
+        std::vector<T> gradient_storage(gradient.size());
+        const lens_t gradient_lens(gradient_storage, extent);
+        REQUIRE(gradient.as_view().store(gradient_lens));
+        for (const auto row : lens.row_indexes()) {
+          const col_ndx col{(*row * 2) % extent.col_count};
+          INFO(name << " row " << *row << ", col " << *col);
+          CHECK_THAT(slope_of(lens[row, col], step, loss),
+              WithinAbs(gradient_lens[row, col], tolerance));
+        }
+      };
+  check("query", queries_lens, queries_gradient);
+  check("key", keys_lens, keys_gradient);
+  check("value", values_lens, values_gradient);
 }
 
 TEST_CASE("Device attention path matches the oracle",

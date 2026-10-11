@@ -509,6 +509,67 @@ embed_tokens(Out&& out, const cuda_buffer<token_id>& ids, const Table& table) {
   return cuda_last_status{}.ok();
 }
 
+namespace details {
+
+// Add each row of `out_gradient`, `extent` in size, to the row of
+// `table_gradient` that its ID names, one thread per column.
+//
+// The rows are added in order, so two rows with one ID add in a fixed order,
+// and the result does not depend on how the launch is scheduled.
+template<DeviceFloating G>
+__global__ void scatter_add_rows(kernel_matrix_lens<G> table_gradient,
+    kernel_matrix_view<G> out_gradient, const token_id* ids,
+    matrix_extent extent) {
+  const auto col = cuda_kernel::x_index<size_t>();
+  if (col >= extent.col_count) return;
+
+  for (const auto row : iota(extent.row_count)) {
+    auto& target = table_gradient[*ids[row], col];
+    target = narrow<G>(widen(target) + widen(out_gradient[row, col]));
+  }
+}
+
+} // namespace details
+
+// `embed_tokens_backward` adds how much the loss moves per unit of each entry
+// of `embed_tokens`'s table to `table_gradient`, from how much it moves per
+// unit of each element of its output.
+//
+// This is the backward step of `embed_tokens`, which copies the row of the
+// table that each ID names. Nudging `table[v, c]` by a small `step` moves
+// `out[t, c]` by `step` in every row `t` whose ID is `v`, so the gradient at
+// `[v, c]` is the sum of `out_gradient[t, c]` over those rows, and a row of
+// the table that no ID names gets nothing added. With T tokens, V vocabulary
+// entries, and width C:
+//
+//   table_gradient  [V, C]  the gradient with respect to the table, added to
+//   out_gradient    [T, C]  the gradient with respect to the forward `out`
+//   ids             [T]     the forward IDs, one per row of `out_gradient`
+//
+// A caller that spreads one batch over several calls accumulates one batch
+// gradient, since the table gradient is added to and never overwritten. Zero
+// it before the first call.
+//
+// `out_gradient` must have one row per ID and the width of `table_gradient`,
+// every ID must index a row of `table_gradient`, and the two must not
+// overlap. They share an element type. Returns false when the launch is
+// refused, leaving `table_gradient` unspecified.
+template<DeviceMatrixLike Out>
+requires DeviceFloating<device_element_t<Out>>
+[[nodiscard]] bool embed_tokens_backward(Out&& table_gradient,
+    input_view_t<Out> out_gradient, const cuda_buffer<token_id>& ids) {
+  const auto& table_gradient_lens = table_gradient.as_lens();
+  const auto width = out_gradient.col_extent();
+  assert(out_gradient.row_extent() == ids.size());
+  assert(width == table_gradient_lens.col_extent());
+  assert(is_disjoint(table_gradient_lens.as_span(), out_gradient.as_span()));
+
+  details::scatter_add_rows<<<blocks_for(width), threads_per_block>>>(
+      kernel_matrix_lens{table_gradient_lens},
+      kernel_matrix_view{out_gradient}, ids.get(), out_gradient.extent());
+  return cuda_last_status{}.ok();
+}
+
 #pragma endregion
 #pragma region embed_positions
 
@@ -671,6 +732,130 @@ requires GemmElement<device_element_t<Out>>
           .a = matrix_axis::rows,
           .b = matrix_axis::cols,
           .out = matrix_axis::cols});
+}
+
+// `attend_backward` computes how much the loss moves per unit of each query,
+// key, and value from how much it moves per unit of each element of `attend`'s
+// output, writing into `queries_gradient`, `keys_gradient`, and
+// `values_gradient`.
+//
+// This is the backward step of `attend`, with its shapes. For M cached tokens,
+// N new ones, T = M + N, width C, and H heads of width D = C / H:
+//
+//   queries_gradient  N x C   the gradient with respect to `queries`, written
+//   keys_gradient     T x C   the gradient with respect to `keys`, written
+//   values_gradient   T x C   the gradient with respect to `values`, written
+//   out_gradient      N x C   the gradient with respect to the forward `out`
+//   queries           N x C   the forward queries
+//   keys              T x C   the forward keys
+//   values            T x C   the forward values
+//   weights           HN x T  the forward weights, every head's N x T stacked
+//   weights_gradient  HN x T  scratch, the gradient with respect to the
+//                             weights, then to the scores
+//
+// Per head, the forward step was three: the scores as the queries against the
+// transposed keys (scaled by 1 / sqrt(D)) under the causal mask, the weights
+// as the row softmax of the scores, and `out` as the weights against the
+// values. Each walks back as a product or a softmax step, over the head's
+// rows of the weights and its columns of everything else:
+//
+// - Nudging `values[j]` by a small `step` moves `out[i]` by `weights[i, j] *
+//   step` in every row `i`, so `values_gradient[j]` is the sum over `i` of
+//   `weights[i, j] * out_gradient[i]`, which is the transposed weights
+//   against `out_gradient`.
+// - Nudging `weights[i, j]` moves `out[i]` by `values[j] * step`, so
+//   `weights_gradient[i, j]` is the dot product of `out_gradient[i]` and
+//   `values[j]`, which is `out_gradient` against the transposed values.
+// - `softmax_backward` turns that into the gradient with respect to the
+//   scores, in place. A masked score has a weight of zero and gets a gradient
+//   of zero, so the mask needs no step of its own.
+// - Nudging `queries[i]` moves `scores[i, j]` by `keys[j] / sqrt(D) * step`
+//   for every `j`, so `queries_gradient[i]` is the sum over `j` of
+//   `scores_gradient[i, j] * keys[j]`, scaled, which is the scores gradient
+//   against the keys. Nudging `keys[j]` moves `scores[i, j]` by `queries[i] /
+//   sqrt(D) * step` for every `i`, so `keys_gradient[j]` is the transposed
+//   scores gradient against the queries, scaled.
+//
+// Every matrix shares an element type, the one the gradients hold. `queries`
+// must have the extent of `out_gradient`, `keys` and `values` its width and
+// at least as many rows, each gradient the extent of what it is with respect
+// to, and `weights` and `weights_gradient` a column per row of `keys` and a
+// row per row of `out_gradient` per head. `out_gradient`'s width must divide
+// evenly by `head_count`. The three gradients must not overlap one another,
+// an input, or the scratch, and the scratch must not overlap an input.
+// Returns false when a launch is refused, leaving the gradients and the
+// scratch unspecified.
+template<DeviceMatrixLike Out>
+requires GemmElement<device_element_t<Out>>
+[[nodiscard]] bool
+attend_backward(const cublas_handle& blas, Out&& queries_gradient,
+    cuda_matrix_lens<device_element_t<Out>> keys_gradient,
+    cuda_matrix_lens<device_element_t<Out>> values_gradient,
+    input_view_t<Out> out_gradient, input_view_t<Out> queries,
+    input_view_t<Out> keys, input_view_t<Out> values,
+    input_view_t<Out> weights, size_t head_count,
+    cuda_matrix_lens<device_element_t<Out>> weights_gradient) {
+  using element_t = device_element_t<Out>;
+
+  const auto& queries_gradient_lens = queries_gradient.as_lens();
+  [[maybe_unused]] const auto new_count = out_gradient.row_extent();
+  [[maybe_unused]] const auto total_count = keys.row_extent();
+  const auto width = out_gradient.col_extent();
+  assert(queries_gradient_lens.extent() == out_gradient.extent());
+  assert(queries.extent() == out_gradient.extent());
+  assert((keys.col_extent() == width) && (values.extent() == keys.extent()));
+  assert((keys_gradient.extent() == keys.extent()) &&
+         (values_gradient.extent() == keys.extent()));
+  assert(total_count >= new_count);
+  assert(head_count && (width % head_count == 0));
+  assert((weights.row_extent() == head_count * new_count) &&
+         (weights.col_extent() == total_count));
+  assert(weights_gradient.extent() == weights.extent());
+  [[maybe_unused]] const auto is_disjoint_from_inputs = [&](auto span) {
+    return is_disjoint(span, out_gradient.as_span()) &&
+           is_disjoint(span, queries.as_span()) &&
+           is_disjoint(span, keys.as_span()) &&
+           is_disjoint(span, values.as_span()) &&
+           is_disjoint(span, weights.as_span());
+  };
+  assert(is_disjoint_from_inputs(queries_gradient_lens.as_span()));
+  assert(is_disjoint_from_inputs(keys_gradient.as_span()));
+  assert(is_disjoint_from_inputs(values_gradient.as_span()));
+  assert(is_disjoint_from_inputs(weights_gradient.as_span()));
+  assert(is_disjoint(weights_gradient.as_span(), values_gradient.as_span()));
+  // The three gradients may be column windows of one matrix, whose byte
+  // ranges interleave although no element is shared, so a span check cannot
+  // tell them apart and their disjointness is not asserted.
+  const auto head_width = width / head_count;
+  const auto scale =
+      gemm_scalar_t<element_t>{1} /
+      std::sqrt(static_cast<gemm_scalar_t<element_t>>(head_width));
+
+  // A head is a block of rows in the weights and their gradient, and a block
+  // of columns in everything else, so a product lands in head rows when it
+  // produces the weights gradient and in head columns otherwise.
+  const gemm_batch stacked_out{.count = head_count,
+      .a = matrix_axis::cols,
+      .b = matrix_axis::cols,
+      .out = matrix_axis::rows};
+  const gemm_batch side_by_side_out{.count = head_count,
+      .a = matrix_axis::rows,
+      .b = matrix_axis::cols,
+      .out = matrix_axis::cols};
+
+  if (!gemm_batched(blas, values_gradient, weights, out_gradient,
+          side_by_side_out, {.op_a = cublas_operation::transpose}))
+    return false;
+  if (!gemm_batched(blas, weights_gradient, out_gradient, values, stacked_out,
+          {.op_b = cublas_operation::transpose}))
+    return false;
+  if (!softmax_backward(weights_gradient, weights_gradient, weights))
+    return false;
+  if (!gemm_batched(blas, queries_gradient_lens, weights_gradient, keys,
+          side_by_side_out, {.scale = scale}))
+    return false;
+  return gemm_batched(blas, keys_gradient, weights_gradient, queries,
+      side_by_side_out, {.scale = scale, .op_a = cublas_operation::transpose});
 }
 
 #pragma endregion

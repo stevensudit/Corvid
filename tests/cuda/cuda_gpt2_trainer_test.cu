@@ -80,15 +80,22 @@ constexpr auto activation_gradient_ratio = 2e-4F;
 // head's share of `wte`, 5.3e-5 (the weight's).
 constexpr auto parameter_gradient_ratio = 1e-4F;
 
-// The same ratio for the parameter gradients of a block, set above the
-// largest measured over the last block's six, 8.0e-4 (the ln_2 weight's).
+// The same ratio for the gradients with respect to the first block's
+// activations, which the walk through all twelve blocks reaches last, set
+// above the largest measured over the four sequences, 8.4e-4 (sequence 1's
+// `ln_1_out`).
+constexpr auto walked_activation_gradient_ratio = 1e-3F;
+
+// The same ratio for the parameter gradients of the blocks and the
+// embeddings, set above the largest measured over the twelve blocks' and the
+// two tables', 2.3e-3 (block 10's ln_2 weight).
 //
 // Each is a sum over every row of the batch of an activation gradient that
 // already carries the error of the steps behind it, and the sum carries that
 // error along even where the sum's own value is small, so the ratio is looser
 // than the final layer norm's. The recomputation test below shows the sum
 // itself is exact to a float ulp.
-constexpr auto block_parameter_gradient_ratio = 1e-3F;
+constexpr auto block_parameter_gradient_ratio = 3e-3F;
 
 // The ratio for a gradient against the same formula summed in `double` on the
 // host, set above the 1.9e-7 measured, which is a float ulp of the result.
@@ -101,8 +108,8 @@ using trainer_t = gpt2_trainer<float>;
 // another.
 template<typename Select>
 void check_sequence_gradients(const trainer_t& trainer,
-    const safetensors_file& grads, std::string_view name,
-    const Select& select) {
+    const safetensors_file& grads, std::string_view name, const Select& select,
+    float ratio) {
   INFO(name);
   const auto expected = matrix_of(grads, name, n_embd);
   REQUIRE(expected.row_extent() == n_grad_batch * n_grad_seq);
@@ -115,8 +122,7 @@ void check_sequence_gradients(const trainer_t& trainer,
     const auto extent = actual.extent();
     const auto storage = download(actual);
     check_close_to_scale(float_matrix_view(storage, extent),
-        expected[{row_ndx{first_row}, col_ndx{0}}, extent],
-        activation_gradient_ratio);
+        expected[{row_ndx{first_row}, col_ndx{0}}, extent], ratio);
   }
 }
 
@@ -221,10 +227,10 @@ TEST_CASE(
   // per sequence, which checks the head's backward step.
   //
   // The layer norm's own step is checked through its parameter gradients
-  // below, since the trainer walks on into the last block, and
-  // `residual_gradient` holds the stream at that later point.
+  // below, since the trainer walks on into the blocks, and `residual_gradient`
+  // holds the stream at the point it ended.
   check_sequence_gradients(batch.trainer, batch.oracle.grads, "ln_f/out",
-      &trainer_t::sequence_buffers::trunk_gradient);
+      &trainer_t::sequence_buffers::trunk_gradient, activation_gradient_ratio);
 
   // The gradients with respect to the final layer norm's weight and bias,
   // summed over the batch.
@@ -233,71 +239,75 @@ TEST_CASE(
       "transformer.ln_f.weight", n_embd, parameter_gradient_ratio);
   check_vector_gradient(gradients.ln_f_bias, batch.oracle.grads,
       "transformer.ln_f.bias", n_embd, parameter_gradient_ratio);
-
-  // The gradient with respect to `wte`. The oracle's sums the table's two
-  // uses, as the output head and as the embedding lookup, where the trainer's
-  // is the head's share alone. The lookup's share is known. Each token's row
-  // of the gradient at the embedding output lands in the row of the token's
-  // ID, so it is taken back out of the oracle's before the comparison.
-  const auto oracle_wte =
-      matrix_of(batch.oracle.grads, "transformer.wte.weight", n_embd);
-  REQUIRE(oracle_wte.extent() == gradients.wte.extent());
-  std::vector<float> expected_wte_storage(oracle_wte.as_span().begin(),
-      oracle_wte.as_span().end());
-  const float_matrix_lens expected_wte(expected_wte_storage,
-      oracle_wte.extent());
-  const auto embed_gradient =
-      matrix_of(batch.oracle.grads, "embed/out", n_embd);
-  REQUIRE(embed_gradient.row_extent() == batch.id_storage.size());
-  for (const auto [position, id] : std::views::enumerate(batch.id_storage)) {
-    const auto target = expected_wte[row_ndx{static_cast<size_t>(*id)}];
-    const auto share = embed_gradient[row_ndx{static_cast<size_t>(position)}];
-    for (auto [acc, delta] : std::views::zip(target, share)) acc -= delta;
-  }
-  const auto actual_wte = download(gradients.wte);
-  check_close_to_scale(float_matrix_view(actual_wte, gradients.wte.extent()),
-      expected_wte, parameter_gradient_ratio);
 }
 
 TEST_CASE(
-    "Device training backward pass through the last block's MLP half "
+    "Device training backward pass through every block and the embeddings "
     "matches the oracle",
     "[Gpt2TrainerTest][oracle][cuda]") {
   oracle_batch batch;
   REQUIRE(batch.trainer.backward());
 
-  // The gradients with respect to the last block's `ln_2_out` and `ln_2_in`,
-  // per sequence. The first checks the two projections and the GELU between
-  // them, the second the second layer norm and the residual path's direct
-  // share summed back in. The gradient with respect to `mlp_out` is the one
-  // leaving the block, which the oracle dumps twice, as `ln_f/in` and as
-  // `block_11/mlp/out`.
-  constexpr auto last = n_layer - 1;
-  const auto dump = std::format("block_{}/", last);
-  check_sequence_gradients(batch.trainer, batch.oracle.grads,
-      dump + "ln_2/out", &trainer_t::sequence_buffers::ln_2_out_gradient);
-  check_sequence_gradients(batch.trainer, batch.oracle.grads, dump + "ln_2/in",
-      &trainer_t::sequence_buffers::residual_gradient);
+  // The gradients with respect to the first block's `ln_2_out`, `ln_1_out`,
+  // and entering stream, per sequence. The walk ends there, so each carries
+  // the error of every step behind it. The entering stream is the embedding's
+  // output, which the oracle dumps twice, as `embed/out` and as
+  // `block_0/ln_1/in`.
+  const auto& grads = batch.oracle.grads;
+  check_sequence_gradients(batch.trainer, grads, "block_0/ln_2/out",
+      &trainer_t::sequence_buffers::ln_2_out_gradient,
+      walked_activation_gradient_ratio);
+  check_sequence_gradients(batch.trainer, grads, "block_0/ln_1/out",
+      &trainer_t::sequence_buffers::ln_1_out_gradient,
+      walked_activation_gradient_ratio);
+  check_sequence_gradients(batch.trainer, grads, "embed/out",
+      &trainer_t::sequence_buffers::residual_gradient,
+      walked_activation_gradient_ratio);
 
-  // The block's six parameter gradients, summed over the batch.
-  const auto param = std::format("transformer.h.{}.", last);
-  const auto& block = batch.trainer.gradients().blocks[last];
-  check_matrix_gradient(block.mlp_c_proj_weight, batch.oracle.grads,
-      param + "mlp.c_proj.weight", block_parameter_gradient_ratio);
-  check_vector_gradient(block.mlp_c_proj_bias, batch.oracle.grads,
-      param + "mlp.c_proj.bias", n_embd, block_parameter_gradient_ratio);
-  check_matrix_gradient(block.mlp_c_fc_weight, batch.oracle.grads,
-      param + "mlp.c_fc.weight", block_parameter_gradient_ratio);
-  check_vector_gradient(block.mlp_c_fc_bias, batch.oracle.grads,
-      param + "mlp.c_fc.bias", n_hidden, block_parameter_gradient_ratio);
-  check_vector_gradient(block.ln_2_weight, batch.oracle.grads,
-      param + "ln_2.weight", n_embd, block_parameter_gradient_ratio);
-  check_vector_gradient(block.ln_2_bias, batch.oracle.grads,
-      param + "ln_2.bias", n_embd, block_parameter_gradient_ratio);
+  // Every block's twelve parameter gradients, summed over the batch.
+  const auto& gradients = batch.trainer.gradients();
+  for (const auto block_index : iota(n_layer)) {
+    INFO("block " << block_index);
+    const auto param = std::format("transformer.h.{}.", block_index);
+    const auto& block = gradients.blocks[block_index];
+    check_vector_gradient(block.ln_1_weight, grads, param + "ln_1.weight",
+        n_embd, block_parameter_gradient_ratio);
+    check_vector_gradient(block.ln_1_bias, grads, param + "ln_1.bias", n_embd,
+        block_parameter_gradient_ratio);
+    check_matrix_gradient(block.attn_c_attn_weight, grads,
+        param + "attn.c_attn.weight", block_parameter_gradient_ratio);
+    check_vector_gradient(block.attn_c_attn_bias, grads,
+        param + "attn.c_attn.bias", n_qkv, block_parameter_gradient_ratio);
+    check_matrix_gradient(block.attn_c_proj_weight, grads,
+        param + "attn.c_proj.weight", block_parameter_gradient_ratio);
+    check_vector_gradient(block.attn_c_proj_bias, grads,
+        param + "attn.c_proj.bias", n_embd, block_parameter_gradient_ratio);
+    check_vector_gradient(block.ln_2_weight, grads, param + "ln_2.weight",
+        n_embd, block_parameter_gradient_ratio);
+    check_vector_gradient(block.ln_2_bias, grads, param + "ln_2.bias", n_embd,
+        block_parameter_gradient_ratio);
+    check_matrix_gradient(block.mlp_c_fc_weight, grads,
+        param + "mlp.c_fc.weight", block_parameter_gradient_ratio);
+    check_vector_gradient(block.mlp_c_fc_bias, grads, param + "mlp.c_fc.bias",
+        n_hidden, block_parameter_gradient_ratio);
+    check_matrix_gradient(block.mlp_c_proj_weight, grads,
+        param + "mlp.c_proj.weight", block_parameter_gradient_ratio);
+    check_vector_gradient(block.mlp_c_proj_bias, grads,
+        param + "mlp.c_proj.bias", n_embd, block_parameter_gradient_ratio);
+  }
+
+  // The embeddings' gradients, summed over the batch. The oracle's `wte` sums
+  // the table's two uses, as the embedding lookup and as the output head, as
+  // the trainer's does. Only the first 64 rows of `wpe` were used, and the
+  // rest are zero in both.
+  check_matrix_gradient(gradients.wte, grads, "transformer.wte.weight",
+      block_parameter_gradient_ratio);
+  check_matrix_gradient(gradients.wpe, grads, "transformer.wpe.weight",
+      block_parameter_gradient_ratio);
 }
 
 TEST_CASE(
-    "Device ln_2 weight gradient of the last block matches a host "
+    "Device ln_2 weight gradient of the first block matches a host "
     "recomputation in double",
     "[Gpt2TrainerTest][oracle][cuda]") {
   oracle_batch batch;
@@ -309,10 +319,11 @@ TEST_CASE(
   // Recomputed in `double` from the trainer's own retained input and its own
   // output gradient, it checks the kernel apart from the error its inputs
   // carry. Recomputed from the oracle's output gradient instead, it shows how
-  // far those inputs account for the gap to the oracle's weight gradient.
-  constexpr auto last = n_layer - 1;
+  // far those inputs account for the gap to the oracle's weight gradient. The
+  // first block is the one whose `ln_2_out` gradient the trainer still holds.
+  constexpr auto first = 0UZ;
   const auto oracle_out_gradient = matrix_of(batch.oracle.grads,
-      std::format("block_{}/ln_2/out", last), n_embd);
+      std::format("block_{}/ln_2/out", first), n_embd);
   const auto width = static_cast<double>(n_embd);
   const auto eps = static_cast<double>(corvid::llm::gpt2_layer_norm_eps);
   std::vector<double> from_own(n_embd);
@@ -320,7 +331,7 @@ TEST_CASE(
   for (const auto [sequence_index, sequence] :
       std::views::enumerate(batch.trainer.sequences()))
   {
-    const auto in = download(sequence.blocks[last].activations.ln_2_in);
+    const auto in = download(sequence.blocks[first].activations.ln_2_in);
     const auto own_gradient = download(sequence.ln_2_out_gradient);
     const auto first_row = static_cast<size_t>(sequence_index) * n_grad_seq;
     for (const auto row : iota(n_grad_seq)) {
@@ -357,9 +368,9 @@ TEST_CASE(
   const std::vector<float> from_oracle_narrowed(from_oracle.begin(),
       from_oracle.end());
   const auto device =
-      download(batch.trainer.gradients().blocks[last].ln_2_weight);
+      download(batch.trainer.gradients().blocks[first].ln_2_weight);
   const auto expected = vector_of(batch.oracle.grads,
-      std::format("transformer.h.{}.ln_2.weight", last), n_embd);
+      std::format("transformer.h.{}.ln_2.weight", first), n_embd);
 
   // The kernel against the same inputs summed in double.
   check_close_to_scale(float_matrix_view(device, row_extent),

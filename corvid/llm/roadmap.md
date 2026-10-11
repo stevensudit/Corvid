@@ -1750,6 +1750,46 @@ inputs, not the sum. The nudge tests share `corvid::linalg::slope_of`, the
 central-difference slope of a loss across one value. Next: slice 4, the
 attention half.
 
+Status (2026-10-11, slice 4: the attention half, every block, and the
+embeddings): `gpt2_trainer::backward` now walks the whole model: from the final
+layer norm through each block's MLP half and then its attention half, in
+`backward_attention`, from block 11 down to block 0, and then through the
+embeddings. Three new device ops. `softmax_backward`, beside `softmax` in the
+device linear algebra, reads the weights the forward step wrote rather than the
+scores it read, since a row's slopes are fixed by its weights alone. A score's
+gradient is its weight times its weight gradient less the row's weighted sum of
+weight gradients, so a masked score, whose weight is zero, gets zero, and the
+causal mask needs no step of its own. `attend_backward`, beside `attend`, is
+four batched GEMMs around that softmax step, over the head rows of the weights
+and the head columns of everything else: the transposed weights against the
+output gradient for the values', the output gradient against the transposed
+values for the weights', then the scores gradient against the keys and its
+transpose against the queries, each scaled by 1 / sqrt(D), for the queries' and
+keys'. `embed_tokens_backward`, beside `embed_tokens`, adds each row of the
+embedding output's gradient to the row of the table that its ID names, one
+thread per column over the rows in order, so two tokens with one ID add in a
+fixed order. The attention projection's backward step is one
+`linear_projection_backward` over the whole [768, 2304] weight. The forward
+pass goes a third at a time only so that the keys and values land in their own
+stores, and the three gradients land as the thirds of one [T, 2304] scratch,
+whose single product against the transposed weight sums the three shares of
+`ln_1_out`'s gradient. The weight gradient comes out in the oracle's shape, and
+the bias gradient whole, as the CPU bundle holds it. The position embeddings'
+gradient is the existing `add` over the first T rows, and the token embeddings'
+now sums the head's share and the lookup's, as the oracle's does, so each
+sequence keeps its token IDs on the device for the scatter. Gate, on the RTX
+4090 (Windows): the first block's `ln_2_out`, `ln_1_out`, and entering-stream
+gradients per sequence at 7.0e-4, 8.4e-4, and 7.6e-4 at worst (sequence 1; the
+other three sequences under 2e-4), gated at 1e-3; all twelve blocks' twelve
+parameter gradients, `wte`, and `wpe` at 2.3e-3 at worst (block 10's ln_2
+weight; every attention projection weight under 1e-3), gated at 3e-3. The
+recomputation test now runs at block 0, where the device sum still matches a
+double host sum to a float ulp, so the wider gates are the error the
+twelve-block walk inherits in float, not the ops'. `softmax_backward` and
+`attend_backward` have nudge tests in double, the latter over two heads of five
+tokens, and `embed_tokens_backward` a hand-computed test with a repeated ID.
+Next: slice 5, LoRA, AdamW, and the training loop.
+
 ### 6. A model that can hold an opinion
 
 GPT-2 124M is too weak for a preference to mean anything. The experiment

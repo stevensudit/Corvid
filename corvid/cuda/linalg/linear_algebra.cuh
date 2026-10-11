@@ -638,6 +638,83 @@ requires DeviceFloating<device_element_t<Out>> &&
   return cuda_last_status{}.ok();
 }
 
+namespace details {
+
+// Turn one row of `out_gradient`, `cols` wide, into the gradient with respect
+// to the matching row of a softmax's input, writing into the row of
+// `in_gradient`, with `out` holding the weights that softmax wrote.
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and every `blockDim.x` after it. The row's weighted sum of
+// `out_gradient` is a block-wide sum.
+//
+// In-place is safe. Every read of `out_gradient` precedes the block sum, and
+// each thread writes only the columns it read.
+template<DeviceFloating G, DeviceFloating T>
+__global__ void apply_softmax_backward(kernel_matrix_lens<G> in_gradient,
+    kernel_matrix_view<G> out_gradient, kernel_matrix_view<T> out,
+    size_t cols) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const kernel_col_range columns{cols};
+
+  compute_t<G> weighted{};
+  for (const auto col : columns)
+    weighted += widen(out_gradient[row, col]) * widen(out[row, col]);
+
+  weighted = cuda_reduce::block_sum(weighted);
+
+  for (const auto col : columns)
+    in_gradient[row, col] = narrow<G>(
+        widen(out[row, col]) * (widen(out_gradient[row, col]) - weighted));
+}
+
+} // namespace details
+
+// `softmax_backward` computes how much the loss moves per unit of each score
+// in a softmax's input from how much it moves per unit of each weight in its
+// output, writing into `in_gradient`.
+//
+// This is the backward step of `softmax`, reading the weights it wrote, `out`,
+// rather than the scores it read, since the weights alone fix the slopes. In
+// one row, each weight is its score's exponential over the row's total.
+// Nudging score `k` by a small `step` grows its exponential by `out[k] *
+// total * step`, and the total by the same amount. So `out[k]` goes up by
+// `out[k] * step` from the top and down by `out[k] * out[k] * step` from the
+// bottom, while every other `out[c]` goes down by `out[c] * out[k] * step`
+// from the bottom alone. The loss moves by each weight's move times
+// `out_gradient[c]`, summed. Per unit of `step`:
+//
+//   in_gradient[r, k] = out[r, k] * (out_gradient[r, k] - weighted)
+//
+// where `weighted` is the row's sum of `out[r, c] * out_gradient[r, c]`. A
+// weight of zero (a masked score) gets a gradient of zero.
+//
+// All three must have the same extent, with at least one column. `in_gradient`
+// can be `out_gradient`, applying it in place, but must not otherwise overlap
+// it, and must not overlap `out`. The gradients share an element type, and
+// `out` may hold another (the type the forward step wrote). Returns false when
+// the launch is refused, leaving `in_gradient` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable Weights>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<Weights>>
+[[nodiscard]] bool softmax_backward(Out&& in_gradient,
+    input_view_t<Out> out_gradient, const Weights& out) {
+  const auto& in_gradient_lens = in_gradient.as_lens();
+  const cuda_matrix_view<device_value_t<Weights>> out_view = out;
+  assert(in_gradient_lens.extent() == out_gradient.extent());
+  assert(in_gradient_lens.extent() == out_view.extent());
+  assert(out_view.col_extent() > 0);
+  assert(
+      is_same_or_disjoint(in_gradient_lens.as_span(), out_gradient.as_span()));
+  assert(is_disjoint(in_gradient_lens.as_span(), out_view.as_span()));
+
+  details::apply_softmax_backward<<<in_gradient_lens.row_extent(),
+      threads_per_block>>>(kernel_matrix_lens{in_gradient_lens},
+      kernel_matrix_view{out_gradient}, kernel_matrix_view{out_view},
+      in_gradient_lens.col_extent());
+  return cuda_last_status{}.ok();
+}
+
 #pragma endregion
 #pragma region convert
 

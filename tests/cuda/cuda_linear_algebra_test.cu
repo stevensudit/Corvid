@@ -17,6 +17,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <ranges>
 #include <vector>
 
@@ -816,6 +817,71 @@ TEST_CASE("Device softmax over bfloat16_t matches the float softmax",
     CAPTURE(expected);
     CHECK_THAT(weight, WithinRel(expected, two_half_ulps));
   }
+}
+
+TEST_CASE("Device softmax backward's gradient predicts the change in a loss",
+    "[LinearAlgebraTest][cuda]") {
+  // A gradient is a prediction. Nudge one value by a small step, and the loss
+  // moves by that value's gradient times the step. This nudges every score,
+  // each up and then down, and checks every prediction against the loss the
+  // device `softmax` then gives.
+  //
+  // The loss is a weighted sum of the outputs, with the weights chosen by
+  // hand, since the gradient of such a loss with respect to the outputs is the
+  // weights themselves. Everything is in `double`, so that the step is small
+  // against the rounding. The last score is masked, so its weight is zero and
+  // nudging it moves nothing.
+  using T = double;
+  using lens_t = matrix_lens<T>;
+  constexpr matrix_extent extent{.row_count = 3, .col_count = 4};
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+
+  std::vector<T> in_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(in_storage))
+    value = 2.0 * std::sin(0.61 * static_cast<double>(ndx));
+  in_storage.back() = -std::numeric_limits<T>::infinity();
+  std::vector<T> out_gradient_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(out_gradient_storage))
+    value = std::cos(0.53 * static_cast<double>(ndx));
+  const lens_t in_lens(in_storage, extent);
+
+  // The loss over `in_storage` as it stands, with the softmax computed on the
+  // device.
+  const auto loss = [&] {
+    const cuda_matrix<T> in(in_lens);
+    cuda_matrix<T> out(extent);
+    REQUIRE(corvid::cuda::linalg::softmax(out, in));
+    std::vector<T> out_storage(out.size());
+    REQUIRE(out.as_view().store(lens_t(out_storage, extent)));
+    return corvid::linalg::dot_product(out_storage, out_gradient_storage);
+  };
+
+  const cuda_matrix<T> in(in_lens);
+  cuda_matrix<T> out(extent);
+  REQUIRE(corvid::cuda::linalg::softmax(out, in));
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, extent));
+  cuda_matrix<T> in_gradient(extent);
+  REQUIRE(
+      corvid::cuda::linalg::softmax_backward(in_gradient, out_gradient, out));
+  std::vector<T> in_gradient_storage(in_gradient.size());
+  REQUIRE(in_gradient.as_view().store(lens_t(in_gradient_storage, extent)));
+
+  for (auto [value, gradient] :
+      std::views::zip(in_storage, in_gradient_storage))
+  {
+    INFO("score " << value);
+    CHECK_THAT(slope_of(value, step, loss), WithinAbs(gradient, tolerance));
+  }
+  CHECK(in_gradient_storage.back() == 0.0);
+
+  // In place gives the same values.
+  cuda_matrix<T> same(matrix_view<T>(out_gradient_storage, extent));
+  REQUIRE(corvid::cuda::linalg::softmax_backward(same, same, out));
+  std::vector<T> same_storage(same.size());
+  REQUIRE(same.as_view().store(lens_t(same_storage, extent)));
+  CHECK(same_storage == in_gradient_storage);
 }
 
 #pragma endregion
