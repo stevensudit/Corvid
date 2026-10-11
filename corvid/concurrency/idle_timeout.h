@@ -48,7 +48,7 @@ namespace corvid { inline namespace concurrency {
 // stores are atomic, but there is no serialization of concurrent mutators. To
 // put it another way, it is best to call these other methods from a single
 // thread. Mode changes must also be serialized against the sweeper's driver
-// (in practice, both already run on the loop thread); only `postpone` may
+// (in practice, both already run on the loop thread). Only `postpone` may
 // come from any thread.
 template<typename Owner, typename Sweeper = timeout_sweeper<>>
 class idle_timeout: public timeouts {
@@ -137,7 +137,7 @@ public:
 
   // Postpone the expiration after progress
   //
-  // Safe to call in any mode, from any thread: a postpone that races `stop` or
+  // Safe to call in any mode, from any thread. A postpone that races `stop` or
   // `pause` may be dropped, but can never resurrect a deadline they parked.
   void postpone() noexcept {
     auto expected = *deadline_;
@@ -165,7 +165,7 @@ public:
   // Start the timeout that was stopped or paused.
   //
   // If a sweeper entry is already in flight (running, paused, or stopped but
-  // not yet swept), all this does is move the deadline; the entry adapts on
+  // not yet swept), all this does is move the deadline. The entry adapts on
   // its next fire (`mode::paused` -> `mode::running` may see up to one
   // `configured_timeout` of slop). Fails if `configured_timeout` is zero or
   // it can't schedule.
@@ -334,7 +334,7 @@ private:
   // `mode::running`. It is used to compute the next deadline when postponing.
   //
   // `deadline_` is the current deadline for the idle timeout. When zero, the
-  // timeout is stopped. When running, it is set to `now() + active_`; with
+  // timeout is stopped. When running, it is set to `now() + active_`. With
   // each `postpone`, it is set again, only using the current `now()` value.
   // In paused mode, it is set to the sentinel value `paused_expiration`, which
   // is a time point far in the future.

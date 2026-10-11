@@ -203,10 +203,11 @@ RUN patch -p1 -d /usr/include/c++/16 \
 RUN mkdir -p /usr/local/share/npm-global && \
   chown -R node:node /usr/local/share/npm-global
 
-# Persist bash history.
-RUN SNIPPET="export PROMPT_COMMAND='history -a' && \
-export HISTFILE=/commandhistory/.bash_history" \
-  && mkdir /commandhistory \
+# Shell history lives on a named volume mounted at /commandhistory; seed the
+# directory with node ownership so the first mount inherits it. The HISTFILE
+# export that points the shell there is written into .zshrc by the
+# zsh-in-docker step below.
+RUN mkdir /commandhistory \
   && touch /commandhistory/.bash_history \
   && chown -R $USERNAME /commandhistory
 

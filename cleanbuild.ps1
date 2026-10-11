@@ -269,8 +269,23 @@ Write-Host "Compiler: $compiler   Mode: $mode ($cfgLabel)$(if ($testName) { "   
 # unfixed in an untouched TU was reported by the run that last compiled it.
 # ninja does not know .clang-tidy is an input, so pass `clean` after editing
 # it to re-analyze everything.
+#
+# The toolchain's identity rides along with the configure args. The args name
+# the compilers by path, and a toolchain or toolkit upgrade keeps those paths
+# while swapping the binaries behind them, so a signature of args alone would
+# reuse a cache whose find_library results point into the old toolkit's
+# directory (ninja then fails on a cublas import library that no longer
+# exists). The compiler's file version catches the swap (read from the exe's
+# version resource, so cl, which has no --version, needs no launch); the
+# toolkit root (its path carries the release, e.g. v13.4) and the nvcc build
+# line catch a toolkit change.
+$toolchainSig = (Get-Item (Get-Command $cxx).Source).VersionInfo.FileVersion
+if ($cudaArgs) {
+  $cudaRoot = Split-Path (Split-Path (Get-Command nvcc).Source)
+  $toolchainSig += "|$cudaRoot|$(nvcc --version | Select-Object -Last 1)"
+}
 $sigFile = Join-Path $bldDir '.cleanbuild-config'
-$configSig = ($cfg -join '|')
+$configSig = (($cfg + $toolchainSig) -join '|')
 $reuse = -not ($clean -or $reconfigure) -and (Test-Path $sigFile) -and
   (Test-Path (Join-Path $bldDir 'CMakeCache.txt')) -and
   ((Get-Content $sigFile -Raw).Trim() -eq $configSig)

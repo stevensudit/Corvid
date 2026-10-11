@@ -432,7 +432,21 @@ sigFile="$buildRoot/.cleanbuild-config"
 # unfixed in an untouched TU was reported by the run that last compiled it.
 # ninja does not know .clang-tidy is an input, so pass "clean" after editing
 # it to re-analyze everything.
-configSig="$LIBSTD_OPTION|$TIDY_OPTION|$SAN_OPTION|$COV_OPTION|$CUDA_OPTION|$NDEBUG_OPTION|CC=$CC|CXX=$CXX"
+#
+# The toolchain's identity rides along with the options. The options name the
+# compilers by path, and an image rebuild or a toolkit bump keeps those paths
+# while swapping the binaries behind them, so a signature of options alone
+# would reuse a cache whose find_library results point into the old toolkit's
+# directory (ninja then fails on a libcublas.so that no longer exists). The
+# compiler's version line catches the swap; the toolkit's real directory
+# catches the /usr/local/cuda symlink moving to another release, and the nvcc
+# build line a patch update within the same directory.
+toolchainSig="$("$CXX" --version 2>/dev/null | head -n 1)"
+if [[ -n "$CUDA_OPTION" ]]; then
+  cuda_root="$(realpath "$(dirname "$(command -v nvcc)")/..")"
+  toolchainSig+="|$cuda_root|$(nvcc --version | tail -n 1)"
+fi
+configSig="$LIBSTD_OPTION|$TIDY_OPTION|$SAN_OPTION|$COV_OPTION|$CUDA_OPTION|$NDEBUG_OPTION|CC=$CC|CXX=$CXX|$toolchainSig"
 
 reuse=false
 if ! $use_clean && ! $use_scan && ! $use_reconfigure &&
