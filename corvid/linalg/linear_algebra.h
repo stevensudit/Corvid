@@ -305,5 +305,27 @@ void subtract(matrix_lens<T> out, matrix_view_t<T> a,
 }
 
 #pragma endregion
+#pragma region slope_of
+
+// The slope of `loss` across `value` nudged up and then down by `step`, with
+// `value` restored.
+//
+// A gradient is a prediction. Nudge one value by a small step, and the loss
+// moves by that value's gradient times the step. This measures that move, as
+// the central difference `(loss(value + step) - loss(value - step)) / (2 *
+// step)`, so a gradient can be checked against it. `loss` reads `value`
+// through the reference it was given, and must not throw.
+template<Floating T, std::invocable Loss>
+T slope_of(T& value, T step, const Loss& loss) {
+  const auto original = value;
+  value = original + step;
+  const auto up = loss();
+  value = original - step;
+  const auto down = loss();
+  value = original;
+  return (up - down) / (2 * step);
+}
+
+#pragma endregion
 
 } // namespace corvid::linalg

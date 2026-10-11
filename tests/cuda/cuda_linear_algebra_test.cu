@@ -25,6 +25,7 @@
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_cublas.cuh"
 #include "corvid/cuda/linalg/linear_algebra.cuh"
+#include "corvid/linalg/linear_algebra.h"
 #include "bfloat16_helpers.cuh"
 #include "catch2_main.h"
 #include "catch2/catch_template_test_macros.hpp"
@@ -52,7 +53,10 @@ using corvid::cuda::DeviceMatrixLike;
 using corvid::cuda::DeviceMatrixViewable;
 using corvid::cuda::GemmOutput;
 using corvid::cuda::kernel_col_range;
+using corvid::matrix_types::col_ndx;
 using corvid::matrix_types::matrix_axis;
+using corvid::matrix_types::matrix_extent;
+using corvid::linalg::slope_of;
 using corvid::tests::narrowed;
 using corvid::tests::widened;
 
@@ -193,6 +197,110 @@ TEMPLATE_TEST_CASE("Device linear on hand-computed rows",
   std::vector<T> out_storage(out.size());
   REQUIRE(out.as_view().store(matrix_lens<T>(out_storage, out.extent())));
   CHECK(out_storage == std::vector<T>{T{14}, T{25}, T{20}, T{31}});
+}
+
+TEST_CASE("Device linear backward's gradients predict the change in a loss",
+    "[LinearAlgebraTest][cuda]") {
+  // A gradient is a prediction. Nudge one value by a small step, and the loss
+  // moves by that value's gradient times the step. This nudges an input in
+  // each row, a weight in each row of the weight, and a bias, each up and then
+  // down, and checks every prediction against the loss the device
+  // `linear_projection` then gives.
+  //
+  // The loss is a weighted sum of the outputs, with the weights chosen by
+  // hand, since the gradient of such a loss with respect to the outputs is
+  // the weights themselves. Everything is in `double`, so that the step is
+  // small against the rounding.
+  using T = double;
+  using lens_t = matrix_lens<T>;
+  constexpr matrix_extent in_extent{.row_count = 3, .col_count = 4};
+  constexpr matrix_extent weight_extent{.row_count = 4, .col_count = 5};
+  constexpr matrix_extent out_extent{.row_count = 3, .col_count = 5};
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+
+  std::vector<T> in_storage(in_extent.size());
+  for (auto [ndx, value] : std::views::enumerate(in_storage))
+    value = std::sin(0.37 * static_cast<double>(ndx));
+  std::vector<T> weight_storage(weight_extent.size());
+  for (auto [ndx, value] : std::views::enumerate(weight_storage))
+    value = std::cos(0.29 * static_cast<double>(ndx));
+  std::vector<T> bias_storage(out_extent.col_count);
+  for (auto [ndx, value] : std::views::enumerate(bias_storage))
+    value = 0.05 * static_cast<double>(ndx);
+  std::vector<T> out_gradient_storage(out_extent.size());
+  for (auto [ndx, value] : std::views::enumerate(out_gradient_storage))
+    value = std::cos(0.53 * static_cast<double>(ndx));
+  const lens_t in_lens(in_storage, in_extent);
+  const lens_t weight_lens(weight_storage, weight_extent);
+  const cublas_handle blas;
+
+  // The loss over `in_storage`, `weight_storage`, and `bias_storage` as they
+  // stand, with the projection computed on the device.
+  const auto loss = [&] {
+    const cuda_matrix<T> in(in_lens);
+    const cuda_matrix<T> weight(weight_lens);
+    const cuda_buffer<T> bias(bias_storage);
+    cuda_matrix<T> out(out_extent);
+    REQUIRE(
+        corvid::cuda::linalg::linear_projection(blas, out, in, weight, bias));
+    std::vector<T> out_storage(out.size());
+    REQUIRE(out.as_view().store(lens_t(out_storage, out_extent)));
+    return corvid::linalg::dot_product(out_storage, out_gradient_storage);
+  };
+
+  const cuda_matrix<T> in(in_lens);
+  const cuda_matrix<T> weight(weight_lens);
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, out_extent));
+  cuda_matrix<T> in_gradient(in_extent);
+  cuda_matrix<T> weight_gradient(weight_extent);
+  cuda_buffer<T> bias_gradient(out_extent.col_count);
+  REQUIRE(weight_gradient.buffer().zero());
+  REQUIRE(bias_gradient.zero());
+  REQUIRE(corvid::cuda::linalg::linear_projection_backward(blas, in_gradient,
+      weight_gradient, bias_gradient, out_gradient, in, weight));
+
+  std::vector<T> in_gradient_storage(in_gradient.size());
+  const lens_t in_gradient_lens(in_gradient_storage, in_extent);
+  REQUIRE(in_gradient.as_view().store(in_gradient_lens));
+  std::vector<T> weight_gradient_storage(weight_gradient.size());
+  const lens_t weight_gradient_lens(weight_gradient_storage, weight_extent);
+  REQUIRE(weight_gradient.as_view().store(weight_gradient_lens));
+  std::vector<T> bias_gradient_storage(out_extent.col_count);
+  REQUIRE(bias_gradient.store(bias_gradient_storage));
+
+  // An input in each row, on a different column each time, then a weight in
+  // each of its rows.
+  for (const auto row : in_lens.row_indexes()) {
+    const col_ndx col{*row + 1};
+    INFO("in row " << *row << ", col " << *col);
+    CHECK_THAT(slope_of(in_lens[row, col], step, loss),
+        WithinAbs(in_gradient_lens[row, col], tolerance));
+  }
+  for (const auto row : weight_lens.row_indexes()) {
+    const col_ndx col{(*row * 2) % weight_extent.col_count};
+    INFO("weight row " << *row << ", col " << *col);
+    CHECK_THAT(slope_of(weight_lens[row, col], step, loss),
+        WithinAbs(weight_gradient_lens[row, col], tolerance));
+  }
+  constexpr auto nudged_col = 3UZ;
+  CHECK_THAT(slope_of(bias_storage[nudged_col], step, loss),
+      WithinAbs(bias_gradient_storage[nudged_col], tolerance));
+
+  // A second call adds to the weight and bias gradients.
+  REQUIRE(corvid::cuda::linalg::linear_projection_backward(blas, in_gradient,
+      weight_gradient, bias_gradient, out_gradient, in, weight));
+  std::vector<T> twice(weight_gradient.size());
+  REQUIRE(weight_gradient.as_view().store(lens_t(twice, weight_extent)));
+  for (const auto [once, doubled] :
+      std::views::zip(weight_gradient_storage, twice))
+    CHECK_THAT(doubled, WithinAbs(2 * once, tolerance));
+  twice.resize(out_extent.col_count);
+  REQUIRE(bias_gradient.store(twice));
+  for (const auto [once, doubled] :
+      std::views::zip(bias_gradient_storage, twice))
+    CHECK_THAT(doubled, WithinAbs(2 * once, tolerance));
 }
 
 #pragma endregion

@@ -183,6 +183,20 @@ TEST_CASE("GELU in place", "[LlmOpsTest]") {
   CHECK(storage == expected);
 }
 
+TEST_CASE("GELU slope predicts the change in GELU", "[LlmOpsTest]") {
+  // Nudge `x` up and then down by a small step, and `gelu_new` moves by the
+  // slope times the step, in `double` so the step is small against the
+  // rounding. The sites cover the tails, the dip, and zero.
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+  for (auto x : {-10.0, -2.0, -0.75, 0.0, 0.5, 1.0, 2.0, 10.0}) {
+    INFO("x " << x);
+    const auto expected = gelu_new_slope(x);
+    CHECK_THAT(linalg::slope_of(x, step, [&] { return gelu_new(x); }),
+        WithinAbs(expected, tolerance));
+  }
+}
+
 TEST_CASE("Attention on three tokens of width two", "[LlmOpsTest]") {
   // The napkin example: three tokens with features [1, 0], [0, 1], [1, 1].
   // The `c_attn` weight copies the features into the query and key columns

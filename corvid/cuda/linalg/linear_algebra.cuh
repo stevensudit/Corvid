@@ -346,8 +346,8 @@ requires GemmElement<device_element_t<Out>>
 #pragma endregion
 #pragma region linear_projection
 
-// Project each row of `in` through `weight` and add `bias`, writing into
-// `out`.
+// `linear_projection` projects each row of `in` through `weight` and adds
+// `bias`, writing into `out`.
 //
 // The contract is that of the CPU `corvid::linalg::linear_projection`, which
 // also holds the worked explanation.
@@ -366,6 +366,113 @@ requires std::same_as<device_value_t<In>, device_value_t<Weight>> &&
 [[nodiscard]] bool linear_projection(const cublas_handle& blas, Out&& out,
     const In& in, const Weight& weight, const input_buffer_t<Out>& bias) {
   return gemm(blas, out, in, weight, bias);
+}
+
+namespace details {
+
+// `add_column_sums` adds the sum of each column of `in`, `extent` in size, to
+// `out`, one thread per column.
+//
+// The rows are summed in order, so the result does not depend on how the
+// launch is scheduled.
+template<DeviceFloating T, DeviceFloating From>
+__global__ void
+add_column_sums(T* out, kernel_matrix_view<From> in, matrix_extent extent) {
+  const auto col = cuda_kernel::x_index<size_t>();
+  if (col >= extent.col_count) return;
+
+  compute_t<T> total{};
+  for (auto row = 0UZ; row < extent.row_count; ++row)
+    total += widen(in[row, col]);
+
+  out[col] = narrow<T>(widen(out[col]) + total);
+}
+
+} // namespace details
+
+// `linear_projection_backward` computes how much the loss moves per unit of
+// each value of a projection's input from how much it moves per unit of each
+// value of its output, writing into `in_gradient`, and adds how much it moves
+// per unit of each weight and bias to `weight_gradient` and `bias_gradient`.
+//
+// This is the backward step of `linear_projection`, whose forward step is
+// `out = in * weight + bias`, with `bias` added to every row. A gradient is
+// how much the loss moves per unit of a value. For R rows, I input values,
+// and J output values:
+//
+//   in_gradient      [R, I]  the gradient with respect to `in`, written
+//   weight_gradient  [I, J]  the gradient with respect to `weight`, added to
+//   bias_gradient    [J]     the gradient with respect to `bias`, added to
+//   out_gradient     [R, J]  the gradient with respect to the forward `out`
+//   in               [R, I]  the forward `in`
+//   weight           [I, J]  the forward `weight`
+//
+// Nudging `in[r, i]` by a small `step` moves `out[r, j]` by `weight[i, j]`
+// times `step` for every `j`, and the loss by `out_gradient[r, j]` times
+// that. Per unit of `step`:
+//
+//   in_gradient[r, i] = sum over j of out_gradient[r, j] * weight[i, j]
+//
+// which is the product of `out_gradient` and the transposed `weight`.
+//
+// Nudging `weight[i, j]` moves `out[r, j]` by `in[r, i]` times `step` in
+// every row, so
+//
+//   weight_gradient[i, j] = sum over r of in[r, i] * out_gradient[r, j]
+//
+// which is the product of the transposed `in` and `out_gradient`.
+//
+// Nudging `bias[j]` moves `out[r, j]` by `step` in every row, so
+//
+//   bias_gradient[j] = sum over r of out_gradient[r, j]
+//
+// which is the sum of column `j` of `out_gradient`.
+//
+// A caller that spreads one batch over several calls accumulates one batch
+// gradient, since the weight and bias gradients are added to and never
+// overwritten. Zero them before the first call.
+//
+// `in_gradient` and `in` must have the same extent, as must `weight_gradient`
+// and `weight`. `out_gradient` has a row per row of `in` and a column per
+// column of `weight`, and `bias_gradient` an element per column of `weight`.
+// `out_gradient`, `in`, and `weight` share an element type, and the three
+// gradients hold the type cuBLAS stores a product of it as. `in_gradient`
+// must not overlap `out_gradient`, `in`, or `weight`, and `weight_gradient`
+// must not be `in` or `out_gradient`. Returns false when a launch or copy is
+// refused, leaving the three gradients unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable OutGradient,
+    DeviceMatrixViewable In, DeviceMatrixViewable Weight>
+requires std::same_as<device_value_t<OutGradient>, device_value_t<In>> &&
+         std::same_as<device_value_t<OutGradient>, device_value_t<Weight>> &&
+         GemmOutput<device_value_t<OutGradient>, device_element_t<Out>>
+[[nodiscard]] bool linear_projection_backward(const cublas_handle& blas,
+    Out&& in_gradient, cuda_matrix_lens<device_element_t<Out>> weight_gradient,
+    input_buffer_t<Out>& bias_gradient, const OutGradient& out_gradient,
+    const In& in, const Weight& weight) {
+  const auto& in_gradient_lens = in_gradient.as_lens();
+  const cuda_matrix_view<device_value_t<OutGradient>> out_gradient_view =
+      out_gradient;
+  const cuda_matrix_view<device_value_t<OutGradient>> in_view = in;
+  const cuda_matrix_view<device_value_t<OutGradient>> weight_view = weight;
+  const auto width = weight_view.col_extent();
+  assert(in_gradient_lens.extent() == in_view.extent());
+  assert(weight_gradient.extent() == weight_view.extent());
+  assert((out_gradient_view.row_extent() == in_view.row_extent()) &&
+         (out_gradient_view.col_extent() == width));
+  assert(bias_gradient.size() == width);
+  assert(is_disjoint(in_gradient_lens.as_span(), in_view.as_span()));
+
+  if (!gemm(blas, in_gradient_lens, out_gradient_view, weight_view,
+          {.op_b = cublas_operation::transpose}))
+    return false;
+  if (!gemm(blas, weight_gradient, in_view, out_gradient_view,
+          {.op_a = cublas_operation::transpose}, weight_gradient))
+    return false;
+
+  details::add_column_sums<<<blocks_for(width), threads_per_block>>>(
+      bias_gradient.get(), kernel_matrix_view{out_gradient_view},
+      out_gradient_view.extent());
+  return cuda_last_status{}.ok();
 }
 
 #pragma endregion

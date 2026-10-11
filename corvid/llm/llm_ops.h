@@ -115,6 +115,12 @@ inline constexpr T gelu_tanh_scale_v =
 template<Floating T>
 inline constexpr T gelu_cubic_coeff_v = static_cast<T>(0.044715);
 
+// The cubic inside the tanh of `gelu_new`, scaled by `sqrt(2 / pi)`.
+template<Floating T>
+[[nodiscard]] CUDA_HOST_DEVICE constexpr T gelu_tanh_argument(T x) noexcept {
+  return gelu_tanh_scale_v<T> * (x + (gelu_cubic_coeff_v<T> * x * x * x));
+}
+
 // The GELU (Gaussian Error Linear Unit) of `x`, in the tanh approximation
 // form.
 //
@@ -129,9 +135,29 @@ inline constexpr T gelu_cubic_coeff_v = static_cast<T>(0.044715);
 // Not `constexpr` because it uses `std::tanh`.
 template<Floating T>
 [[nodiscard]] CUDA_HOST_DEVICE T gelu_new(T x) noexcept {
-  const auto inner =
-      gelu_tanh_scale_v<T> * (x + (gelu_cubic_coeff_v<T> * x * x * x));
-  return T{0.5} * x * (T{1} + std::tanh(inner));
+  return T{0.5} * x * (T{1} + std::tanh(gelu_tanh_argument(x)));
+}
+
+// The slope of `gelu_new` at `x`, which is how much its output moves per unit
+// of `x`.
+//
+// `gelu_new` is `0.5 * x * (1 + tanh(inner))`, with `inner` the cubic the tanh
+// takes. Nudging `x` by a small `step` moves the `x` factor by `step`. It also
+// moves `inner` by `sqrt(2 / pi) * (1 + 3 * 0.044715 * x^2) * step`, and the
+// tanh by `1 - tanh(inner)^2` times that. The slope is the two moves, each
+// times the factor it leaves alone, per unit of `step`:
+//
+//   0.5 * (1 + tanh(inner)) +
+//   0.5 * x * (1 - tanh(inner)^2) * sqrt(2 / pi) * (1 + 3 * 0.044715 * x^2)
+//
+// Not `constexpr` because it uses `std::tanh`.
+template<Floating T>
+[[nodiscard]] CUDA_HOST_DEVICE T gelu_new_slope(T x) noexcept {
+  const auto tanh_inner = std::tanh(gelu_tanh_argument(x));
+  const auto inner_slope =
+      gelu_tanh_scale_v<T> * (T{1} + (T{3} * gelu_cubic_coeff_v<T> * x * x));
+  return (T{0.5} * (T{1} + tanh_inner)) +
+         (T{0.5} * x * (T{1} - (tanh_inner * tanh_inner)) * inner_slope);
 }
 
 // Apply `gelu_new` to every element of `in`, writing into `out`.

@@ -54,6 +54,7 @@ using namespace corvid::cuda::linalg;
 using corvid::linalg::scale_shift;
 using corvid::linalg::standardize;
 using corvid::llm::gelu_new; // Overloaded.
+using corvid::llm::gelu_new_slope;
 using corvid::llm::token_id;
 using matrix_types::col_ndx;
 using matrix_types::row_ndx;
@@ -407,6 +408,58 @@ requires DeviceFloating<device_element_t<Out>>
 
   details::apply_gelu_new<<<grid_for(out_lens), threads_per_block>>>(
       kernel_matrix_lens{out_lens}, kernel_matrix_view{in}, out_lens.extent());
+  return cuda_last_status{}.ok();
+}
+
+namespace details {
+
+// Multiply each element of `out_gradient` by the slope of `gelu_new` at the
+// matching element of `in`, writing into `in_gradient`, all `extent` in size,
+// one thread per element.
+template<DeviceFloating G, DeviceFloating T>
+__global__ void apply_gelu_new_backward(kernel_matrix_lens<G> in_gradient,
+    kernel_matrix_view<G> out_gradient, kernel_matrix_view<T> in,
+    matrix_extent extent) {
+  if (const kernel_coord at; at.is_within(extent))
+    in_gradient[at] =
+        narrow<G>(widen(out_gradient[at]) * gelu_new_slope(widen(in[at])));
+}
+
+} // namespace details
+
+// `gelu_new_backward` computes how much the loss moves per unit of each
+// element of `gelu_new`'s input from how much it moves per unit of each
+// element of its output, writing into `in_gradient`.
+//
+// This is the backward step of `gelu_new`, which maps each element on its
+// own. Nudging `in[t, f]` by a small `step` moves only `out[t, f]`, by the
+// slope of the curve there times `step`, and the loss by `out_gradient[t, f]`
+// times that. Per unit of `step`:
+//
+//   in_gradient[t, f] = out_gradient[t, f] * gelu_new_slope(in[t, f])
+//
+// All three must have the same extent. `in_gradient` can be `out_gradient`,
+// applying it in place, but must not otherwise overlap it, and must not
+// overlap `in`. The gradients share an element type, and `in` may hold
+// another (the type the forward step read). Returns false when the launch is
+// refused, leaving `in_gradient` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable In>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<In>>
+[[nodiscard]] bool gelu_new_backward(Out&& in_gradient,
+    input_view_t<Out> out_gradient, const In& in) {
+  const auto& in_gradient_lens = in_gradient.as_lens();
+  const cuda_matrix_view<device_value_t<In>> in_view = in;
+  assert(in_gradient_lens.extent() == out_gradient.extent());
+  assert(in_gradient_lens.extent() == in_view.extent());
+  assert(
+      is_same_or_disjoint(in_gradient_lens.as_span(), out_gradient.as_span()));
+  assert(is_disjoint(in_gradient_lens.as_span(), in_view.as_span()));
+
+  details::apply_gelu_new_backward<<<grid_for(in_gradient_lens),
+      threads_per_block>>>(kernel_matrix_lens{in_gradient_lens},
+      kernel_matrix_view{out_gradient}, kernel_matrix_view{in_view},
+      in_gradient_lens.extent());
   return cuda_last_status{}.ok();
 }
 

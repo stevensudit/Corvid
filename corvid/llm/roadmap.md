@@ -1720,6 +1720,36 @@ a hand-weighted loss over the device `layer_norm` moves by the gradient times
 the step, and that a second call adds. Next: slice 3, the MLP half of a
 block.
 
+Status (2026-10-10, slice 3: the MLP half of the last block):
+`gpt2_trainer::backward` walks on from the final layer norm through block 11's
+MLP half, in `backward_mlp`, and the per-block `block_gradients` it adds to
+mirror `block_params`. The residual add passes the gradient through unchanged,
+so the gradient leaving the block is the gradient with respect to `mlp_out`,
+and the walk ends by adding that same gradient back into the layer norm's input
+gradient, since `ln_2_in` feeds the sum directly as well. Two new device ops.
+`linear_projection_backward`, beside `linear_projection` in the device linear
+algebra, is the head's two GEMMs again (the output gradient times the
+transposed weight for the input's, the transposed input times the output
+gradient for the weight's, accumulated) plus a column-sum kernel for the bias,
+since nudging a bias moves every row by the same step. `gelu_new_backward`
+multiplies each element of the output gradient by `gelu_new_slope`, the scalar
+slope of the tanh form beside `gelu_new` in the shared header, which the host
+test checks by finite differences. The layer norm reuses slice 2's op. Each
+sequence keeps its `hidden` and `ln_2_out` gradients, so the oracle's
+activation gradients at `block_11/ln_2/out` and `block_11/ln_2/in` are gated
+per sequence, at 1.9e-4 and 1.2e-4 under the 2e-4 ratio. The block's six
+parameter gradients sit at 1.2e-4 to 8.0e-4 (the ln_2 weight's), above the
+final layer norm's 1e-4, and are gated at 1e-3. Each is a sum over the batch's
+256 rows of an activation gradient that already carries the error of the steps
+behind it, and the sum carries that error along. A fourth test recomputes the
+ln_2 weight gradient in double on the host: from the trainer's own retained
+`ln_2_in` and `ln_2_out` gradient it matches the device's to 1.2e-7, from the
+oracle's `ln_2_out` gradient it matches the oracle's weight gradient to 1.9e-7,
+and from the trainer's it shows the whole 8.0e-4, so the gap belongs to the
+inputs, not the sum. The nudge tests share `corvid::linalg::slope_of`, the
+central-difference slope of a loss across one value. Next: slice 4, the
+attention half.
+
 ### 6. A model that can hold an opinion
 
 GPT-2 124M is too weak for a preference to mean anything. The experiment

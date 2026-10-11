@@ -52,6 +52,7 @@ using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::llm::token_id;
 using corvid::tests::narrowed;
+using corvid::linalg::slope_of;
 using corvid::tests::widened;
 using matrix_types::col_ndx;
 using matrix_types::row_ndx;
@@ -242,17 +243,6 @@ TEST_CASE(
     return corvid::linalg::dot_product(out_storage, out_gradient_storage);
   };
 
-  // The slope of the loss across `value` nudged up and then down by `step`.
-  const auto slope_of = [&](T& value) {
-    const auto original = value;
-    value = original + step;
-    const auto up = loss();
-    value = original - step;
-    const auto down = loss();
-    value = original;
-    return (up - down) / (2 * step);
-  };
-
   const cuda_matrix<T> in(in_lens);
   const cuda_matrix<T> out_gradient(
       matrix_view<T>(out_gradient_storage, extent));
@@ -279,13 +269,13 @@ TEST_CASE(
   for (const auto row : in_lens.row_indexes()) {
     const col_ndx col{(*row * 3) + 1};
     INFO("row " << *row << ", col " << *col);
-    CHECK_THAT(slope_of(in_lens[row, col]),
+    CHECK_THAT(slope_of(in_lens[row, col], step, loss),
         WithinAbs(in_gradient_lens[row, col], tolerance));
   }
   constexpr auto nudged_col = 5UZ;
-  CHECK_THAT(slope_of(weight_storage[nudged_col]),
+  CHECK_THAT(slope_of(weight_storage[nudged_col], step, loss),
       WithinAbs(weight_gradient_storage[nudged_col], tolerance));
-  CHECK_THAT(slope_of(bias_storage[nudged_col]),
+  CHECK_THAT(slope_of(bias_storage[nudged_col], step, loss),
       WithinAbs(bias_gradient_storage[nudged_col], tolerance));
 
   // A second call adds to the weight and bias gradients.
@@ -409,6 +399,65 @@ TEST_CASE("Device GELU over bfloat16_t is the float GELU narrowed",
   REQUIRE(
       out_bf16.as_view().store(matrix_lens<bfloat16_t>(out_narrowed, extent)));
   CHECK(out_narrowed == narrowed(out_values));
+}
+
+TEST_CASE("Device GELU backward's gradient predicts the change in a loss",
+    "[LlmOpsTest][cuda]") {
+  // A gradient is a prediction. Nudge one value by a small step, and the loss
+  // moves by that value's gradient times the step. This nudges every input,
+  // each up and then down, and checks every prediction against the loss the
+  // device `gelu_new` then gives.
+  //
+  // The loss is a weighted sum of the outputs, with the weights chosen by
+  // hand, since the gradient of such a loss with respect to the outputs is the
+  // weights themselves. Everything is in `double`, so that the step is small
+  // against the rounding. The inputs cover the tails, the dip, and zero.
+  using T = double;
+  using lens_t = matrix_lens<T>;
+  constexpr matrix_types::matrix_extent extent{.row_count = 2, .col_count = 6};
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+
+  std::vector<T> in_storage{-10.0, -2.0, -0.75, 0.0, 0.5, 1.0, 2.0, 10.0, -1.0,
+      0.25, 3.0, -0.1};
+  REQUIRE(in_storage.size() == extent.size());
+  std::vector<T> out_gradient_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(out_gradient_storage))
+    value = std::cos(0.53 * static_cast<double>(ndx));
+  const lens_t in_lens(in_storage, extent);
+
+  // The loss over `in_storage` as it stands, with the GELU computed on the
+  // device.
+  const auto loss = [&] {
+    const cuda_matrix<T> in(in_lens);
+    cuda_matrix<T> out(extent);
+    REQUIRE(corvid::cuda::llm::gelu_new(out, in));
+    std::vector<T> out_storage(out.size());
+    REQUIRE(out.as_view().store(lens_t(out_storage, extent)));
+    return corvid::linalg::dot_product(out_storage, out_gradient_storage);
+  };
+
+  const cuda_matrix<T> in(in_lens);
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, extent));
+  cuda_matrix<T> in_gradient(extent);
+  REQUIRE(corvid::cuda::llm::gelu_new_backward(in_gradient, out_gradient, in));
+  std::vector<T> in_gradient_storage(in_gradient.size());
+  REQUIRE(in_gradient.as_view().store(lens_t(in_gradient_storage, extent)));
+
+  for (auto [value, gradient] :
+      std::views::zip(in_storage, in_gradient_storage))
+  {
+    INFO("in " << value);
+    CHECK_THAT(slope_of(value, step, loss), WithinAbs(gradient, tolerance));
+  }
+
+  // In place gives the same values.
+  cuda_matrix<T> same(matrix_view<T>(out_gradient_storage, extent));
+  REQUIRE(corvid::cuda::llm::gelu_new_backward(same, same, in));
+  std::vector<T> same_storage(same.size());
+  REQUIRE(same.as_view().store(lens_t(same_storage, extent)));
+  CHECK(same_storage == in_gradient_storage);
 }
 
 #pragma endregion

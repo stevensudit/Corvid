@@ -104,7 +104,8 @@ public:
 
   // What the passes over one sequence leave behind.
   //
-  // For T tokens of width C through L blocks, with V vocabulary entries:
+  // For T tokens of width C through L blocks of MLP width F, with V
+  // vocabulary entries:
   //
   //   residuals          [L + 1] x [T, C]  the residual stream entering each
   //                                        block, then the one leaving the
@@ -117,12 +118,19 @@ public:
   //   trunk_gradient     [T, C]            the gradient with respect to the
   //                                        trunk
   //   residual_gradient  [T, C]            the gradient with respect to the
-  //                                        residual stream leaving the last
-  //                                        block
+  //                                        residual stream, at the point the
+  //                                        backward pass has reached
+  //   hidden_gradient    [T, F]            the gradient with respect to a
+  //                                        block's `hidden`, then to its
+  //                                        `hidden_pre`
+  //   ln_2_out_gradient  [T, C]            the gradient with respect to a
+  //                                        block's `ln_2_out`
   //
   // The last token of a sequence predicts nothing, since nothing follows it,
   // so the logits and losses have a row for every token but the last, and the
-  // last row of the trunk's gradient is zero.
+  // last row of the trunk's gradient is zero. The backward pass walks the
+  // blocks from the last, and the two block gradients are those of the block
+  // it reached last.
   struct sequence_buffers {
     std::vector<cuda_matrix<wide_t>> residuals;
     std::vector<block_buffers> blocks;
@@ -131,6 +139,8 @@ public:
     cuda_buffer<wide_t> losses;
     cuda_matrix<wide_t> trunk_gradient;
     cuda_matrix<wide_t> residual_gradient;
+    cuda_matrix<wide_t> hidden_gradient;
+    cuda_matrix<wide_t> ln_2_out_gradient;
 
     // Allocate every buffer for `token_count` tokens through the model of
     // `engine`, or throw.
@@ -140,13 +150,16 @@ public:
           logit_gradient({.row_count = token_count - 1,
               .col_count = engine.wte_.row_extent()}),
           losses(logit_gradient.row_extent()), trunk_gradient(trunk.extent()),
-          residual_gradient(trunk.extent()) {
+          residual_gradient(trunk.extent()),
+          hidden_gradient({.row_count = token_count,
+              .col_count =
+                  engine.blocks_.front().mlp_c_fc_weight.col_extent()}),
+          ln_2_out_gradient(trunk.extent()) {
       // The backward pass writes every row of the trunk's gradient but the
       // last, which stays zero from here on.
       trunk_gradient.buffer().zero().or_throw();
       const auto block_count = engine.blocks_.size();
-      const auto hidden_width =
-          engine.blocks_.front().mlp_c_fc_weight.col_extent();
+      const auto hidden_width = hidden_gradient.col_extent();
       residuals.reserve(block_count + 1);
       for (auto boundary = 0UZ; boundary <= block_count; ++boundary)
         residuals.emplace_back(trunk.extent());
@@ -162,25 +175,75 @@ public:
     }
   };
 
+  // The gradient of the batch's loss with respect to each parameter of one
+  // block that the backward pass reaches.
+  //
+  // The names and shapes are those of `block_params`. For width C and MLP
+  // width F:
+  //
+  //   ln_2_weight        [C]
+  //   ln_2_bias          [C]
+  //   mlp_c_fc_weight    [C, F]
+  //   mlp_c_fc_bias      [F]
+  //   mlp_c_proj_weight  [F, C]
+  //   mlp_c_proj_bias    [C]
+  struct block_gradients {
+    cuda_buffer<wide_t> ln_2_weight;
+    cuda_buffer<wide_t> ln_2_bias;
+    cuda_matrix<wide_t> mlp_c_fc_weight;
+    cuda_buffer<wide_t> mlp_c_fc_bias;
+    cuda_matrix<wide_t> mlp_c_proj_weight;
+    cuda_buffer<wide_t> mlp_c_proj_bias;
+
+    // Allocate a gradient for each parameter of `params`, or throw.
+    explicit block_gradients(const engine_t::block_params& params)
+        : ln_2_weight(params.ln_2_weight.size()),
+          ln_2_bias(params.ln_2_bias.size()),
+          mlp_c_fc_weight(params.mlp_c_fc_weight.extent()),
+          mlp_c_fc_bias(params.mlp_c_fc_bias.size()),
+          mlp_c_proj_weight(params.mlp_c_proj_weight.extent()),
+          mlp_c_proj_bias(params.mlp_c_proj_bias.size()) {}
+
+    // Set every gradient to zero.
+    [[nodiscard]] bool zero() {
+      return ln_2_weight.zero() && ln_2_bias.zero() &&
+             mlp_c_fc_weight.buffer().zero() && mlp_c_fc_bias.zero() &&
+             mlp_c_proj_weight.buffer().zero() && mlp_c_proj_bias.zero();
+    }
+  };
+
   // The gradient of the batch's loss with respect to each parameter.
   //
-  // For width C and V vocabulary entries:
+  // For width C through L blocks, with V vocabulary entries:
   //
   //   wte          [V, C]  the token embeddings, as the output head reads
   //                        them
+  //   blocks       [L]     each block's `block_gradients`
   //   ln_f_weight  [C]     the final layer norm's weight
   //   ln_f_bias    [C]     the final layer norm's bias
   //
   // Every gradient is `wide_t`, whatever its parameter holds.
   struct parameter_gradients {
     cuda_matrix<wide_t> wte;
+    std::vector<block_gradients> blocks;
     cuda_buffer<wide_t> ln_f_weight;
     cuda_buffer<wide_t> ln_f_bias;
 
     // Allocate a gradient for each parameter of `engine`, or throw.
     explicit parameter_gradients(const engine_t& engine)
         : wte(engine.wte_.extent()), ln_f_weight(engine.ln_f_weight_.size()),
-          ln_f_bias(engine.ln_f_bias_.size()) {}
+          ln_f_bias(engine.ln_f_bias_.size()) {
+      blocks.reserve(engine.blocks_.size());
+      for (const auto& block : engine.blocks_) blocks.emplace_back(block);
+    }
+
+    // Set every gradient to zero.
+    [[nodiscard]] bool zero() {
+      if (!wte.buffer().zero()) return false;
+      for (auto& block : blocks)
+        if (!block.zero()) return false;
+      return ln_f_weight.zero() && ln_f_bias.zero();
+    }
   };
 
 #pragma endregion
@@ -193,7 +256,9 @@ public:
   // than the context holds.
   gpt2_trainer(const engine_t& engine, size_t sequence_count,
       size_t token_count)
-      : engine_{engine}, gradients_(engine), statistics_(token_count) {
+      : engine_{engine}, gradients_(engine), statistics_(token_count),
+        norm_in_gradient_({.row_count = token_count,
+            .col_count = engine.wte_.col_extent()}) {
     assert(sequence_count);
     assert((token_count > 1) && (token_count <= engine.wpe_.row_extent()));
     sequences_.reserve(sequence_count);
@@ -268,15 +333,20 @@ public:
   // set is the batch's. For GPT-2 with T tokens in a sequence, walking back
   // from the logits:
   //
-  // step  |  reads                        |  produces
-  // ------+-------------------------------+--------------------------------
-  // head  |  logit_gradient [T - 1, V],   |  trunk_gradient [:T - 1]
-  //       |  wte [V, C]                   |
-  //       |  logit_gradient,              |  wte gradient [V, C], added to
-  //       |  trunk [:T - 1]               |
-  // ln_f  |  trunk_gradient [T, C],       |  residual_gradient [T, C],
-  //       |  residuals[12] [T, C],        |  ln_f weight and bias gradients
-  //       |  ln_f weight [C]              |  [C], added to
+  // step    |  reads                        |  produces
+  // --------+-------------------------------+------------------------------
+  // head    |  logit_gradient [T - 1, V],   |  trunk_gradient [:T - 1]
+  //         |  wte [V, C]                   |
+  //         |  logit_gradient,              |  wte gradient [V, C], added
+  //         |  trunk [:T - 1]               |  to
+  // ln_f    |  trunk_gradient [T, C],       |  residual_gradient [T, C],
+  //         |  residuals[12] [T, C],        |  ln_f weight and bias
+  //         |  ln_f weight [C]              |  gradients [C], added to
+  // mlp 11  |  residual_gradient,           |  residual_gradient, now with
+  //         |  block 11's `hidden` [T, F],  |  respect to its `ln_2_in`,
+  //         |  `hidden_pre`, `ln_2_out`,    |  its MLP and ln_2 weight and
+  //         |  `ln_2_in`, and its MLP and   |  bias gradients, added to
+  //         |  ln_2 weights                 |
   //
   // where `[:T - 1]` is every row but the last. The last token predicts
   // nothing, so the last row of `trunk_gradient` is zero.
@@ -284,9 +354,7 @@ public:
   // Must follow a successful `forward`. On failure (a refused launch or
   // fill), returns false, leaving the gradients and the buffers unspecified.
   [[nodiscard]] bool backward() {
-    if (!gradients_.wte.buffer().zero()) return false;
-    if (!gradients_.ln_f_weight.zero()) return false;
-    if (!gradients_.ln_f_bias.zero()) return false;
+    if (!gradients_.zero()) return false;
     for (auto& sequence : sequences_)
       if (!backward_sequence(sequence)) return false;
     return true;
@@ -331,9 +399,9 @@ private:
         sequence.logit_gradient, device_labels, label_count);
   }
 
-  // Walk the gradient of the loss back from the logits through the head and
-  // the final layer norm for one sequence, filling `sequence`'s gradients and
-  // adding to the parameters'.
+  // Walk the gradient of the loss back from the logits through the head, the
+  // final layer norm, and the last block's MLP half for one sequence, filling
+  // `sequence`'s gradients and adding to the parameters'.
   [[nodiscard]] bool backward_sequence(sequence_buffers& sequence) {
     const auto& logit_gradient = sequence.logit_gradient;
     const auto predicting = sequence.predicting();
@@ -368,10 +436,62 @@ private:
             {.op_a = cublas_operation::transpose}, gradients_.wte))
       return false;
 
-    return layer_norm_backward(sequence.residual_gradient,
-        gradients_.ln_f_weight, gradients_.ln_f_bias, sequence.trunk_gradient,
-        sequence.residuals.back(), engine_.ln_f_weight_, gpt2_layer_norm_eps,
-        statistics_);
+    if (!layer_norm_backward(sequence.residual_gradient,
+            gradients_.ln_f_weight, gradients_.ln_f_bias,
+            sequence.trunk_gradient, sequence.residuals.back(),
+            engine_.ln_f_weight_, gpt2_layer_norm_eps, statistics_))
+      return false;
+
+    return backward_mlp(sequence, sequence.blocks.size() - 1);
+  }
+
+  // Walk the gradient back through the MLP half of block `block_index` for one
+  // sequence, from `residual_gradient` as the gradient with respect to the
+  // stream leaving the block to the gradient with respect to its `ln_2_in`,
+  // adding to the block's parameter gradients.
+  //
+  // The block leaves `ln_2_in + mlp_out` on the stream. Nudging either by a
+  // small `step` moves the sum by `step`, so the gradient with respect to
+  // `mlp_out` is `residual_gradient` as it stands, and so is the direct share
+  // of `ln_2_in`'s, which the walk through the MLP adds its own share to.
+  [[nodiscard]] bool
+  backward_mlp(sequence_buffers& sequence, size_t block_index) {
+    const auto& params = engine_.blocks_[block_index];
+    auto& gradients = gradients_.blocks[block_index];
+    const auto& block = sequence.blocks[block_index];
+    const auto& acts = block.activations;
+    auto& residual_gradient = sequence.residual_gradient;
+
+    // Fill `hidden_gradient` and add to c_proj's gradients.
+    //
+    // `mlp_out` is `hidden` [T, F] projected through c_proj, so this is the
+    // projection's backward step with `hidden` as the input.
+    if (!linear_projection_backward(engine_.blas_, sequence.hidden_gradient,
+            gradients.mlp_c_proj_weight, gradients.mlp_c_proj_bias,
+            residual_gradient, acts.hidden, params.mlp_c_proj_weight))
+      return false;
+
+    // Replace `hidden_gradient` with the gradient with respect to
+    // `hidden_pre`, in place.
+    if (!gelu_new_backward(sequence.hidden_gradient, sequence.hidden_gradient,
+            block.hidden_pre))
+      return false;
+
+    // Fill `ln_2_out_gradient` and add to c_fc's gradients.
+    //
+    // `hidden_pre` is `ln_2_out` [T, C] projected through c_fc.
+    if (!linear_projection_backward(engine_.blas_, sequence.ln_2_out_gradient,
+            gradients.mlp_c_fc_weight, gradients.mlp_c_fc_bias,
+            sequence.hidden_gradient, acts.ln_2_out, params.mlp_c_fc_weight))
+      return false;
+
+    // Fill `norm_in_gradient_` and add to ln_2's gradients, then add the
+    // direct share, which is `residual_gradient` as it stands.
+    if (!layer_norm_backward(norm_in_gradient_, gradients.ln_2_weight,
+            gradients.ln_2_bias, sequence.ln_2_out_gradient, acts.ln_2_in,
+            params.ln_2_weight, gpt2_layer_norm_eps, statistics_))
+      return false;
+    return add(residual_gradient, residual_gradient, norm_in_gradient_);
   }
 
 #pragma endregion
@@ -381,6 +501,9 @@ private:
   std::vector<sequence_buffers> sequences_;
   parameter_gradients gradients_;
   cuda_buffer<row_statistics<wide_t>> statistics_;
+  // A layer norm's input gradient, before the residual path's direct share is
+  // added to it.
+  cuda_matrix<wide_t> norm_in_gradient_;
 
 #pragma endregion
 };
