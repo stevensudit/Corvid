@@ -286,7 +286,7 @@ split_batch(cuda_matrix_lens<T> whole, matrix_axis axis, size_t count) {
       (axis == matrix_axis::rows)
           ? piece.row_count * whole.stride()
           : piece.col_count;
-  return {whole[{row_ndx{0}, col_ndx{0}}, piece], stride};
+  return {whole[piece], stride};
 }
 
 } // namespace details

@@ -38,7 +38,7 @@
 // thread owns.
 //
 //   cuda_matrix<float> qkv(host_qkv);
-//   const auto q = qkv[{row_ndx{0}, col_ndx{0}}, q_extent];
+//   const auto q = qkv[q_extent];
 //   ... launch over q ...
 //   q.store(host_q).or_throw();
 namespace corvid::cuda {
@@ -300,6 +300,18 @@ public:
   }
   [[nodiscard]] view_t operator[](coord from, extent_t size) const noexcept {
     return slice(from, size);
+  }
+  [[nodiscard]] lens_t slice(extent_t size) noexcept {
+    return as_lens().slice(size);
+  }
+  [[nodiscard]] view_t slice(extent_t size) const noexcept {
+    return as_view().slice(size);
+  }
+  [[nodiscard]] lens_t operator[](extent_t size) noexcept {
+    return slice(size);
+  }
+  [[nodiscard]] view_t operator[](extent_t size) const noexcept {
+    return slice(size);
   }
 
 #pragma endregion

@@ -296,12 +296,9 @@ TEMPLATE_TEST_CASE("Device gemm over strided views",
       matrix_view<T>(b_storage, {.row_count = 3, .col_count = 3}));
   cuda_matrix<T> out_wide(
       matrix_view<T>(out_start, {.row_count = 2, .col_count = 3}));
-  const auto a =
-      a_wide[{row_ndx{0}, col_ndx{0}}, {.row_count = 2, .col_count = 3}];
-  const auto b =
-      b_wide[{row_ndx{0}, col_ndx{0}}, {.row_count = 3, .col_count = 2}];
-  const auto out =
-      out_wide[{row_ndx{0}, col_ndx{0}}, {.row_count = 2, .col_count = 2}];
+  const auto a = a_wide[{.row_count = 2, .col_count = 3}];
+  const auto b = b_wide[{.row_count = 3, .col_count = 2}];
+  const auto out = out_wide[{.row_count = 2, .col_count = 2}];
   CHECK(a.stride() == 4);
   CHECK(!a.is_packed());
   CHECK(out_wide.as_lens().is_packed());
@@ -466,8 +463,6 @@ TEMPLATE_TEST_CASE("Device add on hand-computed rows",
     "[LinearAlgebraTest][cuda]", float, double, bfloat16_t) {
   using T = TestType;
   using lens_t = cuda_matrix_lens<T>;
-  using row_ndx = lens_t::row_ndx;
-  using col_ndx = lens_t::col_ndx;
   using extent_t = lens_t::extent_t;
   const std::vector<T> a_storage{T{1}, T{2}, T{3}, T{4}};
   const std::vector<T> b_storage{T{10}, T{20}, T{30}, T{40}};
@@ -513,12 +508,10 @@ TEMPLATE_TEST_CASE("Device add on hand-computed rows",
     cuda_matrix<T> out_wide(
         matrix_view<T>(out_start, {.row_count = 2, .col_count = 3}));
     const extent_t window{.row_count = 2, .col_count = 2};
-    const auto out = out_wide[{row_ndx{0}, col_ndx{0}}, window];
+    const auto out = out_wide[window];
     CHECK(!out.is_packed());
 
-    REQUIRE(corvid::cuda::linalg::add(out,
-        a_wide[{row_ndx{0}, col_ndx{0}}, window],
-        b_wide[{row_ndx{0}, col_ndx{0}}, window]));
+    REQUIRE(corvid::cuda::linalg::add(out, a_wide[window], b_wide[window]));
 
     std::vector<T> wide_storage(out_wide.size());
     REQUIRE(out_wide.as_view().store(
@@ -595,8 +588,6 @@ TEMPLATE_TEST_CASE("Device softmax on hand-computed rows",
     "[LinearAlgebraTest][cuda]", float, double) {
   using T = TestType;
   using lens_t = cuda_matrix_lens<T>;
-  using row_ndx = lens_t::row_ndx;
-  using col_ndx = lens_t::col_ndx;
   using extent_t = lens_t::extent_t;
   constexpr auto tolerance = 1e-5;
 
@@ -644,7 +635,7 @@ TEMPLATE_TEST_CASE("Device softmax on hand-computed rows",
     cuda_matrix<T> wide(
         matrix_view<T>(wide_storage, {.row_count = 3, .col_count = 3}));
     const extent_t window{.row_count = 3, .col_count = 2};
-    const auto out = wide[{row_ndx{0}, col_ndx{0}}, window];
+    const auto out = wide[window];
     CHECK(!out.is_packed());
     REQUIRE(corvid::cuda::linalg::softmax(out, out));
 

@@ -131,7 +131,8 @@ apply_layer_norm(kernel_matrix_lens<To> out, kernel_matrix_view<From> in,
 } // namespace details
 
 // `layer_norm` normalizes each row of `in` to a mean of 0 and a variance of 1,
-// then scale by `weight` and shift by `bias`, elementwise, writing into `out`.
+// then scales by `weight` and shifts by `bias`, elementwise, writing into
+// `out`.
 //
 // The contract is that of the CPU `corvid::llm::layer_norm`. For T tokens of
 // C features:
@@ -288,7 +289,7 @@ add_layer_norm_parameter_gradients(T* weight_gradient, T* bias_gradient,
 
 // `layer_norm_backward` computes how much the loss moves per unit of each
 // value of a layer norm's input from how much it moves per unit of each value
-// of its output, writing into `in_gradient`, and add how much it moves per
+// of its output, writing into `in_gradient`, and adds how much it moves per
 // unit of each weight and bias to `weight_gradient` and `bias_gradient`.
 //
 // This is the backward step of `layer_norm`, whose forward step standardizes

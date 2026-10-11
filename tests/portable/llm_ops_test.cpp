@@ -117,8 +117,7 @@ TEST_CASE("Layer norm honors the stride of both views", "[LlmOpsTest]") {
   const std::vector<float> in_storage{2.0F, 4.0F, -1.0F};
   std::vector<float> out_storage{-1.0F, -1.0F, -1.0F};
   const auto in = float_matrix_view(in_storage,
-      {.row_count = 1, .col_count = 3})[{row_ndx{0}, col_ndx{0}},
-      {.row_count = 1, .col_count = 2}];
+      {.row_count = 1, .col_count = 3})[{.row_count = 1, .col_count = 2}];
   const auto out = float_matrix_lens(out_storage,
       {.row_count = 1,
           .col_count = 3})[{row_ndx{0}, col_ndx{1}}, matrix_extent::npos];
@@ -156,8 +155,7 @@ TEST_CASE("GELU honors the stride of both views", "[LlmOpsTest]") {
   const std::vector<float> in_storage{1.0F, -1.0F, 99.0F, 2.0F, 0.0F, 99.0F};
   std::vector<float> out_storage(in_storage.size(), -1.0F);
   const auto in = float_matrix_view(in_storage,
-      {.row_count = 2, .col_count = 3})[{row_ndx{0}, col_ndx{0}},
-      {.row_count = 2, .col_count = 2}];
+      {.row_count = 2, .col_count = 3})[{.row_count = 2, .col_count = 2}];
   const auto out = float_matrix_lens(out_storage,
       {.row_count = 2,
           .col_count = 3})[{row_ndx{0}, col_ndx{1}}, matrix_extent::npos];

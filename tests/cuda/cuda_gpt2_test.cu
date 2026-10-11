@@ -290,9 +290,8 @@ TEST_CASE("Device forward pass over a cache matches a full pass",
         {std::pair{&block.keys, &full_block.keys},
             std::pair{&block.values, &full_block.values}})
     {
-      const auto full_rows =
-          download((*full_store)[{row_ndx{0}, col_ndx{0}}, in_use]);
-      check_device_close((*store)[{row_ndx{0}, col_ndx{0}}, in_use],
+      const auto full_rows = download((*full_store)[in_use]);
+      check_device_close((*store)[in_use],
           float_matrix_view(full_rows, in_use), 1e-5F, 1e-5F);
     }
   }

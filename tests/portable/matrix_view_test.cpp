@@ -195,6 +195,15 @@ TEST_CASE("Slice keeps the stride", "[MatrixViewTest]") {
   CHECK(strip.col_extent() == 3);
   CHECK(strip[row_ndx{0}, col_ndx{2}] == 5.0F);
 
+  // An extent alone is the window of that extent at the origin.
+  const auto window = m[{.row_count = 1, .col_count = 2}];
+  CHECK(window.as_span().data() == m.as_span().data());
+  CHECK(window.row_extent() == 1);
+  CHECK(window.col_extent() == 2);
+  CHECK(window.stride() == 6);
+  CHECK(window[row_ndx{0}, col_ndx{1}] == 1.0F);
+  CHECK(m.slice(window.extent()).as_span().data() == window.as_span().data());
+
   // The named form is the same slice, by extent, by corner, and to the end.
   CHECK(m.slice({row_ndx{0}, col_ndx{2}}, {.row_count = 2, .col_count = 3})
             .as_span()

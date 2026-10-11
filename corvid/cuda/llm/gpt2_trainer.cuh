@@ -158,8 +158,7 @@ public:
 
     // The rows of `trunk` that predict, which is every row but the last.
     [[nodiscard]] cuda_matrix_view<element_t> predicting() const noexcept {
-      return trunk[{row_ndx{0}, col_ndx{0}},
-          {.row_count = logit_gradient.row_extent()}];
+      return trunk[{.row_count = logit_gradient.row_extent()}];
     }
   };
 
@@ -339,7 +338,7 @@ private:
     const auto& logit_gradient = sequence.logit_gradient;
     const auto predicting = sequence.predicting();
     const auto predicting_gradient =
-        sequence.trunk_gradient[{row_ndx{0}, col_ndx{0}}, predicting.extent()];
+        sequence.trunk_gradient[predicting.extent()];
 
     // Fill `predicting_gradient`.
     //

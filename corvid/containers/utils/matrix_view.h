@@ -60,8 +60,10 @@
 //   for (auto [out_row, in_row] : std::views::zip(out.rows(), in.rows()))
 //     std::ranges::copy(in_row, out_row.begin());
 //
-// Slicing out a block:
+// Slicing out a block, and the window at the origin of another matrix's
+// extent:
 //   const auto block = m[{r, c}, {.row_count = 2, .col_count = 3}];
+//   const auto window = m[other.extent()];
 namespace corvid { inline namespace container { inline namespace matrices {
 
 #pragma region matrix_types
@@ -286,6 +288,22 @@ public:
   [[nodiscard]] constexpr Self
   operator[](this const Self& self, coord from, extent_t size) noexcept {
     return self.slice(from, size);
+  }
+
+  // Slice out the rectangle of `size` at the origin, sharing this one's
+  // stride. Prefer the subscript, `m[size]`.
+  //
+  // This is how a matrix takes the window of another's extent, as
+  // `m[other.extent()]`. The rectangle must lie within this one.
+  template<typename Self>
+  [[nodiscard]] constexpr Self
+  slice(this const Self& self, extent_t size) noexcept {
+    return self.slice(coord{}, size);
+  }
+  template<typename Self>
+  [[nodiscard]] constexpr Self
+  operator[](this const Self& self, extent_t size) noexcept {
+    return self.slice(size);
   }
 
 #pragma endregion

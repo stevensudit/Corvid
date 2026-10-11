@@ -338,8 +338,8 @@ public:
     const matrix_extent in_use{.row_count = total_count, .col_count = width};
     for (const auto [block_index, store] : std::views::enumerate(cache.blocks))
     {
-      const auto keys = store.keys[{row_ndx{0}, col_ndx{0}}, in_use];
-      const auto values = store.values[{row_ndx{0}, col_ndx{0}}, in_use];
+      const auto keys = store.keys[in_use];
+      const auto values = store.values[in_use];
       if (!apply_block(residual, residual, static_cast<size_t>(block_index),
               acts, keys, values))
         return false;

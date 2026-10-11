@@ -789,7 +789,7 @@ TEST_CASE("Device attention path matches the oracle",
       cuda_matrix<float> qkv({.row_count = token_count, .col_count = n_qkv});
       const matrix_types::matrix_extent third{.row_count = token_count,
           .col_count = n_embd};
-      const auto queries = qkv[{row_ndx{0}, col_ndx{0}}, third];
+      const auto queries = qkv[third];
       const auto keys = qkv[{row_ndx{0}, col_ndx{n_embd}}, third];
       const auto values = qkv[{row_ndx{0}, col_ndx{2 * n_embd}}, third];
       cuda_matrix<float> heads_out(in_view.extent());
