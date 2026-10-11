@@ -51,37 +51,35 @@
 namespace corvid::cuda::llm {
 
 using namespace corvid::cuda::linalg;
+using corvid::linalg::scale_shift;
+using corvid::linalg::standardize;
+using corvid::llm::gelu_new; // Overloaded.
 using corvid::llm::token_id;
 using matrix_types::col_ndx;
 using matrix_types::row_ndx;
 
 #pragma region layer_norm
 
+// What standardizes one row of a layer norm's input, which is its mean and
+// the reciprocal of its standard deviation.
+template<DeviceFloating T>
+struct row_statistics {
+  T mean;
+  T inv_std;
+};
+
 namespace details {
 
-// Normalize one row of `in`, `cols` wide, to a mean of 0 and a variance of
-// 1, then scale by `weight` and shift by `bias`, writing into the matching row
-// of `out`.
+// `compute_row_statistics` computes the `row_statistics` of row `row` of `in`,
+// over `columns`, with `eps` added to the variance inside the square root.
 //
-// The block index picks the row, and each thread takes the columns at its
-// index and at every `blockDim.x` after it, so with 256 threads and 768
-// columns each thread holds 3. A thread past the last column sums nothing and
-// still joins both block sums, which every thread must.
-//
-// The mean and the variance are each a block-wide sum.
-//
-// In-place is safe. Each element is read only by the thread that writes it,
-// and the writes come after both sums, so no thread reads a column another
-// has already overwritten.
-template<DeviceFloating To, DeviceFloating From>
-__global__ void
-apply_layer_norm(kernel_matrix_lens<To> out, kernel_matrix_view<From> in,
-    size_t cols, const From* weight, const From* bias, compute_t<From> eps) {
-  using corvid::linalg::scale_shift;
-  using corvid::linalg::standardize;
-  const auto row = cuda_kernel::x_block<size_t>();
-  const kernel_col_range columns{cols};
-  const auto count = static_cast<compute_t<From>>(cols);
+// The mean and the variance are each a block-wide sum, so every thread of the
+// block must call this, even one past the last column, which sums nothing.
+template<DeviceFloating From>
+__device__ row_statistics<compute_t<From>>
+compute_row_statistics(kernel_matrix_view<From> in, size_t row,
+    kernel_col_range columns, compute_t<From> eps) {
+  const auto count = static_cast<compute_t<From>>(columns.cols);
 
   compute_t<From> total{};
   for (const auto col : columns) total += widen(in[row, col]);
@@ -100,7 +98,29 @@ apply_layer_norm(kernel_matrix_lens<To> out, kernel_matrix_view<From> in,
   // The inverse standard deviation is calculated as an actual reciprocal of
   // the square root, instead of using `rsqrt`. The latter would be faster, but
   // yield slightly different results.
-  const auto inv_std = compute_t<From>{1} / std::sqrt(variance + eps);
+  return {.mean = mean,
+      .inv_std = compute_t<From>{1} / std::sqrt(variance + eps)};
+}
+
+// `apply_layer_norm` normalizes one row of `in`, `cols` wide, to a mean of 0
+// and a variance of 1, then scale by `weight` and shift by `bias`, writing
+// into the matching row of `out`.
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and at every `blockDim.x` after it, so with 256 threads and 768
+// columns each thread holds 3. A thread past the last column sums nothing and
+// still joins both block sums, which every thread must.
+//
+// In-place is safe. Each element is read only by the thread that writes it,
+// and the writes come after both sums, so no thread reads a column another
+// has already overwritten.
+template<DeviceFloating To, DeviceFloating From>
+__global__ void
+apply_layer_norm(kernel_matrix_lens<To> out, kernel_matrix_view<From> in,
+    size_t cols, const From* weight, const From* bias, compute_t<From> eps) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const kernel_col_range columns{cols};
+  const auto [mean, inv_std] = compute_row_statistics(in, row, columns, eps);
 
   for (const auto col : columns)
     out[row, col] =
@@ -110,8 +130,8 @@ apply_layer_norm(kernel_matrix_lens<To> out, kernel_matrix_view<From> in,
 
 } // namespace details
 
-// Normalize each row of `in` to a mean of 0 and a variance of 1, then scale by
-// `weight` and shift by `bias`, elementwise, writing into `out`.
+// `layer_norm` normalizes each row of `in` to a mean of 0 and a variance of 1,
+// then scale by `weight` and shift by `bias`, elementwise, writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::layer_norm`. For T tokens of
 // C features:
@@ -149,6 +169,216 @@ requires DeviceFloating<device_element_t<Out>> &&
 }
 
 #pragma endregion
+#pragma region layer_norm_backward
+
+namespace details {
+
+// `apply_layer_norm_backward` computes how much the loss moves per unit of
+// each value in one row of a layer norm's input, `cols` wide, from how much it
+// moves per unit of each value in the matching row of its output,
+// `out_gradient`, writing into the row of `in_gradient`, and recording the
+// row's `row_statistics` in `statistics`.
+//
+// Note that `out_gradient` is the input and `in_gradient` is the output,
+// because these names refer to the forward-pass value, not the direction data
+// flows through during backpropagation.
+//
+// The forward pass standardized each row of `in`, then scaled the row by
+// `weight` and shifted it by `bias`. Its backward step has three gradients to
+// produce: with respect to `weight`, to `bias`, and to `in`; the last of
+// which is what propagates further back.
+//
+// This kernel produces that last one, reaching back through the scale and then
+// through the standardization, so it reads the forward input `in` (to
+// recompute the row's statistics and standardized values) and `weight`, but
+// has no use for `bias`. The `weight` and `bias` gradients are sums over every
+// row, which a block holding one row cannot form, so
+// `add_layer_norm_parameter_gradients` produces them afterward from the
+// statistics this kernel records.
+//
+// For T tokens of C features:
+//
+//   in_gradient   [T, C]  written, this block's row
+//   statistics    [T]     written, this block's row
+//   out_gradient  [T, C]  read, this block's row
+//   in            [T, C]  read, this block's row
+//   weight        [C]
+//
+// The block index picks the row, and each thread takes the columns at its
+// index and at every `blockDim.x` after it. The two means the formula needs
+// are each a block-wide sum.
+template<DeviceFloating T, DeviceFloating G>
+__global__ void apply_layer_norm_backward(kernel_matrix_lens<T> in_gradient,
+    row_statistics<compute_t<T>>* statistics,
+    kernel_matrix_view<G> out_gradient, kernel_matrix_view<T> in, size_t cols,
+    const T* weight, compute_t<T> eps) {
+  const auto row = cuda_kernel::x_block<size_t>();
+  const kernel_col_range columns{cols};
+  const auto count = static_cast<compute_t<T>>(cols);
+  const auto [mean, inv_std] = compute_row_statistics(in, row, columns, eps);
+
+  // The loss's movement per unit of each standardized value is its movement
+  // per unit of the output times the weight. The row's mean of that, and of
+  // its product with the standardized value, are what the row's mean and
+  // standard deviation feed back.
+  compute_t<T> scaled_total{};
+  compute_t<T> projected_total{};
+  for (const auto col : columns) {
+    const auto scaled = widen(out_gradient[row, col]) * widen(weight[col]);
+    scaled_total += scaled;
+    projected_total +=
+        scaled * standardize(widen(in[row, col]), mean, inv_std);
+  }
+  const auto scaled_mean = cuda_reduce::block_sum(scaled_total) / count;
+  const auto projected_mean = cuda_reduce::block_sum(projected_total) / count;
+
+  for (const auto col : columns) {
+    const auto scaled = widen(out_gradient[row, col]) * widen(weight[col]);
+    const auto standardized = standardize(widen(in[row, col]), mean, inv_std);
+    in_gradient[row, col] = narrow<T>(
+        inv_std * (scaled - scaled_mean - (standardized * projected_mean)));
+  }
+
+  if (cuda_kernel::x_thread() == 0) statistics[row] = {mean, inv_std};
+}
+
+// `add_layer_norm_parameter_gradients` adds how much the loss moves per unit
+// of a layer norm's weight and bias, summed over every row of `extent`, to
+// `weight_gradient` and `bias_gradient`, one thread per column.
+//
+// These are the two gradients `apply_layer_norm_backward` leaves to this
+// kernel. A column's bias gradient is the plain sum of that column of
+// `out_gradient`, since the forward pass added the bias to every row as-is.
+// Its weight gradient is the same sum with each term multiplied by the
+// standardized value the weight scaled, recomputed from `in` and the row's
+// `statistics`. For T tokens of C features:
+//
+//   weight_gradient  [C]     added to
+//   bias_gradient    [C]     added to
+//   out_gradient     [T, C]
+//   in               [T, C]
+//   statistics       [T]     as `apply_layer_norm_backward` recorded them
+//
+// A column's two sums run over the rows in order, so the result does not
+// depend on how the launch is scheduled.
+template<DeviceFloating T, DeviceFloating G>
+__global__ void
+add_layer_norm_parameter_gradients(T* weight_gradient, T* bias_gradient,
+    kernel_matrix_view<G> out_gradient, kernel_matrix_view<T> in,
+    const row_statistics<compute_t<T>>* statistics, matrix_extent extent) {
+  const auto col = cuda_kernel::x_index<size_t>();
+  if (col >= extent.col_count) return;
+
+  compute_t<T> weight_total{};
+  compute_t<T> bias_total{};
+  for (auto row = 0UZ; row < extent.row_count; ++row) {
+    const auto gradient = widen(out_gradient[row, col]);
+    bias_total += gradient;
+    weight_total +=
+        gradient *
+        standardize(widen(in[row, col]), statistics[row].mean,
+            statistics[row].inv_std);
+  }
+
+  weight_gradient[col] = narrow<T>(widen(weight_gradient[col]) + weight_total);
+  bias_gradient[col] = narrow<T>(widen(bias_gradient[col]) + bias_total);
+}
+
+} // namespace details
+
+// `layer_norm_backward` computes how much the loss moves per unit of each
+// value of a layer norm's input from how much it moves per unit of each value
+// of its output, writing into `in_gradient`, and add how much it moves per
+// unit of each weight and bias to `weight_gradient` and `bias_gradient`.
+//
+// This is the backward step of `layer_norm`, whose forward step standardizes
+// each row of `in` (subtracts the row's mean and multiplies by the reciprocal
+// of its standard deviation), then scales each standardized value by `weight`
+// and shifts it by `bias`:
+//
+//   out = standardized * weight + bias
+//
+// A gradient is how much the loss moves per unit of a value, as
+// `cross_entropy` describes. For T tokens of C features:
+//
+//   in_gradient      [T, C]  the gradient with respect to `in`, written
+//   weight_gradient  [C]     the gradient with respect to `weight`, added to
+//   bias_gradient    [C]     the gradient with respect to `bias`, added to
+//   out_gradient     [T, C]  the gradient with respect to the forward `out`
+//   in               [T, C]  the forward `in`
+//   weight           [C]     the forward `weight`
+//   statistics       [T]     scratch for each row's `row_statistics`
+//
+// Nudging `bias[c]` by a small `step` moves `out[t, c]` by `step` in every
+// row, and the loss by `out_gradient[t, c] * step` for each, so
+// `bias_gradient[c]` is the sum of column c of `out_gradient`.
+//
+// Nudging `weight[c]` moves `out[t, c]` by `standardized[t, c] * step`, so
+// `weight_gradient[c]` is the sum over the rows of `out_gradient[t, c]` times
+// `standardized[t, c]`.
+//
+// Nudging `in[t, c]` moves its own row in three ways. With `s` as the
+// standardized row, the loss feels a move in `s[k]` through `g[k]`, the
+// product of `out_gradient[t, k]` and `weight[k]`. Directly, `s[c]` moves by
+// `inv_std * step`. Through the row's mean, which rises by `step / C`, every
+// `s[k]` falls by `inv_std * step / C`. And through the row's standard
+// deviation, which grows when `in[t, c]` is above the mean and shrinks when it
+// is below, every `s[k]` moves by `-s[k] * s[c] * inv_std * step / C`. The
+// three summed over the row, per unit of `step`, are
+//
+//   in_gradient[t, c] = inv_std * (g[c] - mean(g) - s[c] * mean(g * s))
+//
+// with both means over the row's C columns.
+//
+// A caller that spreads one batch over several calls accumulates one batch
+// gradient, since the weight and bias gradients are added to and never
+// overwritten. Zero them before the first call.
+//
+// `in_gradient`, `out_gradient`, and `in` must have the same extent, with at
+// least one column, and `statistics` an entry per row. `in`, `weight`, and
+// the three gradients share an element type, and `out_gradient` may hold
+// another (the type the forward step wrote). Each row's mean and reciprocal
+// standard deviation are recomputed from `in`, with `eps` as the forward
+// step had it. `in_gradient` must not overlap `out_gradient` or `in`.
+// Returns false when a launch is refused, leaving `in_gradient`,
+// `weight_gradient`, `bias_gradient`, and `statistics` unspecified.
+template<DeviceMatrixLike Out, DeviceMatrixViewable OutGradient>
+requires DeviceFloating<device_element_t<Out>> &&
+         DeviceFloating<device_value_t<OutGradient>>
+[[nodiscard]] bool layer_norm_backward(Out&& in_gradient,
+    input_buffer_t<Out>& weight_gradient, input_buffer_t<Out>& bias_gradient,
+    const OutGradient& out_gradient, input_view_t<Out> in,
+    const input_buffer_t<Out>& weight, compute_t<device_element_t<Out>> eps,
+    cuda_buffer<row_statistics<compute_t<device_element_t<Out>>>>&
+        statistics) {
+  const auto& in_gradient_lens = in_gradient.as_lens();
+  const cuda_matrix_view<device_value_t<OutGradient>> out_gradient_view =
+      out_gradient;
+  const auto extent = in.extent();
+  const auto width = extent.col_count;
+  assert(in_gradient_lens.extent() == extent);
+  assert(out_gradient_view.extent() == extent);
+  assert(width > 0);
+  assert((weight_gradient.size() == width) && (bias_gradient.size() == width));
+  assert(weight.size() == width);
+  assert(statistics.size() == extent.row_count);
+  assert(is_disjoint(in_gradient_lens.as_span(), out_gradient_view.as_span()));
+  assert(is_disjoint(in_gradient_lens.as_span(), in.as_span()));
+
+  details::apply_layer_norm_backward<<<extent.row_count, threads_per_block>>>(
+      kernel_matrix_lens{in_gradient_lens}, statistics.get(),
+      kernel_matrix_view{out_gradient_view}, kernel_matrix_view{in}, width,
+      weight.get(), eps);
+  if (!cuda_last_status{}) return false;
+
+  details::add_layer_norm_parameter_gradients<<<blocks_for(width),
+      threads_per_block>>>(weight_gradient.get(), bias_gradient.get(),
+      kernel_matrix_view{out_gradient_view}, kernel_matrix_view{in},
+      statistics.get(), extent);
+  return cuda_last_status{}.ok();
+}
+
+#pragma endregion
 #pragma region gelu_new
 
 namespace details {
@@ -158,7 +388,6 @@ namespace details {
 template<DeviceFloating T>
 __global__ void apply_gelu_new(kernel_matrix_lens<T> out,
     kernel_matrix_view<T> in, matrix_extent extent) {
-  using corvid::llm::gelu_new;
   if (const kernel_coord at; at.is_within(extent))
     out[at] = T{gelu_new(widen(in[at]))};
 }
@@ -196,7 +425,7 @@ __global__ void gather_rows(kernel_matrix_lens<To> out, const token_id* ids,
 
 } // namespace details
 
-// Look up each ID's row of `table`, writing into `out`.
+// `embed_tokens` looks up each ID's row of `table`, writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::embed_tokens`. With T tokens,
 // V vocabulary entries, and width C:
@@ -229,7 +458,8 @@ embed_tokens(Out&& out, const cuda_buffer<token_id>& ids, const Table& table) {
 #pragma endregion
 #pragma region embed_positions
 
-// Add each row's position embedding from `table`, writing into `out`.
+// `embed_positions` adds each row's position embedding from `table`, writing
+// into `out`.
 //
 // The contract is that of the CPU `corvid::llm::embed_positions`. With T
 // tokens, a context of P positions, and width C:
@@ -275,9 +505,9 @@ __global__ void apply_causal_mask(kernel_matrix_lens<T> scores,
 
 } // namespace details
 
-// Set every element of `scores` whose column exceeds its row's token to
-// negative infinity, so a softmax over the row gives the tokens after it no
-// weight.
+// `causal_mask` sets every element of `scores` whose column exceeds its row's
+// token to negative infinity, so a softmax over the row gives the tokens after
+// it no weight.
 //
 // `scores` has a row per new token and a column per token (cached and new)
 // with the cached ones first. With M cached tokens and N new ones, row `i` is
@@ -301,8 +531,8 @@ requires DeviceFloating<device_element_t<Out>>
   return cuda_last_status{}.ok();
 }
 
-// Let each token read from the tokens at or before it, across all attention
-// heads, writing into `out`.
+// `attend` lets each token read from the tokens at or before it, across all
+// attention heads, writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::attend`, which also holds the
 // worked explanation, with `qkv` split into its thirds. For M cached tokens,
@@ -392,7 +622,8 @@ requires GemmElement<device_element_t<Out>>
 #pragma endregion
 #pragma region logits
 
-// Score every vocabulary entry after every token of `in`, writing into `out`.
+// `compute_logits` scores every vocabulary entry after every token of `in`,
+// writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::compute_all_logits`. Each
 // logit is the dot product of a token's row of `in` with a vocabulary entry's
@@ -445,11 +676,11 @@ pick_largest_column(token_id* out, kernel_matrix_view<T> in, size_t cols) {
 
 } // namespace details
 
-// Pick the vocabulary entry with the largest logit in each row of `logits`,
-// the first on a tie, writing into `out`.
+// `pick_greedy` picks the vocabulary entry with the largest logit in each row
+// of `logits`, the first on a tie, writing into `out`.
 //
 // The contract is that of the CPU `corvid::llm::pick_greedy`, applied to each
-// row. With T tokens and V vocabulary entries:
+// row of logits. With T tokens and V vocabulary entries:
 //
 //   out     [T]     the ID picked for each row, written
 //   logits  [T, V]  a row per token

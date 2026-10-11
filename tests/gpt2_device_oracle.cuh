@@ -21,6 +21,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "corvid/containers/utils/matrix_view.h"
+#include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_matrix.cuh"
 #include "gpt2_oracle.h"
 
@@ -36,6 +37,15 @@ std::vector<float> download(const In& in) {
   const corvid::cuda::cuda_matrix_view<T> device = in;
   std::vector<T> storage(device.size());
   REQUIRE(device.store(matrix_lens<T>(storage, device.extent())));
+  return {storage.begin(), storage.end()};
+}
+
+// Download `in` into a host vector of `float`, converted from its element
+// type.
+template<typename T>
+std::vector<float> download(const corvid::cuda::cuda_buffer<T>& in) {
+  std::vector<T> storage(in.size());
+  REQUIRE(in.store(storage));
   return {storage.begin(), storage.end()};
 }
 

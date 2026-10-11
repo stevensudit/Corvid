@@ -172,6 +172,11 @@ public:
         memcpy_kind::device_to_device);
   }
 
+  // Set every byte of the allocation to zero.
+  [[nodiscard]] cuda_last_status zero() {
+    return cuda_last_status{cudaMemset(this->get(), 0, size_ * sizeof(T))};
+  }
+
 #pragma endregion
 #pragma region Helpers
 

@@ -1692,6 +1692,34 @@ hand-computed rows in `float` and `double`, and a check that nudging a logit
 by a small step moves the loss by the gradient times the step, which is what
 a gradient means. Next: slice 2.
 
+Status (2026-10-06, slice 2: backward through the head and the final layer
+norm): `gpt2_trainer::backward` walks the gradient of the loss back from the
+logits, one sequence at a time, into a `parameter_gradients` set that every
+sequence adds to: `wte` as the output head reads it, and the final layer
+norm's weight and bias. The head's step is two GEMMs over the existing
+`gemm`: the logit gradient times `wte` for the trunk's gradient, and the
+transposed logit gradient times the trunk for `wte`'s, the second in the
+accumulate form (the addend is the output itself), which is what sums a
+batch. The final layer norm's step is the new device op
+`layer_norm_backward`, in two kernels. One block per row recomputes the row's
+mean and reciprocal standard deviation from the retained input, writes the
+input's gradient, and records the pair in a `row_statistics` scratch. Then
+one thread per column sums the weight's and bias's gradients over the rows in
+order, so the result does not depend on scheduling, and adds them in. The
+forward kernel's statistics moved into the shared `compute_row_statistics`,
+and `cuda_buffer` gained `zero`. The oracle's `embed/out` gradient makes the
+head's share of `wte` gateable now rather than in slice 4: each token's row
+of it is the embedding lookup's share, which the test subtracts from the
+oracle's summed `wte` gradient on the host. Gate, on the RTX 4090 (Windows),
+each as the largest error over the oracle's largest value: the trunk's
+gradient 2.4e-5 and the residual stream's 7.5e-5 over the four sequences,
+gated at 2e-4; the final layer norm's weight 5.3e-5 and bias 3.1e-5, and
+`wte`'s head share 2.4e-5, gated at 1e-4. `layer_norm_backward` has a unit
+test in `double` that nudges an input, a weight, and a bias, and checks that
+a hand-weighted loss over the device `layer_norm` moves by the gradient times
+the step, and that a second call adds. Next: slice 3, the MLP half of a
+block.
+
 ### 6. A model that can hold an opinion
 
 GPT-2 124M is too weak for a preference to mean anything. The experiment

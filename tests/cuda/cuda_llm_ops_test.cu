@@ -194,6 +194,114 @@ TEST_CASE("Device layer norm over bfloat16_t is the float layer norm narrowed",
   CHECK(mixed_narrowed == narrowed(out_values));
 }
 
+TEST_CASE(
+    "Device layer norm backward's gradients predict the change in a loss",
+    "[LlmOpsTest][cuda]") {
+  // A gradient is a prediction. Nudge one value by a small step, and the loss
+  // moves by that value's gradient times the step. This nudges an input in
+  // each row, a weight, and a bias, each up and then down, and checks every
+  // prediction against the loss the device `layer_norm` then gives.
+  //
+  // The loss is a weighted sum of the outputs, with the weights chosen by
+  // hand, since the gradient of such a loss with respect to the outputs is
+  // the weights themselves. Everything is in `double`, so that the step is
+  // small against the rounding.
+  using T = double;
+  using lens_t = matrix_lens<T>;
+  constexpr matrix_types::matrix_extent extent{.row_count = 3, .col_count = 8};
+  constexpr auto step = 1e-6;
+  constexpr auto tolerance = 1e-7;
+
+  std::vector<T> in_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(in_storage)) {
+    const auto row = static_cast<size_t>(ndx) / extent.col_count;
+    value = (3.0 * std::sin(0.37 * static_cast<double>(ndx))) +
+            static_cast<double>(row);
+  }
+  std::vector<T> out_gradient_storage(extent.size());
+  for (auto [ndx, value] : std::views::enumerate(out_gradient_storage))
+    value = std::cos(0.53 * static_cast<double>(ndx));
+  std::vector<T> weight_storage(extent.col_count);
+  for (auto [col, value] : std::views::enumerate(weight_storage))
+    value = 1.0 + (0.1 * static_cast<double>(col));
+  std::vector<T> bias_storage(extent.col_count);
+  for (auto [col, value] : std::views::enumerate(bias_storage))
+    value = 0.05 * static_cast<double>(col);
+  const lens_t in_lens(in_storage, extent);
+
+  // The loss over `in_storage`, `weight_storage`, and `bias_storage` as they
+  // stand, with the layer norm computed on the device.
+  const auto loss = [&] {
+    const cuda_matrix<T> in(in_lens);
+    const cuda_buffer<T> weight(weight_storage);
+    const cuda_buffer<T> bias(bias_storage);
+    cuda_matrix<T> out(extent);
+    REQUIRE(corvid::cuda::llm::layer_norm(out, in, weight, bias, eps));
+    std::vector<T> out_storage(out.size());
+    REQUIRE(out.as_view().store(lens_t(out_storage, extent)));
+    return corvid::linalg::dot_product(out_storage, out_gradient_storage);
+  };
+
+  // The slope of the loss across `value` nudged up and then down by `step`.
+  const auto slope_of = [&](T& value) {
+    const auto original = value;
+    value = original + step;
+    const auto up = loss();
+    value = original - step;
+    const auto down = loss();
+    value = original;
+    return (up - down) / (2 * step);
+  };
+
+  const cuda_matrix<T> in(in_lens);
+  const cuda_matrix<T> out_gradient(
+      matrix_view<T>(out_gradient_storage, extent));
+  const cuda_buffer<T> weight(weight_storage);
+  cuda_matrix<T> in_gradient(extent);
+  cuda_buffer<T> weight_gradient(extent.col_count);
+  cuda_buffer<T> bias_gradient(extent.col_count);
+  REQUIRE(weight_gradient.zero());
+  REQUIRE(bias_gradient.zero());
+  cuda_buffer<corvid::cuda::llm::row_statistics<T>> statistics(
+      extent.row_count);
+  REQUIRE(corvid::cuda::llm::layer_norm_backward(in_gradient, weight_gradient,
+      bias_gradient, out_gradient, in, weight, eps, statistics));
+
+  std::vector<T> in_gradient_storage(in_gradient.size());
+  const lens_t in_gradient_lens(in_gradient_storage, extent);
+  REQUIRE(in_gradient.as_view().store(in_gradient_lens));
+  std::vector<T> weight_gradient_storage(extent.col_count);
+  REQUIRE(weight_gradient.store(weight_gradient_storage));
+  std::vector<T> bias_gradient_storage(extent.col_count);
+  REQUIRE(bias_gradient.store(bias_gradient_storage));
+
+  // An input in each row, on a different column each time.
+  for (const auto row : in_lens.row_indexes()) {
+    const col_ndx col{(*row * 3) + 1};
+    INFO("row " << *row << ", col " << *col);
+    CHECK_THAT(slope_of(in_lens[row, col]),
+        WithinAbs(in_gradient_lens[row, col], tolerance));
+  }
+  constexpr auto nudged_col = 5UZ;
+  CHECK_THAT(slope_of(weight_storage[nudged_col]),
+      WithinAbs(weight_gradient_storage[nudged_col], tolerance));
+  CHECK_THAT(slope_of(bias_storage[nudged_col]),
+      WithinAbs(bias_gradient_storage[nudged_col], tolerance));
+
+  // A second call adds to the weight and bias gradients.
+  REQUIRE(corvid::cuda::llm::layer_norm_backward(in_gradient, weight_gradient,
+      bias_gradient, out_gradient, in, weight, eps, statistics));
+  std::vector<T> twice(extent.col_count);
+  REQUIRE(weight_gradient.store(twice));
+  for (const auto [once, doubled] :
+      std::views::zip(weight_gradient_storage, twice))
+    CHECK_THAT(doubled, WithinAbs(2 * once, tolerance));
+  REQUIRE(bias_gradient.store(twice));
+  for (const auto [once, doubled] :
+      std::views::zip(bias_gradient_storage, twice))
+    CHECK_THAT(doubled, WithinAbs(2 * once, tolerance));
+}
+
 #pragma endregion
 #pragma region add
 

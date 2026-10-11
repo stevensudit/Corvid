@@ -60,6 +60,16 @@ constexpr auto loss_tolerance = 1e-5F;
 // against a largest of 1 / 252.
 constexpr auto gradient_ratio = 1e-4F;
 
+// The same ratio for the gradients with respect to the activations behind the
+// logits, set above the largest measured over the four sequences' trunk and
+// residual gradients, 7.5e-5 (the residual stream's).
+constexpr auto activation_gradient_ratio = 2e-4F;
+
+// The same ratio for the gradients with respect to the parameters, set above
+// the largest measured over the final layer norm's weight and bias and the
+// head's share of `wte`, 5.3e-5 (the weight's).
+constexpr auto parameter_gradient_ratio = 1e-4F;
+
 } // namespace
 
 #pragma region Tests
@@ -106,6 +116,86 @@ TEST_CASE("Device training forward pass matches the oracle's loss",
     const auto unlabeled = expected[row_ndx{first_row + n_grad_seq - 1}];
     CHECK(std::ranges::all_of(unlabeled, [](float x) { return (x == 0.0F); }));
   }
+}
+
+TEST_CASE(
+    "Device training backward pass through the head and the final layer "
+    "norm matches the oracle",
+    "[Gpt2TrainerTest][oracle][cuda]") {
+  auto oracle = oracle_dumps::load();
+  const auto id_storage =
+      id_rows_of(oracle.grads, "input_ids", n_grad_batch, n_grad_seq);
+  const matrix_view<token_id> ids(id_storage,
+      {.row_count = n_grad_batch, .col_count = n_grad_seq});
+  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
+  const gpt2_engine<float> engine(model);
+  gpt2_trainer<float> trainer(engine, n_grad_batch, n_grad_seq);
+  float loss{};
+  REQUIRE(trainer.forward(loss, ids));
+  REQUIRE(trainer.backward());
+
+  // The gradients with respect to the final layer norm's output (the trunk)
+  // and its input (the residual stream leaving the last block), per sequence,
+  // against the oracle's, which has a row per token with the sequences one
+  // after another. The first checks the head's backward step, the second the
+  // layer norm's.
+  const auto expected_trunk = matrix_of(oracle.grads, "ln_f/out", n_embd);
+  const auto expected_residual = matrix_of(oracle.grads, "ln_f/in", n_embd);
+  for (const auto [sequence_index, sequence] :
+      std::views::enumerate(trainer.sequences()))
+  {
+    INFO("sequence " << sequence_index);
+    const auto first_row = static_cast<size_t>(sequence_index) * n_grad_seq;
+    const auto extent = sequence.trunk_gradient.extent();
+    const matrix_types::coord from{row_ndx{first_row}, col_ndx{0}};
+    const auto actual_trunk = download(sequence.trunk_gradient);
+    check_close_to_scale(float_matrix_view(actual_trunk, extent),
+        expected_trunk[from, extent], activation_gradient_ratio);
+    const auto actual_residual = download(sequence.residual_gradient);
+    check_close_to_scale(float_matrix_view(actual_residual, extent),
+        expected_residual[from, extent], activation_gradient_ratio);
+  }
+
+  // The gradients with respect to the final layer norm's weight and bias,
+  // summed over the batch, as one-row matrices.
+  const auto& gradients = trainer.gradients();
+  const matrix_types::matrix_extent row_extent{.row_count = 1,
+      .col_count = n_embd};
+  const auto actual_weight = download(gradients.ln_f_weight);
+  check_close_to_scale(float_matrix_view(actual_weight, row_extent),
+      float_matrix_view(
+          vector_of(oracle.grads, "transformer.ln_f.weight", n_embd),
+          row_extent),
+      parameter_gradient_ratio);
+  const auto actual_bias = download(gradients.ln_f_bias);
+  check_close_to_scale(float_matrix_view(actual_bias, row_extent),
+      float_matrix_view(
+          vector_of(oracle.grads, "transformer.ln_f.bias", n_embd),
+          row_extent),
+      parameter_gradient_ratio);
+
+  // The gradient with respect to `wte`. The oracle's sums the table's two
+  // uses, as the output head and as the embedding lookup, where the trainer's
+  // is the head's share alone. The lookup's share is known. Each token's row
+  // of the gradient at the embedding output lands in the row of the token's
+  // ID, so it is taken back out of the oracle's before the comparison.
+  const auto oracle_wte =
+      matrix_of(oracle.grads, "transformer.wte.weight", n_embd);
+  REQUIRE(oracle_wte.extent() == gradients.wte.extent());
+  std::vector<float> expected_wte_storage(oracle_wte.as_span().begin(),
+      oracle_wte.as_span().end());
+  const float_matrix_lens expected_wte(expected_wte_storage,
+      oracle_wte.extent());
+  const auto embed_gradient = matrix_of(oracle.grads, "embed/out", n_embd);
+  REQUIRE(embed_gradient.row_extent() == id_storage.size());
+  for (const auto [position, id] : std::views::enumerate(id_storage)) {
+    const auto target = expected_wte[row_ndx{static_cast<size_t>(*id)}];
+    const auto share = embed_gradient[row_ndx{static_cast<size_t>(position)}];
+    for (auto [acc, delta] : std::views::zip(target, share)) acc -= delta;
+  }
+  const auto actual_wte = download(gradients.wte);
+  check_close_to_scale(float_matrix_view(actual_wte, gradients.wte.extent()),
+      expected_wte, parameter_gradient_ratio);
 }
 
 #pragma endregion
