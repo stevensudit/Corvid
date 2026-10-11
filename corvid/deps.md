@@ -52,6 +52,11 @@ it scans only `*.h`; they need a CUDA toolchain to compile and are checked by
 the compiler alone. The device counterparts of `linalg` and `llm` are `.cuh`
 files under `corvid/cuda/linalg/` and `corvid/cuda/llm/`.
 
+`corvid/torch/` holds the `.cuh` adapters between the matrix lenses and ATen
+tensors. It depends on `cuda` and on LibTorch, and nothing depends on it, so
+the `cuda` band stays free of Torch. Being `.cuh`, it is outside the lint
+like the rest of the device code.
+
 `math` sits alongside `meta` at the foundation and is universally dependable
 in the same way: any band may depend on it. It is not quite as low, though,
 because it rests on `meta`. It has to: math code needs the compiler-feature

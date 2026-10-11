@@ -70,6 +70,16 @@ CompileFlags:
   Add: [-I@PROJECT_ROOT_DIR@, -I@CMAKE_SOURCE_DIR@, -I@catch2_SOURCE_DIR@/src, -I@catch2_BINARY_DIR@/generated-includes]
 
 ---
+# The torch band (corvid/torch/). Its headers reach ATen only through the torch
+# test TUs' commands, so a standalone parse resolves nothing. Add the LibTorch
+# include dirs and the two Windows defines those TUs carry (see
+# corvid_require_libtorch in tests/CMakeLists.txt).
+If:
+  PathMatch: [corvid/torch/.*]
+CompileFlags:
+  Add: [-isystem, @CMAKE_SOURCE_DIR@/.local/libtorch/include, -isystem, @CMAKE_SOURCE_DIR@/.local/libtorch/include/torch/csrc/api/include, -DNOMINMAX, -DWIN32_LEAN_AND_MEAN]
+
+---
 Diagnostics:
   UnusedIncludes: None
   MissingIncludes: None
