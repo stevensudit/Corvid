@@ -572,7 +572,7 @@ endif()
 # passes the CUDA compiler and architecture whenever the toolkit is present and
 # the build is a plain one (no sanitizer/coverage/scan). The CUDA compiler is
 # clang (clang++) on both platforms: its unified C++23 frontend compiles host
-# and device together, where nvcc 13.3 cannot build the bucket on either (its
+# and device together, where nvcc 13.4 cannot build the bucket on either (its
 # MSVC device frontend has no C++23 dialect, and its EDG frontend drops the
 # second argument of a C++23 multidimensional subscript in host templates; see
 # crossplatform.md, section 3). The nvcc + g++-15 pairing survives as an
@@ -593,7 +593,7 @@ if(CORVID_ENABLE_CUDA)
     # toolkit's own headers are validated no further, and c++23 is the top of
     # nvcc 13.3's --std list, which the opt-in nvcc leg still needs. CMake 3.28
     # cannot map CUDA_STANDARD 23 (it rejects the dialect as unsupported by
-    # nvcc), though nvcc 13.3 accepts -std=c++23. Clear CMake's default
+    # nvcc), though nvcc 13.4 accepts -std=c++23. Clear CMake's default
     # standard flag and pass c++23 ourselves so the compiler command carries a
     # single -std (no "incompatible redefinition for option 'std'").
     set(CMAKE_CUDA_STANDARD_DEFAULT "")
@@ -605,7 +605,7 @@ if(CORVID_ENABLE_CUDA)
         # omitted fields zero-init as intended); the positional
         # -Wmissing-field-initializers stays on. Mirrors the cl /wd codes for
         # warnings that fire on correct, intentional code.
-        # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
+        # -Wno-unknown-cuda-version silences the note that CUDA 13.4 is newer
         # than clang's last fully supported toolkit (codegen is unaffected).
         # -gline-tables-only embeds the SASS<->source line mapping
         # (.nv_debug_line_sass) that compute-sanitizer (./cleanbuild.ps1
@@ -735,6 +735,59 @@ macro(corvid_require_imgui)
         # property on this target so only our own code is analyzed.
         set_target_properties(imgui PROPERTIES CXX_CLANG_TIDY "")
         message(STATUS "Using Dear ImGui (FetchContent) static lib")
+    endif()
+endmacro()
+
+# LibTorch for the torch band (corvid/llm stage 6 and after): a prebuilt drop
+# in tests/.local/libtorch (run scripts/fetch_libtorch.ps1 or .sh), the SDL3
+# shape. Hand-wired rather than find_package(Torch): TorchConfig re-runs the
+# removed FindCUDA module, compares the CUDA compiler's version with the
+# toolkit's (clang's own version here, so a FATAL_ERROR), and hangs MSVC-only
+# options (/EHsc, /permissive-) on its imported targets that a GNU-driver
+# clang++ would read as file names. The five import libraries below are all a
+# torch TU needs. The GPU kernels live in torch_cuda, which nothing references
+# directly, so the link line keeps it alive by force (its exported `warp_size`
+# symbol on Windows, --no-as-needed on Linux). Called only when a .cu source
+# pulls in a torch or ATen header (the regex gate below); the TARGET guard
+# makes a repeat call a no-op.
+macro(corvid_require_libtorch)
+    if(NOT TARGET corvid_libtorch)
+        set(LIBTORCH_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.local/libtorch")
+        if(NOT EXISTS "${LIBTORCH_ROOT}/share/cmake/Torch/TorchConfig.cmake")
+            message(FATAL_ERROR
+                "LibTorch not found at ${LIBTORCH_ROOT}. "
+                "Run scripts/fetch_libtorch.ps1 or .sh first (one-time).")
+        endif()
+        set(LIBTORCH_LIB_DIR "${LIBTORCH_ROOT}/lib")
+        add_library(corvid_libtorch INTERFACE IMPORTED)
+        # An imported target's include directories are SYSTEM, which keeps the
+        # torch headers' diagnostics out of -Werror.
+        set_target_properties(corvid_libtorch PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES
+                "${LIBTORCH_ROOT}/include;${LIBTORCH_ROOT}/include/torch/csrc/api/include")
+        foreach(_lib torch torch_cpu torch_cuda c10 c10_cuda)
+            find_library(_libtorch_${_lib} NAMES ${_lib}
+                PATHS "${LIBTORCH_LIB_DIR}" NO_DEFAULT_PATH REQUIRED)
+            target_link_libraries(corvid_libtorch INTERFACE "${_libtorch_${_lib}}")
+        endforeach()
+        if(WIN32)
+            # Under a CUDA compiler the torch headers pull in thrust, which
+            # reaches the toolkit's libcu++ headers (its Windows threading
+            # support and driver-API shim) that include a bare windows.h,
+            # ahead of torch's own win32 shim and of ours: the min/max
+            # macros then break every numeric_limits::max() after them, and
+            # the winsock.h it drags in collides with the winsock2.h our
+            # filesys headers include. PyTorch's own Windows build defines
+            # both globally, so a torch TU does the same.
+            target_compile_definitions(corvid_libtorch INTERFACE
+                NOMINMAX WIN32_LEAN_AND_MEAN)
+            target_link_options(corvid_libtorch INTERFACE
+                "LINKER:/INCLUDE:?warp_size@cuda@at@@YAHXZ")
+        else()
+            target_link_options(corvid_libtorch INTERFACE "LINKER:--no-as-needed")
+        endif()
+        file(STRINGS "${LIBTORCH_ROOT}/build-version" _libtorch_version)
+        message(STATUS "Using LibTorch ${_libtorch_version} at ${LIBTORCH_ROOT}")
     endif()
 endmacro()
 
@@ -1031,6 +1084,17 @@ if(CORVID_ENABLE_CUDA)
         if(CUDA_USES_CUBLAS)
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE CUDA::cublas)
         endif()
+        # Auto-link LibTorch for sources that pull in a torch or ATen header.
+        # On Windows its DLLs (39 of them, 5 GB) go on the test's PATH rather
+        # than beside the exe. Prepending also makes torch's own
+        # cublas64_13.dll serve our GEMM, since every CUDA 13.x minor shares
+        # that name, so a torch test runs on torch's cuBLAS and its bundled
+        # cudart next to the toolkit's static cudart in our own code.
+        file(STRINGS ${SOURCE_FILE} CUDA_USES_TORCH REGEX "<(ATen|torch)/")
+        if(CUDA_USES_TORCH)
+            corvid_require_libtorch()
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE corvid_libtorch)
+        endif()
         # Windows-only CUDA cell links SDL3 (window/input/events) and stages
         # SDL3.dll next to the exe; d3d11/dxgi (device, swapchain, present) is
         # linked for sources that pull in a d3d11 header (user32's GetClientRect
@@ -1057,6 +1121,12 @@ if(CORVID_ENABLE_CUDA)
         if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${CUDA_CATCH2_TARGET})
             add_test(NAME ${EXECUTABLE_NAME} COMMAND ${EXECUTABLE_NAME})
+            if(CUDA_USES_TORCH AND WIN32)
+                file(TO_NATIVE_PATH "${LIBTORCH_LIB_DIR}" _libtorch_native_lib_dir)
+                set_tests_properties(${EXECUTABLE_NAME} PROPERTIES
+                    ENVIRONMENT_MODIFICATION
+                        "PATH=path_list_prepend:${_libtorch_native_lib_dir}")
+            endif()
         endif()
     endforeach()
 endif()

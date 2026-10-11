@@ -1,4 +1,4 @@
-Here is a structured CUDA curriculum, ordered so that each layer depends on the previous one. It is written for your current setup: CUDA 13.3 under WSL Ubuntu, RTX 4090 / `sm_89`, and explicit CUDA host compiler selection.
+Here is a structured CUDA curriculum, ordered so that each layer depends on the previous one. It is written for your current setup: CUDA 13.4 under WSL Ubuntu, RTX 4090 / `sm_89`, and explicit CUDA host compiler selection.
 
 ## Track 0:  Environment and build model
 

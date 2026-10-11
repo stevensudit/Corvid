@@ -246,7 +246,7 @@ if [[ -z "$sanitizer" ]] && ! $use_coverage && ! $use_scan; then
       clangxx_for_cuda="$(command -v clang++ || true)"
       cuda_arch="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '. ' || true)"
       # Identifying clang++ as the CUDA compiler needs CMake 4: 3.28 probes
-      # clang with sm_52/30/20, which the 13.3 ptxas rejects, and the configure
+      # clang with sm_52/30/20, which the 13.x ptxas rejects, and the configure
       # dies with "CUDA compiler identification is unknown". The devcontainer
       # installs the PyPI wheel ahead of Ubuntu's package.
       cmake_major="$(cmake --version 2>/dev/null | sed -n 's/^cmake version \([0-9]*\).*/\1/p')"

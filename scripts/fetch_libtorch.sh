@@ -10,7 +10,7 @@ set -euo pipefail
 
 version=2.14.1
 # cu130 is the lowest CUDA 13 build; minor-version compatibility covers the
-# 13.3 toolkit here. cu132 is the alternative if the spike wants it.
+# 13.4 toolkit here. cu132 is the alternative if the spike wants it.
 cuda=cu130
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 local_dir="$repo_root/tests/.local"

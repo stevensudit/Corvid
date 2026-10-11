@@ -95,7 +95,7 @@ choice on Linux; cl is genuinely different from clang and catches real
 conformance divergences (see section 6).
 
 The CUDA bucket builds with clang++ (clang's CUDA frontend) on both platforms,
-*not* nvcc. This is forced, not a preference. On Windows, nvcc 13.3's MSVC
+*not* nvcc. This is forced, not a preference. On Windows, nvcc 13.4's MSVC
 device frontend (`cudafe++`/`cicc`) has no C++23 dialect. Its highest
 `--ms_c++NN` is `--ms_c++20`; asked for `-std=c++23` with an MSVC host it
 prints "not supported with the configured host compiler" and silently falls
@@ -126,7 +126,7 @@ even when the `.cpp` suite is libc++; the standard library, not the compiler,
 is what still differs between the two platforms' CUDA legs (MSVC STL on
 Windows). And identifying clang as a CUDA compiler needs CMake 4 (4.4
 verified): Ubuntu 24.04's CMake 3.28 probes clang with `sm_52`, `sm_30`,
-`sm_20`, none of which the 13.3 `ptxas` accepts, so the configure fails with
+`sm_20`, none of which the 13.x `ptxas` accepts, so the configure fails with
 "CUDA compiler identification is unknown"; CMake 4 tries `sm_75` first for a
 13.x toolkit. The Dockerfile installs the `cmake` wheel from PyPI for that
 reason (the Kitware apt repository is outside the container's allowlist).
@@ -180,9 +180,9 @@ Versions used during bring-up: clang++ and clang-format from the LLVM Windows
 installer (23.1.1), kept at the same major as the Linux Dockerfile pins, which
 also gates the image build on clang-format 23.1.1 or later so that both
 formatters agree; MSVC STL 14.51 and Windows SDK via VS 2026 (MSVC `_MSC_VER`
-1951); CMake 4.3, Ninja, nvcc 13.3 (toolkit headers/libs and `ptxas`; the
+1951); CMake 4.3, Ninja, nvcc 13.4 (toolkit headers/libs and `ptxas`; the
 compiler driver is clang++). Linux: clang 23 from the LLVM apt repository,
-CMake 4.4 from the PyPI wheel, the same 13.3 toolkit from the nvidia/cuda base
+CMake 4.4 from the PyPI wheel, the same 13.4 toolkit from the nvidia/cuda base
 image.
 
 ## 4. Building
@@ -355,7 +355,7 @@ set matches the `.cpp` suite: `-Wall -Wextra -Werror`, with
 that fires on the deliberate partial designated-init idiom for C DESC structs
 (the positional `-Wmissing-field-initializers` stays on, like the cl `/wd`
 codes). Plus `-std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the
-last silences the note that CUDA 13.3 is newer than clang's last fully
+last silences the note that CUDA 13.4 is newer than clang's last fully
 supported toolkit) and `-gline-tables-only` (section 8). Linux takes the same
 clang set minus `-fms-runtime-lib=dll`, plus an explicit `-O3` because the
 Linux configure carries no build type. The opt-in nvcc leg keeps its old form,
@@ -585,7 +585,7 @@ not a fault.
   prefix.)
 - clangd everywhere, no IntelliSense.
 - Toolchain: clang++ (default) and cl for the portable suite; clang++ for CUDA.
-  clang-cl was the original default but was retired: nvcc 13.3 cannot build the
+  clang-cl was the original default but was retired: nvcc 13.4 cannot build the
   C++23 `.cu` bucket with an MSVC host, so CUDA uses clang's CUDA frontend, and
   CMake will not mix a clang-cl (MSVC-frontend) host with a clang++
   (GNU-frontend) CUDA compiler. Unifying the `.cpp` suite on clang++ too makes

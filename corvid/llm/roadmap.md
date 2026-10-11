@@ -1888,7 +1888,7 @@ model code:
   links libstdc++ because the toolkit refuses libc++ on x86, so a torch TU
   in that bucket never meets libc++;
 - LibTorch 2.14 ships cu130 and cu132 builds for Linux and Windows; the
-  toolkit here is 13.3. Minor-version compatibility within CUDA 13 should
+  toolkit here is 13.4. Minor-version compatibility within CUDA 13 should
   hold, but the shared-with-deps zip bundles its own cudart, so two runtimes
   in one process is what the spike must show harmless. The torch band itself
   never calls CUDA: torch places tensors on the CPU or the GPU under the

@@ -176,7 +176,7 @@ if (-not $env:VSCMD_VER) {
 # CUDA (.cu) targets build automatically when the CUDA toolkit is present and
 # the build is the default clang++ one in a plain (non-asan) mode: each .cu is
 # its own clang++ executable (MSVC ABI) sharing no link line with a .cpp binary.
-# Windows compiles CUDA with clang, not nvcc: nvcc 13.3's MSVC device frontend
+# Windows compiles CUDA with clang, not nvcc: nvcc 13.4's MSVC device frontend
 # has no C++23 dialect (it drops -std=c++23), so it cannot build Corvid's C++23
 # headers, while clang's unified C++23 frontend can. clang-CUDA's `native` arch
 # detection does not work on Windows, so resolve the GPU's compute capability

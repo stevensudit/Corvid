@@ -26,22 +26,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgmp-dev libmpfr-dev libmpc-dev libisl-dev zlib1g-dev libzstd-dev && \
     rm -rf /var/lib/apt/lists/*
 COPY gcc-constexpr-strret.patch gcc_constexpr_strret_check.cpp /tmp/corvid/
-RUN curl -fsSL -o /tmp/gcc-${GCC_VERSION}.tar.xz \
-      https://gcc.gnu.org/pub/gcc/releases/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz && \
+RUN GCC_URL=https://gcc.gnu.org/pub/gcc/releases/gcc-${GCC_VERSION} && \
+    curl -fsSL -o /tmp/gcc-${GCC_VERSION}.tar.xz \
+      ${GCC_URL}/gcc-${GCC_VERSION}.tar.xz && \
     echo "${GCC_SHA512}  /tmp/gcc-${GCC_VERSION}.tar.xz" | sha512sum -c - && \
     tar -xJ -C /tmp -f /tmp/gcc-${GCC_VERSION}.tar.xz && \
     rm /tmp/gcc-${GCC_VERSION}.tar.xz && \
-    patch -p1 -d /tmp/gcc-${GCC_VERSION} < /tmp/corvid/gcc-constexpr-strret.patch && \
+    patch -p1 -d /tmp/gcc-${GCC_VERSION} \
+      < /tmp/corvid/gcc-constexpr-strret.patch && \
     mkdir /tmp/gcc-obj && cd /tmp/gcc-obj && \
     /tmp/gcc-${GCC_VERSION}/configure --prefix=/opt/gcc-16 \
       --enable-languages=c,c++ --disable-multilib --disable-bootstrap \
       --with-system-zlib --enable-default-pie --enable-default-ssp \
       --program-suffix=-16 && \
     make -j"$(nproc)" && make install-strip && rm -rf /tmp/gcc-* && \
-    /opt/gcc-16/bin/g++-16 -std=c++23 -fsyntax-only /tmp/corvid/gcc_constexpr_strret_check.cpp && \
+    /opt/gcc-16/bin/g++-16 -std=c++23 -fsyntax-only \
+      /tmp/corvid/gcc_constexpr_strret_check.cpp && \
     rm -rf /tmp/corvid
 
-FROM nvidia/cuda:13.3.1-devel-ubuntu24.04
+FROM nvidia/cuda:13.4.2-devel-ubuntu24.04
 
 ARG TZ
 ENV TZ="$TZ"
@@ -80,8 +83,8 @@ RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 
 # Basic development tools, toolchain, and iptables/ipset. gcc-15 is the host
-# compiler of the opt-in nvcc leg (`cleanbuild.sh nvcc`; nvcc 13.3 rejects gcc
-# newer than 15). The PPA's gcc-16 snapshot contributes only libstdc++-16-dev,
+# compiler of the opt-in nvcc leg (`cleanbuild.sh nvcc`; nvcc 13.4 rejects gcc
+# newer than 16). The PPA's gcc-16 snapshot contributes only libstdc++-16-dev,
 # which the clang + libstdc++ legs (the .cpp suite's libstdcpp mode and the
 # CUDA bucket, whose toolkit headers refuse libc++) pick up from /usr/lib/gcc
 # (its <format> gets a local patch below); its compilers are not installed, so
@@ -109,7 +112,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   vim \
   nodejs \
   openssh-client rsync zip file bc \
-  clang-23 clangd-23 lldb-23 lld-23 clang-format-23 clang-tidy-23 cmake ninja-build \
+  clang-23 clangd-23 lldb-23 lld-23 clang-format-23 clang-tidy-23 \
+  cmake ninja-build \
   libc++-23-dev libc++abi-23-dev liburing-dev pkg-config \
   llvm-23 \
   ccache strace patch \
@@ -137,20 +141,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # should run the same interpreter on both platforms. The system python3 stays
 # 3.12 for the tooling above. The PPA host and the key server it verifies
 # through are in the firewall allowlist.
-RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
+RUN apt-get update && \
+  apt-get install -y --no-install-recommends software-properties-common \
   && add-apt-repository -y ppa:deadsnakes/ppa \
   && apt-get install -y --no-install-recommends python3.14 python3.14-venv \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # CMake 4 from the PyPI wheel, ahead of Ubuntu's 3.28 on PATH. Identifying
 # clang++ as the CUDA compiler needs it: 3.28 probes clang with sm_52/30/20,
-# which the 13.3 ptxas rejects, so the configure fails with "CUDA compiler
+# which the 13.x ptxas rejects, so the configure fails with "CUDA compiler
 # identification is unknown"; CMake 4 tries sm_75 first for a 13.x toolkit.
 # The wheel rather than apt.kitware.com because the container's network
 # allowlist does not include the latter (see crossplatform.md, section 3).
 # Sits after the apt step above because `python3 -m venv` needs python3-venv.
-RUN python3 -m venv /opt/cmake && /opt/cmake/bin/pip install --no-cache-dir cmake \
-  && ln -s /opt/cmake/bin/cmake /opt/cmake/bin/ctest /opt/cmake/bin/cpack /usr/local/bin/
+RUN python3 -m venv /opt/cmake \
+  && /opt/cmake/bin/pip install --no-cache-dir cmake \
+  && ln -s /opt/cmake/bin/cmake /opt/cmake/bin/ctest /opt/cmake/bin/cpack \
+       /usr/local/bin/
 
 # gcc 16.2 from the gcc-build stage. gcc adds no rpath, so binaries it links
 # find its libstdc++ through ld.so.conf; the 000- name sorts ahead of the
@@ -177,17 +184,19 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
 RUN dpkg --compare-versions \
     "$(dpkg-query -W -f='${Version}' clang-format-23)" ge 1:23.1.1~
 
-# The PPA snapshot's <format> gets one local patch, libstdcxx-format-clang.patch,
-# so that clang can constant-evaluate format strings with a dynamic width or
-# precision in C++26 mode (LLVM issue 73232 plus a static_assert clang rejects;
-# details in the patch header and crossplatform.md). libstdcxx_format_check.cpp
-# is compiled with clang++ against the patched header so the image build fails
-# if the patch did not take. A patch that no longer applies after a snapshot
-# bump means upstream changed the area: re-derive or retire the patch and the
-# check together.
+# The PPA snapshot's <format> gets one local patch,
+# libstdcxx-format-clang.patch, so that clang can constant-evaluate format
+# strings with a dynamic width or precision in C++26 mode (LLVM issue 73232
+# plus a static_assert clang rejects; details in the patch header and
+# crossplatform.md). libstdcxx_format_check.cpp is compiled with clang++
+# against the patched header so the image build fails if the patch did not
+# take. A patch that no longer applies after a snapshot bump means upstream
+# changed the area: re-derive or retire the patch and the check together.
 COPY libstdcxx-format-clang.patch libstdcxx_format_check.cpp /tmp/corvid/
-RUN patch -p1 -d /usr/include/c++/16 < /tmp/corvid/libstdcxx-format-clang.patch && \
-    clang++-23 -std=c++26 -fsyntax-only /tmp/corvid/libstdcxx_format_check.cpp && \
+RUN patch -p1 -d /usr/include/c++/16 \
+      < /tmp/corvid/libstdcxx-format-clang.patch && \
+    clang++-23 -std=c++26 -fsyntax-only \
+      /tmp/corvid/libstdcxx_format_check.cpp && \
     rm -rf /tmp/corvid
 
 # npm global dir writable by node.
@@ -195,30 +204,38 @@ RUN mkdir -p /usr/local/share/npm-global && \
   chown -R node:node /usr/local/share/npm-global
 
 # Persist bash history.
-RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
+RUN SNIPPET="export PROMPT_COMMAND='history -a' && \
+export HISTFILE=/commandhistory/.bash_history" \
   && mkdir /commandhistory \
   && touch /commandhistory/.bash_history \
   && chown -R $USERNAME /commandhistory
 
 ENV DEVCONTAINER=true
 
-# Pre-create the memory bind-mount target so a fresh config volume is seeded with node-owned directories; otherwise Docker creates the intermediate dirs as root and Claude Code cannot write session transcripts.
+# Pre-create the memory bind-mount target so a fresh config volume is seeded
+# with node-owned directories; otherwise Docker creates the intermediate dirs
+# as root and Claude Code cannot write session transcripts.
 RUN mkdir -p /workspace /home/node/.claude/projects/-workspace/memory && \
   chown -R node:node /workspace /home/node/.claude
 WORKDIR /workspace
 
 ARG GIT_DELTA_VERSION=0.18.2
 RUN ARCH=$(dpkg --print-architecture) && \
-  wget "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
-  dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
-  rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
+  DEB="git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
+  URL=https://github.com/dandavison/delta/releases/download && \
+  wget "${URL}/${GIT_DELTA_VERSION}/${DEB}" && \
+  dpkg -i "${DEB}" && \
+  rm "${DEB}"
 
 # SSH dir for the named volume (ownership seeds the volume on first mount).
-RUN mkdir -p /home/node/.ssh && chown node:node /home/node/.ssh && chmod 700 /home/node/.ssh
+RUN mkdir -p /home/node/.ssh && chown node:node /home/node/.ssh && \
+  chmod 700 /home/node/.ssh
 
 # gh config dir for its named volume, same seeding. It holds the GitHub OAuth
 # token (hosts.yml), which otherwise dies with the container on every rebuild.
-RUN mkdir -p /home/node/.config/gh && chown -R node:node /home/node/.config && chmod 700 /home/node/.config/gh
+RUN mkdir -p /home/node/.config/gh && \
+  chown -R node:node /home/node/.config && \
+  chmod 700 /home/node/.config/gh
 
 USER node
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
@@ -233,12 +250,14 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Default powerline10k theme.
 ARG ZSH_IN_DOCKER_VERSION=1.2.0
-RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v${ZSH_IN_DOCKER_VERSION}/zsh-in-docker.sh)" -- \
+RUN ZID=https://github.com/deluan/zsh-in-docker/releases/download && \
+  sh -c "$(wget -O- ${ZID}/v${ZSH_IN_DOCKER_VERSION}/zsh-in-docker.sh)" -- \
   -p git \
   -p fzf \
   -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
   -a "source /usr/share/doc/fzf/examples/completion.zsh" \
-  -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
+  -a "export PROMPT_COMMAND='history -a'" \
+  -a "export HISTFILE=/commandhistory/.bash_history" \
   -x
 
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
@@ -247,11 +266,15 @@ RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 COPY init-firewall.sh /usr/local/bin/
 USER root
 RUN chmod +x /usr/local/bin/init-firewall.sh && \
-  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
+  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" \
+    > /etc/sudoers.d/node-firewall && \
   chmod 0440 /etc/sudoers.d/node-firewall
 
 USER node
 
-RUN git config --global url."git@github.com:stevensudit/".insteadOf "https://github.com/stevensudit/" && \
-    git config --global include.path /home/node/node-dotfiles/.gitconfig-personal
-RUN echo '[ -f /workspace/.devcontainer/shellrc.sh ] && source /workspace/.devcontainer/shellrc.sh' >> /home/node/.zshrc
+RUN git config --global url."git@github.com:stevensudit/".insteadOf \
+      "https://github.com/stevensudit/" && \
+    git config --global include.path \
+      /home/node/node-dotfiles/.gitconfig-personal
+RUN RC=/workspace/.devcontainer/shellrc.sh && \
+  echo "[ -f $RC ] && source $RC" >> /home/node/.zshrc

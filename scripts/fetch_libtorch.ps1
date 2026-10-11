@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 $version = '2.14.1'
 # cu130 is the lowest CUDA 13 build; minor-version compatibility covers the
-# 13.3 toolkit here. cu132 is the alternative if the spike wants it.
+# 13.4 toolkit here. cu132 is the alternative if the spike wants it.
 $cuda = 'cu130'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $local = Join-Path $repoRoot 'tests/.local'
