@@ -101,6 +101,31 @@ namespace corvid { inline namespace meta { inline namespace crossplatform {
 #define CUDA_HOST_DEVICE
 #endif
 
+#pragma endregion
+#pragma region Device assert
+
+// The device `_wassert` that MSVC's `assert` calls, for clang's CUDA leg.
+//
+// nvcc declares MSVC's `_wassert` as host and device in its own headers, and
+// clang's CUDA wrapper does the same for glibc's `__assert_fail`, so a kernel
+// can `assert` under either. Nothing covers MSVC under clang, so this is that
+// device overload, forwarding to the runtime's `__assertfail` as the wrapper
+// does. It must precede every header whose templates assert, since a call
+// in a template binds to the overloads declared before it. A failed assert
+// stops the kernel, and the next runtime call reports `cudaErrorAssert`,
+// after which the context is unusable.
+#if defined(__CUDACC__) && defined(__clang__) && defined(_MSC_VER) &&         \
+    !defined(NDEBUG)
+#include <cassert>
+extern "C" {
+__device__ static inline void __cdecl
+_wassert(const wchar_t* message, const wchar_t* file, unsigned line) {
+  __assertfail(reinterpret_cast<const char*>(message),
+      reinterpret_cast<const char*>(file), line, "", sizeof(wchar_t));
+}
+}
+#endif
+
 // `[[no_unique_address]]` is silently ignored under the MSVC ABI, which spells
 // the attribute `[[msvc::no_unique_address]]` instead. clang-cl and cl both
 // target that ABI and define `_MSC_VER`; every other toolchain takes the

@@ -382,8 +382,7 @@ add_column_sums(T* out, kernel_matrix_view<From> in, matrix_extent extent) {
   if (col >= extent.col_count) return;
 
   compute_t<T> total{};
-  for (auto row = 0UZ; row < extent.row_count; ++row)
-    total += widen(in[row, col]);
+  for (const auto row : iota(extent.row_count)) total += widen(in[row, col]);
 
   out[col] = narrow<T>(widen(out[col]) + total);
 }

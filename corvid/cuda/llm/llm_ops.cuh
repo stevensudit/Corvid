@@ -273,7 +273,7 @@ add_layer_norm_parameter_gradients(T* weight_gradient, T* bias_gradient,
 
   compute_t<T> weight_total{};
   compute_t<T> bias_total{};
-  for (auto row = 0UZ; row < extent.row_count; ++row) {
+  for (const auto row : iota(extent.row_count)) {
     const auto gradient = widen(out_gradient[row, col]);
     bias_total += gradient;
     weight_total +=

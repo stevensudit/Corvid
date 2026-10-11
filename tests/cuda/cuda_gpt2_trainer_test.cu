@@ -147,38 +147,53 @@ void check_matrix_gradient(const cuda_matrix<float>& actual,
       expected, ratio);
 }
 
+// The oracle's gradient batch (four sequences of 64 tokens) run forward
+// through a trainer over the oracle's weights.
+//
+// The members are built in order, each from the ones before it, and the
+// oracle's weights move into the model, so `oracle` keeps the dumps the tests
+// compare against. The trainer is left after `forward`, for a test to walk
+// backward from.
+struct oracle_batch {
+  oracle_dumps oracle;
+  std::vector<token_id> id_storage;
+  const gpt2_model<float> model;
+  const gpt2_engine<float> engine;
+  trainer_t trainer;
+  float loss{};
+
+  oracle_batch()
+      : oracle(oracle_dumps::load()),
+        id_storage(
+            id_rows_of(oracle.grads, "input_ids", n_grad_batch, n_grad_seq)),
+        model(gpt2_model<float>::load(std::move(oracle.weights))),
+        engine(model), trainer(engine, n_grad_batch, n_grad_seq) {
+    const matrix_view<token_id> ids(id_storage,
+        {.row_count = n_grad_batch, .col_count = n_grad_seq});
+    REQUIRE(trainer.forward(loss, ids));
+  }
+};
+
 } // namespace
 
 #pragma region Tests
 
 TEST_CASE("Device training forward pass matches the oracle's loss",
     "[Gpt2TrainerTest][oracle][cuda]") {
-  auto oracle = oracle_dumps::load();
-
-  // The oracle's gradient batch, four sequences of 64 tokens, goes through the
-  // trainer, and the mean loss of its 4 * 63 = 252 predictions is checked
-  // against the loss the oracle dumped.
-  const auto id_storage =
-      id_rows_of(oracle.grads, "input_ids", n_grad_batch, n_grad_seq);
-  const matrix_view<token_id> ids(id_storage,
-      {.row_count = n_grad_batch, .col_count = n_grad_seq});
-  const auto expected_loss = vector_of(oracle.grads, "loss", 1).front();
-  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
-  const gpt2_engine<float> engine(model);
-  gpt2_trainer<float> trainer(engine, n_grad_batch, n_grad_seq);
-
-  float loss{};
-  REQUIRE(trainer.forward(loss, ids));
-  CHECK_THAT(loss, WithinRel(expected_loss, loss_tolerance));
+  // The mean loss of the batch's 4 * 63 = 252 predictions is checked against
+  // the loss the oracle dumped.
+  oracle_batch batch;
+  const auto expected_loss = vector_of(batch.oracle.grads, "loss", 1).front();
+  CHECK_THAT(batch.loss, WithinRel(expected_loss, loss_tolerance));
 
   // The gradient of that loss with respect to the logits, the first step
   // backward, against the oracle's. The oracle dumps a row per token, the
   // sequences one after another, and the trainer holds a row per prediction,
   // which is every token of a sequence but its last.
-  const auto expected = matrix_of(oracle.grads, "logits", n_vocab);
+  const auto expected = matrix_of(batch.oracle.grads, "logits", n_vocab);
   REQUIRE(expected.row_extent() == n_grad_batch * n_grad_seq);
   for (const auto [sequence_index, sequence] :
-      std::views::enumerate(trainer.sequences()))
+      std::views::enumerate(batch.trainer.sequences()))
   {
     INFO("sequence " << sequence_index);
     const auto first_row = static_cast<size_t>(sequence_index) * n_grad_seq;
@@ -199,17 +214,8 @@ TEST_CASE(
     "Device training backward pass through the head and the final layer "
     "norm matches the oracle",
     "[Gpt2TrainerTest][oracle][cuda]") {
-  auto oracle = oracle_dumps::load();
-  const auto id_storage =
-      id_rows_of(oracle.grads, "input_ids", n_grad_batch, n_grad_seq);
-  const matrix_view<token_id> ids(id_storage,
-      {.row_count = n_grad_batch, .col_count = n_grad_seq});
-  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
-  const gpt2_engine<float> engine(model);
-  gpt2_trainer<float> trainer(engine, n_grad_batch, n_grad_seq);
-  float loss{};
-  REQUIRE(trainer.forward(loss, ids));
-  REQUIRE(trainer.backward());
+  oracle_batch batch;
+  REQUIRE(batch.trainer.backward());
 
   // The gradient with respect to the final layer norm's output (the trunk),
   // per sequence, which checks the head's backward step.
@@ -217,15 +223,15 @@ TEST_CASE(
   // The layer norm's own step is checked through its parameter gradients
   // below, since the trainer walks on into the last block, and
   // `residual_gradient` holds the stream at that later point.
-  check_sequence_gradients(trainer, oracle.grads, "ln_f/out",
+  check_sequence_gradients(batch.trainer, batch.oracle.grads, "ln_f/out",
       &trainer_t::sequence_buffers::trunk_gradient);
 
   // The gradients with respect to the final layer norm's weight and bias,
   // summed over the batch.
-  const auto& gradients = trainer.gradients();
-  check_vector_gradient(gradients.ln_f_weight, oracle.grads,
+  const auto& gradients = batch.trainer.gradients();
+  check_vector_gradient(gradients.ln_f_weight, batch.oracle.grads,
       "transformer.ln_f.weight", n_embd, parameter_gradient_ratio);
-  check_vector_gradient(gradients.ln_f_bias, oracle.grads,
+  check_vector_gradient(gradients.ln_f_bias, batch.oracle.grads,
       "transformer.ln_f.bias", n_embd, parameter_gradient_ratio);
 
   // The gradient with respect to `wte`. The oracle's sums the table's two
@@ -234,15 +240,16 @@ TEST_CASE(
   // of the gradient at the embedding output lands in the row of the token's
   // ID, so it is taken back out of the oracle's before the comparison.
   const auto oracle_wte =
-      matrix_of(oracle.grads, "transformer.wte.weight", n_embd);
+      matrix_of(batch.oracle.grads, "transformer.wte.weight", n_embd);
   REQUIRE(oracle_wte.extent() == gradients.wte.extent());
   std::vector<float> expected_wte_storage(oracle_wte.as_span().begin(),
       oracle_wte.as_span().end());
   const float_matrix_lens expected_wte(expected_wte_storage,
       oracle_wte.extent());
-  const auto embed_gradient = matrix_of(oracle.grads, "embed/out", n_embd);
-  REQUIRE(embed_gradient.row_extent() == id_storage.size());
-  for (const auto [position, id] : std::views::enumerate(id_storage)) {
+  const auto embed_gradient =
+      matrix_of(batch.oracle.grads, "embed/out", n_embd);
+  REQUIRE(embed_gradient.row_extent() == batch.id_storage.size());
+  for (const auto [position, id] : std::views::enumerate(batch.id_storage)) {
     const auto target = expected_wte[row_ndx{static_cast<size_t>(*id)}];
     const auto share = embed_gradient[row_ndx{static_cast<size_t>(position)}];
     for (auto [acc, delta] : std::views::zip(target, share)) acc -= delta;
@@ -256,17 +263,8 @@ TEST_CASE(
     "Device training backward pass through the last block's MLP half "
     "matches the oracle",
     "[Gpt2TrainerTest][oracle][cuda]") {
-  auto oracle = oracle_dumps::load();
-  const auto id_storage =
-      id_rows_of(oracle.grads, "input_ids", n_grad_batch, n_grad_seq);
-  const matrix_view<token_id> ids(id_storage,
-      {.row_count = n_grad_batch, .col_count = n_grad_seq});
-  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
-  const gpt2_engine<float> engine(model);
-  trainer_t trainer(engine, n_grad_batch, n_grad_seq);
-  float loss{};
-  REQUIRE(trainer.forward(loss, ids));
-  REQUIRE(trainer.backward());
+  oracle_batch batch;
+  REQUIRE(batch.trainer.backward());
 
   // The gradients with respect to the last block's `ln_2_out` and `ln_2_in`,
   // per sequence. The first checks the two projections and the GELU between
@@ -276,43 +274,34 @@ TEST_CASE(
   // `block_11/mlp/out`.
   constexpr auto last = n_layer - 1;
   const auto dump = std::format("block_{}/", last);
-  check_sequence_gradients(trainer, oracle.grads, dump + "ln_2/out",
-      &trainer_t::sequence_buffers::ln_2_out_gradient);
-  check_sequence_gradients(trainer, oracle.grads, dump + "ln_2/in",
+  check_sequence_gradients(batch.trainer, batch.oracle.grads,
+      dump + "ln_2/out", &trainer_t::sequence_buffers::ln_2_out_gradient);
+  check_sequence_gradients(batch.trainer, batch.oracle.grads, dump + "ln_2/in",
       &trainer_t::sequence_buffers::residual_gradient);
 
   // The block's six parameter gradients, summed over the batch.
   const auto param = std::format("transformer.h.{}.", last);
-  const auto& block = trainer.gradients().blocks[last];
-  check_matrix_gradient(block.mlp_c_proj_weight, oracle.grads,
+  const auto& block = batch.trainer.gradients().blocks[last];
+  check_matrix_gradient(block.mlp_c_proj_weight, batch.oracle.grads,
       param + "mlp.c_proj.weight", block_parameter_gradient_ratio);
-  check_vector_gradient(block.mlp_c_proj_bias, oracle.grads,
+  check_vector_gradient(block.mlp_c_proj_bias, batch.oracle.grads,
       param + "mlp.c_proj.bias", n_embd, block_parameter_gradient_ratio);
-  check_matrix_gradient(block.mlp_c_fc_weight, oracle.grads,
+  check_matrix_gradient(block.mlp_c_fc_weight, batch.oracle.grads,
       param + "mlp.c_fc.weight", block_parameter_gradient_ratio);
-  check_vector_gradient(block.mlp_c_fc_bias, oracle.grads,
+  check_vector_gradient(block.mlp_c_fc_bias, batch.oracle.grads,
       param + "mlp.c_fc.bias", n_hidden, block_parameter_gradient_ratio);
-  check_vector_gradient(block.ln_2_weight, oracle.grads, param + "ln_2.weight",
-      n_embd, block_parameter_gradient_ratio);
-  check_vector_gradient(block.ln_2_bias, oracle.grads, param + "ln_2.bias",
-      n_embd, block_parameter_gradient_ratio);
+  check_vector_gradient(block.ln_2_weight, batch.oracle.grads,
+      param + "ln_2.weight", n_embd, block_parameter_gradient_ratio);
+  check_vector_gradient(block.ln_2_bias, batch.oracle.grads,
+      param + "ln_2.bias", n_embd, block_parameter_gradient_ratio);
 }
 
 TEST_CASE(
     "Device ln_2 weight gradient of the last block matches a host "
     "recomputation in double",
     "[Gpt2TrainerTest][oracle][cuda]") {
-  auto oracle = oracle_dumps::load();
-  const auto id_storage =
-      id_rows_of(oracle.grads, "input_ids", n_grad_batch, n_grad_seq);
-  const matrix_view<token_id> ids(id_storage,
-      {.row_count = n_grad_batch, .col_count = n_grad_seq});
-  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
-  const gpt2_engine<float> engine(model);
-  trainer_t trainer(engine, n_grad_batch, n_grad_seq);
-  float loss{};
-  REQUIRE(trainer.forward(loss, ids));
-  REQUIRE(trainer.backward());
+  oracle_batch batch;
+  REQUIRE(batch.trainer.backward());
 
   // The weight gradient is the sum, over every row of the batch, of the
   // gradient with respect to `ln_2_out` times the standardized `ln_2_in`.
@@ -322,14 +311,14 @@ TEST_CASE(
   // carry. Recomputed from the oracle's output gradient instead, it shows how
   // far those inputs account for the gap to the oracle's weight gradient.
   constexpr auto last = n_layer - 1;
-  const auto oracle_out_gradient =
-      matrix_of(oracle.grads, std::format("block_{}/ln_2/out", last), n_embd);
+  const auto oracle_out_gradient = matrix_of(batch.oracle.grads,
+      std::format("block_{}/ln_2/out", last), n_embd);
   const auto width = static_cast<double>(n_embd);
   const auto eps = static_cast<double>(corvid::llm::gpt2_layer_norm_eps);
   std::vector<double> from_own(n_embd);
   std::vector<double> from_oracle(n_embd);
   for (const auto [sequence_index, sequence] :
-      std::views::enumerate(trainer.sequences()))
+      std::views::enumerate(batch.trainer.sequences()))
   {
     const auto in = download(sequence.blocks[last].activations.ln_2_in);
     const auto own_gradient = download(sequence.ln_2_out_gradient);
@@ -367,8 +356,9 @@ TEST_CASE(
   const std::vector<float> from_own_narrowed(from_own.begin(), from_own.end());
   const std::vector<float> from_oracle_narrowed(from_oracle.begin(),
       from_oracle.end());
-  const auto device = download(trainer.gradients().blocks[last].ln_2_weight);
-  const auto expected = vector_of(oracle.grads,
+  const auto device =
+      download(batch.trainer.gradients().blocks[last].ln_2_weight);
+  const auto expected = vector_of(batch.oracle.grads,
       std::format("transformer.h.{}.ln_2.weight", last), n_embd);
 
   // The kernel against the same inputs summed in double.

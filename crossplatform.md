@@ -443,6 +443,14 @@ is byte-for-byte unaffected:
 - Shifts in bit code use the value's own unsigned type, for example
   `std::underlying_type_t<E>{1} << n`, not a plain `int` `1 << n`. The latter
   is undefined once the count reaches the int width, and MSVC flags it (C4334).
+- `assert` in device code expands to MSVC's `_wassert`, which only nvcc's own
+  headers declare as host and device; clang's CUDA wrapper does that for
+  glibc's `__assert_fail` and nothing for MSVC. `corvid/meta/crossplatform.h`
+  ("Device assert") supplies the device `_wassert`, forwarding to the runtime's
+  `__assertfail`, so templates that assert (such as `interval`) compile in
+  kernels when asserts are live. It must be declared before those templates,
+  since a non-dependent call binds to the overloads seen at the template's
+  definition, which is why it sits in the earliest header.
 
 MSVC cl, the conformance-mode second compiler, needed a few more, each isolated
 with a minimal repro:
