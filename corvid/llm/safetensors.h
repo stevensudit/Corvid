@@ -355,8 +355,12 @@ private:
     }
     if (ndx != range.size()) return false;
     const auto [begin, end] = range;
+    const auto element_size = dtype_size(entry.dtype);
+    if (!element_size ||
+        count > std::numeric_limits<size_t>::max() / element_size)
+      return false;
     if (begin > end || end > buffer.size() ||
-        end - begin != count * dtype_size(entry.dtype))
+        end - begin != count * element_size)
       return false;
     entry.bytes = buffer.subspan(begin, end - begin);
     return true;

@@ -333,6 +333,76 @@ TEST_CASE("Matrix view arithmetic in place", "[MatrixViewTest]") {
   CHECK(storage == std::vector<float>{1.0F, 0.0F, 2.0F, 0.0F});
 }
 
+TEST_CASE("Empty window past the last row of a strided view",
+    "[MatrixViewTest]") {
+  // The footprint of a strided lens ends with its last row's columns, short
+  // of a full stride, so the row past the last starts beyond it.
+  auto storage = make_storage(4, 8);
+  const lens_t strided(storage, {.row_count = 4, .col_count = 2}, 8);
+  REQUIRE(strided.as_span().size() == 26);
+  const auto tail = strided[{row_ndx{4}, col_ndx{0}}, extent::npos];
+  CHECK(tail.empty());
+  CHECK(tail.row_extent() == 0);
+  CHECK(tail.col_extent() == 2);
+  CHECK(tail.as_span().empty());
+  const auto corner = strided[{row_ndx{4}, col_ndx{2}},
+      extent{.row_count = 0, .col_count = 0}];
+  CHECK(corner.empty());
+  CHECK(corner.as_span().empty());
+}
+
+TEST_CASE("Overlap of windows", "[MatrixViewTest]") {
+  // Windows of a 4 by 8 parent, named by their first row and column and
+  // their row and column counts.
+  auto storage = make_storage(4, 8);
+  const lens_t m(storage, {.row_count = 4, .col_count = 8});
+  const auto window = [&](size_t row, size_t col, size_t rows, size_t cols) {
+    return m[{row_ndx{row}, col_ndx{col}},
+        {.row_count = rows, .col_count = cols}];
+  };
+
+  // Column windows side by side share no element, although each row of one
+  // lies between two rows of the other, so their footprints interleave.
+  const auto left = window(0, 0, 4, 2);
+  const auto right = window(0, 2, 4, 2);
+  CHECK_FALSE(is_disjoint(left.as_span(), right.as_span()));
+  CHECK(left.is_disjoint(right));
+  CHECK(right.is_disjoint(left));
+  CHECK(left.is_same_or_disjoint(right));
+
+  // A window starting further left and one row further down overlaps another
+  // only where both their rows and their columns meet.
+  const auto upper_right = window(0, 4, 2, 4);
+  CHECK_FALSE(upper_right.is_disjoint(window(1, 0, 2, 6)));
+  CHECK(upper_right.is_disjoint(window(1, 0, 2, 4)));
+  CHECK(upper_right.is_disjoint(window(2, 0, 2, 8)));
+  CHECK(upper_right.is_disjoint(window(0, 0, 2, 4)));
+  CHECK_FALSE(upper_right.is_disjoint(window(0, 0, 2, 5)));
+
+  // A window is the same as itself and as a view of itself, while a
+  // sub-window of it is neither the same nor disjoint.
+  CHECK_FALSE(upper_right.is_disjoint(upper_right));
+  CHECK(upper_right.is_same_or_disjoint(upper_right));
+  const matrix_view<float> as_view = upper_right;
+  CHECK(upper_right.is_same(as_view));
+  CHECK(upper_right.is_same_or_disjoint(as_view));
+  CHECK_FALSE(upper_right.is_same(window(0, 4, 1, 4)));
+  CHECK_FALSE(upper_right.is_same_or_disjoint(window(0, 4, 1, 4)));
+  CHECK_FALSE(upper_right.is_same_or_disjoint(window(1, 5, 1, 1)));
+
+  // An empty window reaches nothing.
+  CHECK(upper_right.is_disjoint(window(0, 4, 0, 4)));
+  CHECK(window(0, 4, 0, 4).is_disjoint(upper_right));
+
+  // Lenses whose strides differ are judged by their footprints, so a packed
+  // lens over the first two rows of the same storage overlaps.
+  const lens_t packed(storage, {.row_count = 4, .col_count = 4}, 4);
+  CHECK_FALSE(packed.is_disjoint(upper_right));
+  std::vector<float> other_storage(8);
+  const lens_t elsewhere(other_storage, {.row_count = 2, .col_count = 4});
+  CHECK(elsewhere.is_disjoint(upper_right));
+}
+
 TEST_CASE("Extent transposes", "[MatrixViewTest]") {
   constexpr extent wide{.row_count = 2, .col_count = 3};
   constexpr auto tall = wide.transposed();

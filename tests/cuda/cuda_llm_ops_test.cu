@@ -1121,8 +1121,8 @@ TEMPLATE_TEST_CASE("Device cross-entropy on hand-computed rows",
   const cuda_buffer<token_id> labels(label_storage);
   cuda_matrix<T> gradient(extent);
   cuda_buffer<T> losses(extent.row_count);
-  REQUIRE(corvid::cuda::llm::cross_entropy(gradient, losses, logits, labels,
-      extent.row_count));
+  REQUIRE(corvid::cuda::llm::cross_entropy(gradient, losses, logits,
+      labels.as_span(), extent.row_count));
 
   std::vector<T> gradient_storage(gradient.size());
   const matrix_lens<T> gradient_lens(gradient_storage, extent);
@@ -1144,8 +1144,8 @@ TEMPLATE_TEST_CASE("Device cross-entropy on hand-computed rows",
 
   // In place, over the logits, gives the same values.
   cuda_matrix<T> same(matrix_view<T>(logit_storage, extent));
-  REQUIRE(corvid::cuda::llm::cross_entropy(same, losses, same, labels,
-      extent.row_count));
+  REQUIRE(corvid::cuda::llm::cross_entropy(same, losses, same,
+      labels.as_span(), extent.row_count));
   std::vector<T> same_storage(same.size());
   REQUIRE(same.as_view().store(matrix_lens<T>(same_storage, extent)));
   CHECK(same_storage == gradient_storage);
@@ -1203,8 +1203,8 @@ TEST_CASE("Device cross-entropy's gradient predicts the change in the loss",
       std::vector<token_id>(extent.row_count, label));
   cuda_matrix<double> gradient(extent);
   cuda_buffer<double> losses(extent.row_count);
-  REQUIRE(
-      corvid::cuda::llm::cross_entropy(gradient, losses, logits, labels, 1));
+  REQUIRE(corvid::cuda::llm::cross_entropy(gradient, losses, logits,
+      labels.as_span(), 1));
 
   // Copy the gradient and loss data from the device to the host.
   std::vector<double> gradient_storage(gradient.size());

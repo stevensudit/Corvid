@@ -2369,7 +2369,7 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
 
 // ============================================================
 // chunked_archetype_storage tests
-// Use ChunkSize=4 so chunk boundaries appear at indices 4, 8, …
+// Use ChunkSize=4 so chunk boundaries appear at indices 4, 8, ...
 // ============================================================
 
 TEST_CASE("Basic", "[ChunkedArchetypeStorage]") {

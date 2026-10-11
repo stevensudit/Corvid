@@ -160,7 +160,7 @@ requires DeviceFloating<device_element_t<Out>> &&
   [[maybe_unused]] const auto width = in_view.col_extent();
   assert(out_lens.extent() == in_view.extent());
   assert((weight.size() == width) && (bias.size() == width));
-  assert(is_same_or_disjoint(out_lens.as_span(), in_view.as_span()));
+  assert(out_lens.is_same_or_disjoint(in_view));
   assert(is_disjoint(out_lens.as_span(), weight.as_span()));
   assert(is_disjoint(out_lens.as_span(), bias.as_span()));
 
@@ -364,8 +364,8 @@ requires DeviceFloating<device_element_t<Out>> &&
   assert((weight_gradient.size() == width) && (bias_gradient.size() == width));
   assert(weight.size() == width);
   assert(statistics.size() == extent.row_count);
-  assert(is_disjoint(in_gradient_lens.as_span(), out_gradient_view.as_span()));
-  assert(is_disjoint(in_gradient_lens.as_span(), in.as_span()));
+  assert(in_gradient_lens.is_disjoint(out_gradient_view));
+  assert(in_gradient_lens.is_disjoint(in));
 
   details::apply_layer_norm_backward<<<extent.row_count, threads_per_block>>>(
       kernel_matrix_lens{in_gradient_lens}, statistics.get(),
@@ -452,9 +452,8 @@ requires DeviceFloating<device_element_t<Out>> &&
   const cuda_matrix_view<device_value_t<In>> in_view = in;
   assert(in_gradient_lens.extent() == out_gradient.extent());
   assert(in_gradient_lens.extent() == in_view.extent());
-  assert(
-      is_same_or_disjoint(in_gradient_lens.as_span(), out_gradient.as_span()));
-  assert(is_disjoint(in_gradient_lens.as_span(), in_view.as_span()));
+  assert(in_gradient_lens.is_same_or_disjoint(out_gradient));
+  assert(in_gradient_lens.is_disjoint(in_view));
 
   details::apply_gelu_new_backward<<<grid_for(in_gradient_lens),
       threads_per_block>>>(kernel_matrix_lens{in_gradient_lens},
@@ -501,7 +500,7 @@ embed_tokens(Out&& out, const cuda_buffer<token_id>& ids, const Table& table) {
   const cuda_matrix_view<device_value_t<Table>> table_view = table;
   assert(out_lens.row_extent() == ids.size());
   assert(out_lens.col_extent() == table_view.col_extent());
-  assert(is_disjoint(out_lens.as_span(), table_view.as_span()));
+  assert(out_lens.is_disjoint(table_view));
 
   details::gather_rows<<<grid_for(out_lens), threads_per_block>>>(
       kernel_matrix_lens{out_lens}, ids.get(), kernel_matrix_view{table_view},
@@ -562,7 +561,7 @@ requires DeviceFloating<device_element_t<Out>>
   const auto width = out_gradient.col_extent();
   assert(out_gradient.row_extent() == ids.size());
   assert(width == table_gradient_lens.col_extent());
-  assert(is_disjoint(table_gradient_lens.as_span(), out_gradient.as_span()));
+  assert(table_gradient_lens.is_disjoint(out_gradient));
 
   details::scatter_add_rows<<<blocks_for(width), threads_per_block>>>(
       kernel_matrix_lens{table_gradient_lens},
@@ -698,18 +697,18 @@ requires GemmElement<device_element_t<Out>>
   assert((scores.row_extent() == head_count * new_count) &&
          (scores.col_extent() == total_count));
   assert(weights.extent() == scores.extent());
-  assert(is_disjoint(out_lens.as_span(), queries.as_span()));
-  assert(is_disjoint(out_lens.as_span(), keys.as_span()));
-  assert(is_disjoint(out_lens.as_span(), values.as_span()));
-  assert(is_disjoint(out_lens.as_span(), scores.as_span()));
-  assert(is_disjoint(out_lens.as_span(), weights.as_span()));
-  assert(is_disjoint(scores.as_span(), queries.as_span()));
-  assert(is_disjoint(scores.as_span(), keys.as_span()));
-  assert(is_disjoint(scores.as_span(), values.as_span()));
-  assert(is_disjoint(weights.as_span(), queries.as_span()));
-  assert(is_disjoint(weights.as_span(), keys.as_span()));
-  assert(is_disjoint(weights.as_span(), values.as_span()));
-  assert(is_same_or_disjoint(scores.as_span(), weights.as_span()));
+  assert(out_lens.is_disjoint(queries));
+  assert(out_lens.is_disjoint(keys));
+  assert(out_lens.is_disjoint(values));
+  assert(out_lens.is_disjoint(scores));
+  assert(out_lens.is_disjoint(weights));
+  assert(scores.is_disjoint(queries));
+  assert(scores.is_disjoint(keys));
+  assert(scores.is_disjoint(values));
+  assert(weights.is_disjoint(queries));
+  assert(weights.is_disjoint(keys));
+  assert(weights.is_disjoint(values));
+  assert(scores.is_same_or_disjoint(weights));
   const auto cached_count = total_count - new_count;
   const auto head_width = width / head_count;
   const auto scale =
@@ -811,21 +810,25 @@ attend_backward(const cublas_handle& blas, Out&& queries_gradient,
   assert((weights.row_extent() == head_count * new_count) &&
          (weights.col_extent() == total_count));
   assert(weights_gradient.extent() == weights.extent());
-  [[maybe_unused]] const auto is_disjoint_from_inputs = [&](auto span) {
-    return is_disjoint(span, out_gradient.as_span()) &&
-           is_disjoint(span, queries.as_span()) &&
-           is_disjoint(span, keys.as_span()) &&
-           is_disjoint(span, values.as_span()) &&
-           is_disjoint(span, weights.as_span());
-  };
-  assert(is_disjoint_from_inputs(queries_gradient_lens.as_span()));
-  assert(is_disjoint_from_inputs(keys_gradient.as_span()));
-  assert(is_disjoint_from_inputs(values_gradient.as_span()));
-  assert(is_disjoint_from_inputs(weights_gradient.as_span()));
-  assert(is_disjoint(weights_gradient.as_span(), values_gradient.as_span()));
-  // The three gradients may be column windows of one matrix, whose byte
-  // ranges interleave although no element is shared, so a span check cannot
-  // tell them apart and their disjointness is not asserted.
+  [[maybe_unused]] const auto is_disjoint_from_inputs =
+      [&](const auto& written) {
+        return written.is_disjoint(out_gradient) &&
+               written.is_disjoint(queries) && written.is_disjoint(keys) &&
+               written.is_disjoint(values) && written.is_disjoint(weights);
+      };
+  // A gradient or the scratch over an input.
+  assert(is_disjoint_from_inputs(queries_gradient_lens) &&
+         is_disjoint_from_inputs(keys_gradient) &&
+         is_disjoint_from_inputs(values_gradient) &&
+         is_disjoint_from_inputs(weights_gradient));
+  // A gradient over the scratch.
+  assert(weights_gradient.is_disjoint(queries_gradient_lens) &&
+         weights_gradient.is_disjoint(keys_gradient) &&
+         weights_gradient.is_disjoint(values_gradient));
+  // Gradients over one another, which column windows of one matrix are not.
+  assert(queries_gradient_lens.is_disjoint(keys_gradient) &&
+         queries_gradient_lens.is_disjoint(values_gradient) &&
+         keys_gradient.is_disjoint(values_gradient));
   const auto head_width = width / head_count;
   const auto scale =
       gemm_scalar_t<element_t>{1} /
@@ -1047,8 +1050,9 @@ __global__ void apply_cross_entropy(kernel_matrix_lens<T> gradient, T* losses,
 //
 // `gradient` must have the extent of `logits`, with at least one column, and
 // can be `logits` itself, replacing each logit with its gradient, but must
-// not otherwise overlap it. `losses` and `labels` must have an element per
-// row, every label must index a column, and `label_count` must not be zero.
+// not otherwise overlap it. `losses` and `labels`, which is device memory,
+// must have an element per row, every label must index a column, and
+// `label_count` must not be zero.
 //
 // Returns false when the launch is refused, leaving `gradient` and `losses`
 // unspecified.
@@ -1056,18 +1060,18 @@ template<DeviceMatrixLike Out>
 requires DeviceFloating<device_element_t<Out>>
 [[nodiscard]] bool cross_entropy(Out&& gradient,
     cuda_buffer<device_element_t<Out>>& losses, input_view_t<Out> logits,
-    const cuda_buffer<token_id>& labels, size_t label_count) {
+    std::span<const token_id> labels, size_t label_count) {
   const auto& gradient_lens = gradient.as_lens();
   assert(gradient_lens.extent() == logits.extent());
   assert(logits.col_extent() > 0);
   assert((losses.size() == logits.row_extent()) &&
          (labels.size() == logits.row_extent()));
   assert(label_count);
-  assert(is_same_or_disjoint(gradient_lens.as_span(), logits.as_span()));
+  assert(gradient_lens.is_same_or_disjoint(logits));
 
   details::apply_cross_entropy<<<logits.row_extent(), threads_per_block>>>(
       kernel_matrix_lens{gradient_lens}, losses.get(),
-      kernel_matrix_view{logits}, labels.get(), logits.col_extent(),
+      kernel_matrix_view{logits}, labels.data(), logits.col_extent(),
       static_cast<compute_t<device_element_t<Out>>>(label_count));
   return cuda_last_status{}.ok();
 }

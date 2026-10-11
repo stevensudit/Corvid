@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -307,16 +309,92 @@ public:
   }
 
 #pragma endregion
+#pragma region Overlap
+
+  // `is_disjoint` determines whether this lens and `other` reach no element in
+  // common, so that one can be written while the other is read.
+  //
+  // Two lenses whose strides and element sizes agree are read as windows of
+  // one row-major parent, where the gap between a row's end and the next
+  // row's start belongs to neither, so column windows lying side by side are
+  // disjoint although their footprints interleave. Lenses that disagree in
+  // either cannot share a parent, and for them the footprints decide.
+  template<typename U>
+  [[nodiscard]] bool
+  is_disjoint(const matrix_lens_base<U>& other) const noexcept {
+    if ((sizeof(U) != sizeof(element_t)) || (other.stride() != stride_))
+      return corvid::is_disjoint(data_, other.as_span());
+    if (empty() || other.empty()) return true;
+    const auto first = std::bit_cast<uintptr_t>(data_.data());
+    const auto other_first = std::bit_cast<uintptr_t>(other.as_span().data());
+    if (other_first < first)
+      return !windows_overlap(other_first, other.extent(), first, extent_,
+          stride_);
+    return !windows_overlap(first, extent_, other_first, other.extent(),
+        stride_);
+  }
+
+  // Whether this lens and `other` reach exactly the same elements.
+  template<typename U>
+  [[nodiscard]] bool is_same(const matrix_lens_base<U>& other) const noexcept {
+    return (sizeof(U) == sizeof(element_t)) &&
+           (static_cast<const void*>(data_.data()) ==
+               static_cast<const void*>(other.as_span().data())) &&
+           (extent_ == other.extent()) && (stride_ == other.stride());
+  }
+
+  // Whether this lens and `other` reach exactly the same elements or none in
+  // common, which are the only two ways an in-place operation may alias.
+  template<typename U>
+  [[nodiscard]] bool
+  is_same_or_disjoint(const matrix_lens_base<U>& other) const noexcept {
+    return is_same(other) || is_disjoint(other);
+  }
+
+#pragma endregion
 #pragma region Workers
 private:
-  // The rectangle of `size` at `from`, both already checked.
+  // `windows_overlap` determines whether two windows of one row-major parent,
+  // whose rows start `stride` elements apart, share an element. Each window is
+  // given as the address of its first element and its extent; `b_first` must
+  // not precede `a_first`.
+  //
+  // `b`'s first element lies `distance` elements past `a`'s, which is
+  // `rows_down` whole rows and `cols_right` more elements. In the parent that
+  // puts `b` either `cols_right` columns to the right of `a` in that row or,
+  // if the parent's row ends first, one more row down and `stride -
+  // cols_right` columns to the left. The addresses alone do not say which,
+  // but a placement that overlaps `a` rules the other one out: `b` to the
+  // right overlapping `a` means `a` extends past `cols_right`, so `b` to the
+  // left would have to start before the row does; `b` to the left overlapping
+  // `a` means `b` is wider than the row has room for to the right. So the two
+  // placements' overlap tests are simply combined.
+  [[nodiscard]] static constexpr bool windows_overlap(uintptr_t a_first,
+      extent_t a, uintptr_t b_first, extent_t b, size_t stride) noexcept {
+    assert(a_first <= b_first);
+    const auto distance = (b_first - a_first) / sizeof(element_t);
+    const auto rows_down = distance / stride;
+    const auto cols_right = distance % stride;
+    const auto right_of_a =
+        (cols_right < a.col_count) && (rows_down < a.row_count);
+    const auto left_of_a =
+        (cols_right + b.col_count > stride) && (rows_down + 1 < a.row_count);
+    return right_of_a || left_of_a;
+  }
+
+  // Helper to slice out the rectangle of `size` at `from`, both already
+  // checked.
+  //
+  // An empty rectangle at the row past the last would start beyond a strided
+  // lens's footprint, so the offset is clamped; it has no element to reach.
   template<typename Self>
   [[nodiscard]] constexpr Self
   do_slice(this const Self& self, coord from, extent_t size) noexcept {
     const auto stride = self.stride();
-    return Self{self.as_span().subspan((*from.row * stride) + *from.col,
-                    footprint(size, stride)),
-        size, stride};
+    const auto data = self.as_span();
+    const auto offset =
+        std::min((*from.row * stride) + *from.col, data.size());
+    return Self{data.subspan(offset, footprint(size, stride)), size, stride};
   }
 
 protected:
@@ -477,7 +555,7 @@ public:
   {
     assert((other.row_extent() == extent_.row_count) &&
            (other.col_extent() == extent_.col_count));
-    assert(is_same_or_disjoint(data_, other.as_span()));
+    assert(this->is_same_or_disjoint(other));
     // The zip element is a prvalue tuple of two spans, so nothing is copied;
     // the check fires only because MSVC's tuple is not trivially copyable.
     // NOLINTNEXTLINE(performance-for-range-copy)
@@ -503,7 +581,7 @@ public:
   {
     assert((other.row_extent() == extent_.row_count) &&
            (other.col_extent() == extent_.col_count));
-    assert(is_same_or_disjoint(data_, other.as_span()));
+    assert(this->is_same_or_disjoint(other));
     // The same prvalue tuple as in `add`.
     // NOLINTNEXTLINE(performance-for-range-copy)
     for (auto [row, other_row] : std::views::zip(rows(), other.rows()))

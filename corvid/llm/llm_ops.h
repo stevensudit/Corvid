@@ -92,7 +92,7 @@ inline void layer_norm(float_matrix_lens out, float_matrix_view in,
   [[maybe_unused]] const auto width = in.col_extent();
   assert(out.extent() == in.extent());
   assert((weight.size() == width) && (bias.size() == width));
-  assert(is_same_or_disjoint(out.as_span(), in.as_span()));
+  assert(out.is_same_or_disjoint(in));
   assert(is_disjoint(out.as_span(), weight));
   assert(is_disjoint(out.as_span(), bias));
 
@@ -172,7 +172,7 @@ template<Floating T>
 template<Floating T>
 void gelu_new(matrix_lens<T> out, matrix_view_t<T> in) noexcept {
   assert(out.extent() == in.extent());
-  assert(is_same_or_disjoint(out.as_span(), in.as_span()));
+  assert(out.is_same_or_disjoint(in));
 
   for (const auto [out_row, in_row] : zip(out.rows(), in.rows()))
     for (auto [out_value, in_value] : zip(out_row, in_row))
@@ -233,9 +233,7 @@ inline void attend_head(float_matrix_lens out, float_matrix_view q,
   assert((out.row_extent() == new_count) && (out.col_extent() == width));
   assert(scores.size() >= total_count);
   const auto cached_count = total_count - new_count;
-  assert(is_disjoint(out.as_span(), q.as_span()) &&
-         is_disjoint(out.as_span(), k.as_span()) &&
-         is_disjoint(out.as_span(), v.as_span()));
+  assert(out.is_disjoint(q) && out.is_disjoint(k) && out.is_disjoint(v));
   assert(is_disjoint(out.as_span(), scores));
   assert(is_disjoint(scores, v.as_span()));
 
@@ -339,7 +337,7 @@ inline void embed_tokens(float_matrix_lens out, std::span<const token_id> ids,
     float_matrix_view table) noexcept {
   assert(out.row_extent() == ids.size());
   assert(out.col_extent() == table.col_extent());
-  assert(is_disjoint(out.as_span(), table.as_span()));
+  assert(out.is_disjoint(table));
 
   for (const auto [id, out_row] : zip(ids, out.rows())) {
     assert(*id < table.row_extent());

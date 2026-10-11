@@ -54,9 +54,19 @@ using corvid::llm::ParameterElement;
 
 #pragma region gpt2_engine
 
+// The element types a `gpt2_trainer` accepts.
+//
+// These are the ones that the engine computes as themselves, so `float` and
+// `double` but not `bfloat16_t`. Every gradient is held in the compute type,
+// and the backward products pair gradients with activations and parameters of
+// the element type, which a GEMM takes in one type.
+template<typename T>
+concept TrainerElement =
+    DeviceFloating<T> && GemmElement<T> && std::same_as<T, compute_t<T>>;
+
 // Fwd.
 template<typename T>
-requires DeviceFloating<T> && GemmElement<T>
+requires TrainerElement<T>
 class gpt2_trainer;
 
 // The GPT-2 inference engine on the device, holding its own copy of a
@@ -294,10 +304,10 @@ public:
     // Each of these four writes is followed by an add that reads the residual
     // it would have destroyed. The ops' same-or-disjoint checks allow all
     // four, and the ops catch every other overlap.
-    assert(is_disjoint(in.as_span(), acts.ln_1_out.as_span()));
-    assert(is_disjoint(in.as_span(), acts.attn_out.as_span()));
-    assert(is_disjoint(acts.ln_2_in.as_span(), acts.ln_2_out.as_span()));
-    assert(is_disjoint(acts.ln_2_in.as_span(), acts.mlp_out.as_span()));
+    assert(in.is_disjoint(acts.ln_1_out));
+    assert(in.is_disjoint(acts.attn_out));
+    assert(acts.ln_2_in.is_disjoint(acts.ln_2_out));
+    assert(acts.ln_2_in.is_disjoint(acts.mlp_out));
 
     if (!layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias,
             gpt2_layer_norm_eps))
@@ -362,7 +372,7 @@ public:
     const auto width = wte_.col_extent();
     assert(total_count <= context_length);
     assert(residual.extent() == out.extent());
-    assert(is_disjoint(out.as_span(), residual.as_span()));
+    assert(out.is_disjoint(residual));
     assert(adapters.empty() || (adapters.size() == blocks_.size()));
 
     const cuda_buffer<token_id> device_ids(new_ids);
@@ -473,7 +483,11 @@ public:
 #pragma endregion
 #pragma region block_params
 private:
-  friend class gpt2_trainer<element_t>;
+  // Every trainer, since `gpt2_trainer<element_t>` names no specialization
+  // when `element_t` is one the trainer refuses.
+  template<typename U>
+  requires TrainerElement<U>
+  friend class gpt2_trainer;
 
   // The parameters of one block, uploaded from `gpt2_block_params`.
   //

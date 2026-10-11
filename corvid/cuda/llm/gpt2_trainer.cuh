@@ -71,7 +71,7 @@ namespace corvid::cuda::llm {
 // buffers, each `backward` overwrites the gradients, and each `step` moves the
 // adapters.
 template<typename T>
-requires DeviceFloating<T> && GemmElement<T>
+requires TrainerElement<T>
 class gpt2_trainer {
 public:
   using element_t = T;
@@ -586,13 +586,13 @@ private:
             engine_.ln_f_bias_, gpt2_layer_norm_eps))
       return false;
 
-    // The label of each row is the ID after it, and the last row has none.
-    const cuda_buffer<token_id> device_labels(ids.subspan(1));
     if (!compute_logits(engine_.blas_, sequence.logit_gradient,
             sequence.predicting(), engine_.wte_))
       return false;
+    // The label of each row is the ID after it, and the last row has none.
     return cross_entropy(sequence.logit_gradient, sequence.losses,
-        sequence.logit_gradient, device_labels, label_count);
+        sequence.logit_gradient, sequence.ids.as_span().subspan(1),
+        label_count);
   }
 
   // Walk the gradient of the loss back from the logits through the head, the

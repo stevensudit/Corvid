@@ -237,12 +237,14 @@ TEST_CASE("Load a small merge table", "[Gpt2TokenizerTest]") {
   gpt2_tokenizer tok;
   CHECK(tok.size() == 0);
 
-  // The header is optional, a trailing carriage return is ignored, and a
-  // merge may build on an earlier one.
+  // The header is optional, a trailing carriage return is ignored, blank
+  // lines are skipped, and a merge may build on an earlier one.
   REQUIRE(tok.load(u8"#version: 0.2\n\u0120 t\n\u0120t h\r\n"));
   CHECK(tok.size() == 258);
   CHECK(narrow(tok.piece(token_id{256})) == " t");
   CHECK(narrow(tok.piece(token_id{257})) == " th");
+  REQUIRE(tok.load(u8"\u0120 t\n\n\u0120t h\n\n"));
+  CHECK(tok.size() == 258);
   REQUIRE(tok.load(u8"\u0120 t"));
   CHECK(tok.size() == 257);
 
@@ -251,7 +253,6 @@ TEST_CASE("Load a small merge table", "[Gpt2TokenizerTest]") {
   CHECK_FALSE(tok.load(u8"\u0120 t\n\u0120 t\n"));
   CHECK_FALSE(tok.load(u8"\u0120\n"));
   CHECK_FALSE(tok.load(u8"\u0120 t h\n"));
-  CHECK_FALSE(tok.load(u8"\u0120 t\n\n"));
   CHECK_FALSE(tok.load(u8"a \xC3\n"));
   CHECK(tok.size() == 257);
   CHECK(narrow(tok.piece(token_id{256})) == " t");

@@ -203,6 +203,10 @@ TEST_CASE("Rejects malformed files", "[SafetensorsTest]") {
       one_float));
   CHECK(rejects(R"({"a":{"dtype":"F32","shape":[1],"data_offsets":[0,8]}})",
       one_float));
+  // A count whose byte size wraps around to the declared range.
+  CHECK(rejects(R"({"a":{"dtype":"F64","shape":[2305843009213693952],)"
+                R"("data_offsets":[0,0]}})",
+      {}));
   CHECK(rejects(R"({"a":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}})",
       one_float));
 

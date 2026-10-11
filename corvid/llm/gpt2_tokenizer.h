@@ -326,11 +326,13 @@ public:
       (void)parser::next_delimited(u8'\n', merges_text);
 
     // Each merge line names two existing pieces. Their concatenation is the
-    // next piece, and the pair of their IDs maps to its ID.
+    // next piece, and the pair of their IDs maps to its ID. A blank line is
+    // skipped.
     std::u8string merged_bytes;
     while (!merges_text.empty()) {
       auto line = parser::next_delimited(u8'\n', merges_text);
       if (line.ends_with(u8'\r')) line.remove_suffix(1);
+      if (line.empty()) continue;
       const auto left_escaped = parser::next_delimited(u8' ', line);
       const auto right_escaped = line;
       if (left_escaped.empty() || right_escaped.empty() ||

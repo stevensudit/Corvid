@@ -312,8 +312,8 @@ requires GemmElement<device_element_t<Out>>
     input_view_t<Out> a, input_view_t<Out> b, gemm_batch batch,
     gemm_options<device_element_t<Out>> options = {}) {
   const auto& out_lens = out.as_lens();
-  assert(is_disjoint(out_lens.as_span(), a.as_span()));
-  assert(is_disjoint(out_lens.as_span(), b.as_span()));
+  assert(out_lens.is_disjoint(a));
+  assert(out_lens.is_disjoint(b));
   const auto out_pieces =
       details::split_batch(out_lens, batch.out, batch.count);
   const auto a_pieces = details::split_batch(a, batch.a, batch.count);
@@ -459,7 +459,7 @@ requires std::same_as<device_value_t<OutGradient>, device_value_t<In>> &&
   assert((out_gradient_view.row_extent() == in_view.row_extent()) &&
          (out_gradient_view.col_extent() == width));
   assert(bias_gradient.size() == width);
-  assert(is_disjoint(in_gradient_lens.as_span(), in_view.as_span()));
+  assert(in_gradient_lens.is_disjoint(in_view));
 
   if (!gemm(blas, in_gradient_lens, out_gradient_view, weight_view,
           {.op_b = cublas_operation::transpose}))
@@ -499,8 +499,8 @@ template<DeviceFloating To, DeviceFloating A, DeviceFloating B, typename Op>
     cuda_matrix_view<B> b, Op op) {
   assert(a.extent() == b.extent());
   assert(out.extent() == a.extent());
-  assert(is_same_or_disjoint(out.as_span(), a.as_span()));
-  assert(is_same_or_disjoint(out.as_span(), b.as_span()));
+  assert(out.is_same_or_disjoint(a));
+  assert(out.is_same_or_disjoint(b));
 
   combine_elements<<<grid_for(out), threads_per_block>>>(
       kernel_matrix_lens{out}, kernel_matrix_view{a}, kernel_matrix_view{b},
@@ -630,7 +630,7 @@ requires DeviceFloating<device_element_t<Out>> &&
   const cuda_matrix_view<device_value_t<In>> in_view = in;
   assert(out_lens.extent() == in_view.extent());
   assert(in_view.col_extent() > 0);
-  assert(is_same_or_disjoint(out_lens.as_span(), in_view.as_span()));
+  assert(out_lens.is_same_or_disjoint(in_view));
 
   details::apply_softmax<<<static_cast<unsigned>(out_lens.row_extent()),
       threads_per_block>>>(kernel_matrix_lens{out_lens},
@@ -704,9 +704,8 @@ requires DeviceFloating<device_element_t<Out>> &&
   assert(in_gradient_lens.extent() == out_gradient.extent());
   assert(in_gradient_lens.extent() == out_view.extent());
   assert(out_view.col_extent() > 0);
-  assert(
-      is_same_or_disjoint(in_gradient_lens.as_span(), out_gradient.as_span()));
-  assert(is_disjoint(in_gradient_lens.as_span(), out_view.as_span()));
+  assert(in_gradient_lens.is_same_or_disjoint(out_gradient));
+  assert(in_gradient_lens.is_disjoint(out_view));
 
   details::apply_softmax_backward<<<in_gradient_lens.row_extent(),
       threads_per_block>>>(kernel_matrix_lens{in_gradient_lens},
@@ -745,7 +744,7 @@ requires DeviceFloating<device_element_t<Out>> &&
   const auto& out_lens = out.as_lens();
   const cuda_matrix_view<device_value_t<In>> in_view = in;
   assert(out_lens.extent() == in_view.extent());
-  assert(is_disjoint(out_lens.as_span(), in_view.as_span()));
+  assert(out_lens.is_disjoint(in_view));
 
   details::convert_elements<<<grid_for(out_lens), threads_per_block>>>(
       kernel_matrix_lens{out_lens}, kernel_matrix_view{in_view},

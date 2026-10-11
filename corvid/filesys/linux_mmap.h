@@ -24,6 +24,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <utility>
 
@@ -252,7 +253,10 @@ public:
     if (suffix > 0) (void)::munmap(base + length, suffix);
     memory_map aligned{base, length};
     (void)aligned.advise(mmap_advice::hugepage);
-    (void)aligned.advise(mmap_advice::populate_write);
+    // Kernels before 5.14 refuse the populate advice; touching every page
+    // makes them resident all the same.
+    if (!aligned.advise(mmap_advice::populate_write))
+      std::memset(base, 0, length);
     return aligned;
   }
 

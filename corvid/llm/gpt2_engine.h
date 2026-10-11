@@ -207,10 +207,10 @@ public:
     // Each of these four writes is followed by an add that reads the residual
     // it would have destroyed; the ops' same-or-disjoint checks allow all
     // four, and the ops catch every other overlap.
-    assert(is_disjoint(in.as_span(), acts.ln_1_out.as_span()));
-    assert(is_disjoint(in.as_span(), acts.attn_out.as_span()));
-    assert(is_disjoint(acts.ln_2_in.as_span(), acts.ln_2_out.as_span()));
-    assert(is_disjoint(acts.ln_2_in.as_span(), acts.mlp_out.as_span()));
+    assert(in.is_disjoint(acts.ln_1_out));
+    assert(in.is_disjoint(acts.attn_out));
+    assert(acts.ln_2_in.is_disjoint(acts.ln_2_out));
+    assert(acts.ln_2_in.is_disjoint(acts.mlp_out));
 
     layer_norm(acts.ln_1_out, in, params.ln_1_weight, params.ln_1_bias,
         gpt2_layer_norm_eps);

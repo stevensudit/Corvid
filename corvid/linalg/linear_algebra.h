@@ -217,7 +217,7 @@ void linear_projection(matrix_lens<T> out, matrix_view_t<T> in,
   assert((out.row_extent() == in.row_extent()) &&
          (out.col_extent() == weight.col_extent()));
   assert(std::ranges::size(bias) == weight.col_extent());
-  assert(is_disjoint(out.as_span(), in.as_span()));
+  assert(out.is_disjoint(in));
   assert(is_disjoint(out.as_span(), weight.as_span()) &&
          is_disjoint(out.as_span(), bias));
 
@@ -274,8 +274,8 @@ template<Arithmetic T>
 void add(matrix_lens<T> out, matrix_view_t<T> a, matrix_view_t<T> b) noexcept {
   assert(a.extent() == b.extent());
   assert(out.extent() == a.extent());
-  assert(is_same_or_disjoint(out.as_span(), a.as_span()));
-  assert(is_same_or_disjoint(out.as_span(), b.as_span()));
+  assert(out.is_same_or_disjoint(a));
+  assert(out.is_same_or_disjoint(b));
 
   for (const auto [out_row, a_row, b_row] :
       zip(out.rows(), a.rows(), b.rows()))
@@ -295,8 +295,8 @@ void subtract(matrix_lens<T> out, matrix_view_t<T> a,
     matrix_view_t<T> b) noexcept {
   assert(a.extent() == b.extent());
   assert(out.extent() == a.extent());
-  assert(is_same_or_disjoint(out.as_span(), a.as_span()));
-  assert(is_same_or_disjoint(out.as_span(), b.as_span()));
+  assert(out.is_same_or_disjoint(a));
+  assert(out.is_same_or_disjoint(b));
 
   for (const auto [out_row, a_row, b_row] :
       zip(out.rows(), a.rows(), b.rows()))
