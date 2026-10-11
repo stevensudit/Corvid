@@ -27,6 +27,13 @@ Two rules keep this from becoming another open-ended polish hole:
   That version is the reference for the CUDA version and is never optimized.
   Performance work happens only in the CUDA path, and only after it matches.
 
+Both rules govern stages 0 through 5, which is where the machinery gets
+learned. From stage 6 on the engine is LibTorch behind a thin Corvid wrapper
+(ruled 2026-10-11, recorded under stage 6): once the forward pass, the
+backward pass, and the optimizer have each been built and checked by hand,
+rebuilding them for a second architecture teaches little and costs months,
+and the experiment in stage 7 needs numbers, not more machinery.
+
 ## Working mode
 
 The educational goal is the one that failed in the game demo, where leaning
@@ -1852,6 +1859,68 @@ depends on the choice.
 Done when: the new model's logits match its oracle, and it answers a prompt
 sensibly under greedy decoding.
 
+Ruling (2026-10-11): stages 6 and 7 run on LibTorch, not on the hand-built
+stack. The hand-built stack ends with stage 5 and stays as the finished
+GPT-2 engine. The reasoning: what stage 6 would add by hand is RoPE (one
+genuinely new idea), RMSNorm, SwiGLU, and grouped-query attention (three
+small variations on ops already built), and then the real cost, a
+hand-derived backward for each of them so the LoRA gradients can flow, bf16
+training numerics at 3B, and the activation-memory engineering to fit a
+36-layer training step on the 4090. That is months of work that teaches
+less than stage 5 did. Python with `transformers` and PEFT would reach the
+stage 7 numbers fastest and was declined: the knowledge is to land in C++.
+The work happens on its own branch, after the stage 0 to 5 branch lands.
+
+What stays hand-built regardless:
+
+- the tokenizer: LibTorch has none, and the second BPE configuration is the
+  stage 1 scanner with new tables and a different pre-tokenizer;
+- the `safetensors` reader: torch does not read the format, and a borrowed
+  tensor over our mapped file is the seam between the two;
+- the GPT-2 stack, frozen;
+- the experiment harness of stage 7: sampling, the divergence measure, the
+  recognition probe.
+
+Build findings, checked 2026-10-11 and to be proven by a spike before any
+model code:
+
+- the Linux standard-library worry is retired: the `.cu` bucket already
+  links libstdc++ because the toolkit refuses libc++ on x86, so a torch TU
+  in that bucket never meets libc++;
+- LibTorch 2.14 ships cu130 and cu132 builds for Linux and Windows; the
+  toolkit here is 13.3. Minor-version compatibility within CUDA 13 should
+  hold, but the shared-with-deps zip bundles its own cudart, so two runtimes
+  in one process is what the spike must show harmless;
+- on Windows the debug and release LibTorch builds are not ABI-compatible
+  with each other, so the debug configuration needs the debug zip or the
+  torch TU is built release-only; clang against the MSVC ABI is not the
+  problem;
+- the download is several gigabytes and the libraries are shared objects
+  beside the executable, so FetchContent versus a fixed install path is a
+  decision to make, as is where the download lives relative to
+  `tests/.local/`.
+
+Open design questions, to settle in this order on the new branch:
+
+1. Wrapper thickness. Autograd works only through torch ops, so a Corvid
+   lens over an ATen tensor cannot be an op library without losing
+   gradients. The wrapper's job is ownership, typed two-dimensional shapes
+   at the boundary, and error translation. Whether an ATen tensor ever
+   appears in a public Corvid signature is open.
+2. Errors. Torch throws `c10::Error`; the library policy returns status.
+   Translate at the boundary, or accept exceptions inside the torch band.
+3. One forward, not two: Qwen runs through torch for both inference and
+   training. A second implementation of the same model would only double
+   the oracle work.
+4. What the oracle checks. With torch as the engine, a torch-generated
+   oracle exercises only our tokenizer, weight mapping, and configuration
+   plumbing. That is still a real check, and the reference comes from
+   `transformers` logits rather than from our own torch code.
+
+First step on the new branch: a build spike, one TU that loads a tensor
+through our reader, runs a matmul on the device, and matches our GEMM, on
+both legs.
+
 ### 7. The experiment
 
 Weights versus context, in miniature:
@@ -1903,6 +1972,8 @@ Not planned, recorded so they are not re-litigated as scope:
 Settled 2026-09-05, recorded so they are not reopened:
 
 - PyTorch is permitted in the oracle script only, never for inference.
+  Superseded 2026-10-11 for stages 6 and 7, which run on LibTorch (see
+  stage 6); the rule stands as written for stages 0 to 5.
 - The mmap wrapper is Linux-only and read-only; no cross-platform
   abstraction yet. Superseded 2026-09-07: `os_mmap_file` is the portable
   read-only facade, while the per-OS wrappers stay separate and dissimilar.
