@@ -1890,15 +1890,24 @@ model code:
 - LibTorch 2.14 ships cu130 and cu132 builds for Linux and Windows; the
   toolkit here is 13.3. Minor-version compatibility within CUDA 13 should
   hold, but the shared-with-deps zip bundles its own cudart, so two runtimes
-  in one process is what the spike must show harmless;
+  in one process is what the spike must show harmless. The torch band itself
+  never calls CUDA: torch places tensors on the CPU or the GPU under the
+  hood, so the two runtimes meet only where a torch TU also links our own
+  device code, which is the spike (torch against our GEMM) and any later
+  test that compares the two stacks;
 - on Windows the debug and release LibTorch builds are not ABI-compatible
-  with each other, so the debug configuration needs the debug zip or the
-  torch TU is built release-only; clang against the MSVC ABI is not the
-  problem;
-- the download is several gigabytes and the libraries are shared objects
-  beside the executable, so FetchContent versus a fixed install path is a
-  decision to make, as is where the download lives relative to
-  `tests/.local/`.
+  with each other, and the debug build is no longer published past 2.12.
+  Neither matters: the split is about the C runtime (the debug CRT defines
+  `_DEBUG` and changes the layout of every standard container), and every
+  Corvid configuration on Windows, the IDE debug build included, links the
+  release CRT so that the executable matches the Release-CRT Catch2. The
+  release zip is therefore the right one everywhere; clang against the MSVC
+  ABI is not the problem;
+- the download is several gigabytes (3.9 GB for Windows, 2.0 GB for Linux)
+  and the libraries are shared objects beside the executable, so it is a
+  fixed install path, not FetchContent: `tests/.local/libtorch/`, populated
+  once by `scripts/fetch_libtorch.ps1` or `.sh`, checked at configure time
+  with a `FATAL_ERROR` hint, the same shape as the SDL3 drop.
 
 Open design questions, to settle in this order on the new branch:
 
