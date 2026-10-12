@@ -115,6 +115,12 @@ public:
 
   [[nodiscard]] bool empty() const noexcept { return !size(); }
 
+  // The ID of the last string.
+  [[nodiscard]] id_t max_id() const noexcept {
+    assert(!empty());
+    return static_cast<id_t>(size() - 1);
+  }
+
   // Reserve room for `count` strings whose lengths add up to `total_length`.
   void reserve(size_t count, size_t total_length) {
     starts_.reserve(count + 1);

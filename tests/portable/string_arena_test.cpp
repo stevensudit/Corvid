@@ -59,6 +59,7 @@ TEST_CASE("Append", "[StringArena]") {
   CHECK(arena.append(long_text) == 3U);
   CHECK(arena[0] == "alpha");
   CHECK(arena[3] == long_text);
+  CHECK(arena.max_id() == 3U);
 }
 
 #pragma endregion
@@ -96,6 +97,7 @@ TEST_CASE("StrongIndex", "[StringArena]") {
   CHECK(arena[first] == "first");
   CHECK(arena[second] == "second");
   CHECK(arena.size() == 2U);
+  CHECK(arena.max_id() == second);
 }
 
 #pragma endregion

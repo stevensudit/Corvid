@@ -480,6 +480,10 @@ public:
     return true;
   }
 
+  // Forget the cached tokens, so that the next `next_token` runs its list in
+  // full.
+  void clear_cache() noexcept { cache_.ids.clear(); }
+
 #pragma endregion
 #pragma region block_params
 private:

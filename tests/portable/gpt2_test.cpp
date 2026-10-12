@@ -46,57 +46,55 @@ TEST_CASE("Block matches the oracle", "[Gpt2Test][oracle]") {
   // four activations the oracle also dumped are checked on the way. The
   // gate is the attention and MLP paths' 1e-4, except `ln_1/out`, which
   // reads the dumped input directly and so gets the layer norm's 1e-5.
-  for (auto n = 0UZ; n < n_layer; ++n) {
-    DYNAMIC_SECTION("block_" << n) {
-      const auto dump = std::format("block_{}", n);
-      const auto in = matrix_of(oracle.activations, dump + "/ln_1/in", n_embd);
-      const auto exit =
-          (n + 1 < n_layer)
-              ? std::format("block_{}/ln_1/in", n + 1)
-              : std::string{"ln_f/in"};
-      const auto expected = matrix_of(oracle.activations, exit, n_embd);
-      const auto token_count = in.row_extent();
-      REQUIRE(token_count == 14);
+  for (const auto n : iota(n_layer)) {
+    INFO("block_" << n);
+    const auto dump = std::format("block_{}", n);
+    const auto in = matrix_of(oracle.activations, dump + "/ln_1/in", n_embd);
+    const auto exit =
+        (n + 1 < n_layer)
+            ? std::format("block_{}/ln_1/in", n + 1)
+            : std::string{"ln_f/in"};
+    const auto expected = matrix_of(oracle.activations, exit, n_embd);
+    const auto token_count = in.row_extent();
+    REQUIRE(token_count == 14);
 
-      std::vector<float> out_storage(in.size());
-      const float_matrix_lens out(out_storage, in.extent());
-      gpt2_engine::block_activation_buffers owned(token_count, n_embd,
-          n_hidden);
-      const auto acts = owned.lenses();
-      std::vector<float> qkv_storage(token_count * n_qkv);
-      const float_matrix_lens qkv(qkv_storage,
-          {.row_count = token_count, .col_count = n_qkv});
-      engine.apply_block(out, in, n, acts, qkv);
+    std::vector<float> out_storage(in.size());
+    const float_matrix_lens out(out_storage, in.extent());
+    gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden);
+    const auto acts = owned.lenses();
+    std::vector<float> qkv_storage(token_count * n_qkv);
+    const float_matrix_lens qkv(qkv_storage,
+        {.row_count = token_count, .col_count = n_qkv});
+    engine.apply_block(out, in, n, acts, qkv);
 
-      check_close(out, expected, 1e-4F, 1e-4F);
-      struct dumped {
-        const char* name;
-        float_matrix_view actual;
-        float tolerance;
-      };
-      for (const auto& [name, actual, tolerance] :
-          {dumped{"ln_1/out", acts.ln_1_out, 1e-5F},
-              dumped{"attn/out", acts.attn_out, 1e-4F},
-              dumped{"ln_2/in", acts.ln_2_in, 1e-4F},
-              dumped{"ln_2/out", acts.ln_2_out, 1e-4F},
-              dumped{"mlp/out", acts.mlp_out, 1e-4F}})
-      {
-        INFO(name);
-        check_close(actual,
-            matrix_of(oracle.activations, dump + "/" + name, n_embd),
-            tolerance, tolerance);
-      }
-
-      // In place, with `ln_2_in` aliased to the residual too, is the same
-      // arithmetic in the same order, so it matches bit for bit.
-      std::vector<float> residual_storage(in.as_span().begin(),
-          in.as_span().end());
-      const float_matrix_lens residual(residual_storage, in.extent());
-      auto in_place = acts;
-      in_place.ln_2_in = residual;
-      engine.apply_block(residual, residual, n, in_place, qkv);
-      CHECK(residual_storage == out_storage);
+    check_close(out, expected, 1e-4F, 1e-4F);
+    struct dumped {
+      const char* name;
+      float_matrix_view actual;
+      float tolerance;
+    };
+    for (const auto& [name, actual, tolerance] :
+        {dumped{"ln_1/out", acts.ln_1_out, 1e-5F},
+            dumped{"attn/out", acts.attn_out, 1e-4F},
+            dumped{"ln_2/in", acts.ln_2_in, 1e-4F},
+            dumped{"ln_2/out", acts.ln_2_out, 1e-4F},
+            dumped{"mlp/out", acts.mlp_out, 1e-4F}})
+    {
+      INFO(name);
+      check_close(actual,
+          matrix_of(oracle.activations, dump + "/" + name, n_embd), tolerance,
+          tolerance);
     }
+
+    // In place, with `ln_2_in` aliased to the residual too, is the same
+    // arithmetic in the same order, so it matches bit for bit.
+    std::vector<float> residual_storage(in.as_span().begin(),
+        in.as_span().end());
+    const float_matrix_lens residual(residual_storage, in.extent());
+    auto in_place = acts;
+    in_place.ln_2_in = residual;
+    engine.apply_block(residual, residual, n, in_place, qkv);
+    CHECK(residual_storage == out_storage);
   }
 }
 
@@ -177,29 +175,27 @@ TEST_CASE("Model matches the oracle on every prompt", "[Gpt2Test][oracle]") {
   // logits dump holds all five; only the bisect prompt has activations.
   const auto model = gpt2_model<float>::load(std::move(oracle.weights));
   const gpt2_engine engine(model);
-  for (auto n = 0UZ; n < 5; ++n) {
-    DYNAMIC_SECTION("prompt_" << n) {
-      const auto prefix = std::format("prompt_{}", n);
-      const auto ids = ids_of(oracle.logits, prefix + "/input_ids");
-      const auto expected =
-          matrix_of(oracle.logits, prefix + "/logits", n_vocab);
-      const auto token_count = ids.size();
-      REQUIRE(expected.row_extent() == token_count);
+  for (const auto n : iota(5)) {
+    INFO("prompt_" << n);
+    const auto prefix = std::format("prompt_{}", n);
+    const auto ids = ids_of(oracle.logits, prefix + "/input_ids");
+    const auto expected =
+        matrix_of(oracle.logits, prefix + "/logits", n_vocab);
+    const auto token_count = ids.size();
+    REQUIRE(expected.row_extent() == token_count);
 
-      std::vector<float> trunk_storage(token_count * n_embd);
-      const float_matrix_lens trunk(trunk_storage,
-          {.row_count = token_count, .col_count = n_embd});
-      gpt2_engine::block_activation_buffers owned(token_count, n_embd,
-          n_hidden);
-      gpt2_engine::kv_cache cache;
-      engine.forward(trunk, ids, owned.lenses(), cache);
+    std::vector<float> trunk_storage(token_count * n_embd);
+    const float_matrix_lens trunk(trunk_storage,
+        {.row_count = token_count, .col_count = n_embd});
+    gpt2_engine::block_activation_buffers owned(token_count, n_embd, n_hidden);
+    gpt2_engine::kv_cache cache;
+    engine.forward(trunk, ids, owned.lenses(), cache);
 
-      std::vector<float> storage(expected.size());
-      const float_matrix_lens out(storage, expected.extent());
-      compute_all_logits(out, trunk, model.wte);
+    std::vector<float> storage(expected.size());
+    const float_matrix_lens out(storage, expected.extent());
+    compute_all_logits(out, trunk, model.wte);
 
-      check_close(out, expected, 1e-4F, 1e-4F);
-    }
+    check_close(out, expected, 1e-4F, 1e-4F);
   }
 }
 

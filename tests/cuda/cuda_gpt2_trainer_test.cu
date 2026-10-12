@@ -53,7 +53,6 @@ using corvid::cuda::cuda_buffer;
 using corvid::cuda::cuda_matrix;
 using corvid::cuda::llm::gpt2_engine;
 using corvid::cuda::llm::gpt2_trainer;
-using corvid::llm::gpt2_model;
 using corvid::llm::token_id;
 using matrix_types::col_ndx;
 using matrix_types::row_ndx;
@@ -157,24 +156,22 @@ void check_matrix_gradient(const cuda_matrix<float>& actual,
 // The oracle's gradient batch (four sequences of 64 tokens) run forward
 // through a trainer over the oracle's weights.
 //
-// The members are built in order, each from the ones before it, and the
-// oracle's weights move into the model, so `oracle` keeps the dumps the tests
-// compare against. The trainer is left after `forward`, for a test to walk
-// backward from.
+// The members are built in order, each from the ones before it, over the
+// shared dumps and engine. The trainer is left after `forward`, for a test to
+// walk backward from.
 struct oracle_batch {
-  oracle_dumps oracle;
+  const oracle_dumps& oracle;
   std::vector<token_id> id_storage;
-  const gpt2_model<float> model;
-  const gpt2_engine<float> engine;
+  const gpt2_engine<float>& engine;
   trainer_t trainer;
   float loss{};
 
   oracle_batch()
-      : oracle(oracle_dumps::load()),
+      : oracle(dumps().oracle),
         id_storage(
             id_rows_of(oracle.grads, "input_ids", n_grad_batch, n_grad_seq)),
-        model(gpt2_model<float>::load(std::move(oracle.weights))),
-        engine(model), trainer(engine, n_grad_batch, n_grad_seq) {
+        engine(fresh_engine<float>()),
+        trainer(engine, n_grad_batch, n_grad_seq) {
     const matrix_view<token_id> ids(id_storage,
         {.row_count = n_grad_batch, .col_count = n_grad_seq});
     REQUIRE(trainer.forward(loss, ids));
@@ -479,9 +476,7 @@ TEST_CASE(
   // tokens per step, should leave each pass's mean loss below the one
   // before, and the adapted model continuing the text's opening more like
   // the text than the base model does.
-  auto oracle = oracle_dumps::load();
-  const auto model = gpt2_model<float>::load(std::move(oracle.weights));
-  const gpt2_engine<float> engine(model);
+  const auto& engine = fresh_engine<float>();
   const auto ids = encode_text(read_file(fixture_path("park.txt")));
   constexpr auto sequence_count = 4UZ;
   constexpr auto token_count = 64UZ;

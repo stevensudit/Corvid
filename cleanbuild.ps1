@@ -452,9 +452,15 @@ if ($stem -like 'notest_*') {
     $ctestRc = 1
   }
 } else {
+  # Tests are independent (no fixed ports, no shared files), so they run in
+  # parallel by default, as cleanbuild.sh does; set CTEST_PARALLEL_LEVEL to
+  # override.
+  $ctestArgs = @('--test-dir', $bldDir, '--output-on-failure')
+  if (-not $env:CTEST_PARALLEL_LEVEL) {
+    $ctestArgs += @('-j', [Environment]::ProcessorCount)
+  }
   # A named test runs alone: the unfiltered configure registers every test, so
   # scope ctest to the one target.
-  $ctestArgs = @('--test-dir', $bldDir, '--output-on-failure')
   if ($stem) { $ctestArgs += @('-R', "^$stem$") }
   ctest @ctestArgs
   $ctestRc = $LASTEXITCODE
