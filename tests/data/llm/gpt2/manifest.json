@@ -82,8 +82,6 @@
     "safetensors": "0.8.0"
   },
   "sha256": {
-    "tests/data/llm/gpt2/vocab.json": "196139668be63f3b5d6574427317ae82f612a97c5d1cdaf36ed2256dbf636783",
-    "tests/data/llm/gpt2/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
     "tests/data/llm/gpt2/corpus.txt": "3e4579503acabfdd443602fa790f66b70643b4f437fe576cc4468dbf261b89a4",
     "tests/data/llm/gpt2/corpus_tokens.json": "e61ab3e287d8711c4313d016898eb3b54b332fabbf839ca4041512d3c674600e"
   }
