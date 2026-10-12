@@ -315,7 +315,7 @@ TEST_CASE("GPT-2 embeddings match the oracle", "[SafetensorsTest]") {
   }
   REQUIRE_FALSE(prompt.empty());
   gpt2_tokenizer tok;
-  const auto merges = read_file(gpt2_path("data", "merges.txt"));
+  const auto merges = read_file(gpt2_path(".local", "merges.txt"));
   const auto merges_span = as_byte_span<char8_t>(merges);
   REQUIRE(tok.load({merges_span.data(), merges_span.size()}));
   std::vector<token_id> ids;

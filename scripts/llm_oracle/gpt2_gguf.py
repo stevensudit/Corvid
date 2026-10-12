@@ -73,9 +73,9 @@ def load_tensors(path: Path) -> list[tuple[str, np.ndarray]]:
     return tensors
 
 
-def load_vocab(fixtures: Path) -> tuple[list[str], list[int], list[str]]:
+def load_vocab(out: Path) -> tuple[list[str], list[int], list[str]]:
     """The token strings by ID, their types, and the merges, as GPT-2 has them."""
-    vocab = json.loads((fixtures / "vocab.json").read_text(encoding="utf-8"))
+    vocab = json.loads((out / "vocab.json").read_text(encoding="utf-8"))
     tokens: list[str | None] = [None] * len(vocab)
     for text, token_id in vocab.items():
         tokens[token_id] = text
@@ -83,7 +83,7 @@ def load_vocab(fixtures: Path) -> tuple[list[str], list[int], list[str]]:
     # The one special token is <|endoftext|>, the last one.
     types = [int(gguf.TokenType.NORMAL)] * len(tokens)
     types[-1] = int(gguf.TokenType.CONTROL)
-    merges = (fixtures / "merges.txt").read_text(encoding="utf-8").splitlines()
+    merges = (out / "merges.txt").read_text(encoding="utf-8").splitlines()
     assert merges[0].startswith("#version"), "merges.txt lacks its header"
     return tokens, types, merges[1:]
 
@@ -139,7 +139,7 @@ def main() -> None:
         "config"
     ]
     tensors = load_tensors(out / "model.safetensors")
-    vocab = load_vocab(fixtures)
+    vocab = load_vocab(out)
     assert len(vocab[0]) == cfg["vocab_size"]
     write(out / "gpt2-f32.gguf", gguf.LlamaFileType.ALL_F32, cfg, tensors, vocab)
     write(out / "gpt2-bf16.gguf", gguf.LlamaFileType.MOSTLY_BF16, cfg, tensors, vocab)

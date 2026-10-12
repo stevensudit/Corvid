@@ -49,11 +49,32 @@ std::filesystem::path fixture_path(std::string_view name) {
          "llm" / "gpt2" / name;
 }
 
-// The whole of fixture `name`; an unreadable file fails the test.
-std::string read_fixture(std::string_view name) {
-  std::ifstream in(fixture_path(name), std::ios::binary);
+// The path of the gitignored GPT-2 table `name` the oracle fetched, relative
+// to this source.
+std::filesystem::path table_path(std::string_view name) {
+  return std::filesystem::path{__FILE__}.parent_path().parent_path() /
+         ".local" / "llm" / "gpt2" / name;
+}
+
+// The whole of the file at `path`, failing the test when it cannot be read.
+std::string read_whole(const std::filesystem::path& path) {
+  std::ifstream in(path, std::ios::binary);
   REQUIRE(in);
   return std::string{std::istreambuf_iterator<char>{in}, {}};
+}
+
+// The whole of fixture `name`; an unreadable file fails the test.
+std::string read_fixture(std::string_view name) {
+  return read_whole(fixture_path(name));
+}
+
+// The whole of table `name`, skipping the test when the oracle has not
+// fetched it here.
+std::string read_table(std::string_view name) {
+  const auto path = table_path(name);
+  if (!std::filesystem::exists(path))
+    SKIP("no tokenizer tables under tests/.local/llm/gpt2; run the oracle");
+  return read_whole(path);
 }
 
 // The UTF-8 view of `bytes`.
@@ -70,7 +91,7 @@ std::string_view narrow(std::u8string_view text) {
 // A tokenizer loaded from the fixture tables.
 gpt2_tokenizer load_fixture_tokenizer() {
   gpt2_tokenizer tok;
-  REQUIRE(tok.load(as_utf8(read_fixture("merges.txt"))));
+  REQUIRE(tok.load(as_utf8(read_table("merges.txt"))));
   return tok;
 }
 
@@ -241,8 +262,8 @@ TEST_CASE("Load a small merge table", "[Gpt2TokenizerTest]") {
   // lines are skipped, and a merge may build on an earlier one.
   REQUIRE(tok.load(u8"#version: 0.2\n\u0120 t\n\u0120t h\r\n"));
   CHECK(tok.size() == 258);
-  CHECK(narrow(tok.piece(token_id{256})) == " t");
-  CHECK(narrow(tok.piece(token_id{257})) == " th");
+  CHECK(narrow(tok.text(token_id{256})) == " t");
+  CHECK(narrow(tok.text(token_id{257})) == " th");
   REQUIRE(tok.load(u8"\u0120 t\n\n\u0120t h\n\n"));
   CHECK(tok.size() == 258);
   REQUIRE(tok.load(u8"\u0120 t"));
@@ -255,7 +276,7 @@ TEST_CASE("Load a small merge table", "[Gpt2TokenizerTest]") {
   CHECK_FALSE(tok.load(u8"\u0120 t h\n"));
   CHECK_FALSE(tok.load(u8"a \xC3\n"));
   CHECK(tok.size() == 257);
-  CHECK(narrow(tok.piece(token_id{256})) == " t");
+  CHECK(narrow(tok.text(token_id{256})) == " t");
 }
 
 TEST_CASE("Encode and decode with a small merge table",
@@ -296,7 +317,7 @@ TEST_CASE("Encode rejects malformed UTF-8", "[Gpt2TokenizerTest]") {
 
 TEST_CASE("Vocabulary matches vocab.json", "[Gpt2TokenizerTest]") {
   const auto tok = load_fixture_tokenizer();
-  const auto vocab_text = read_fixture("vocab.json");
+  const auto vocab_text = read_table("vocab.json");
   json_value_view root;
   REQUIRE(parse_json(vocab_text, root));
   const auto vocab = root.as_object();
@@ -320,17 +341,17 @@ TEST_CASE("Vocabulary matches vocab.json", "[Gpt2TokenizerTest]") {
     bytes.clear();
     REQUIRE(gpt2_tokenizer::unescape_piece(bytes, as_utf8(key)));
     REQUIRE(*id < tok.size());
-    CHECK(narrow(tok.piece(id)) == narrow(bytes));
+    CHECK(narrow(tok.text(id)) == narrow(bytes));
   }
   CHECK(entries == 50257);
   CHECK(tok.size() == 50256);
 
   // Spot checks of the byte numbering.
-  CHECK(narrow(tok.piece(token_id{0})) == "!");
-  CHECK(narrow(tok.piece(token_id{187})) == "\xFF");
-  CHECK(narrow(tok.piece(token_id{188})) == "\0"sv);
-  CHECK(narrow(tok.piece(token_id{220})) == " ");
-  CHECK(narrow(tok.piece(token_id{255})) == "\xAD");
+  CHECK(narrow(tok.text(token_id{0})) == "!");
+  CHECK(narrow(tok.text(token_id{187})) == "\xFF");
+  CHECK(narrow(tok.text(token_id{188})) == "\0"sv);
+  CHECK(narrow(tok.text(token_id{220})) == " ");
+  CHECK(narrow(tok.text(token_id{255})) == "\xAD");
 }
 
 TEST_CASE("Corpus encodes and decodes as the reference did",

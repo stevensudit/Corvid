@@ -171,7 +171,7 @@ Each is a proper Corvid module with its own tests, not an LLM-private helper.
 
 Produce the reference artifacts for GPT-2 124M:
 
-- tokenizer fixtures: `vocab.json`, `merges.txt`, and a corpus of mixed text
+- tokenizer fixtures: a corpus of mixed text
   (ASCII, punctuation runs, numbers, contractions, Unicode whitespace,
   non-Latin scripts, combining marks, emoji) with its reference encoding
   from the Hugging Face GPT-2 tokenizer, which is built from the same two
@@ -1929,6 +1929,43 @@ Open design questions, to settle in this order on the new branch:
 First step on the new branch: a build spike, one TU that loads a tensor
 through our reader, runs a matmul on the device, and matches our GEMM, on
 both legs.
+
+Rulings (2026-10-12), after the spike passed on both legs and the adapter
+band landed (`corvid/torch/tensor_adapter.cuh`):
+
+1. `at::Tensor` is the primary inside the torch band, since autograd flows
+   only through torch ops, and our lenses are views into it through the
+   adapter. No ATen type appears in a public signature outside
+   `corvid/torch/`; the tokenizer and the stage 7 harness see token spans
+   and matrix views.
+2. Exceptions stay inside the band. Torch throws for contract violations
+   and for device out-of-memory; the band's public methods are the catch
+   sites, through the firewalls in "infra/exception_firewalls.h", and
+   return status like the rest of the library.
+3. One forward over tensors, under no-grad for inference and with the LoRA
+   parameters requiring grad for training. Qwen2.5-3B-Instruct is the
+   model; Llama was the fallback for a gated download that did not happen,
+   and would be a configuration of the same forward, not a second model.
+4. The oracle stays a `transformers` dump, because its value is being an
+   implementation we did not write, and LibTorch ships the ops, not the
+   modeling code. It checks the hand-built parts: tokenizer IDs, the chat
+   template, and the weight mapping and configuration through the logits.
+   Op-level references move in-test from now on, against torch's own
+   functions, as the spike does for the GEMM.
+
+Slice order: the tokenizer against oracle IDs; the loader (config, sharded
+weights to device tensors); the forward against oracle logits; greedy
+decoding through the chat template. A KV cache waits for stage 7's
+sampling throughput to ask for it.
+
+Slice 1 landed: `bpe_tokenizer<Rule>` is the shared byte-level BPE core
+(64-bit pair keys for the 151k vocabulary, added tokens matched ahead of the
+split rule), and `gpt2_tokenizer` and `qwen2_tokenizer` are its two rules.
+Qwen's IDs derive from merge order exactly as GPT-2's do. The tokenizer
+tables of both models are no longer committed; each oracle script fetches
+them under `tests/.local/llm/`, and the tests skip without them. The one
+known gap is NFC normalization, which the published tokenizer applies and
+this one does not.
 
 ### 7. The experiment
 

@@ -1,0 +1,112 @@
+[
+  {
+    "id": 151643,
+    "content": "<|endoftext|>",
+    "special": true
+  },
+  {
+    "id": 151644,
+    "content": "<|im_start|>",
+    "special": true
+  },
+  {
+    "id": 151645,
+    "content": "<|im_end|>",
+    "special": true
+  },
+  {
+    "id": 151646,
+    "content": "<|object_ref_start|>",
+    "special": true
+  },
+  {
+    "id": 151647,
+    "content": "<|object_ref_end|>",
+    "special": true
+  },
+  {
+    "id": 151648,
+    "content": "<|box_start|>",
+    "special": true
+  },
+  {
+    "id": 151649,
+    "content": "<|box_end|>",
+    "special": true
+  },
+  {
+    "id": 151650,
+    "content": "<|quad_start|>",
+    "special": true
+  },
+  {
+    "id": 151651,
+    "content": "<|quad_end|>",
+    "special": true
+  },
+  {
+    "id": 151652,
+    "content": "<|vision_start|>",
+    "special": true
+  },
+  {
+    "id": 151653,
+    "content": "<|vision_end|>",
+    "special": true
+  },
+  {
+    "id": 151654,
+    "content": "<|vision_pad|>",
+    "special": true
+  },
+  {
+    "id": 151655,
+    "content": "<|image_pad|>",
+    "special": true
+  },
+  {
+    "id": 151656,
+    "content": "<|video_pad|>",
+    "special": true
+  },
+  {
+    "id": 151657,
+    "content": "<tool_call>",
+    "special": false
+  },
+  {
+    "id": 151658,
+    "content": "</tool_call>",
+    "special": false
+  },
+  {
+    "id": 151659,
+    "content": "<|fim_prefix|>",
+    "special": false
+  },
+  {
+    "id": 151660,
+    "content": "<|fim_middle|>",
+    "special": false
+  },
+  {
+    "id": 151661,
+    "content": "<|fim_suffix|>",
+    "special": false
+  },
+  {
+    "id": 151662,
+    "content": "<|fim_pad|>",
+    "special": false
+  },
+  {
+    "id": 151663,
+    "content": "<|repo_name|>",
+    "special": false
+  },
+  {
+    "id": 151664,
+    "content": "<|file_sep|>",
+    "special": false
+  }
+]

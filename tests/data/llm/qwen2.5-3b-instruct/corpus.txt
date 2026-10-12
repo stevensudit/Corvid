@@ -1,0 +1,26 @@
+Qwen2.5 tokenizer corpus for corvid/llm.
+
+This file is a fixture. Its reference encoding lives beside it in
+corpus_tokens.json, produced by scripts/llm_oracle/qwen2_oracle.py.
+Every line is chosen to exercise one clause of the pre-tokenizer's
+split rule where it differs from GPT-2's, or to catch a shortcut that
+passes plain English.
+
+Digits split one at a time: 7 42 1969 3.14159 2nd 1,000,000
+Letters after one non-letter: (word [word {word "word" 'word' -word +word
+Letters after a space keep it: a word, another word
+Letters right after a digit: 1st 2nd 3x 4abc x1y2 abc123def
+Contractions, any case: it's IT'S It'S they're THEY'RE we've WE'VE I'm I'M you'll YOU'LL he'd HE'D
+Not a contraction: 'tis o'clock rock'n'roll
+Punctuation run then newlines: Hello!!!
+
+Punctuation run before a letter: ...ok ---end
+Whitespace then newline:
+Tabs	and	more	tabs
+Trailing spaces before text:   indented
+Mixed: price $19.99 (tax 8%), ETA 10:30am; ok?
+Unicode letters: naïve café über straße
+Non-Latin: 日本語 한국어 Русский العربية
+Emoji and symbols: 🚀 rocket, © 2024, ½ cup, → arrow
+Precomposed accents only, since the engine does no NFC step: é è ê ñ
+A sentence ending without a newline

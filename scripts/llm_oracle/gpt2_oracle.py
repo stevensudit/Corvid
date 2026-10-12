@@ -10,13 +10,13 @@ project; it is the oracle, not the engine.
 Outputs (paths relative to the repository root):
 
 tests/data/llm/gpt2/           small, committed
-  vocab.json, merges.txt         the tokenizer tables, copied from the hub
   corpus_tokens.json             reference encoding of corpus.txt
   manifest.json                  shapes, config, prompts, greedy
                                  continuation, tool versions, fixture
                                  checksums
 
 tests/.local/llm/gpt2/         large, gitignored
+  vocab.json, merges.txt         the tokenizer tables, copied from the hub
   model.safetensors              the weights, copied from the hub and
                                  rewritten with an 8-byte-aligned header
   model-bf16.safetensors         the same weights with every tensor
@@ -284,8 +284,8 @@ def main() -> None:
     torch.manual_seed(0)
     torch.use_deterministic_algorithms(True)
 
-    revision = fetch("vocab.json", fixtures / "vocab.json")
-    fetch("merges.txt", fixtures / "merges.txt")
+    revision = fetch("vocab.json", out / "vocab.json")
+    fetch("merges.txt", out / "merges.txt")
     fetch("model.safetensors", out / "model.safetensors")
     align(out / "model.safetensors")
     narrow_to_bf16(out / "model.safetensors", out / "model-bf16.safetensors")
@@ -337,8 +337,6 @@ def main() -> None:
     manifest["sha256"] = {
         p.relative_to(ROOT).as_posix(): sha256(p)
         for p in [
-            fixtures / "vocab.json",
-            fixtures / "merges.txt",
             fixtures / "corpus.txt",
             fixtures / "corpus_tokens.json",
         ]
@@ -349,6 +347,8 @@ def main() -> None:
         "sha256": {
             p.name: sha256(p)
             for p in [
+                out / "vocab.json",
+                out / "merges.txt",
                 out / "model.safetensors",
                 out / "model-bf16.safetensors",
                 out / "logits.safetensors",

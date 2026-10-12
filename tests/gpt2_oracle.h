@@ -266,10 +266,14 @@ inline greedy_continuation read_greedy_continuation() {
   return result;
 }
 
-// The tokenizer, loaded from the merges fixture.
+// The tokenizer, loaded from the merge table the oracle fetched, skipping
+// the test when it is not here.
 inline gpt2_tokenizer load_tokenizer() {
   gpt2_tokenizer tok;
-  const auto merges = read_file(fixture_path("merges.txt"));
+  const auto merges_path = oracle_path("merges.txt");
+  if (!std::filesystem::exists(merges_path))
+    SKIP("no tokenizer tables under tests/.local/llm/gpt2; run the oracle");
+  const auto merges = read_file(merges_path);
   const auto merges_span =
       corvid::strings::conversion::as_byte_span<char8_t>(merges);
   REQUIRE(tok.load({merges_span.data(), merges_span.size()}));
