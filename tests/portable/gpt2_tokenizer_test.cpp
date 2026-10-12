@@ -14,6 +14,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -303,6 +304,30 @@ TEST_CASE("Encode and decode with a small merge table",
   // An unknown ID fails and leaves the output alone.
   CHECK_FALSE(tok.decode(bytes, make_ids({260})));
   CHECK(narrow(bytes) == "the the");
+}
+
+TEST_CASE("Added tokens are found by their common prefix",
+    "[Gpt2TokenizerTest]") {
+  // Three added tokens sharing the prefix "<", at the IDs after the one
+  // merge, so the text is probed only where a "<" stands, and a "<" that
+  // starts no added token is plain text.
+  gpt2_tokenizer tok;
+  const std::array<std::u8string_view, 3> angled{u8"<|a|>", u8"<|bb|>",
+      u8"<x>"};
+  REQUIRE(tok.load(u8"\u0120 t\n", angled));
+  ids_t ids;
+  REQUIRE(tok.encode(ids, u8"<|bb|>t<y<x><|a|>"));
+  CHECK(ids == make_ids({258, 83, 27, 88, 259, 257}));
+  std::u8string bytes;
+  REQUIRE(tok.decode(bytes, ids));
+  CHECK(narrow(bytes) == "<|bb|>t<y<x><|a|>");
+
+  // Added tokens that share no prefix are still found, at every offset.
+  const std::array<std::u8string_view, 2> unalike{u8"ab", u8"cd"};
+  REQUIRE(tok.load(u8"\u0120 t\n", unalike));
+  ids.clear();
+  REQUIRE(tok.encode(ids, u8"xabycd"));
+  CHECK(ids == make_ids({87, 257, 88, 258}));
 }
 
 TEST_CASE("Encode rejects malformed UTF-8", "[Gpt2TokenizerTest]") {

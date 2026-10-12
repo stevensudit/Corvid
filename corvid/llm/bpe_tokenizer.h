@@ -314,8 +314,6 @@ public:
   // returns false, leaving the tokenizer as it was.
   [[nodiscard]] bool load(std::u8string_view merges_text,
       std::span<const std::u8string_view> added_tokens = {}) {
-    using parser = strings::u8token_parser;
-
     // The vocabulary under construction: the arena that becomes `tokens_`,
     // the pair table that becomes `merges_`, and a text-to-ID map that only
     // loading needs.
@@ -400,8 +398,19 @@ public:
     std::ranges::stable_sort(added, std::ranges::greater{},
         [](const added_token& token) { return token.token.size(); });
 
+    // The longest prefix every added token shares, which is where a search
+    // for one can start.
+    std::u8string_view prefix;
+    if (!added.empty()) prefix = added.front().token;
+    for (const auto& entry : added) {
+      const auto shared = static_cast<size_t>(
+          std::ranges::mismatch(prefix, entry.token).in1 - prefix.begin());
+      prefix = prefix.substr(0, shared);
+    }
+
     merges_ = merges_t(std::move(pair_keys), std::move(result_ids));
     tokens_ = std::move(tokens);
+    added_prefix_ = std::u8string{prefix};
     added_tokens_ = std::move(added);
     return true;
   }
@@ -426,12 +435,7 @@ public:
     auto rest = text;
     while (!rest.empty()) {
       // The plain text runs up to the next added token, if there is one.
-      size_t plain_len = 0;
-      const added_token* found{};
-      for (; plain_len < rest.size(); ++plain_len) {
-        found = added_token_at(rest.substr(plain_len));
-        if (found) break;
-      }
+      const auto [plain_len, found] = find_added_token(rest);
       if (!encode_plain(ids, chunks, rest.substr(0, plain_len))) return false;
       rest.remove_prefix(plain_len);
       if (found) {
@@ -485,6 +489,26 @@ private:
     for (const auto& added : added_tokens_)
       if (rest.starts_with(added.token)) return &added;
     return nullptr;
+  }
+
+  // Find the first added token in `rest`, returning the length of the plain
+  // text before it and the token, which is null when there is none.
+  //
+  // Every added token starts with `added_prefix_`, so only the offsets where
+  // it occurs are tried, unless it is empty, in which case every offset is.
+  [[nodiscard]] std::pair<size_t, const added_token*> find_added_token(
+      std::u8string_view rest) const noexcept {
+    if (added_tokens_.empty()) return {rest.size(), nullptr};
+    for (size_t at = 0; at < rest.size(); ++at) {
+      if (!added_prefix_.empty()) {
+        auto probe = rest.substr(at);
+        at += parser::next_delimited(added_prefix_, probe).size();
+        if (at == rest.size()) break;
+      }
+      if (const auto* found = added_token_at(rest.substr(at)))
+        return {at, found};
+    }
+    return {rest.size(), nullptr};
   }
 
   // Encode `text`, which holds no added token, appending its IDs to `ids`
@@ -582,6 +606,7 @@ private:
 #pragma region Data members
 
   using merges_t = std::flat_map<uint64_t, token_id>;
+  using parser = strings::u8token_parser;
 
   // The merge table, keyed on the packed pair and valued by the result ID.
   merges_t merges_;
@@ -591,6 +616,10 @@ private:
 
   // The added tokens, longest first.
   std::vector<added_token> added_tokens_;
+
+  // The longest prefix every added token shares, where a search for one can
+  // start. Empty when they share none.
+  std::u8string added_prefix_;
 
 #pragma endregion
 };
