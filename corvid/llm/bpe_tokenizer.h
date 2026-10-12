@@ -17,7 +17,6 @@
 #pragma once
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <flat_map>
@@ -31,6 +30,7 @@
 
 #include "../containers/core/opt_find.h"
 #include "../containers/core/transparent.h"
+#include "../containers/utils/string_arena.h"
 #include "../containers/utils/interval.h"
 #include "../enums/sequence_enum.h"
 #include "../meta/bool_enums.h"
@@ -182,6 +182,18 @@ inline constexpr auto id_bytes_lookup = make_id_bytes_lookup();
              : 0;
 }
 
+// Whether `rest` starts with a contraction suffix, setting `len` to its
+// length.
+//
+// When it does not, `len` is left untouched.
+[[nodiscard]] constexpr bool has_contraction_suffix(size_t& len,
+    std::u8string_view rest, case_sensitivity sensitivity) noexcept {
+  const auto found = contraction_suffix_length(rest, sensitivity);
+  if (!found) return false;
+  len = found;
+  return true;
+}
+
 // Consume the run of code points of class `cls` at the front of `rest`,
 // returning how many there were.
 constexpr size_t
@@ -304,33 +316,29 @@ public:
       std::span<const std::u8string_view> added_tokens = {}) {
     using parser = strings::u8token_parser;
 
-    // The vocabulary under construction: the piece arena that becomes
-    // `token_arena_` and `token_starts_` (see their comment), the pair table
-    // that becomes `merges_`, and a text-to-ID map that only loading needs.
+    // The vocabulary under construction: the arena that becomes `tokens_`,
+    // the pair table that becomes `merges_`, and a text-to-ID map that only
+    // loading needs.
     //
     // Each line is one merge, and a merged piece is never longer than its
     // escaped line, so the sizes below are upper bounds.
     const auto line_count =
         static_cast<size_t>(std::ranges::count(merges_text, u8'\n')) + 1;
-    std::u8string token_arena;
-    std::vector<size_t> token_starts;
+    const auto token_count = 256 + line_count + added_tokens.size();
+    u8string_arena<token_id> tokens;
     std::vector<uint64_t> pair_keys;
     std::vector<token_id> result_ids;
     u8string_unordered_map<token_id> ids_by_text;
-    token_arena.reserve(256 + merges_text.size());
-    token_starts.reserve(256 + line_count + added_tokens.size() + 1);
+    tokens.reserve(token_count, 256 + merges_text.size());
     pair_keys.reserve(line_count);
     result_ids.reserve(line_count);
-    ids_by_text.reserve(256 + line_count + added_tokens.size());
+    ids_by_text.reserve(token_count);
 
-    // Append `token` as the piece with the next ID, which is the count of
-    // pieces so far. Fails on a duplicate piece.
+    // Append `token` as the piece with the next ID. Fails on a duplicate
+    // piece.
     const auto add_piece = [&](token_id& id, std::u8string_view token) {
-      id = token_id{static_cast<uint32_t>(token_starts.size())};
-      if (!ids_by_text.emplace(token, id).second) return false;
-      token_starts.push_back(token_arena.size());
-      token_arena += token;
-      return true;
+      id = tokens.append(token);
+      return ids_by_text.emplace(token, id).second;
     };
 
     // The first 256 pieces are the single bytes, in ID order.
@@ -391,11 +399,9 @@ public:
     // necessary for Qwen2, as it has no overlapping added tokens.
     std::ranges::stable_sort(added, std::ranges::greater{},
         [](const added_token& token) { return token.token.size(); });
-    token_starts.push_back(token_arena.size());
 
     merges_ = merges_t(std::move(pair_keys), std::move(result_ids));
-    token_arena_ = std::move(token_arena);
-    token_starts_ = std::move(token_starts);
+    tokens_ = std::move(tokens);
     added_tokens_ = std::move(added);
     return true;
   }
@@ -456,15 +462,11 @@ public:
 #pragma region Vocabulary
 
   // The number of pieces, which is one past the largest ID `decode` accepts.
-  [[nodiscard]] size_t size() const noexcept {
-    return token_starts_.empty() ? 0 : token_starts_.size() - 1;
-  }
+  [[nodiscard]] size_t size() const noexcept { return tokens_.size(); }
 
   // The text of piece `id`, which must be below `size`.
-  [[nodiscard]] std::u8string_view text(token_id id) const {
-    assert(*id < size());
-    return std::u8string_view{token_arena_}.substr(token_starts_[*id],
-        token_starts_[*id + 1] - token_starts_[*id]);
+  [[nodiscard]] std::u8string_view text(token_id id) const noexcept {
+    return tokens_[id];
   }
 
 #pragma endregion
@@ -584,12 +586,8 @@ private:
   // The merge table, keyed on the packed pair and valued by the result ID.
   merges_t merges_;
 
-  // `token_arena_` holds every token concatenated in ID order, and
-  // `token_starts_` holds where each token starts plus one past the last, so
-  // token `id` is the text from `token_starts_[id]` to `token_starts_[id +
-  // 1]`.
-  std::u8string token_arena_;
-  std::vector<size_t> token_starts_;
+  // The vocabulary, holding every token's text at its ID.
+  u8string_arena<token_id> tokens_;
 
   // The added tokens, longest first.
   std::vector<added_token> added_tokens_;

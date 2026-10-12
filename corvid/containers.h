@@ -22,6 +22,7 @@
 #include "containers/core/opt_find.h"
 #include "containers/core/transparent.h"
 #include "containers/utils/interval.h"
+#include "containers/utils/string_arena.h"
 #include "containers/core/indirect_key.h"
 #include "containers/utils/intern.h"
 #include "containers/core/circular_buffer.h"

@@ -81,13 +81,13 @@ struct qwen2_split_rule {
       const auto next_cls =
           has_next ? classifier::classify(next)
                    : code_point_class::white_space;
+      size_t len{};
       if (cp == U'\'' &&
-          implementation::contraction_suffix_length(rest,
-              case_sensitivity::insensitive) != 0)
+          implementation::has_contraction_suffix(len, rest,
+              case_sensitivity::insensitive))
       {
         // Alternatives 1 to 7, the contractions, in either case.
-        rest.remove_prefix(implementation::contraction_suffix_length(rest,
-            case_sensitivity::insensitive));
+        rest.remove_prefix(len);
       } else if (cls == code_point_class::letter) {
         // Alternative 8 without its optional first character.
         implementation::skip_run(rest, cls);
