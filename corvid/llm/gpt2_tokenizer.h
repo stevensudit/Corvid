@@ -70,10 +70,11 @@ struct gpt2_split_rule {
       if (cp == U'\'') {
         // Alternatives 1 to 7, the contractions. Otherwise the apostrophe
         // starts a punctuation run, alternative 10.
-        if (const auto len = details::contraction_suffix_length(rest, false))
+        if (const auto len = implementation::contraction_suffix_length(rest,
+                case_sensitivity::sensitive))
           rest.remove_prefix(len);
         else
-          details::skip_run(rest, code_point_class::other);
+          implementation::skip_run(rest, code_point_class::other);
       } else if (cp == U' ') {
         // Alternatives 8 to 10 with their optional leading space. The space
         // leads the run after it, whatever its class, unless that run is
@@ -86,19 +87,19 @@ struct gpt2_split_rule {
                 ? classifier::classify(next)
                 : code_point_class::white_space;
         if (cls == code_point_class::white_space) {
-          details::skip_white_space_chunk(rest, chunk);
+          implementation::skip_white_space_chunk(rest, chunk);
         } else {
           rest = after_next;
-          details::skip_run(rest, cls);
+          implementation::skip_run(rest, cls);
         }
       } else if (const auto cls = classifier::classify(cp);
           cls == code_point_class::white_space)
       {
         // Alternatives 11 and 12, a whitespace run with the lookahead.
-        details::skip_white_space_chunk(rest, chunk);
+        implementation::skip_white_space_chunk(rest, chunk);
       } else {
         // Alternatives 8 to 10 without the leading space, a run of one class.
-        details::skip_run(rest, cls);
+        implementation::skip_run(rest, cls);
       }
       chunks.push_back(chunk.substr(0, chunk.size() - rest.size()));
     }

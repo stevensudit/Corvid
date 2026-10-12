@@ -81,12 +81,16 @@ struct qwen2_split_rule {
       const auto next_cls =
           has_next ? classifier::classify(next)
                    : code_point_class::white_space;
-      if (cp == U'\'' && details::contraction_suffix_length(rest, true) != 0) {
+      if (cp == U'\'' &&
+          implementation::contraction_suffix_length(rest,
+              case_sensitivity::insensitive) != 0)
+      {
         // Alternatives 1 to 7, the contractions, in either case.
-        rest.remove_prefix(details::contraction_suffix_length(rest, true));
+        rest.remove_prefix(implementation::contraction_suffix_length(rest,
+            case_sensitivity::insensitive));
       } else if (cls == code_point_class::letter) {
         // Alternative 8 without its optional first character.
-        details::skip_run(rest, cls);
+        implementation::skip_run(rest, cls);
       } else if (cls == code_point_class::number) {
         // Alternative 9, one digit on its own.
       } else if (!is_newline(cp) && has_next &&
@@ -95,17 +99,17 @@ struct qwen2_split_rule {
         // Alternative 8 with its first character, which may be anything but
         // a newline, a letter, or a digit.
         rest = after_next;
-        details::skip_run(rest, next_cls);
+        implementation::skip_run(rest, next_cls);
       } else if (cls == code_point_class::other) {
         // Alternative 10 without its optional space, a run of symbols and
         // punctuation, then any newlines.
-        details::skip_run(rest, cls);
+        implementation::skip_run(rest, cls);
         skip_newlines(rest);
       } else if (cp == U' ' && has_next && next_cls == code_point_class::other)
       {
         // Alternative 10 with its space.
         rest = after_next;
-        details::skip_run(rest, next_cls);
+        implementation::skip_run(rest, next_cls);
         skip_newlines(rest);
       } else {
         // Alternatives 11 to 13, a whitespace run. One that holds a newline

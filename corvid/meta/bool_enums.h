@@ -90,6 +90,9 @@ enum class update_strategy : bool { full = false, incremental = true };
 // validation and possible encoding (`untrusted`).
 enum class text_validation : bool { untrusted = false, trusted = true };
 
+// Whether letters match only in their own case or in either case.
+enum class case_sensitivity : bool { sensitive = false, insensitive = true };
+
 // Whether an operation is single-shot or multi-shot.
 enum class shot_type : bool { single = false, multi = true };
 

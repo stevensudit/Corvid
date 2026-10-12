@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <flat_map>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -32,6 +33,7 @@
 #include "../containers/core/transparent.h"
 #include "../containers/utils/interval.h"
 #include "../enums/sequence_enum.h"
+#include "../meta/bool_enums.h"
 #include "../strings/cases.h"
 #include "../strings/conversion.h"
 #include "../strings/token_parser.h"
@@ -47,8 +49,8 @@
 // the text of "merges.txt", plus any added tokens, and then encodes UTF-8 text
 // to token IDs and decodes IDs back to bytes. The published tables store every
 // byte in an escaped form that keeps it printable (see
-// `details::escaped_bytes_lookup`), but `load` unescapes each piece once, and
-// nothing else touches the escaped form.
+// `implementation::escaped_bytes_lookup`), but `load` unescapes each piece
+// once, and nothing else touches the escaped form.
 //
 // Loading:
 //   gpt2_tokenizer tok;
@@ -65,9 +67,9 @@ namespace corvid::llm {
 using namespace strings::unicode;
 using strings::unicode::classifier::code_point_class;
 
-#pragma region details
+#pragma region implementation
 
-namespace details {
+namespace implementation {
 
 // Whether `byte` is its own escaped form.
 //
@@ -157,12 +159,15 @@ inline constexpr auto id_bytes_lookup = make_id_bytes_lookup();
 #pragma region Scanning
 
 // The length of the contraction suffix (s, t, re, ve, m, ll, d) at the front
-// of `rest`, or 0. With `fold_case`, uppercase letters count too.
-[[nodiscard]] constexpr size_t
-contraction_suffix_length(std::u8string_view rest, bool fold_case) noexcept {
+// of `rest`, or 0.
+//
+// When `sensitivity` is `insensitive`, uppercase letters count too.
+[[nodiscard]] constexpr size_t contraction_suffix_length(
+    std::u8string_view rest, case_sensitivity sensitivity) noexcept {
   if (rest.empty()) return 0;
+  const auto is_folded = (sensitivity == case_sensitivity::insensitive);
   const auto letter = [&](size_t ndx) {
-    return fold_case ? strings::as_lower(rest[ndx]) : rest[ndx];
+    return is_folded ? strings::as_lower(rest[ndx]) : rest[ndx];
   };
   const auto first = letter(0);
   if (rest.size() >= 2) {
@@ -215,7 +220,7 @@ constexpr size_t skip_white_space_chunk(std::u8string_view& rest,
   return count;
 }
 
-} // namespace details
+} // namespace implementation
 
 #pragma endregion
 #pragma region bpe_tokenizer
@@ -235,7 +240,7 @@ public:
 
   // The escaped form of `byte`.
   [[nodiscard]] static constexpr char32_t escape_byte(uint8_t byte) noexcept {
-    return details::escaped_bytes_lookup[byte];
+    return implementation::escaped_bytes_lookup[byte];
   }
 
   // Recover the byte behind `escaped`.
@@ -244,31 +249,30 @@ public:
   // leaving `byte` untouched.
   [[nodiscard]] static constexpr bool
   unescape_byte(uint8_t& byte, char32_t escaped) noexcept {
-    if (escaped > details::max_escaped_byte) return false;
-    const auto candidate = details::unescaped_bytes_lookup[escaped];
+    if (escaped > implementation::max_escaped_byte) return false;
+    const auto candidate = implementation::unescaped_bytes_lookup[escaped];
     // A 0 result could be due to 0x0100 as input, or it could mean the input
     // was invalid; round-tripping settles it.
-    if (!candidate && escaped != details::escaped_bytes_lookup[0])
+    if (!candidate && escaped != implementation::escaped_bytes_lookup[0])
       return false;
     byte = candidate;
     return true;
   }
 
-  // Recover the bytes behind `piece`, which is escaped, appending them to
-  // `bytes`.
+  // Recover the unescaped text for `escaped`, appending it to `text`.
   //
   // On failure (malformed UTF-8, or an escaped form that stands for no
-  // byte), returns false, leaving `bytes` untouched.
+  // byte), returns false, leaving `text` untouched.
   [[nodiscard]] static constexpr bool
-  unescape_piece(std::u8string& bytes, std::u8string_view piece) {
-    strings::truncate_guard guard(bytes);
-    bytes.reserve(bytes.size() + piece.size());
-    for (char32_t cp{}; utf::extract(cp, piece);) {
+  unescape_piece(std::u8string& text, std::u8string_view escaped) {
+    strings::truncate_guard guard(text);
+    text.reserve(text.size() + escaped.size());
+    for (char32_t cp{}; utf::extract(cp, escaped);) {
       uint8_t byte{};
       if (!unescape_byte(byte, cp)) return false;
-      bytes.push_back(static_cast<char8_t>(byte));
+      text.push_back(static_cast<char8_t>(byte));
     }
-    if (!piece.empty()) return false;
+    if (!escaped.empty()) return false;
     return guard.release();
   }
 
@@ -298,44 +302,42 @@ public:
   // returns false, leaving the tokenizer as it was.
   [[nodiscard]] bool load(std::u8string_view merges_text,
       std::span<const std::u8string_view> added_tokens = {}) {
-    using parser = strings::basic_token_parser<char8_t>;
-    using ids_by_text_t = std::unordered_map<std::u8string, token_id,
-        basic_transparent_hash_equal<char8_t>,
-        basic_transparent_hash_equal<char8_t>>;
+    using parser = strings::u8token_parser;
 
     // The vocabulary under construction: the piece arena that becomes
-    // `tokens_` and `token_starts_` (see their comment), the pair table that
-    // becomes `merges_`, and a bytes-to-ID map that only loading needs.
+    // `token_arena_` and `token_starts_` (see their comment), the pair table
+    // that becomes `merges_`, and a text-to-ID map that only loading needs.
     //
     // Each line is one merge, and a merged piece is never longer than its
     // escaped line, so the sizes below are upper bounds.
     const auto line_count =
         static_cast<size_t>(std::ranges::count(merges_text, u8'\n')) + 1;
-    std::u8string pieces;
-    std::vector<size_t> piece_starts;
+    std::u8string token_arena;
+    std::vector<size_t> token_starts;
     std::vector<uint64_t> pair_keys;
     std::vector<token_id> result_ids;
-    ids_by_text_t ids_by_text;
-    pieces.reserve(256 + merges_text.size());
-    piece_starts.reserve(256 + line_count + added_tokens.size() + 1);
+    u8string_unordered_map<token_id> ids_by_text;
+    token_arena.reserve(256 + merges_text.size());
+    token_starts.reserve(256 + line_count + added_tokens.size() + 1);
     pair_keys.reserve(line_count);
     result_ids.reserve(line_count);
     ids_by_text.reserve(256 + line_count + added_tokens.size());
 
-    // Append `bytes` as the piece with the next ID, which is the count of
+    // Append `token` as the piece with the next ID, which is the count of
     // pieces so far. Fails on a duplicate piece.
     const auto add_piece = [&](token_id& id, std::u8string_view token) {
-      id = token_id{static_cast<uint32_t>(piece_starts.size())};
+      id = token_id{static_cast<uint32_t>(token_starts.size())};
       if (!ids_by_text.emplace(token, id).second) return false;
-      piece_starts.push_back(pieces.size());
-      pieces += token;
+      token_starts.push_back(token_arena.size());
+      token_arena += token;
       return true;
     };
 
     // The first 256 pieces are the single bytes, in ID order.
     for (const auto ndx : iota(256)) {
       token_id id{};
-      const auto byte = static_cast<char8_t>(details::id_bytes_lookup[ndx]);
+      const auto byte =
+          static_cast<char8_t>(implementation::id_bytes_lookup[ndx]);
       (void)add_piece(id, std::u8string_view(&byte, 1));
     }
 
@@ -384,13 +386,16 @@ public:
       if (token.empty() || !add_piece(id, token)) return false;
       added.push_back({.token = std::u8string{token}, .id = id});
     }
+    // Sort the added tokens by length in descending order, so that longer
+    // tokens are matched first during encoding. Note that this is not strictly
+    // necessary for Qwen2, as it has no overlapping added tokens.
     std::ranges::stable_sort(added, std::ranges::greater{},
         [](const added_token& token) { return token.token.size(); });
-    piece_starts.push_back(pieces.size());
+    token_starts.push_back(token_arena.size());
 
     merges_ = merges_t(std::move(pair_keys), std::move(result_ids));
-    tokens_ = std::move(pieces);
-    token_starts_ = std::move(piece_starts);
+    token_arena_ = std::move(token_arena);
+    token_starts_ = std::move(token_starts);
     added_tokens_ = std::move(added);
     return true;
   }
@@ -458,7 +463,7 @@ public:
   // The text of piece `id`, which must be below `size`.
   [[nodiscard]] std::u8string_view text(token_id id) const {
     assert(*id < size());
-    return std::u8string_view{tokens_}.substr(token_starts_[*id],
+    return std::u8string_view{token_arena_}.substr(token_starts_[*id],
         token_starts_[*id + 1] - token_starts_[*id]);
   }
 
@@ -491,7 +496,8 @@ private:
       // the output vector is the only work buffer.
       const auto start = ids.size();
       for (const auto byte : chunk)
-        ids.push_back(details::byte_ids_lookup[static_cast<uint8_t>(byte)]);
+        ids.push_back(
+            implementation::byte_ids_lookup[static_cast<uint8_t>(byte)]);
       auto word = std::span{ids}.subspan(start);
       merge(word);
       ids.resize(start + word.size());
@@ -536,8 +542,8 @@ private:
     // pairs present is the lowest rank.
     const token_id* best{};
     uint64_t best_key{};
-    for (size_t ndx = 0; ndx + 1 < word.size(); ++ndx) {
-      const auto pair_key = pack(word[ndx], word[ndx + 1]);
+    for (const auto [left, right] : word | std::views::pairwise) {
+      const auto pair_key = pack(left, right);
       const auto found = find_opt(merges_, pair_key).get();
       if (found && (!best || *found < *best)) {
         best = found;
@@ -578,10 +584,11 @@ private:
   // The merge table, keyed on the packed pair and valued by the result ID.
   merges_t merges_;
 
-  // `tokens_` holds every piece concatenated in ID order, and `token_starts_`
-  // holds where each piece starts plus one past the last, so piece `id` is
-  // the text from `token_starts_[id]` to `token_starts_[id + 1]`.
-  std::u8string tokens_;
+  // `token_arena_` holds every token concatenated in ID order, and
+  // `token_starts_` holds where each token starts plus one past the last, so
+  // token `id` is the text from `token_starts_[id]` to `token_starts_[id +
+  // 1]`.
+  std::u8string token_arena_;
   std::vector<size_t> token_starts_;
 
   // The added tokens, longest first.

@@ -3180,7 +3180,7 @@ TEST_CASE("TokenParser", "[StringUtilsTest]") {
 #pragma region WideTokenParser
 
 TEST_CASE("WideTokenParser", "[StringUtilsTest]") {
-  using parser = strings::basic_token_parser<char16_t>;
+  using parser = strings::u16token_parser;
 
   parser p{u"\r\n"};
   std::u16string_view input = u"alpha\r\n\r\nbeta";

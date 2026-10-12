@@ -160,8 +160,12 @@ private:
 #pragma endregion
 };
 
-// The default token parser, over `char`.
+// Token parser aliaes.
 using token_parser = basic_token_parser<char>;
+using wtoken_parser = basic_token_parser<wchar_t>;
+using u8token_parser = basic_token_parser<char8_t>;
+using u16token_parser = basic_token_parser<char16_t>;
+using u32token_parser = basic_token_parser<char32_t>;
 
 #pragma endregion
 }} // namespace corvid::strings::parsers

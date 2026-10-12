@@ -101,6 +101,19 @@ TEST_CASE("General", "[TransparentTest]") {
     CHECK(tss.contains(ks));
     CHECK(tss.contains(ksv));
   }
+  // The aliases over the other code units.
+  if (true) {
+    const auto u8ks = u8"key"s;
+    const auto u8ksv = u8"key"sv;
+    u8string_map<int> tm;
+    tm[u8ks] = 42;
+    int* p = find_opt(tm, u8ksv);
+    CHECK(p);
+    CHECK(*p == 42);
+    u8string_unordered_set tss;
+    tss.insert(u8ks);
+    CHECK(tss.contains(u8ksv));
+  }
 }
 
 #pragma endregion
