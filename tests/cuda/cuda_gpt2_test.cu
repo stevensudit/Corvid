@@ -571,8 +571,9 @@ TEMPLATE_TEST_CASE("Device model matches the oracle at full context",
   CHECK(next == corvid::llm::pick_greedy(expected[row_ndx{0}]));
 }
 
-// A benchmark, hidden from the default run. Run it by its tag:
-//   release_bin/cuda_gpt2_test "[!benchmark]"
+// A benchmark, hidden from the default run. Run it by its tag, in single
+// quotes so that no shell expands the exclamation mark:
+//   release_bin/cuda_gpt2_test '[!benchmark]'
 TEMPLATE_TEST_CASE("Device tokens per second",
     "[Gpt2Test][oracle][cuda][!benchmark]", float, bfloat16_t, double) {
   const auto& [oracle, model] = dumps();
