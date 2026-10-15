@@ -16,7 +16,6 @@
 // limitations under the License.
 #pragma once
 
-#include <concepts>
 #include <cstddef>
 #include <format>
 #include <stdexcept>
@@ -27,6 +26,7 @@
 #include "../containers/utils/matrix_view.h"
 #include "../enums/enum_conversion.h"
 #include "../math/bfloat16.h"
+#include "parameter_element.h"
 #include "safetensors.h"
 #include "token_id.h"
 
@@ -40,15 +40,6 @@ inline constexpr float gpt2_layer_norm_eps = 1e-5F;
 // The ID of `<|endoftext|>`, the last vocabulary entry, which ends a
 // generation.
 inline constexpr token_id gpt2_end_of_text{50256};
-
-#pragma endregion
-#pragma region ParameterElement
-
-// `T` must be a type a weights file holds its parameters as, `float` for the
-// published fp32 weights and `bfloat16_t` for a bf16 file.
-template<typename T>
-concept ParameterElement =
-    std::same_as<T, float> || std::same_as<T, bfloat16_t>;
 
 #pragma endregion
 #pragma region gpt2_block_params

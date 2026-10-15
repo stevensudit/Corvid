@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <ranges>
+#include <span>
 #include <vector>
 
 #include "catch2_torch.h"
@@ -75,6 +76,28 @@ TEST_CASE("Host lens and tensor share memory", "[torch]") {
   CHECK(back.stride() == 4);
   const auto back_view = as_host_view<float>(tensor);
   CHECK(back_view.as_span().data() == values.data());
+}
+
+TEST_CASE("Host span and one-dimensional tensor share memory", "[torch]") {
+  auto values = counting();
+  const auto tensor = as_tensor(std::span{values});
+  REQUIRE(tensor.dim() == 1);
+  CHECK(tensor.size(0) == 12);
+  CHECK(tensor.scalar_type() == at::kFloat);
+  CHECK(tensor.is_cpu());
+  CHECK(tensor[6].item<float>() == 6.0F);
+
+  // A write through the tensor lands in the vector, and a span of const
+  // elements converts the same way.
+  tensor.add_(1.0F);
+  CHECK(values[6] == 7.0F);
+  const auto from_const = as_tensor(std::span<const float>{values});
+  CHECK(from_const[6].item<float>() == 7.0F);
+
+  // An empty span is an empty tensor, not a null one.
+  const auto empty = as_tensor(std::span<float>{});
+  CHECK(empty.defined());
+  CHECK(empty.numel() == 0);
 }
 
 TEST_CASE("A strided slice converts with its stride", "[torch]") {

@@ -203,24 +203,42 @@ template<typename Lens>
 #pragma endregion
 #pragma region Lens to tensor
 
-// `host` as a tensor of the same shape and strides over its memory.
+// `host_matrix` as a tensor of the same shape and strides over its memory.
 //
 // The tensor reads and writes the lens's memory, which must outlive it. A
 // view converts the same way, and the tensor is writable regardless.
 template<typename T>
 requires TensorElement<std::remove_const_t<T>>
-[[nodiscard]] at::Tensor as_tensor(matrix_lens<T> host) {
-  return details::tensor_of(host, at::kCPU);
+[[nodiscard]] at::Tensor as_tensor(matrix_lens<T> host_matrix) {
+  return details::tensor_of(host_matrix, at::kCPU);
 }
 
-// `device` as a CUDA tensor of the same shape and strides over its memory.
+// `device_matrix` as a CUDA tensor of the same shape and strides over its
+// memory.
 //
 // The tensor reads and writes the lens's memory, which must outlive it. A
 // view converts the same way, and the tensor is writable regardless.
 template<typename T>
 requires TensorElement<std::remove_const_t<T>>
-[[nodiscard]] at::Tensor as_tensor(cuda::cuda_matrix_lens<T> device) {
-  return details::tensor_of(device, at::kCUDA);
+[[nodiscard]] at::Tensor as_tensor(cuda::cuda_matrix_lens<T> device_matrix) {
+  return details::tensor_of(device_matrix, at::kCUDA);
+}
+
+// `host_vector` as a one-dimensional tensor over its memory.
+//
+// The tensor reads and writes the span's memory, which must outlive it. A
+// span of const elements converts the same way, and the tensor is writable
+// regardless.
+template<typename T>
+requires TensorElement<std::remove_const_t<T>>
+[[nodiscard]] at::Tensor as_tensor(std::span<T> host_vector) {
+  using value_t = std::remove_const_t<T>;
+  const std::array<int64_t, 1> sizes{static_cast<int64_t>(host_vector.size())};
+  const auto options =
+      at::TensorOptions{}.dtype(scalar_type_v<value_t>).device(at::kCPU);
+  if (host_vector.empty()) return at::empty(sizes, options);
+  return at::from_blob(const_cast<value_t*>(host_vector.data()), sizes,
+      options);
 }
 
 #pragma endregion

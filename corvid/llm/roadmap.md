@@ -1967,6 +1967,16 @@ them under `tests/.local/llm/`, and the tests skip without them. The one
 known gap is NFC normalization, which the published tokenizer applies and
 this one does not.
 
+Slice 2 landed: `qwen2_config` parses "config.json" and `qwen2_model<T>`
+views every parameter over the sharded weights files it owns, both in
+`corvid/llm/qwen2.h` beside the GPT-2 model and free of torch.
+`corvid/torch/qwen2_tensors.cuh` uploads a model to the device as it is, bf16
+included, with the head aliasing the embedding when the configuration ties
+them, and rethrows torch's errors as `std::runtime_error`. The shard index is
+never read, since both shards are mapped and searched in order. The portable
+test checks the configuration against the manifest and every shape against
+the file; the torch test checks the upload.
+
 ### 7. The experiment
 
 Weights versus context, in miniature:
