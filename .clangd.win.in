@@ -76,7 +76,7 @@ CompileFlags:
 # include dirs and the two Windows defines those TUs carry (see
 # corvid_require_libtorch in tests/CMakeLists.txt).
 If:
-  PathMatch: [corvid/torch/.*, tests/catch2_torch\.h]
+  PathMatch: [corvid/torch/.*, tests/catch2_torch\.h, tests/\.local/libtorch/.*]
 CompileFlags:
   Add: [-isystem, @CMAKE_SOURCE_DIR@/.local/libtorch/include, -isystem, @CMAKE_SOURCE_DIR@/.local/libtorch/include/torch/csrc/api/include, -DNOMINMAX, -DWIN32_LEAN_AND_MEAN]
 

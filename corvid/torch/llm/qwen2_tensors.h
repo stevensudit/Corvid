@@ -81,8 +81,9 @@ struct qwen2_tensors {
 
   // Copy every parameter of `model` to the device, or throw when the device
   // refuses, which is out of memory in practice.
-  template<llm::ParameterElement T>
-  [[nodiscard]] static qwen2_tensors upload(const llm::qwen2_model<T>& model) {
+  template<corvid::llm::ParameterElement T>
+  [[nodiscard]] static qwen2_tensors
+  upload(const corvid::llm::qwen2_model<T>& model) {
     try {
       qwen2_tensors tensors{
           .embed_tokens = to_device(model.embed_tokens),
@@ -107,9 +108,9 @@ struct qwen2_tensors {
 #pragma region Helpers
 private:
   // One block's parameters, copied to the device.
-  template<llm::ParameterElement T>
+  template<corvid::llm::ParameterElement T>
   [[nodiscard]] static qwen2_block_tensors
-  upload_block(const llm::qwen2_block_params<T>& block) {
+  upload_block(const corvid::llm::qwen2_block_params<T>& block) {
     return {
         .input_layernorm_weight = to_device(block.input_layernorm_weight),
         .q_proj_weight = to_device(block.q_proj_weight),

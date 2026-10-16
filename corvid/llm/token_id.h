@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 
 #include "../enums/sequence_enum.h"
 
@@ -30,6 +31,10 @@ enum class token_id : uint32_t {};
 consteval auto corvid_enum_spec(token_id*) {
   return corvid::enums::sequence::make_sequence_enum_spec<token_id, "">();
 }
+
+// A read-only run of token IDs, and a writable one.
+using token_ids_view = std::span<const token_id>;
+using token_ids_lens = std::span<token_id>;
 
 #pragma endregion
 

@@ -102,6 +102,21 @@ inline qwen2_model<bfloat16_t> load_model() {
   return qwen2_model<bfloat16_t>::load(load_config(), load_shards());
 }
 
+// The oracle's fp32 logits, with the IDs they answer, for the manifest's
+// prompts ("prompt_N/input_ids" and "prompt_N/logits"), skipping the test
+// when they are not here.
+inline safetensors_file load_logits() {
+  const auto path = oracle_path("logits.safetensors");
+  if (!std::filesystem::exists(path))
+    SKIP(
+        "no logits under tests/.local/llm/qwen2.5-3b-instruct; run the "
+        "oracle");
+  return safetensors_file::load(tests::open_read_only(path));
+}
+
+// The number of prompts the oracle dumped.
+constexpr auto prompt_count = 5UZ;
+
 #pragma endregion
 
 } // namespace corvid::tests::qwen2
