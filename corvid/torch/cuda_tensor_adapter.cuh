@@ -54,9 +54,9 @@ requires TensorElement<std::remove_const_t<T>>
 #pragma region Tensor to lens
 
 // `tensor` as a device lens over its memory, or an empty lens unless it is
-// a one- or two-dimensional CUDA tensor of `T` whose rows hold their
-// elements adjacently (the rows may lie any stride apart, and a
-// one-dimensional tensor is a single row).
+// a CUDA tensor of `T` of at most two dimensions whose rows hold their
+// elements adjacently (the rows may lie any stride apart, a scalar is a
+// single element, and a one-dimensional tensor is a single row).
 //
 // The lens reads and writes the tensor's memory, which must outlive it, so
 // only a named tensor converts.
@@ -67,9 +67,9 @@ as_device_lens(Tensor& tensor) noexcept {
 }
 
 // `tensor` as a device view over its memory, or an empty view unless it is
-// a one- or two-dimensional CUDA tensor of `T` whose rows hold their
-// elements adjacently (the rows may lie any stride apart, and a
-// one-dimensional tensor is a single row).
+// a CUDA tensor of `T` of at most two dimensions whose rows hold their
+// elements adjacently (the rows may lie any stride apart, a scalar is a
+// single element, and a one-dimensional tensor is a single row).
 //
 // The tensor's memory must outlive the view.
 template<TensorElement T>

@@ -190,6 +190,67 @@ public:
                : 0;
   }
 
+  // One past the last row or column, as index types.
+  [[nodiscard]] constexpr row_ndx end_row() const noexcept {
+    return row_ndx{extent_.row_count};
+  }
+  [[nodiscard]] constexpr col_ndx end_col() const noexcept {
+    return col_ndx{extent_.col_count};
+  }
+
+  // The row or column indexes as a closed interval, for ranged-for:
+  //   for (const auto r : m.row_indexes())
+  [[nodiscard]] constexpr auto row_indexes() const noexcept {
+    return interval<row_ndx>::iota(extent_.row_count);
+  }
+  [[nodiscard]] constexpr auto col_indexes() const noexcept {
+    return interval<col_ndx>::iota(extent_.col_count);
+  }
+
+  // The element offset of row `r`, column `c`, both of which must be in range.
+  [[nodiscard]] constexpr size_t
+  offset_of(row_ndx r, col_ndx c) const noexcept {
+    assert((*r < extent_.row_count) && (*c < extent_.col_count));
+    return (*r * stride_) + *c;
+  }
+
+  // The extent of the rectangle from `from` up to, but not including, `to`,
+  // where a member of `to` at its `npos` means the end of that dimension.
+  //
+  // The rectangle must lie within the layout.
+  [[nodiscard]] constexpr matrix_extent
+  window_extent(coord from, coord to) const noexcept {
+    const auto row_end =
+        (to.row == row_ndx::npos) ? extent_.row_count : *to.row;
+    const auto col_end =
+        (to.col == col_ndx::npos) ? extent_.col_count : *to.col;
+    assert((*from.row <= row_end) && (row_end <= extent_.row_count));
+    assert((*from.col <= col_end) && (col_end <= extent_.col_count));
+    return {row_end - *from.row, col_end - *from.col};
+  }
+
+  // The extent of the rectangle of `size` at `from`, where a count of `size`
+  // at its `npos` means the rest of that dimension.
+  //
+  // The rectangle must lie within the layout.
+  [[nodiscard]] constexpr matrix_extent
+  window_extent(coord from, matrix_extent size) const noexcept {
+    assert(
+        (*from.row <= extent_.row_count) && (*from.col <= extent_.col_count));
+    const auto rows_left = extent_.row_count - *from.row;
+    const auto cols_left = extent_.col_count - *from.col;
+    const auto row_count =
+        (size.row_count == matrix_extent::npos.row_count)
+            ? rows_left
+            : size.row_count;
+    const auto col_count =
+        (size.col_count == matrix_extent::npos.col_count)
+            ? cols_left
+            : size.col_count;
+    assert((row_count <= rows_left) && (col_count <= cols_left));
+    return {row_count, col_count};
+  }
+
   [[nodiscard]] constexpr bool operator==(
       const matrix_layout&) const noexcept = default;
 
@@ -199,6 +260,15 @@ private:
 };
 
 } // namespace matrix_types
+
+#pragma endregion
+#pragma region Row and column spans
+
+// A span of one row is indexed by column, and a span of one column by row.
+template<typename T>
+using row_span = enum_span<T, matrix_types::col_ndx>;
+template<typename T>
+using col_span = enum_span<T, matrix_types::row_ndx>;
 
 #pragma endregion
 #pragma region matrix_lens_base
@@ -223,6 +293,8 @@ public:
   using coord = matrix_types::coord;
   using extent_t = matrix_types::matrix_extent;
   using layout_t = matrix_types::matrix_layout;
+  using row_span_t = row_span<element_t>;
+  using col_span_t = col_span<element_t>;
 
 #pragma endregion
 #pragma region Construction
@@ -258,6 +330,23 @@ public:
   constexpr matrix_lens_base(span_t data, layout_t layout) noexcept
       : matrix_lens_base{data, layout.extent(), layout.stride()} {}
 
+  // Single-row lens over `row`, packed.
+  //
+  // The index type is deduced, not converted, so that a row span and a
+  // column span each select their own constructor.
+  template<typename U>
+  requires std::is_convertible_v<std::span<U>, span_t>
+  constexpr explicit matrix_lens_base(enum_span<U, col_ndx> row) noexcept
+      : matrix_lens_base{span_t(row.data(), row.size()),
+            extent_t{.row_count = 1, .col_count = row.size()}} {}
+
+  // Single-column lens over `column`, packed.
+  template<typename U>
+  requires std::is_convertible_v<std::span<U>, span_t>
+  constexpr explicit matrix_lens_base(enum_span<U, row_ndx> column) noexcept
+      : matrix_lens_base{span_t(column.data(), column.size()),
+            extent_t{.row_count = column.size(), .col_count = 1}} {}
+
   // Implicit conversion of a lens to a view of the same element type.
   template<typename U>
   requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
@@ -277,23 +366,6 @@ public:
     return *this;
   }
 
-  // One past the last row or column, as index types.
-  [[nodiscard]] constexpr row_ndx end_row() const noexcept {
-    return row_ndx{extent().row_count};
-  }
-  [[nodiscard]] constexpr col_ndx end_col() const noexcept {
-    return col_ndx{extent().col_count};
-  }
-
-  // The row or column indexes as a closed interval, for ranged-for:
-  //   for (const auto r : m.row_indexes())
-  [[nodiscard]] constexpr auto row_indexes() const noexcept {
-    return interval<row_ndx>::iota(extent().row_count);
-  }
-  [[nodiscard]] constexpr auto col_indexes() const noexcept {
-    return interval<col_ndx>::iota(extent().col_count);
-  }
-
 #pragma endregion
 #pragma region Slicing
 
@@ -306,7 +378,7 @@ public:
   template<typename Self>
   [[nodiscard]] constexpr Self
   slice(this const Self& self, coord from, coord to) noexcept {
-    return self.do_slice(from, self.window_size(from, to));
+    return self.do_slice(from, self.window_extent(from, to));
   }
   template<typename Self>
   [[nodiscard]] constexpr Self
@@ -326,7 +398,7 @@ public:
   template<typename Self>
   [[nodiscard]] constexpr Self slice(this const Self& self, coord from,
       extent_t size = extent_t::npos) noexcept {
-    return self.do_slice(from, self.window_size(from, size));
+    return self.do_slice(from, self.window_extent(from, size));
   }
   template<typename Self>
   [[nodiscard]] constexpr Self
@@ -436,64 +508,13 @@ private:
     const auto data = self.as_span();
     const auto offset =
         std::min((*from.row * stride) + *from.col, data.size());
-    return Self{data.subspan(offset, footprint(size, stride)), size, stride};
-  }
-
-protected:
-  // The element offset of row `r`, column `c`, both of which must be in range.
-  [[nodiscard]] constexpr size_t
-  offset_of(row_ndx r, col_ndx c) const noexcept {
-    assert((*r < extent().row_count) && (*c < extent().col_count));
-    return (*r * stride()) + *c;
-  }
-
-  // The element count a view of `size` at `stride` reaches.
-  [[nodiscard]] static constexpr size_t
-  footprint(extent_t size, size_t stride) noexcept {
-    return layout_t{size, stride}.footprint();
-  }
-  using layout_t::footprint;
-
-  // The size of the rectangle from `from` up to, but not including, `to`,
-  // where a member of `to` at its `npos` means the end of that dimension.
-  //
-  // The rectangle must lie within the view.
-  [[nodiscard]] constexpr extent_t
-  window_size(coord from, coord to) const noexcept {
-    const auto row_end =
-        (to.row == row_ndx::npos) ? extent().row_count : *to.row;
-    const auto col_end =
-        (to.col == col_ndx::npos) ? extent().col_count : *to.col;
-    assert((*from.row <= row_end) && (row_end <= extent().row_count));
-    assert((*from.col <= col_end) && (col_end <= extent().col_count));
-    return {row_end - *from.row, col_end - *from.col};
-  }
-
-  // The size of the rectangle of `size` at `from`, where a count of `size`
-  // at its `npos` means the rest of that dimension.
-  //
-  // The rectangle must lie within the view.
-  [[nodiscard]] constexpr extent_t
-  window_size(coord from, extent_t size) const noexcept {
-    assert((*from.row <= extent().row_count) &&
-           (*from.col <= extent().col_count));
-    const auto rows_left = extent().row_count - *from.row;
-    const auto cols_left = extent().col_count - *from.col;
-    const auto row_count =
-        (size.row_count == extent_t::npos.row_count)
-            ? rows_left
-            : size.row_count;
-    const auto col_count =
-        (size.col_count == extent_t::npos.col_count)
-            ? cols_left
-            : size.col_count;
-    assert((row_count <= rows_left) && (col_count <= cols_left));
-    return {row_count, col_count};
+    return Self{data.subspan(offset, layout_t{size, stride}.footprint()), size,
+        stride};
   }
 
 #pragma endregion
 #pragma region Data members
-
+protected:
   span_t data_;
 
 #pragma endregion
@@ -525,17 +546,13 @@ public:
   using typename base::col_ndx;
   using typename base::coord;
   using typename base::extent_t;
-  using row_span = enum_span<element_t, col_ndx>;
+  using typename base::row_span_t;
+  using typename base::col_span_t;
 
 #pragma endregion
 #pragma region Construction
 
   using base::base;
-
-  // A single-row lens over all of `data`.
-  [[nodiscard]] static constexpr matrix_lens single_row(span_t data) noexcept {
-    return {data, extent_t{.row_count = 1, .col_count = data.size()}};
-  }
 
 #pragma endregion
 #pragma region Accessors
@@ -556,7 +573,7 @@ public:
   }
 
   // Row at `r`, as a span of its columns.
-  [[nodiscard]] constexpr row_span operator[](row_ndx r) const noexcept {
+  [[nodiscard]] constexpr row_span_t operator[](row_ndx r) const noexcept {
     return row_as_span(r);
   }
 
@@ -565,7 +582,7 @@ public:
   // `operator[row_ndx]` instead.
   //
   // `r` must be in range, and `first <= last <= col_extent()`.
-  [[nodiscard]] constexpr row_span row_as_span(row_ndx r, col_ndx first = {},
+  [[nodiscard]] constexpr row_span_t row_as_span(row_ndx r, col_ndx first = {},
       col_ndx last = col_ndx::npos) const noexcept {
     assert(*r < extent().row_count);
     const auto end = (last == col_ndx::npos) ? extent().col_count : *last;
@@ -662,16 +679,15 @@ using const_float_span = std::span<const float>;
 using double_span = std::span<double>;
 using const_double_span = std::span<const double>;
 
-// A span of one row is indexed by column, and a span of one column by row.
-using float_col_span = enum_span<float, matrix_types::row_ndx>;
-using const_float_col_span = enum_span<const float, matrix_types::row_ndx>;
-using float_row_span = enum_span<float, matrix_types::col_ndx>;
-using const_float_row_span = enum_span<const float, matrix_types::col_ndx>;
+using float_col_span = col_span<float>;
+using const_float_col_span = col_span<const float>;
+using float_row_span = row_span<float>;
+using const_float_row_span = row_span<const float>;
 
-using double_col_span = enum_span<double, matrix_types::row_ndx>;
-using const_double_col_span = enum_span<const double, matrix_types::row_ndx>;
-using double_row_span = enum_span<double, matrix_types::col_ndx>;
-using const_double_row_span = enum_span<const double, matrix_types::col_ndx>;
+using double_col_span = col_span<double>;
+using const_double_col_span = col_span<const double>;
+using double_row_span = row_span<double>;
+using const_double_row_span = row_span<const double>;
 
 #pragma endregion
 }}} // namespace corvid::container::matrices

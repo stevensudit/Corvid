@@ -99,13 +99,27 @@ TEST_CASE("Host span and one-dimensional tensor share memory", "[torch]") {
   CHECK(empty.defined());
   CHECK(empty.numel() == 0);
 
-  // The tensor converts back as a single row, as a span does directly.
+  // The tensor converts back as a single row, which is also what a row
+  // span becomes as a lens, while a column span becomes a single column.
   const auto back = as_host_view<float>(tensor);
   CHECK(back.extent() == matrix_extent{.row_count = 1, .col_count = 12});
   CHECK(back[row_ndx{0}][col_ndx{6}] == 7.0F);
-  const auto row = float_matrix_lens::single_row(std::span{values});
+  const float_matrix_view row(float_row_span{values});
   CHECK(row.extent() == back.extent());
-  CHECK(as_tensor(row).dim() == 2);
+  const auto row_tensor = as_tensor(row);
+  CHECK(row_tensor.sizes() == at::IntArrayRef({1, 12}));
+  const float_matrix_view column(float_col_span{values});
+  CHECK(column.extent() == matrix_extent{.row_count = 12, .col_count = 1});
+  const auto column_tensor = as_tensor(column);
+  CHECK(column_tensor.sizes() == at::IntArrayRef({12, 1}));
+  CHECK(as_host_view<float>(column_tensor).extent() == column.extent());
+
+  // A scalar is a single element.
+  const auto scalar =
+      at::scalar_tensor(3.0F, TensorOptions{}.dtype(ScalarType::Float));
+  const auto one = as_host_view<float>(scalar);
+  CHECK(one.extent() == matrix_extent{.row_count = 1, .col_count = 1});
+  CHECK(one[row_ndx{0}, col_ndx{0}] == 3.0F);
 }
 
 TEST_CASE("A strided slice converts with its stride", "[torch]") {

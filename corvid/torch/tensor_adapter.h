@@ -34,7 +34,7 @@
 // `as_host_view`). Nothing is copied and nothing changes hands. The two share
 // the memory, and whichever side owns it must outlive the other. A span
 // converts the same way, to and from a one-dimensional tensor, which the lens
-// side sees as a single row.
+// side sees as a single row, and a scalar converts to a single element.
 //
 //   const auto weight = as_tensor(weights.find_matrix<float>("wte.weight"));
 //   const auto logits = as_host_view<float>(at::matmul(hidden, weight.t()));
@@ -113,28 +113,30 @@ static_assert(
 
 namespace details {
 
-// The layout of `tensor` as a lens, or an empty layout unless it is a one-
-// or two-dimensional tensor of `T` on `device` whose rows hold their elements
-// adjacently.
+// The layout of `tensor` as a lens, or an empty layout unless it is a
+// tensor of `T` on `device` of at most two dimensions whose rows hold their
+// elements adjacently.
 //
-// A one-dimensional tensor is a single row. The rows themselves may lie any
-// stride apart, which the layout carries. Only the inner stride must be one,
-// since a lens has no stride within a row, and a single-column tensor may
-// carry any, since no second element is ever reached through it. A
-// single-row tensor's outer stride is likewise arbitrary, so its layout is
-// packed.
+// A scalar is a single element and a one-dimensional tensor is a single row.
+// The rows themselves may lie any stride apart, which the layout carries.
+// Only the inner stride must be one, since a lens has no stride within a
+// row, and a single-column tensor may carry any, since no second element is
+// ever reached through it. A single-row tensor's outer stride is likewise
+// arbitrary, so its layout is packed.
 template<TensorElement T>
 [[nodiscard]] matrix_layout
 layout_of(const Tensor& tensor, DeviceType device) noexcept {
-  if (!tensor.defined() || (tensor.dim() < 1) || (tensor.dim() > 2) ||
+  if (!tensor.defined() || (tensor.dim() > 2) ||
       (tensor.scalar_type() != scalar_type_v<T>) ||
       (tensor.device().type() != device))
     return {};
-  const auto inner = tensor.dim() - 1;
-  if ((tensor.size(inner) > 1) && (tensor.stride(inner) != 1)) return {};
+  const auto dims = tensor.dim();
+  if ((dims > 0) && (tensor.size(dims - 1) > 1) &&
+      (tensor.stride(dims - 1) != 1))
+    return {};
   const matrix_extent extent{
-      .row_count = (inner == 1) ? static_cast<size_t>(tensor.size(0)) : 1,
-      .col_count = static_cast<size_t>(tensor.size(inner))};
+      .row_count = (dims == 2) ? static_cast<size_t>(tensor.size(0)) : 1,
+      .col_count = dims ? static_cast<size_t>(tensor.size(dims - 1)) : 1};
   const auto stride =
       (extent.row_count <= 1)
           ? extent.col_count
@@ -214,9 +216,9 @@ requires TensorElement<std::remove_const_t<T>>
 #pragma region Tensor to lens
 
 // `tensor` as a lens over its memory, or an empty lens unless it is a
-// one- or two-dimensional tensor of `T` on the host whose rows hold their
-// elements adjacently (the rows may lie any stride apart, and a
-// one-dimensional tensor is a single row).
+// tensor of `T` on the host of at most two dimensions whose rows hold their
+// elements adjacently (the rows may lie any stride apart, a scalar is a
+// single element, and a one-dimensional tensor is a single row).
 //
 // The lens reads and writes the tensor's memory, which must outlive it, so
 // only a named tensor converts.
@@ -226,9 +228,9 @@ template<TensorElement T>
 }
 
 // `tensor` as a view over its memory, or an empty view unless it is a
-// one- or two-dimensional tensor of `T` on the host whose rows hold their
-// elements adjacently (the rows may lie any stride apart, and a
-// one-dimensional tensor is a single row).
+// tensor of `T` on the host of at most two dimensions whose rows hold their
+// elements adjacently (the rows may lie any stride apart, a scalar is a
+// single element, and a one-dimensional tensor is a single row).
 //
 // The tensor's memory must outlive the view.
 template<TensorElement T>
