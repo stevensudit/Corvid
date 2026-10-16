@@ -26,7 +26,7 @@
 #include "corvid/cuda/cuda_matrix.cuh"
 #include "corvid/cuda/linalg/linear_algebra.cuh"
 #include "corvid/llm/safetensors.h"
-#include "corvid/torch/tensor_adapter.cuh"
+#include "corvid/torch/cuda_tensor_adapter.cuh"
 #include "gpt2_oracle.h"
 
 // The LibTorch build spike is one translation unit that links our CUDA stack

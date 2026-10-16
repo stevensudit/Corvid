@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-#include "corvid/llm/gpt2_engine.h"
+#include "corvid/llm/gpt2/gpt2_engine.h"
 #include "corvid/math/bfloat16.h"
 #include "catch2_main.h"
 #include "gpt2_oracle.h"

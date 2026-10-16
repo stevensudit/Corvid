@@ -26,7 +26,7 @@
 #include <string_view>
 #include <vector>
 
-#include "corvid/llm/gpt2_tokenizer.h"
+#include "corvid/llm/gpt2/gpt2_tokenizer.h"
 #include "corvid/llm/safetensors.h"
 #include "corvid/filesys/os_file.h"
 #include "corvid/meta/bit_cast.h"

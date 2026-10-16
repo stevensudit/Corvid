@@ -26,16 +26,16 @@
 #include <utility>
 #include <vector>
 
-#include "../../containers/utils/interval.h"
-#include "../../containers/utils/matrix_view.h"
-#include "../../linalg/linear_algebra.h"
-#include "../../llm/token_id.h"
-#include "../cuda_buffer.cuh"
-#include "../cuda_cublas.cuh"
-#include "../cuda_matrix.cuh"
-#include "../linalg/linear_algebra.cuh"
+#include "../../../containers/utils/interval.h"
+#include "../../../containers/utils/matrix_view.h"
+#include "../../../linalg/linear_algebra.h"
+#include "../../../llm/token_id.h"
+#include "../../cuda_buffer.cuh"
+#include "../../cuda_cublas.cuh"
+#include "../../cuda_matrix.cuh"
+#include "../../linalg/linear_algebra.cuh"
 #include "gpt2_engine.cuh"
-#include "llm_ops.cuh"
+#include "../llm_ops.cuh"
 
 // Training GPT-2 on the device.
 //

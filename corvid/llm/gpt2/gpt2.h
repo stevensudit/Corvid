@@ -23,11 +23,11 @@
 #include <utility>
 #include <vector>
 
-#include "../containers/utils/matrix_view.h"
-#include "../enums/enum_conversion.h"
-#include "../math/bfloat16.h"
-#include "safetensors.h"
-#include "token_id.h"
+#include "../../containers/utils/matrix_view.h"
+#include "../../enums/enum_conversion.h"
+#include "../../math/bfloat16.h"
+#include "../safetensors.h"
+#include "../token_id.h"
 
 namespace corvid::llm {
 

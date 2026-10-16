@@ -23,8 +23,8 @@
 #include <ATen/ATen.h>
 #include <c10/util/Exception.h>
 
-#include "../llm/qwen2.h"
-#include "tensor_adapter.cuh"
+#include "../../llm/qwen2/qwen2.h"
+#include "../tensor_adapter.h"
 
 // A Qwen2 model's parameters as tensors on the device.
 //

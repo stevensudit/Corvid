@@ -6,7 +6,7 @@
 # their folder path, and the edge is checked against the allow-list below. The
 # check is deliberately crude: it inspects direct edges only (sufficient by
 # transitivity, since the in-band property is transitive) and treats the apex
-# bands (ecs, proto, lang, sim, llm, cuda) as permitted to depend on anything
+# bands (ecs, proto, lang, sim, llm, cuda, torch) as permitted to depend on anything
 # lower.
 #
 # Subsystem umbrella headers ("../enums.h", "../strings.h", "../containers.h",
@@ -46,6 +46,7 @@ function Get-Band([string] $rel) {
     'linalg/*' { return 'linalg' }
     'llm/*' { return 'llm' }
     'cuda/*' { return 'cuda' }
+    'torch/*' { return 'torch' }
     '*.h' { return 'umbrella' } # any other top-level corvid/<sub>.h
     default { return 'external' }
   }
@@ -60,7 +61,7 @@ function Test-BandEdge([string] $src, [string] $dst) {
   # below from admitting a meta <-> math cycle.
   if ($src -eq 'meta') { return $false }
   # Apex bands may depend on anything lower (including umbrellas).
-  if ($src -in 'ecs', 'proto', 'lang', 'sim', 'llm', 'cuda') { return $true }
+  if ($src -in 'ecs', 'proto', 'lang', 'sim', 'llm', 'cuda', 'torch') { return $true }
   # meta is the universal foundation.
   if ($dst -eq 'meta') { return $true }
   # math is a std-only foundation too, universally dependable like meta.

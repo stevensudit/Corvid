@@ -24,8 +24,8 @@
 #include "corvid/containers/utils/matrix_view.h"
 #include "corvid/cuda/cuda_matrix.cuh"
 #include "corvid/math/bfloat16.h"
-#include "corvid/torch/qwen2_tensors.cuh"
-#include "corvid/torch/tensor_adapter.cuh"
+#include "corvid/torch/llm/qwen2_tensors.h"
+#include "corvid/torch/cuda_tensor_adapter.cuh"
 #include "qwen2_oracle.h"
 
 namespace corvid_tests {

@@ -24,8 +24,8 @@
 #include "corvid/containers/utils/matrix_view.h"
 #include "corvid/cuda/cuda_buffer.cuh"
 #include "corvid/cuda/cuda_matrix.cuh"
-#include "corvid/cuda/llm/gpt2_engine.cuh"
-#include "corvid/llm/gpt2.h"
+#include "corvid/cuda/llm/gpt2/gpt2_engine.cuh"
+#include "corvid/llm/gpt2/gpt2.h"
 #include "gpt2_oracle.h"
 
 // The device side of the GPT-2 oracle.

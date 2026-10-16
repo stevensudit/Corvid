@@ -28,7 +28,7 @@
 
 #include "corvid/containers/utils/interval.h"
 #include "corvid/cuda/bfloat16.cuh"
-#include "corvid/cuda/llm/gpt2_engine.cuh"
+#include "corvid/cuda/llm/gpt2/gpt2_engine.cuh"
 #include "corvid/infra/stopwatch.h"
 #include "catch2_main.h"
 #include "gpt2_device_oracle.cuh"

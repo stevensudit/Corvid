@@ -19,9 +19,9 @@
 #include <string_view>
 #include <vector>
 
-#include "../strings/conversion.h"
-#include "../strings/unicode.h"
-#include "bpe_tokenizer.h"
+#include "../../strings/conversion.h"
+#include "../../strings/unicode.h"
+#include "../bpe_tokenizer.h"
 
 // Qwen2's byte-level BPE tokenizer, which is `bpe_tokenizer` under Qwen2's
 // split rule.

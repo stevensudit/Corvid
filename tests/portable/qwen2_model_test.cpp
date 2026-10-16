@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#include "corvid/llm/qwen2.h"
+#include "corvid/llm/qwen2/qwen2.h"
 #include "corvid/proto/misc/json_parser.h"
 #include "catch2_main.h"
 #include "qwen2_oracle.h"

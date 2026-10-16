@@ -23,12 +23,12 @@
 #include <span>
 #include <vector>
 
-#include "../containers/utils/interval.h"
-#include "../containers/utils/matrix_view.h"
-#include "../meta/containers.h"
+#include "../../containers/utils/interval.h"
+#include "../../containers/utils/matrix_view.h"
+#include "../../meta/containers.h"
 #include "gpt2.h"
-#include "llm_ops.h"
-#include "token_id.h"
+#include "../llm_ops.h"
+#include "../token_id.h"
 
 // The GPT-2 inference engine on the CPU, in fp32.
 //

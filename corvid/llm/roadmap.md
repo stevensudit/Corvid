@@ -79,15 +79,15 @@ manager. So the division of labor is fixed up front:
     `logits`, `pick_greedy`, plus `token_id.h`, the tokenizer, and the
     safetensors reader.
     Device counterpart `corvid/cuda/llm/llm_ops.cuh` (`corvid::cuda::llm`).
-  - `corvid/llm/gpt2.h`: `gpt2_model`, the parsed weights file (parameter
-    views, dimensions, the head-count table), shared by both engines.
-    `corvid/llm/gpt2_engine.h` (`gpt2_engine`, CPU) and
-    `corvid/cuda/llm/gpt2_engine.cuh` (`corvid::cuda::llm::gpt2_engine`,
+  - `corvid/llm/gpt2/gpt2.h`: `gpt2_model`, the parsed weights file
+    (parameter views, dimensions, the head-count table), shared by both
+    engines. `corvid/llm/gpt2/gpt2_engine.h` (`gpt2_engine`, CPU) and
+    `corvid/cuda/llm/gpt2/gpt2_engine.cuh` (`corvid::cuda::llm::gpt2_engine`,
     device) run it: `apply_block`, `forward`, `next_token`, `generate`,
-    with their activation bundles. `corvid/cuda/llm/gpt2_trainer.cuh`
+    with their activation bundles. `corvid/cuda/llm/gpt2/gpt2_trainer.cuh`
     (`gpt2_trainer`, device only) is stage 5's training pass over the
-    device engine. A later model gets its own files beside them and reuses
-    the ops.
+    device engine. Each model has its own subdirectory, `gpt2/` and
+    `qwen2/`, and reuses the ops at the top of `corvid/llm/`.
 - **Two bands in `deps.md`**: `linalg` rests on `containers/utils`; `llm` is
   an apex band so the reader may reach `filesys` and `proto`. The `.cuh`
   files stay under `corvid/cuda/`, outside the layering lint.
@@ -1931,7 +1931,7 @@ through our reader, runs a matmul on the device, and matches our GEMM, on
 both legs.
 
 Rulings (2026-10-12), after the spike passed on both legs and the adapter
-band landed (`corvid/torch/tensor_adapter.cuh`):
+band landed (`corvid/torch/tensor_adapter.h`):
 
 1. `at::Tensor` is the primary inside the torch band, since autograd flows
    only through torch ops, and our lenses are views into it through the
@@ -1969,8 +1969,8 @@ this one does not.
 
 Slice 2 landed: `qwen2_config` parses "config.json" and `qwen2_model<T>`
 views every parameter over the sharded weights files it owns, both in
-`corvid/llm/qwen2.h` beside the GPT-2 model and free of torch.
-`corvid/torch/qwen2_tensors.cuh` uploads a model to the device as it is, bf16
+`corvid/llm/qwen2/qwen2.h` beside the GPT-2 model and free of torch.
+`corvid/torch/llm/qwen2_tensors.h` uploads a model to the device as it is, bf16
 included, with the head aliasing the embedding when the configuration ties
 them, and rethrows torch's errors as `std::runtime_error`. The shard index is
 never read, since both shards are mapped and searched in order. The portable

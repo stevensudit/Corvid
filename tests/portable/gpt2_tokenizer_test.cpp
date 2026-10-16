@@ -25,7 +25,7 @@
 #include <string_view>
 #include <vector>
 
-#include "corvid/llm/gpt2_tokenizer.h"
+#include "corvid/llm/gpt2/gpt2_tokenizer.h"
 #include "corvid/proto/misc/json_parser.h"
 #include "corvid/strings/conversion.h"
 #include "corvid/strings/token_parser.h"

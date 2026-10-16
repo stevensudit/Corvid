@@ -24,12 +24,12 @@
 #include <utility>
 #include <vector>
 
-#include "../containers/utils/interval.h"
-#include "../containers/utils/matrix_view.h"
-#include "../enums/enum_conversion.h"
-#include "../proto/misc/json_parser.h"
-#include "safetensors.h"
-#include "token_id.h"
+#include "../../containers/utils/interval.h"
+#include "../../containers/utils/matrix_view.h"
+#include "../../enums/enum_conversion.h"
+#include "../../proto/misc/json_parser.h"
+#include "../safetensors.h"
+#include "../token_id.h"
 
 // A Qwen2 model as its publisher ships it, which is the dimensions from
 // "config.json" and the parameters as views over the sharded safetensors

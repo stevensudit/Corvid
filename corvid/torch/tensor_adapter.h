@@ -24,26 +24,23 @@
 #include <ATen/ATen.h>
 
 #include "../containers/utils/matrix_view.h"
-#include "../cuda/cuda_matrix.cuh"
 #include "../math/bfloat16.h"
 
-// Zero-copy adapters between Corvid's matrix lenses and ATen tensors.
+// Zero-copy adapters between Corvid's matrix lenses and ATen tensors on the
+// host.
 //
 // A lens becomes a tensor over the same memory with `as_tensor`, and a tensor
-// becomes a lens over its memory with `as_host_lens` or `as_device_lens` (or
-// their read-only `_view` forms). Nothing is copied and nothing changes
-// hands. The two share the memory, and whichever side owns it must outlive
-// the other. Memory stays where it is, so a device lens becomes a CUDA tensor
-// and a CUDA tensor becomes a device lens.
+// becomes a lens over its memory with `as_host_lens` (or its read-only
+// `as_host_view`). Nothing is copied and nothing changes hands. The two share
+// the memory, and whichever side owns it must outlive the other. A span
+// converts the same way, to and from a one-dimensional tensor, which the lens
+// side sees as a single row.
 //
 //   const auto weight = as_tensor(weights.find_matrix<float>("wte.weight"));
-//   const auto product =
-//       at::matmul(as_tensor(d_a.as_view()), as_tensor(d_b.as_view()));
-//   const auto out = as_device_view<float>(product);
+//   const auto logits = as_host_view<float>(at::matmul(hidden, weight.t()));
 //
-// Both sides issue their device work on the legacy default stream, so a
-// handoff needs no synchronization unless one side moves to a stream of its
-// own.
+// The device half, for CUDA tensors and device lenses, is in
+// "cuda_tensor_adapter.cuh".
 
 namespace corvid::torch {
 
@@ -116,30 +113,33 @@ static_assert(
 
 namespace details {
 
-// The layout of `tensor` as a lens, or an empty layout unless it is a
-// two-dimensional tensor of `T` on `device` whose rows hold their elements
+// The layout of `tensor` as a lens, or an empty layout unless it is a one-
+// or two-dimensional tensor of `T` on `device` whose rows hold their elements
 // adjacently.
 //
-// The rows themselves may lie any stride apart, which the layout carries.
-// Only the inner stride must be one, since a lens has no stride within a
-// row, and a single-column tensor may carry any, since no second element is
-// ever reached through it. A single-row tensor's outer stride is likewise
-// arbitrary, so its layout is packed.
+// A one-dimensional tensor is a single row. The rows themselves may lie any
+// stride apart, which the layout carries. Only the inner stride must be one,
+// since a lens has no stride within a row, and a single-column tensor may
+// carry any, since no second element is ever reached through it. A
+// single-row tensor's outer stride is likewise arbitrary, so its layout is
+// packed.
 template<TensorElement T>
 [[nodiscard]] matrix_layout
 layout_of(const Tensor& tensor, DeviceType device) noexcept {
-  if (!tensor.defined() || (tensor.dim() != 2) ||
+  if (!tensor.defined() || (tensor.dim() < 1) || (tensor.dim() > 2) ||
       (tensor.scalar_type() != scalar_type_v<T>) ||
-      (tensor.device().type() != device) ||
-      ((tensor.size(1) > 1) && (tensor.stride(1) != 1)))
+      (tensor.device().type() != device))
     return {};
-  const matrix_extent extent{.row_count = static_cast<size_t>(tensor.size(0)),
-      .col_count = static_cast<size_t>(tensor.size(1))};
+  const auto inner = tensor.dim() - 1;
+  if ((tensor.size(inner) > 1) && (tensor.stride(inner) != 1)) return {};
+  const matrix_extent extent{
+      .row_count = (inner == 1) ? static_cast<size_t>(tensor.size(0)) : 1,
+      .col_count = static_cast<size_t>(tensor.size(inner))};
   const auto stride =
       (extent.row_count <= 1)
           ? extent.col_count
           : static_cast<size_t>(tensor.stride(0));
-  return {.extent = extent, .stride = stride};
+  return {extent, stride};
 }
 
 // `tensor` as a lens of `Lens`'s kind over its memory, or an empty lens
@@ -152,8 +152,8 @@ template<typename Lens>
   if (layout.empty()) return {};
   // A read-only lens asks for the const pointer, which leaves copy-on-write
   // storage shared, while a writable one asks for the mutable pointer, which
-  // makes the storage its own first. ATen types neither for our element
-  // types, so the typed pointer comes from the untyped one.
+  // makes the storage its own first. ATen offers a typed pointer only for its
+  // own element types, so the untyped one is cast here.
   element_t* data;
   if constexpr (std::is_const_v<element_t>)
     data = static_cast<element_t*>(tensor.const_data_ptr());
@@ -193,17 +193,6 @@ requires TensorElement<std::remove_const_t<T>>
   return details::tensor_of(host_matrix, DeviceType::CPU);
 }
 
-// `device_matrix` as a CUDA tensor of the same shape and strides over its
-// memory.
-//
-// The tensor reads and writes the lens's memory, which must outlive it. A
-// view converts the same way, and the tensor is writable regardless.
-template<typename T>
-requires TensorElement<std::remove_const_t<T>>
-[[nodiscard]] Tensor as_tensor(cuda::cuda_matrix_lens<T> device_matrix) {
-  return details::tensor_of(device_matrix, DeviceType::CUDA);
-}
-
 // `host_vector` as a one-dimensional tensor over its memory.
 //
 // The tensor reads and writes the span's memory, which must outlive it. A
@@ -225,8 +214,9 @@ requires TensorElement<std::remove_const_t<T>>
 #pragma region Tensor to lens
 
 // `tensor` as a lens over its memory, or an empty lens unless it is a
-// two-dimensional tensor of `T` on the host whose rows hold their elements
-// adjacently (the rows may lie any stride apart).
+// one- or two-dimensional tensor of `T` on the host whose rows hold their
+// elements adjacently (the rows may lie any stride apart, and a
+// one-dimensional tensor is a single row).
 //
 // The lens reads and writes the tensor's memory, which must outlive it, so
 // only a named tensor converts.
@@ -236,36 +226,14 @@ template<TensorElement T>
 }
 
 // `tensor` as a view over its memory, or an empty view unless it is a
-// two-dimensional tensor of `T` on the host whose rows hold their elements
-// adjacently (the rows may lie any stride apart).
+// one- or two-dimensional tensor of `T` on the host whose rows hold their
+// elements adjacently (the rows may lie any stride apart, and a
+// one-dimensional tensor is a single row).
 //
 // The tensor's memory must outlive the view.
 template<TensorElement T>
 [[nodiscard]] matrix_view<T> as_host_view(const Tensor& tensor) noexcept {
   return details::lens_of<matrix_view<T>>(tensor, DeviceType::CPU);
-}
-
-// `tensor` as a device lens over its memory, or an empty lens unless it is
-// a two-dimensional CUDA tensor of `T` whose rows hold their elements
-// adjacently (the rows may lie any stride apart).
-//
-// The lens reads and writes the tensor's memory, which must outlive it, so
-// only a named tensor converts.
-template<TensorElement T>
-[[nodiscard]] cuda::cuda_matrix_lens<T>
-as_device_lens(Tensor& tensor) noexcept {
-  return details::lens_of<cuda::cuda_matrix_lens<T>>(tensor, DeviceType::CUDA);
-}
-
-// `tensor` as a device view over its memory, or an empty view unless it is
-// a two-dimensional CUDA tensor of `T` whose rows hold their elements
-// adjacently (the rows may lie any stride apart).
-//
-// The tensor's memory must outlive the view.
-template<TensorElement T>
-[[nodiscard]] cuda::cuda_matrix_view<T>
-as_device_view(const Tensor& tensor) noexcept {
-  return details::lens_of<cuda::cuda_matrix_view<T>>(tensor, DeviceType::CUDA);
 }
 
 #pragma endregion

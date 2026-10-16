@@ -149,26 +149,53 @@ inline constexpr matrix_extent matrix_extent::dynamic{
 // The row-major layout of a matrix in memory, as its extent and the stride
 // its rows start apart.
 //
-// A default-constructed layout is empty.
-struct matrix_layout {
-  matrix_extent extent{.row_count = 0, .col_count = 0};
-  size_t stride{};
+// A default-constructed layout is empty. Every lens is a layout, since
+// `matrix_lens_base` derives from it.
+class matrix_layout {
+public:
+  constexpr matrix_layout() noexcept = default;
 
-  // Whether the layout has no elements.
-  [[nodiscard]] constexpr bool empty() const noexcept {
-    return !extent.row_count || !extent.col_count;
+  // Layout of `extent` whose rows start `stride` elements apart, which must
+  // be at least `extent.col_count`.
+  constexpr matrix_layout(matrix_extent extent, size_t stride) noexcept
+      : extent_{extent}, stride_{stride} {}
+
+  [[nodiscard]] constexpr matrix_extent extent() const noexcept {
+    return extent_;
+  }
+  [[nodiscard]] constexpr size_t stride() const noexcept { return stride_; }
+  [[nodiscard]] constexpr size_t row_extent() const noexcept {
+    return extent_.row_count;
+  }
+  [[nodiscard]] constexpr size_t col_extent() const noexcept {
+    return extent_.col_count;
   }
 
-  // The element count from the first element of the first row through the last
-  // element of the last row, which is what a lens of the layout reaches.
+  // The element count, which is what packed storage for the extent holds.
+  [[nodiscard]] constexpr size_t size() const noexcept {
+    return extent_.size();
+  }
+  [[nodiscard]] constexpr bool empty() const noexcept {
+    return !extent_.row_count || !extent_.col_count;
+  }
+  [[nodiscard]] constexpr bool is_packed() const noexcept {
+    return (stride_ == extent_.col_count);
+  }
+
+  // The element count from the first element of the first row through the
+  // last of the last row, which is what a lens of the layout reaches.
   [[nodiscard]] constexpr size_t footprint() const noexcept {
-    return extent.row_count
-               ? ((extent.row_count - 1) * stride) + extent.col_count
+    return extent_.row_count
+               ? ((extent_.row_count - 1) * stride_) + extent_.col_count
                : 0;
   }
 
   [[nodiscard]] constexpr bool operator==(
       const matrix_layout&) const noexcept = default;
+
+private:
+  matrix_extent extent_{.row_count = 0, .col_count = 0};
+  size_t stride_{};
 };
 
 } // namespace matrix_types
@@ -185,7 +212,7 @@ struct matrix_layout {
 //
 // A derived class inherits the constructors, which is how `slice` builds one.
 template<typename T>
-class matrix_lens_base {
+class matrix_lens_base: public matrix_types::matrix_layout {
 public:
 #pragma region Types
 
@@ -221,7 +248,7 @@ public:
   // last element of the last row.
   constexpr matrix_lens_base(span_t data, extent_t extent,
       size_t stride) noexcept
-      : extent_{extent}, stride_{stride}, data_{data} {
+      : layout_t{extent, stride}, data_{data} {
     assert(stride >= extent.col_count);
     assert(data.size() >= footprint());
     data_ = data_.first(footprint());
@@ -229,14 +256,13 @@ public:
 
   // Strided lens over `data` in `layout`, under the same requirements.
   constexpr matrix_lens_base(span_t data, layout_t layout) noexcept
-      : matrix_lens_base{data, layout.extent, layout.stride} {}
+      : matrix_lens_base{data, layout.extent(), layout.stride()} {}
 
   // Implicit conversion of a lens to a view of the same element type.
   template<typename U>
   requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
   constexpr matrix_lens_base(const matrix_lens_base<U>& other) noexcept
-      : extent_{other.extent()}, stride_{other.stride()},
-        data_{other.as_span()} {}
+      : layout_t{other.layout()}, data_{other.as_span()} {}
 
 #pragma endregion
 #pragma region Accessors
@@ -246,43 +272,26 @@ public:
   // its rows.
   [[nodiscard]] constexpr span_t as_span() const noexcept { return data_; }
 
-  [[nodiscard]] constexpr size_t stride() const noexcept { return stride_; }
-
-  [[nodiscard]] constexpr size_t row_extent() const noexcept {
-    return extent_.row_count;
-  }
-  [[nodiscard]] constexpr size_t col_extent() const noexcept {
-    return extent_.col_count;
-  }
-  [[nodiscard]] constexpr extent_t extent() const noexcept { return extent_; }
-  [[nodiscard]] constexpr layout_t layout() const noexcept {
-    return {.extent = extent_, .stride = stride_};
-  }
-  [[nodiscard]] constexpr size_t size() const noexcept {
-    return extent_.size();
-  }
-  [[nodiscard]] constexpr bool empty() const noexcept {
-    return !extent_.row_count || !extent_.col_count;
-  }
-  [[nodiscard]] constexpr bool is_packed() const noexcept {
-    return (stride_ == extent_.col_count);
+  // The layout alone, as the base.
+  [[nodiscard]] constexpr const layout_t& layout() const noexcept {
+    return *this;
   }
 
   // One past the last row or column, as index types.
   [[nodiscard]] constexpr row_ndx end_row() const noexcept {
-    return row_ndx{extent_.row_count};
+    return row_ndx{extent().row_count};
   }
   [[nodiscard]] constexpr col_ndx end_col() const noexcept {
-    return col_ndx{extent_.col_count};
+    return col_ndx{extent().col_count};
   }
 
   // The row or column indexes as a closed interval, for ranged-for:
   //   for (const auto r : m.row_indexes())
   [[nodiscard]] constexpr auto row_indexes() const noexcept {
-    return interval<row_ndx>::iota(extent_.row_count);
+    return interval<row_ndx>::iota(extent().row_count);
   }
   [[nodiscard]] constexpr auto col_indexes() const noexcept {
-    return interval<col_ndx>::iota(extent_.col_count);
+    return interval<col_ndx>::iota(extent().col_count);
   }
 
 #pragma endregion
@@ -355,16 +364,16 @@ public:
   template<typename U>
   [[nodiscard]] bool
   is_disjoint(const matrix_lens_base<U>& other) const noexcept {
-    if ((sizeof(U) != sizeof(element_t)) || (other.stride() != stride_))
+    if ((sizeof(U) != sizeof(element_t)) || (other.stride() != stride()))
       return corvid::is_disjoint(data_, other.as_span());
     if (empty() || other.empty()) return true;
     const auto first = std::bit_cast<uintptr_t>(data_.data());
     const auto other_first = std::bit_cast<uintptr_t>(other.as_span().data());
     if (other_first < first)
-      return !windows_overlap(other_first, other.extent(), first, extent_,
-          stride_);
-    return !windows_overlap(first, extent_, other_first, other.extent(),
-        stride_);
+      return !windows_overlap(other_first, other.extent(), first, extent(),
+          stride());
+    return !windows_overlap(first, extent(), other_first, other.extent(),
+        stride());
   }
 
   // Whether this lens and `other` reach exactly the same elements.
@@ -373,7 +382,7 @@ public:
     return (sizeof(U) == sizeof(element_t)) &&
            (static_cast<const void*>(data_.data()) ==
                static_cast<const void*>(other.as_span().data())) &&
-           (extent_ == other.extent()) && (stride_ == other.stride());
+           (layout() == other.layout());
   }
 
   // Whether this lens and `other` reach exactly the same elements or none in
@@ -434,18 +443,16 @@ protected:
   // The element offset of row `r`, column `c`, both of which must be in range.
   [[nodiscard]] constexpr size_t
   offset_of(row_ndx r, col_ndx c) const noexcept {
-    assert((*r < extent_.row_count) && (*c < extent_.col_count));
-    return (*r * stride_) + *c;
+    assert((*r < extent().row_count) && (*c < extent().col_count));
+    return (*r * stride()) + *c;
   }
 
   // The element count a view of `size` at `stride` reaches.
   [[nodiscard]] static constexpr size_t
   footprint(extent_t size, size_t stride) noexcept {
-    return layout_t{.extent = size, .stride = stride}.footprint();
+    return layout_t{size, stride}.footprint();
   }
-  [[nodiscard]] constexpr size_t footprint() const noexcept {
-    return layout().footprint();
-  }
+  using layout_t::footprint;
 
   // The size of the rectangle from `from` up to, but not including, `to`,
   // where a member of `to` at its `npos` means the end of that dimension.
@@ -454,11 +461,11 @@ protected:
   [[nodiscard]] constexpr extent_t
   window_size(coord from, coord to) const noexcept {
     const auto row_end =
-        (to.row == row_ndx::npos) ? extent_.row_count : *to.row;
+        (to.row == row_ndx::npos) ? extent().row_count : *to.row;
     const auto col_end =
-        (to.col == col_ndx::npos) ? extent_.col_count : *to.col;
-    assert((*from.row <= row_end) && (row_end <= extent_.row_count));
-    assert((*from.col <= col_end) && (col_end <= extent_.col_count));
+        (to.col == col_ndx::npos) ? extent().col_count : *to.col;
+    assert((*from.row <= row_end) && (row_end <= extent().row_count));
+    assert((*from.col <= col_end) && (col_end <= extent().col_count));
     return {row_end - *from.row, col_end - *from.col};
   }
 
@@ -468,10 +475,10 @@ protected:
   // The rectangle must lie within the view.
   [[nodiscard]] constexpr extent_t
   window_size(coord from, extent_t size) const noexcept {
-    assert(
-        (*from.row <= extent_.row_count) && (*from.col <= extent_.col_count));
-    const auto rows_left = extent_.row_count - *from.row;
-    const auto cols_left = extent_.col_count - *from.col;
+    assert((*from.row <= extent().row_count) &&
+           (*from.col <= extent().col_count));
+    const auto rows_left = extent().row_count - *from.row;
+    const auto cols_left = extent().col_count - *from.col;
     const auto row_count =
         (size.row_count == extent_t::npos.row_count)
             ? rows_left
@@ -487,8 +494,6 @@ protected:
 #pragma endregion
 #pragma region Data members
 
-  extent_t extent_{0, 0};
-  size_t stride_{};
   span_t data_;
 
 #pragma endregion
@@ -509,7 +514,7 @@ using matrix_view = matrix_lens<const T>;
 template<typename T>
 class matrix_lens: public matrix_lens_base<T> {
   using base = matrix_lens_base<T>;
-  using base::extent_, base::stride_, base::data_;
+  using base::data_;
 
 public:
 #pragma region Types
@@ -527,11 +532,17 @@ public:
 
   using base::base;
 
+  // A single-row lens over all of `data`.
+  [[nodiscard]] static constexpr matrix_lens single_row(span_t data) noexcept {
+    return {data, extent_t{.row_count = 1, .col_count = data.size()}};
+  }
+
 #pragma endregion
 #pragma region Accessors
 
-  // The base's slicing subscripts, which the ones below would hide.
-  using base::operator[];
+  // The base's slicing subscripts, which the ones below would hide, and the
+  // layout accessors, which a dependent base would otherwise hide.
+  using base::operator[], base::extent, base::stride;
 
   // Element at row `r`, column `c`, both of which must be in range.
   [[nodiscard]] constexpr element_t&
@@ -556,10 +567,10 @@ public:
   // `r` must be in range, and `first <= last <= col_extent()`.
   [[nodiscard]] constexpr row_span row_as_span(row_ndx r, col_ndx first = {},
       col_ndx last = col_ndx::npos) const noexcept {
-    assert(*r < extent_.row_count);
-    const auto end = (last == col_ndx::npos) ? extent_.col_count : *last;
-    assert((*first <= end) && (end <= extent_.col_count));
-    return {data_.subspan((*r * stride_) + *first, end - *first)};
+    assert(*r < extent().row_count);
+    const auto end = (last == col_ndx::npos) ? extent().col_count : *last;
+    assert((*first <= end) && (end <= extent().col_count));
+    return {data_.subspan((*r * stride()) + *first, end - *first)};
   }
 
   // The rows in order, as a random-access range of `row_span`, so that two
@@ -568,7 +579,7 @@ public:
   // The range holds a copy of the view, so it remains valid when taken from
   // a temporary.
   [[nodiscard]] constexpr auto rows() const noexcept {
-    return std::views::iota(size_t{0}, extent_.row_count) |
+    return std::views::iota(size_t{0}, extent().row_count) |
            std::views::transform([m = *this](size_t r) {
              return m[row_ndx{r}];
            });
@@ -584,8 +595,8 @@ public:
   add(matrix_view<element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
   {
-    assert((other.row_extent() == extent_.row_count) &&
-           (other.col_extent() == extent_.col_count));
+    assert((other.row_extent() == extent().row_count) &&
+           (other.col_extent() == extent().col_count));
     assert(this->is_same_or_disjoint(other));
     // The zip element is a prvalue tuple of two spans, so nothing is copied;
     // the check fires only because MSVC's tuple is not trivially copyable.
@@ -610,8 +621,8 @@ public:
   subtract(matrix_view<element_t> other) const noexcept
   requires(!std::is_const_v<element_t>)
   {
-    assert((other.row_extent() == extent_.row_count) &&
-           (other.col_extent() == extent_.col_count));
+    assert((other.row_extent() == extent().row_count) &&
+           (other.col_extent() == extent().col_count));
     assert(this->is_same_or_disjoint(other));
     // The same prvalue tuple as in `add`.
     // NOLINTNEXTLINE(performance-for-range-copy)

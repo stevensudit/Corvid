@@ -32,8 +32,8 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "corvid/cuda/cuda_cublas.cuh"
-#include "corvid/cuda/llm/gpt2_engine.cuh"
-#include "corvid/cuda/llm/gpt2_trainer.cuh"
+#include "corvid/cuda/llm/gpt2/gpt2_engine.cuh"
+#include "corvid/cuda/llm/gpt2/gpt2_trainer.cuh"
 #include "catch2_main.h"
 #include "gpt2_device_oracle.cuh"
 #include "gpt2_oracle.h"

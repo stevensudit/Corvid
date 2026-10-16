@@ -26,7 +26,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "corvid/llm/qwen2.h"
+#include "corvid/llm/qwen2/qwen2.h"
 #include "corvid/llm/safetensors.h"
 #include "corvid/math/bfloat16.h"
 #include "test_files.h"

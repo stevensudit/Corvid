@@ -23,7 +23,7 @@
 #include <string_view>
 #include <vector>
 
-#include "corvid/llm/qwen2_tokenizer.h"
+#include "corvid/llm/qwen2/qwen2_tokenizer.h"
 #include "corvid/proto/misc/json_parser.h"
 #include "corvid/strings/conversion.h"
 #include "corvid/strings/token_parser.h"

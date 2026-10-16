@@ -31,7 +31,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "corvid/containers/utils/matrix_view.h"
-#include "corvid/llm/gpt2_tokenizer.h"
+#include "corvid/llm/gpt2/gpt2_tokenizer.h"
 #include "corvid/llm/safetensors.h"
 #include "corvid/llm/token_id.h"
 #include "corvid/proto/misc/json_parser.h"

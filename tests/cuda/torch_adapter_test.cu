@@ -25,7 +25,7 @@
 #include "corvid/containers/utils/matrix_view.h"
 #include "corvid/cuda/cuda_matrix.cuh"
 #include "corvid/math/bfloat16.h"
-#include "corvid/torch/tensor_adapter.cuh"
+#include "corvid/torch/cuda_tensor_adapter.cuh"
 
 namespace corvid_tests {
 
@@ -98,6 +98,14 @@ TEST_CASE("Host span and one-dimensional tensor share memory", "[torch]") {
   const auto empty = as_tensor(std::span<float>{});
   CHECK(empty.defined());
   CHECK(empty.numel() == 0);
+
+  // The tensor converts back as a single row, as a span does directly.
+  const auto back = as_host_view<float>(tensor);
+  CHECK(back.extent() == matrix_extent{.row_count = 1, .col_count = 12});
+  CHECK(back[row_ndx{0}][col_ndx{6}] == 7.0F);
+  const auto row = float_matrix_lens::single_row(std::span{values});
+  CHECK(row.extent() == back.extent());
+  CHECK(as_tensor(row).dim() == 2);
 }
 
 TEST_CASE("A strided slice converts with its stride", "[torch]") {
@@ -127,7 +135,7 @@ TEST_CASE("A tensor that is not a matrix of T converts to empty", "[torch]") {
 
   CHECK(as_host_view<double>(tensor).empty());
   CHECK(as_host_view<float>(tensor.t()).empty());
-  CHECK(as_host_view<float>(tensor.reshape({12})).empty());
+  CHECK(as_host_view<float>(tensor.reshape({2, 2, 3})).empty());
   CHECK(as_device_view<float>(tensor).empty());
   CHECK(as_host_view<float>(at::Tensor{}).empty());
 

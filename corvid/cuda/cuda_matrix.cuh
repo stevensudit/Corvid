@@ -64,7 +64,7 @@ using cuda_matrix_view = cuda_matrix_lens<const T>;
 template<typename T>
 class cuda_matrix_lens: public matrix_lens_base<T> {
   using base = matrix_lens_base<T>;
-  using base::extent_, base::stride_, base::data_;
+  using base::data_;
 
 public:
 #pragma region Types
@@ -81,6 +81,9 @@ public:
 #pragma endregion
 #pragma region Accessors
 
+  // The layout accessors, which a dependent base would otherwise hide.
+  using base::extent, base::stride;
+
   [[nodiscard]] element_t* get() const noexcept { return data_.data(); }
 
   [[nodiscard]] const cuda_matrix_lens& as_lens() const noexcept {
@@ -94,8 +97,8 @@ public:
   [[nodiscard]] cuda_last_status load(matrix_view<value_t> host) const
   requires(!std::is_const_v<element_t>)
   {
-    assert(host.extent() == extent_);
-    return copy(get(), stride_, host.as_span().data(), host.stride(),
+    assert(host.extent() == extent());
+    return copy(get(), stride(), host.as_span().data(), host.stride(),
         memcpy_kind::host_to_device);
   }
 
@@ -103,15 +106,15 @@ public:
   [[nodiscard]] cuda_last_status load(cuda_matrix_view<value_t> device) const
   requires(!std::is_const_v<element_t>)
   {
-    assert(device.extent() == extent_);
-    return copy(get(), stride_, device.get(), device.stride(),
+    assert(device.extent() == extent());
+    return copy(get(), stride(), device.get(), device.stride(),
         memcpy_kind::device_to_device);
   }
 
   // Download into `host`, which must have the same extent.
   [[nodiscard]] cuda_last_status store(matrix_lens<value_t> host) const {
-    assert(host.extent() == extent_);
-    return copy(host.as_span().data(), host.stride(), get(), stride_,
+    assert(host.extent() == extent());
+    return copy(host.as_span().data(), host.stride(), get(), stride(),
         memcpy_kind::device_to_host);
   }
 
@@ -123,12 +126,12 @@ private:
   // pitched transfer otherwise.
   [[nodiscard]] cuda_last_status copy(value_t* dest, size_t dest_stride,
       const value_t* src, size_t src_stride, memcpy_kind kind) const {
-    if ((dest_stride == extent_.col_count) &&
-        (src_stride == extent_.col_count))
+    if ((dest_stride == extent().col_count) &&
+        (src_stride == extent().col_count))
       return cuda_buffer<value_t>::copy(dest, src, this->size(), kind);
-    const auto width = extent_.col_count * sizeof(value_t);
+    const auto width = extent().col_count * sizeof(value_t);
     return cuda_last_status{cudaMemcpy2D(dest, dest_stride * sizeof(value_t),
-        src, src_stride * sizeof(value_t), width, extent_.row_count,
+        src, src_stride * sizeof(value_t), width, extent().row_count,
         static_cast<cudaMemcpyKind>(*kind))};
   }
 

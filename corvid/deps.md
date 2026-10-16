@@ -52,10 +52,16 @@ it scans only `*.h`; they need a CUDA toolchain to compile and are checked by
 the compiler alone. The device counterparts of `linalg` and `llm` are `.cuh`
 files under `corvid/cuda/linalg/` and `corvid/cuda/llm/`.
 
-`corvid/torch/` holds the `.cuh` adapters between the matrix lenses and ATen
-tensors. It depends on `cuda` and on LibTorch, and nothing depends on it, so
-the `cuda` band stays free of Torch. Being `.cuh`, it is outside the lint
-like the rest of the device code.
+`corvid/torch/` is the LibTorch band: the adapters between the matrix lenses
+and ATen tensors, and under `corvid/torch/llm/`, the models that run on
+torch. Torch itself is not CUDA-specific, so the band's headers are `.h`,
+with one `.cuh` for the device half of the adapter. It is an apex band that
+depends on `llm`, `cuda`, and LibTorch, and nothing depends on it, so the
+`cuda` band stays free of Torch.
+
+`corvid/llm/` keeps the generic pieces (the safetensors reader, the token ID,
+the BPE core, the ops) at its top and gives each supported model a
+subdirectory, `gpt2/` and `qwen2/`, as does `corvid/cuda/llm/`.
 
 `math` sits alongside `meta` at the foundation and is universally dependable
 in the same way: any band may depend on it. It is not quite as low, though,

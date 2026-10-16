@@ -25,13 +25,13 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../../llm/gpt2.h"
-#include "../../meta/containers.h"
-#include "../bfloat16.cuh"
-#include "../cuda_buffer.cuh"
-#include "../cuda_cublas.cuh"
-#include "../cuda_matrix.cuh"
-#include "llm_ops.cuh"
+#include "../../../llm/gpt2/gpt2.h"
+#include "../../../meta/containers.h"
+#include "../../bfloat16.cuh"
+#include "../../cuda_buffer.cuh"
+#include "../../cuda_cublas.cuh"
+#include "../../cuda_matrix.cuh"
+#include "../llm_ops.cuh"
 
 // The GPT-2 inference engine on the device, over `float`, `double`, or
 // `bfloat16_t`.
