@@ -28,7 +28,6 @@
 #include "../containers/utils/matrix_view.h"
 #include "../enums/enum_conversion.h"
 #include "../proto/misc/json_parser.h"
-#include "parameter_element.h"
 #include "safetensors.h"
 #include "token_id.h"
 

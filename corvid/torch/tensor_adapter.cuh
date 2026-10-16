@@ -47,7 +47,12 @@
 
 namespace corvid::torch {
 
+using at::Tensor;
+using at::TensorOptions;
+using c10::DeviceType;
+using c10::ScalarType;
 using matrix_types::matrix_extent;
+using matrix_types::matrix_layout;
 
 #pragma region Element types
 
@@ -57,47 +62,39 @@ struct scalar_type_of;
 
 template<>
 struct scalar_type_of<float> {
-  static constexpr auto value = at::kFloat;
+  static constexpr auto value = ScalarType::Float;
 };
-
 template<>
 struct scalar_type_of<double> {
-  static constexpr auto value = at::kDouble;
+  static constexpr auto value = ScalarType::Double;
 };
-
 template<>
 struct scalar_type_of<bfloat16_t> {
-  static constexpr auto value = at::kBFloat16;
+  static constexpr auto value = ScalarType::BFloat16;
 };
-
 template<>
 struct scalar_type_of<int64_t> {
-  static constexpr auto value = at::kLong;
+  static constexpr auto value = ScalarType::Long;
 };
-
 template<>
 struct scalar_type_of<int32_t> {
-  static constexpr auto value = at::kInt;
+  static constexpr auto value = ScalarType::Int;
 };
-
 template<>
 struct scalar_type_of<int16_t> {
-  static constexpr auto value = at::kShort;
+  static constexpr auto value = ScalarType::Short;
 };
-
 template<>
 struct scalar_type_of<int8_t> {
-  static constexpr auto value = at::kChar;
+  static constexpr auto value = ScalarType::Char;
 };
-
 template<>
 struct scalar_type_of<uint8_t> {
-  static constexpr auto value = at::kByte;
+  static constexpr auto value = ScalarType::Byte;
 };
-
 template<>
 struct scalar_type_of<bool> {
-  static constexpr auto value = at::kBool;
+  static constexpr auto value = ScalarType::Bool;
 };
 
 // An element type that has an ATen scalar type.
@@ -105,7 +102,7 @@ template<typename T>
 concept TensorElement = requires { scalar_type_of<T>::value; };
 
 template<TensorElement T>
-inline constexpr at::ScalarType scalar_type_v = scalar_type_of<T>::value;
+inline constexpr ScalarType scalar_type_v = scalar_type_of<T>::value;
 
 // Our storage type and ATen's are both the upper half of an IEEE single, so
 // they alias byte for byte.
@@ -119,42 +116,25 @@ static_assert(
 
 namespace details {
 
-// The row-major layout of a tensor in a lens's terms.
-struct lens_layout {
-  matrix_extent extent;
-  size_t stride{};
-
-  // The elements from the first of the first row through the last of the
-  // last row.
-  [[nodiscard]] size_t footprint() const noexcept {
-    if (extent.row_count == 0) return 0;
-    return (stride * (extent.row_count - 1)) + extent.col_count;
-  }
-};
-
-// Whether `tensor` is a two-dimensional tensor of `T` on `device` whose rows
-// hold their elements adjacently.
+// The layout of `tensor` as a lens, or an empty layout unless it is a
+// two-dimensional tensor of `T` on `device` whose rows hold their elements
+// adjacently.
 //
-// The rows themselves may lie any stride apart, which the lens carries. Only
-// the inner stride must be one, since a lens has no stride within a row.
+// The rows themselves may lie any stride apart, which the layout carries.
+// Only the inner stride must be one, since a lens has no stride within a
+// row, and a single-column tensor may carry any, since no second element is
+// ever reached through it. A single-row tensor's outer stride is likewise
+// arbitrary, so its layout is packed.
 template<TensorElement T>
-[[nodiscard]] bool
-is_matrix(const at::Tensor& tensor, at::DeviceType device) noexcept {
+[[nodiscard]] matrix_layout
+layout_of(const Tensor& tensor, DeviceType device) noexcept {
   if (!tensor.defined() || (tensor.dim() != 2) ||
       (tensor.scalar_type() != scalar_type_v<T>) ||
-      (tensor.device().type() != device))
-    return false;
-  // A single-column tensor may carry any inner stride, since no second
-  // element is ever reached through it.
-  return (tensor.size(1) <= 1) || (tensor.stride(1) == 1);
-}
-
-// The layout of `tensor`, which `is_matrix` must have accepted.
-[[nodiscard]] inline lens_layout layout_of(const at::Tensor& tensor) noexcept {
+      (tensor.device().type() != device) ||
+      ((tensor.size(1) > 1) && (tensor.stride(1) != 1)))
+    return {};
   const matrix_extent extent{.row_count = static_cast<size_t>(tensor.size(0)),
       .col_count = static_cast<size_t>(tensor.size(1))};
-  // A single-row tensor's outer stride is likewise arbitrary, so a lens over
-  // it is packed.
   const auto stride =
       (extent.row_count <= 1)
           ? extent.col_count
@@ -163,33 +143,33 @@ is_matrix(const at::Tensor& tensor, at::DeviceType device) noexcept {
 }
 
 // `tensor` as a lens of `Lens`'s kind over its memory, or an empty lens
-// unless `is_matrix` accepts it for the lens's element type on `device`.
+// unless `layout_of` accepts it for the lens's element type on `device`.
 template<typename Lens>
-[[nodiscard]] Lens
-lens_of(const at::Tensor& tensor, at::DeviceType device) noexcept {
+[[nodiscard]] Lens lens_of(const Tensor& tensor, DeviceType device) noexcept {
   using element_t = Lens::element_t;
   using value_t = std::remove_const_t<element_t>;
-  if (!is_matrix<value_t>(tensor, device)) return {};
-  const auto layout = layout_of(tensor);
-  // ATen types its data pointer only for its own element types, so the typed
-  // pointer comes from the untyped one.
+  const auto layout = layout_of<value_t>(tensor, device);
+  if (layout.empty()) return {};
+  // A read-only lens asks for the const pointer, which leaves copy-on-write
+  // storage shared, while a writable one asks for the mutable pointer, which
+  // makes the storage its own first. ATen types neither for our element
+  // types, so the typed pointer comes from the untyped one.
   element_t* data;
   if constexpr (std::is_const_v<element_t>)
     data = static_cast<element_t*>(tensor.const_data_ptr());
   else
-    data = static_cast<element_t*>(tensor.data_ptr());
-  return {std::span<element_t>(data, layout.footprint()), layout.extent,
-      layout.stride};
+    data = static_cast<element_t*>(tensor.mutable_data_ptr());
+  return {std::span<element_t>(data, layout.footprint()), layout};
 }
 
 // `lens` as a tensor on `device` over its memory.
 template<typename Lens>
-[[nodiscard]] at::Tensor tensor_of(const Lens& lens, at::DeviceType device) {
+[[nodiscard]] Tensor tensor_of(const Lens& lens, DeviceType device) {
   using value_t = std::remove_const_t<typename Lens::element_t>;
   const std::array<int64_t, 2> sizes{static_cast<int64_t>(lens.row_extent()),
       static_cast<int64_t>(lens.col_extent())};
   const auto options =
-      at::TensorOptions{}.dtype(scalar_type_v<value_t>).device(device);
+      TensorOptions{}.dtype(scalar_type_v<value_t>).device(device);
   if (lens.empty()) return at::empty(sizes, options);
   const std::array<int64_t, 2> strides{static_cast<int64_t>(lens.stride()), 1};
   // `from_blob` takes a mutable pointer whatever the caller does with it, so
@@ -209,8 +189,8 @@ template<typename Lens>
 // view converts the same way, and the tensor is writable regardless.
 template<typename T>
 requires TensorElement<std::remove_const_t<T>>
-[[nodiscard]] at::Tensor as_tensor(matrix_lens<T> host_matrix) {
-  return details::tensor_of(host_matrix, at::kCPU);
+[[nodiscard]] Tensor as_tensor(matrix_lens<T> host_matrix) {
+  return details::tensor_of(host_matrix, DeviceType::CPU);
 }
 
 // `device_matrix` as a CUDA tensor of the same shape and strides over its
@@ -220,8 +200,8 @@ requires TensorElement<std::remove_const_t<T>>
 // view converts the same way, and the tensor is writable regardless.
 template<typename T>
 requires TensorElement<std::remove_const_t<T>>
-[[nodiscard]] at::Tensor as_tensor(cuda::cuda_matrix_lens<T> device_matrix) {
-  return details::tensor_of(device_matrix, at::kCUDA);
+[[nodiscard]] Tensor as_tensor(cuda::cuda_matrix_lens<T> device_matrix) {
+  return details::tensor_of(device_matrix, DeviceType::CUDA);
 }
 
 // `host_vector` as a one-dimensional tensor over its memory.
@@ -231,11 +211,11 @@ requires TensorElement<std::remove_const_t<T>>
 // regardless.
 template<typename T>
 requires TensorElement<std::remove_const_t<T>>
-[[nodiscard]] at::Tensor as_tensor(std::span<T> host_vector) {
+[[nodiscard]] Tensor as_tensor(std::span<T> host_vector) {
   using value_t = std::remove_const_t<T>;
   const std::array<int64_t, 1> sizes{static_cast<int64_t>(host_vector.size())};
   const auto options =
-      at::TensorOptions{}.dtype(scalar_type_v<value_t>).device(at::kCPU);
+      TensorOptions{}.dtype(scalar_type_v<value_t>).device(DeviceType::CPU);
   if (host_vector.empty()) return at::empty(sizes, options);
   return at::from_blob(const_cast<value_t*>(host_vector.data()), sizes,
       options);
@@ -248,10 +228,11 @@ requires TensorElement<std::remove_const_t<T>>
 // two-dimensional tensor of `T` on the host whose rows hold their elements
 // adjacently (the rows may lie any stride apart).
 //
-// The lens reads and writes the tensor's memory, which must outlive it.
+// The lens reads and writes the tensor's memory, which must outlive it, so
+// only a named tensor converts.
 template<TensorElement T>
-[[nodiscard]] matrix_lens<T> as_host_lens(const at::Tensor& tensor) noexcept {
-  return details::lens_of<matrix_lens<T>>(tensor, at::kCPU);
+[[nodiscard]] matrix_lens<T> as_host_lens(Tensor& tensor) noexcept {
+  return details::lens_of<matrix_lens<T>>(tensor, DeviceType::CPU);
 }
 
 // `tensor` as a view over its memory, or an empty view unless it is a
@@ -260,19 +241,20 @@ template<TensorElement T>
 //
 // The tensor's memory must outlive the view.
 template<TensorElement T>
-[[nodiscard]] matrix_view<T> as_host_view(const at::Tensor& tensor) noexcept {
-  return details::lens_of<matrix_view<T>>(tensor, at::kCPU);
+[[nodiscard]] matrix_view<T> as_host_view(const Tensor& tensor) noexcept {
+  return details::lens_of<matrix_view<T>>(tensor, DeviceType::CPU);
 }
 
 // `tensor` as a device lens over its memory, or an empty lens unless it is
 // a two-dimensional CUDA tensor of `T` whose rows hold their elements
 // adjacently (the rows may lie any stride apart).
 //
-// The lens reads and writes the tensor's memory, which must outlive it.
+// The lens reads and writes the tensor's memory, which must outlive it, so
+// only a named tensor converts.
 template<TensorElement T>
 [[nodiscard]] cuda::cuda_matrix_lens<T>
-as_device_lens(const at::Tensor& tensor) noexcept {
-  return details::lens_of<cuda::cuda_matrix_lens<T>>(tensor, at::kCUDA);
+as_device_lens(Tensor& tensor) noexcept {
+  return details::lens_of<cuda::cuda_matrix_lens<T>>(tensor, DeviceType::CUDA);
 }
 
 // `tensor` as a device view over its memory, or an empty view unless it is
@@ -282,8 +264,8 @@ as_device_lens(const at::Tensor& tensor) noexcept {
 // The tensor's memory must outlive the view.
 template<TensorElement T>
 [[nodiscard]] cuda::cuda_matrix_view<T>
-as_device_view(const at::Tensor& tensor) noexcept {
-  return details::lens_of<cuda::cuda_matrix_view<T>>(tensor, at::kCUDA);
+as_device_view(const Tensor& tensor) noexcept {
+  return details::lens_of<cuda::cuda_matrix_view<T>>(tensor, DeviceType::CUDA);
 }
 
 #pragma endregion

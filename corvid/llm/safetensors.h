@@ -121,6 +121,15 @@ template<TensorElement T>
 }
 
 #pragma endregion
+#pragma region ParameterElement
+
+// `T` must be a type a weights file holds a model's parameters as, `float`
+// for published fp32 weights and `bfloat16_t` for a bf16 file.
+template<typename T>
+concept ParameterElement =
+    std::same_as<T, float> || std::same_as<T, bfloat16_t>;
+
+#pragma endregion
 #pragma region safetensors_file
 
 // The tensors of one safetensors file, found by name and viewed in place.

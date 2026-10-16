@@ -115,9 +115,9 @@ TEST_CASE("torch matmul over our host memory matches our GEMM", "[torch]") {
   // device, multiplies, and brings the product back.
   REQUIRE(at::hasCUDA());
   const auto t_out =
-      at::matmul(as_tensor(test.a).to(at::kCUDA),
-          as_tensor(test.b).to(at::kCUDA))
-          .to(at::kCPU);
+      at::matmul(as_tensor(test.a).to(DeviceType::CUDA),
+          as_tensor(test.b).to(DeviceType::CUDA))
+          .to(DeviceType::CPU);
   const auto theirs = as_host_view<float>(t_out);
   REQUIRE(theirs.extent() == test.out_extent);
 

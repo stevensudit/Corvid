@@ -42,7 +42,8 @@ namespace {
 // Whether `tensor` is a bf16 CUDA tensor of `sizes`.
 bool is_device_bf16(const at::Tensor& tensor, at::IntArrayRef sizes) {
   return tensor.defined() && tensor.device().is_cuda() &&
-         (tensor.scalar_type() == at::kBFloat16) && (tensor.sizes() == sizes);
+         (tensor.scalar_type() == ScalarType::BFloat16) &&
+         (tensor.sizes() == sizes);
 }
 
 } // namespace

@@ -146,6 +146,31 @@ inline constexpr matrix_extent matrix_extent::npos{};
 inline constexpr matrix_extent matrix_extent::dynamic{
     matrix_extent::dynamic_extent, matrix_extent::dynamic_extent};
 
+// The row-major layout of a matrix in memory, as its extent and the stride
+// its rows start apart.
+//
+// A default-constructed layout is empty.
+struct matrix_layout {
+  matrix_extent extent{.row_count = 0, .col_count = 0};
+  size_t stride{};
+
+  // Whether the layout has no elements.
+  [[nodiscard]] constexpr bool empty() const noexcept {
+    return !extent.row_count || !extent.col_count;
+  }
+
+  // The element count from the first element of the first row through the last
+  // element of the last row, which is what a lens of the layout reaches.
+  [[nodiscard]] constexpr size_t footprint() const noexcept {
+    return extent.row_count
+               ? ((extent.row_count - 1) * stride) + extent.col_count
+               : 0;
+  }
+
+  [[nodiscard]] constexpr bool operator==(
+      const matrix_layout&) const noexcept = default;
+};
+
 } // namespace matrix_types
 
 #pragma endregion
@@ -170,6 +195,7 @@ public:
   using col_ndx = matrix_types::col_ndx;
   using coord = matrix_types::coord;
   using extent_t = matrix_types::matrix_extent;
+  using layout_t = matrix_types::matrix_layout;
 
 #pragma endregion
 #pragma region Construction
@@ -201,6 +227,10 @@ public:
     data_ = data_.first(footprint());
   }
 
+  // Strided lens over `data` in `layout`, under the same requirements.
+  constexpr matrix_lens_base(span_t data, layout_t layout) noexcept
+      : matrix_lens_base{data, layout.extent, layout.stride} {}
+
   // Implicit conversion of a lens to a view of the same element type.
   template<typename U>
   requires(std::is_same_v<const U, element_t> && !std::is_same_v<U, element_t>)
@@ -225,6 +255,9 @@ public:
     return extent_.col_count;
   }
   [[nodiscard]] constexpr extent_t extent() const noexcept { return extent_; }
+  [[nodiscard]] constexpr layout_t layout() const noexcept {
+    return {.extent = extent_, .stride = stride_};
+  }
   [[nodiscard]] constexpr size_t size() const noexcept {
     return extent_.size();
   }
@@ -405,15 +438,13 @@ protected:
     return (*r * stride_) + *c;
   }
 
-  // The element count from the first element of the first row through the
-  // last element of the last row, which is what a view of `size` reaches.
+  // The element count a view of `size` at `stride` reaches.
   [[nodiscard]] static constexpr size_t
   footprint(extent_t size, size_t stride) noexcept {
-    return size.row_count ? ((size.row_count - 1) * stride) + size.col_count
-                          : 0;
+    return layout_t{.extent = size, .stride = stride}.footprint();
   }
   [[nodiscard]] constexpr size_t footprint() const noexcept {
-    return footprint(extent_, stride_);
+    return layout().footprint();
   }
 
   // The size of the rectangle from `from` up to, but not including, `to`,

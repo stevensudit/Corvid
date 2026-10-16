@@ -54,13 +54,13 @@ TEST_CASE("Host lens and tensor share memory", "[torch]") {
   auto values = counting();
   const float_matrix_lens lens(values, extent);
 
-  const auto tensor = as_tensor(lens);
+  auto tensor = as_tensor(lens);
   REQUIRE(tensor.dim() == 2);
   CHECK(tensor.size(0) == 3);
   CHECK(tensor.size(1) == 4);
   CHECK(tensor.stride(0) == 4);
   CHECK(tensor.stride(1) == 1);
-  CHECK(tensor.scalar_type() == at::kFloat);
+  CHECK(tensor.scalar_type() == ScalarType::Float);
   CHECK(tensor.is_cpu());
   CHECK(tensor[1][2].item<float>() == 6.0F);
 
@@ -83,7 +83,7 @@ TEST_CASE("Host span and one-dimensional tensor share memory", "[torch]") {
   const auto tensor = as_tensor(std::span{values});
   REQUIRE(tensor.dim() == 1);
   CHECK(tensor.size(0) == 12);
-  CHECK(tensor.scalar_type() == at::kFloat);
+  CHECK(tensor.scalar_type() == ScalarType::Float);
   CHECK(tensor.is_cpu());
   CHECK(tensor[6].item<float>() == 6.0F);
 
@@ -151,7 +151,7 @@ TEST_CASE("Device lens and CUDA tensor share memory", "[torch]") {
   auto values = counting();
   cuda_matrix<float> device(float_matrix_view(values, extent));
 
-  const auto tensor = as_tensor(device.as_lens());
+  auto tensor = as_tensor(device.as_lens());
   REQUIRE(tensor.is_cuda());
   CHECK(tensor.size(0) == 3);
   CHECK(tensor.size(1) == 4);
@@ -173,7 +173,7 @@ TEST_CASE("A tensor torch allocates on the device converts to a view",
     "[torch]") {
   REQUIRE(at::hasCUDA());
   const auto tensor = at::ones({2, 3},
-      at::TensorOptions{}.dtype(at::kFloat).device(at::kCUDA));
+      TensorOptions{}.dtype(ScalarType::Float).device(DeviceType::CUDA));
 
   const auto view = as_device_view<float>(tensor);
   REQUIRE(!view.empty());
