@@ -1094,6 +1094,14 @@ TEST_CASE("Basic", "[EnumVector]") {
 
 TEST_CASE("Basic", "[EnumSpan]") {
   using id_t = test_id_t;
+  // A span over another index type converts only explicitly, since the index
+  // type is the point; one over the same index converts as the spans do.
+  static_assert(std::is_constructible_v<enum_span<int, small_id_t>,
+      enum_span<int, id_t>>);
+  static_assert(!std::is_convertible_v<enum_span<int, id_t>,
+      enum_span<int, small_id_t>>);
+  static_assert(
+      std::is_convertible_v<enum_span<int, id_t>, enum_span<const int, id_t>>);
   std::vector<int> storage{10, 11, 12};
   const enum_span<int, id_t> s = storage;
   CHECK(s.size() == 3U);

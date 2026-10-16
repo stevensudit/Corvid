@@ -34,6 +34,22 @@ using corvid::enums::sequence::ops::operator*;
 
 #pragma region enum_span
 
+// Fwd.
+template<typename T, sequence::SequentialEnum E,
+    size_t Extent = std::dynamic_extent>
+class enum_span;
+
+namespace details {
+
+// Whether `R` is an `enum_span` indexed by an enum other than `E`.
+template<typename R, typename E>
+inline constexpr bool is_enum_span_of_other_index = false;
+template<typename U, sequence::SequentialEnum F, size_t N, typename E>
+inline constexpr bool is_enum_span_of_other_index<enum_span<U, F, N>, E> =
+    !std::same_as<F, E>;
+
+} // namespace details
+
 // Wrapper for span where the index is a class enum.
 //
 // Provides full access to the underlying span, but avoids casting. It is the
@@ -42,8 +58,7 @@ using corvid::enums::sequence::ops::operator*;
 // Subspans shift the index origin, as they do for `std::span`. That is right
 // for an enum that is an index, such as a row number, and meaningless for one
 // that is a key, such as a color.
-template<typename T, sequence::SequentialEnum E,
-    size_t Extent = std::dynamic_extent>
+template<typename T, sequence::SequentialEnum E, size_t Extent>
 class enum_span {
 public:
 #pragma region Types
@@ -81,11 +96,15 @@ public:
 
   // Construct a view of whatever the underlying span views: a contiguous
   // container, an array, a span, or another `enum_span`. Implicit exactly when
-  // the span's own conversion is.
+  // the span's own conversion is, unless the range is an `enum_span` indexed
+  // by another enum, since that would violate strong typing.
   template<typename R>
   requires std::constructible_from<span_type, R&&>
-  constexpr explicit(!std::is_convertible_v<R&&, span_type>) enum_span(
-      R&& range) noexcept(std::is_nothrow_constructible_v<span_type, R&&>)
+  constexpr explicit(
+      !std::is_convertible_v<R&&, span_type> ||
+      details::is_enum_span_of_other_index<std::remove_cvref_t<R>, E>)
+      enum_span(R&& range) noexcept(
+          std::is_nothrow_constructible_v<span_type, R&&>)
       : data_(std::forward<R>(range)) {}
 
 #pragma endregion

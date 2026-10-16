@@ -331,19 +331,12 @@ public:
       : matrix_lens_base{data, layout.extent(), layout.stride()} {}
 
   // Single-row lens over `row`, packed.
-  //
-  // The index type is deduced, not converted, so that a row span and a
-  // column span each select their own constructor.
-  template<typename U>
-  requires std::is_convertible_v<std::span<U>, span_t>
-  constexpr explicit matrix_lens_base(enum_span<U, col_ndx> row) noexcept
+  constexpr explicit matrix_lens_base(row_span_t row) noexcept
       : matrix_lens_base{span_t(row.data(), row.size()),
             extent_t{.row_count = 1, .col_count = row.size()}} {}
 
   // Single-column lens over `column`, packed.
-  template<typename U>
-  requires std::is_convertible_v<std::span<U>, span_t>
-  constexpr explicit matrix_lens_base(enum_span<U, row_ndx> column) noexcept
+  constexpr explicit matrix_lens_base(col_span_t column) noexcept
       : matrix_lens_base{span_t(column.data(), column.size()),
             extent_t{.row_count = column.size(), .col_count = 1}} {}
 
