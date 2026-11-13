@@ -53,6 +53,12 @@ inline namespace cstringview {
 // guaranteed to be there after the last character returned from `c_str` (which
 // never returns `nullptr`).
 //
+// Also like a `std::string`, embedded zeros are permitted. The only guarantee
+// is that the character at `size` is a terminator, so a view holding an
+// embedded zero reads shorter through `c_str` than `size` reports, just like
+// a `std::string` value with embedded zeros cycled through `c_str` and back
+// loses length.
+//
 // Like a `std::string_view`, `data` sometimes returns `nullptr` when `size` is
 // 0. When it's not `nullptr`, then (as in `std::string`) the terminator is
 // guaranteed because it contains an empty string.
@@ -98,6 +104,10 @@ inline namespace cstringview {
 // rejected ANSI committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
+//
+// P3655 brought the issue back to life, first as `zstring_view` and then
+// renamed to `cstring_view`.
+// https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p3655r2.html
 template<typename T = std::string_view>
 class basic_cstring_view final
     : public string_view_wrapper<basic_cstring_view<T>,
@@ -147,7 +157,7 @@ public:
   // Optional as null. Explicit exactly when construction from `U` itself
   // would be, since a risky payload stays risky inside an `optional`.
   template<typename U>
-  requires std::is_constructible_v<view_t, U>
+  requires std::is_constructible_v<basic_cstring_view, const U&>
   constexpr explicit(!std::is_convertible_v<const U&, basic_cstring_view>)
       basic_cstring_view(const std::optional<U>& opt)
       : basic_cstring_view{opt.has_value() ? basic_cstring_view{*opt}

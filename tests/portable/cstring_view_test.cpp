@@ -19,6 +19,7 @@
 #include <map>
 #include <set>
 #include <span>
+#include <vector>
 
 #include "corvid/strings/cstring_view.h"
 #include "corvid/meta.h"
@@ -332,6 +333,10 @@ TEST_CASE("Optional", "[CStringViewTest]") {
       std::is_constructible_v<cstring_view, std::optional<std::string_view>>);
   static_assert(
       !std::is_convertible_v<std::optional<std::string_view>, cstring_view>);
+  // A payload that `std::string_view` accepts but `cstring_view` does not is
+  // rejected at the constraint, not inside the body.
+  static_assert(!std::is_constructible_v<cstring_view,
+      std::optional<std::vector<char>>>);
 }
 
 TEST_CASE("SearchPassthrough", "[CStringViewTest]") {
@@ -343,8 +348,8 @@ TEST_CASE("SearchPassthrough", "[CStringViewTest]") {
   CHECK(v.contains("cde"));
   CHECK_FALSE(v.contains("xyz"));
 
-  // compare is not noexcept: the position-taking overloads throw a catchable
-  // std::out_of_range instead of terminating.
+  // `compare` is not `noexcept`. The position-taking overloads throw a
+  // catchable `std::out_of_range` instead of terminating.
   CHECK(v.compare("abcdef"sv) == 0);
   CHECK_THROWS_AS(v.compare(v.size() + 1, 1, "x"sv), std::out_of_range);
 }
@@ -441,7 +446,7 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   constexpr auto e = ""_czsv;
   constexpr auto n = 0_czsv;
 
-  // `0_czsv` is consteval, so `n` is computed at compile time; a non-zero
+  // `0_czsv` is consteval, so `n` is computed at compile time. A non-zero
   // literal like `1_czsv` would not compile.
   if constexpr (n.empty()) { CHECK(true); }
 
