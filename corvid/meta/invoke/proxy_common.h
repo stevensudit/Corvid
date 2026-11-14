@@ -873,19 +873,22 @@ struct method_traits<M, R(Args...)> {
 
   // Whether the binding class `proxy_impl<F, T>` has an `on` overload for this
   // method, taking the target and the method's arguments.
+  //
+  // The operands come from `std::declval` because cl 19.52 mishandles a
+  // `requires` parameter list that expands `Args` here (see
+  // "crossplatform.md").
   template<typename F, typename T>
-  static constexpr bool is_impl_bound =
-      requires(target_t<T>& t, Args... args) {
-        {
-          proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
-              std::forward<Args>(args)...)
-        } -> std::convertible_to<R>;
-      } && (!M::is_noexcept || requires(target_t<T>& t, Args... args) {
-        {
-          proxy_impl<F, T>::on(method_key<M::name_v>{}, t,
-              std::forward<Args>(args)...)
-        } noexcept;
-      });
+  static constexpr bool is_impl_bound = requires {
+    {
+      proxy_impl<F, T>::on(method_key<M::name_v>{},
+          std::declval<target_t<T>&>(), std::declval<Args>()...)
+    } -> std::convertible_to<R>;
+  } && (!M::is_noexcept || requires {
+    {
+      proxy_impl<F, T>::on(method_key<M::name_v>{},
+          std::declval<target_t<T>&>(), std::declval<Args>()...)
+    } noexcept;
+  });
 
   // Whether this is the reserved format method.
   static constexpr bool is_format_v =
