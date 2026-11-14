@@ -206,7 +206,7 @@ protected:
     template<typename>
     friend class iou_dgram_router_handle;
     // NOLINTNEXTLINE(modernize-use-equals-default)
-    constexpr mint() {}
+    constexpr mint() noexcept {}
   };
 
   template<typename>

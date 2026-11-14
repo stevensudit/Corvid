@@ -58,7 +58,7 @@ using namespace arena;
 // minters are class templates.
 class intern_mint {
   // NOLINTNEXTLINE(modernize-use-equals-default)
-  constexpr intern_mint() {};
+  constexpr intern_mint() noexcept {}
 
   template<typename T, SequentialEnum ID>
   friend class interned_value;

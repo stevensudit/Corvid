@@ -372,7 +372,7 @@ private:
     template<typename>
     friend class epoll_stream_conn_with_state;
     // NOLINTNEXTLINE(modernize-use-equals-default)
-    constexpr mint() {}
+    constexpr mint() noexcept {}
   };
 
   template<typename>
