@@ -229,9 +229,8 @@ TEST_CASE("IdentitySemantics", "[InternedStringViewTest]") {
 
   // The family concepts agree on what this is.
   static_assert(StringViewWrapperChild<view>);
-  static_assert(InternedStringViewChild<view>);
-  static_assert(InternedStringViewChild<symbol>);
   static_assert(IdentityCompared<view>);
+  static_assert(IdentityCompared<symbol>);
 }
 
 #pragma endregion

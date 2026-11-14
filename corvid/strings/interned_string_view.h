@@ -19,9 +19,7 @@
 #include <compare>
 #include <concepts>
 #include <cstddef>
-#include <functional>
 #include <string_view>
-#include <type_traits>
 
 #include "../meta/concepts.h"
 #include "../meta/fixed_string.h"
@@ -34,9 +32,9 @@ namespace corvid { inline namespace internedstringview {
 // Interned string view wrapper
 //
 // CRTP layer over `string_view_wrapper` for views whose identity is their
-// location. Equality, ordering, and hashing use the address and length alone
-// and never read the characters, so comparing two interned views costs two
-// integer compares no matter how long they are.
+// location. Equality and ordering use the address and length alone, hashing
+// the address alone, and none of them reads the characters, so comparing two
+// interned views costs two integer compares no matter how long they are.
 //
 // The class keeps no intern table. The caller interns, or does the moral
 // equivalent, such as handing out copies of a few `static constexpr`
@@ -82,7 +80,7 @@ public:
   using view_t = base::view_t;
   using size_type = base::size_type;
 
-  // Opts out of the base's content comparison and hashing.
+  // Opts out of the base's content comparison and selects the identity hash.
   static constexpr bool compares_by_identity = true;
 
 #pragma endregion
@@ -243,32 +241,5 @@ using interned_wstring_view =
     basic_interned_string_view<Tag, wchar_t, DefaultT>;
 
 #pragma endregion
-#pragma region Hash support
-
-namespace details {
-// Never defined. Deduces the interned wrapper base of any public descendant.
-template<typename Child, CharType CharT>
-void interned_string_view_wrapper_base(
-    const interned_string_view_wrapper<Child, CharT>&);
-} // namespace details
-
-// Whether `T` publicly derives from an `interned_string_view_wrapper`. Gates
-// the `std::hash` below.
-template<typename T>
-concept InternedStringViewChild = requires(const T& t) {
-  details::interned_string_view_wrapper_base(t);
-};
-
-#pragma endregion
 
 }} // namespace corvid::internedstringview
-
-// Hash by identity: the address alone, never the characters. Two views over
-// the same address with different lengths are legal and unequal, but they
-// may share a hash.
-template<corvid::InternedStringViewChild W>
-struct std::hash<W> {
-  [[nodiscard]] size_t operator()(const W& w) const noexcept {
-    return std::hash<const typename W::char_t*>{}(w.data());
-  }
-};

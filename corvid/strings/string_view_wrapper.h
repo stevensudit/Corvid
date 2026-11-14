@@ -37,7 +37,8 @@ namespace corvid { inline namespace stringviewwrapper {
 #pragma region string_view_wrapper
 
 // Whether `T` declares `compares_by_identity`, opting out of the content
-// comparison and hashing the wrapper family provides by default.
+// comparison the wrapper family provides by default and selecting the identity
+// hash.
 template<typename T>
 concept IdentityCompared = requires { requires T::compares_by_identity; };
 
@@ -391,15 +392,19 @@ struct std::formatter<W, CharT>
   }
 };
 
-// Hash as the underlying view, so a child works as an unordered key and hashes
-// the same as the `std::string_view` it compares equal to. `null` and `empty`
-// hash alike, matching their equality. A child that compares by identity
-// hashes by identity instead, elsewhere.
+// Hash to match equality. A content-compared child hashes as the underlying
+// view, so it works as an unordered key and hashes the same as the
+// `std::string_view` it compares equal to, with `null` and `empty` alike. An
+// identity-compared child hashes the address alone, never the characters. Two
+// views over the same address with different lengths are unequal but may
+// share a hash.
 template<corvid::StringViewWrapperChild W>
-requires(!corvid::IdentityCompared<W>)
 struct std::hash<W> {
   [[nodiscard]] size_t operator()(const W& w) const noexcept {
-    return std::hash<typename W::view_t>{}(w.view());
+    if constexpr (corvid::IdentityCompared<W>)
+      return std::hash<const typename W::char_t*>{}(w.data());
+    else
+      return std::hash<typename W::view_t>{}(w.view());
   }
 };
 // NOLINTEND(bugprone-std-namespace-modification)
