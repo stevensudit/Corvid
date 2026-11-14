@@ -31,8 +31,8 @@ inline namespace cstringview {
 //
 // This header defines `basic_cstring_view`, a `std::string_view` that also
 // guarantees zero termination, along with its per-character-type aliases
-// (`cstring_view`, `wcstring_view`, and so on) and the `_czsv` family of UDLs
-// in the `literals` namespace. See the class comment below for the rationale
+// (`cstring_view`, `wcstring_view`, and so on) and the `_csv` UDL in the
+// `literals` namespace. See the class comment below for the rationale
 // and invariants.
 
 #pragma region basic_cstring_view
@@ -86,7 +86,7 @@ inline namespace cstringview {
 // explicitly cast by calling `view`).
 //
 // The most convenient way to declare a `constexpr cstring_view` is with a
-// literal using the `_czsv` UDL.
+// literal using the `_csv` UDL.
 //
 // The `substr` and `remove_suffix` functions cannot be supported because they
 // would violate the termination invariant. The workaround is to copy to
@@ -219,42 +219,26 @@ namespace literals {
 #pragma region UDL
 
 // basic_cstring_view literals.
-consteval cstring_view operator""_czsv(const char* ps, size_t n) {
+consteval cstring_view operator""_csv(const char* ps, size_t n) {
   return cstring_view{std::string_view{ps, n + 1}};
 }
-consteval wcstring_view operator""_wczsv(const wchar_t* ps, size_t n) {
+consteval wcstring_view operator""_csv(const wchar_t* ps, size_t n) {
   return wcstring_view{std::wstring_view{ps, n + 1}};
 }
-consteval u8cstring_view operator""_u8csv(const char8_t* ps, size_t n) {
+consteval u8cstring_view operator""_csv(const char8_t* ps, size_t n) {
   return u8cstring_view{std::u8string_view{ps, n + 1}};
 }
-consteval u16cstring_view operator""_u16csv(const char16_t* ps, size_t n) {
+consteval u16cstring_view operator""_csv(const char16_t* ps, size_t n) {
   return u16cstring_view{std::u16string_view{ps, n + 1}};
 }
-consteval u32cstring_view operator""_u32csv(const char32_t* ps, size_t n) {
+consteval u32cstring_view operator""_csv(const char32_t* ps, size_t n) {
   return u32cstring_view{std::u32string_view{ps, n + 1}};
 }
 
 // Null literal; must pass 0.
-consteval cstring_view operator""_czsv(unsigned long long zero_only) {
+consteval cstring_view operator""_csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range{"cstring_view not zero"};
   return cstring_view{};
-}
-consteval wcstring_view operator""_wczsv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range{"wcstring_view not zero"};
-  return wcstring_view{};
-}
-consteval u8cstring_view operator""_u8csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range{"u8cstring_view not zero"};
-  return u8cstring_view{};
-}
-consteval u16cstring_view operator""_u16csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range{"u16cstring_view not zero"};
-  return u16cstring_view{};
-}
-consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range{"u32cstring_view not zero"};
-  return u32cstring_view{};
 }
 
 // Environment.

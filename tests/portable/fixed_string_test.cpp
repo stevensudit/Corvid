@@ -89,7 +89,7 @@ TEST_CASE("General", "[FixedStringTest]") {
 
   auto cs = test_cstr();
   CHECK(cs == "abc"sv);
-  CHECK(ceval == "abc"_czsv);
+  CHECK(ceval == "abc"_csv);
 }
 
 #pragma endregion

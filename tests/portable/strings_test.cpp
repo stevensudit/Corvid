@@ -490,7 +490,7 @@ TEST_CASE("Case", "[StringUtilsTest]") {
 
   // `string_view_wrapper` children flow through `char_type_of`/`as_view`
   // automatically, since they convert to a `std::basic_string_view`.
-  CHECK(strings::as_upper("abc"_czsv) == "ABC");
+  CHECK(strings::as_upper("abc"_csv) == "ABC");
   CHECK(strings::ci_equal("Hi"_optsv, "hi"));
 
   // The hex helpers are constexpr, so parse_hex4 can be constant-evaluated.

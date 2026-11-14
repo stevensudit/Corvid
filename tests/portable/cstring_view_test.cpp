@@ -268,17 +268,17 @@ TEST_CASE("Construction", "[CStringViewTest]") {
   }
   // Construct using UDL.
   if (true) {
-    auto a = ""_czsv;
+    auto a = ""_csv;
     CHECK(a.empty());
     CHECK_FALSE(a.null());
-    auto b = "abc"_czsv;
+    auto b = "abc"_csv;
     CHECK(b.size() == 3U);
     // Embedded zeros are permitted.
-    auto c = "abc\0def"_czsv;
+    auto c = "abc\0def"_csv;
     CHECK(c.size() == 7U);
     auto d = cstring_view(c.c_str());
     CHECK(d.size() == 3U);
-    auto e = 0_czsv;
+    auto e = 0_csv;
     CHECK(e.null());
   }
 }
@@ -340,7 +340,7 @@ TEST_CASE("Optional", "[CStringViewTest]") {
 }
 
 TEST_CASE("SearchPassthrough", "[CStringViewTest]") {
-  const auto v = "abcdef"_czsv;
+  const auto v = "abcdef"_csv;
   CHECK(v.starts_with("abc"));
   CHECK_FALSE(v.starts_with("bcd"));
   CHECK(v.ends_with("def"));
@@ -369,13 +369,13 @@ std::string_view accept_overloaded(cstring_view) { return "csv"; }
 
 TEST_CASE("Cast", "[CStringViewTest]") {
   // Casts "up" implicitly.
-  CHECK("abc"_czsv == "abc"_czsv);
+  CHECK("abc"_csv == "abc"_csv);
   CHECK(accept_string_view("abc"sv) == "abc");
   auto abc_str = "abc"s;
   CHECK(accept_string_view(abc_str) == "abc");
-  CHECK(accept_string_view("abc"_czsv) == "abc");
+  CHECK(accept_string_view("abc"_csv) == "abc");
 
-  CHECK(accept_cstring_view("abc"_czsv) == "abc");
+  CHECK(accept_cstring_view("abc"_csv) == "abc");
   CHECK(accept_cstring_view(abc_str) == "abc");
 
   // But not down.
@@ -383,7 +383,7 @@ TEST_CASE("Cast", "[CStringViewTest]") {
 
   // Handles overloading just fine.
   CHECK(accept_overloaded("abc"sv) == "sv");
-  CHECK(accept_overloaded("abc"_czsv) == "csv");
+  CHECK(accept_overloaded("abc"_csv) == "csv");
 
   // But not this ambiguity. Need to either cast here or add a specific
   // overload.
@@ -393,7 +393,7 @@ TEST_CASE("Cast", "[CStringViewTest]") {
   CHECK_FALSE((std::is_same_v<cstring_view, std::string_view>));
   CHECK(StringViewConvertible<cstring_view>);
 
-  auto csv = "abc"_czsv;
+  auto csv = "abc"_csv;
   std::string_view sv = csv;
   accept_string_view_ref(sv);
   // But not this, so we can maintain our invariant.
@@ -427,27 +427,27 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   CHECK("abc"sv == "abc"s);
 
   // csv
-  CHECK("abc"_czsv == "abc");
-  CHECK("abc"_czsv == "abc"sv);
-  CHECK("abc"_czsv == "abc"s);
-  CHECK("abc"_czsv == "abc"_czsv);
+  CHECK("abc"_csv == "abc");
+  CHECK("abc"_csv == "abc"sv);
+  CHECK("abc"_csv == "abc"s);
+  CHECK("abc"_csv == "abc"_csv);
 
   // commutative
-  CHECK("abc" == "abc"_czsv);
-  CHECK("abc"_czsv == "abc");
+  CHECK("abc" == "abc"_csv);
+  CHECK("abc"_csv == "abc");
 
-  CHECK("abc"sv == "abc"_czsv);
-  CHECK("abc"_czsv == "abc"sv);
+  CHECK("abc"sv == "abc"_csv);
+  CHECK("abc"_csv == "abc"sv);
 
-  CHECK("abc"s == "abc"_czsv);
-  CHECK("abc"_czsv == "abc"s);
+  CHECK("abc"s == "abc"_csv);
+  CHECK("abc"_csv == "abc"s);
 
   // null and empty.
-  constexpr auto e = ""_czsv;
-  constexpr auto n = 0_czsv;
+  constexpr auto e = ""_csv;
+  constexpr auto n = 0_csv;
 
-  // `0_czsv` is consteval, so `n` is computed at compile time. A non-zero
-  // literal like `1_czsv` would not compile.
+  // `0_csv` is consteval, so `n` is computed at compile time. A non-zero
+  // literal like `1_csv` would not compile.
   if constexpr (n.empty()) { CHECK(true); }
 
   auto csv = cstring_view{"abc"};
@@ -493,13 +493,13 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   i = !n ? 24 : 42;
   CHECK(i == 24);
 
-  CHECK("abc"_czsv == "abc"_czsv);
-  CHECK(("abc"_czsv) < ("def"_czsv));
+  CHECK("abc"_csv == "abc"_csv);
+  CHECK(("abc"_csv) < ("def"_csv));
 
   // Hash test.
   std::set<cstring_view> ss;
-  ss.insert("abc"_czsv);
-  CHECK(ss.contains("abc"_czsv));
+  ss.insert("abc"_csv);
+  CHECK(ss.contains("abc"_csv));
 }
 
 #pragma endregion

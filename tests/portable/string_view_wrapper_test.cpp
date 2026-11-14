@@ -34,7 +34,7 @@ using namespace std::string_view_literals;
 
 TEST_CASE("Wrapper formats like its string view", "[StringViewWrapperTest]") {
   if (true) {
-    CHECK(std::format("{}", "hi"_czsv) == "hi");
+    CHECK(std::format("{}", "hi"_csv) == "hi");
     CHECK(std::format("{}", "hi"_optsv) == "hi");
     CHECK(std::format("{}", ""_optsv).empty());
   }
@@ -42,7 +42,7 @@ TEST_CASE("Wrapper formats like its string view", "[StringViewWrapperTest]") {
 
 TEST_CASE("Wrapper honors the debug spec", "[StringViewWrapperTest]") {
   if (true) {
-    CHECK(std::format("{:?}", "hi"_czsv) == R"("hi")");
+    CHECK(std::format("{:?}", "hi"_csv) == R"("hi")");
     CHECK(std::format("{:?}", "a\tb"_optsv) == R"("a\tb")");
     CHECK(std::format("{:?}", ""_optsv) == R"("")");
   }
@@ -50,10 +50,10 @@ TEST_CASE("Wrapper honors the debug spec", "[StringViewWrapperTest]") {
 
 TEST_CASE("Wrapper honors fill, align, and width", "[StringViewWrapperTest]") {
   if (true) {
-    CHECK(std::format("{:>5}", "hi"_czsv) == "   hi");
-    CHECK(std::format("{:*^6}", "hi"_czsv) == "**hi**");
+    CHECK(std::format("{:>5}", "hi"_csv) == "   hi");
+    CHECK(std::format("{:*^6}", "hi"_csv) == "**hi**");
     // Width composes with the debug spec for non-null content.
-    CHECK(std::format("{:<8?}", "hi"_czsv) == R"("hi"    )");
+    CHECK(std::format("{:<8?}", "hi"_csv) == R"("hi"    )");
   }
 }
 
@@ -107,7 +107,7 @@ TEST_CASE("Wrapper composes inside std range and map",
   if (true) {
     // format_kind is disabled for the children, so they format as strings
     // rather than lists of chars, and the range formatter quotes them.
-    std::vector<cstring_view> v{"a"_czsv, "b"_czsv};
+    std::vector<cstring_view> v{"a"_csv, "b"_csv};
     CHECK(std::format("{}", v) == R"(["a", "b"])");
 
     // A null element inside a range still shows the marker, driven by the
@@ -119,15 +119,15 @@ TEST_CASE("Wrapper composes inside std range and map",
     // quoted and a null element is transparent (empty) rather than the marker.
     CHECK(std::format("{::}", nv) == "[a, ]");
 
-    std::map<int, cstring_view> m{{1, "x"_czsv}};
+    std::map<int, cstring_view> m{{1, "x"_csv}};
     CHECK(std::format("{}", m) == R"({1: "x"})");
   }
 }
 
 TEST_CASE("Wide formatting widens the content", "[StringViewWrapperTest]") {
   if (true) {
-    CHECK(std::format(L"{}", L"hi"_wczsv) == L"hi");
-    CHECK(std::format(L"{:?}", L"hi"_wczsv) == LR"("hi")");
+    CHECK(std::format(L"{}", L"hi"_csv) == L"hi");
+    CHECK(std::format(L"{:?}", L"hi"_csv) == LR"("hi")");
     opt_wstring_view wnull{};
     CHECK(std::format(L"{:?}", wnull) == L"(null)");
     CHECK(std::format(L"{:>10?}", wnull) == L"    (null)");
