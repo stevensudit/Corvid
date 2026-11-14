@@ -16,6 +16,8 @@
 // limitations under the License.
 
 #include <cstdint>
+#include <format>
+#include <functional>
 #include <map>
 #include <set>
 
@@ -1213,6 +1215,15 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
     static_assert(std::string_view{nv} == "miny");
     static_assert(nv.as_enum() == tiger_pick::miny);
     CHECK(nv.as_enum() == tiger_pick::miny);
+  }
+  // An `enum_named_value` is an `enum_name`: it passes where one is wanted,
+  // and it formats and hashes as a wrapper child in its own right.
+  if (true) {
+    constexpr tiger_nv nv{"meany"};
+    static_assert(take_tiger(nv) == "meany");
+    static_assert(StringViewWrapperChild<tiger_nv>);
+    CHECK(std::format("{}", nv) == "meany");
+    CHECK(std::hash<tiger_nv>{}(nv) == std::hash<std::string_view>{}("meany"));
   }
   // A bare literal and an enum value both convert implicitly at the parameter.
   if (true) {

@@ -548,7 +548,7 @@ protected:
 // name and its enum together (e.g. to skip a runtime name->enum lookup),
 // without adding a field to the bare string view.
 template<NamedSequentialEnum E>
-class enum_named_value: enum_name<E> {
+class enum_named_value: public enum_name<E> {
   using force_tag = enum_name<E>::force_tag;
 
 public:
@@ -649,10 +649,6 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] constexpr operator std::string_view() const noexcept {
-    return base::as_view();
-  }
-  [[nodiscard]] constexpr base as_name() const noexcept { return *this; }
   [[nodiscard]] constexpr E as_enum() const noexcept { return enum_; }
 
 #pragma endregion

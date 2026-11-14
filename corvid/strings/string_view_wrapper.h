@@ -322,12 +322,18 @@ protected:
 #pragma endregion
 #pragma region Formatter support
 
-// Whether `T` is a concrete `string_view_wrapper` child, identified by
-// deriving from the CRTP base instantiated on itself. Gates the
-// `std::formatter` below.
+namespace details {
+// Never defined. Deduces the wrapper base of any public descendant.
+template<typename Child, CharType CharT>
+void string_view_wrapper_base(const string_view_wrapper<Child, CharT>&);
+} // namespace details
+
+// Whether `T` publicly derives from a `string_view_wrapper`, directly as a
+// child or through one. Gates the `std::formatter` and `std::hash` below.
 template<typename T>
-concept StringViewWrapperChild =
-    std::derived_from<T, string_view_wrapper<T, typename T::char_t>>;
+concept StringViewWrapperChild = requires(const T& t) {
+  details::string_view_wrapper_base(t);
+};
 
 #pragma endregion
 
@@ -354,7 +360,18 @@ template<corvid::StringViewWrapperChild W, corvid::CharType CharT>
 requires std::same_as<CharT, typename W::char_t>
 struct std::formatter<W, CharT>
     : corvid::nullable_formatter<std::basic_string_view<CharT>, CharT,
-          corvid::null_formatting::empty> {};
+          corvid::null_formatting::empty> {
+  using base = corvid::nullable_formatter<std::basic_string_view<CharT>, CharT,
+      corvid::null_formatting::empty>;
+
+  // Read through the view API, since a child may hide `operator*`.
+  template<typename FormatContext>
+  auto format(const W& w, FormatContext& ctx) const {
+    std::optional<typename W::view_t> value;
+    if (w.has_value()) value = w.view();
+    return base::format(value, ctx);
+  }
+};
 
 // Hash as the underlying view, so a child works as an unordered key and hashes
 // the same as the `std::string_view` it compares equal to. `null` and `empty`
