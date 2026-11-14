@@ -555,7 +555,7 @@ public:
     if (!sock.is_open() || !sock.set_nonblocking() || !sock.bind(local))
       return {};
     if (!local.port()) local = net_endpoint::local_of(sock);
-    auto router = std::make_shared<router_t>(router_t::mint{}, loop,
+    auto router = std::make_shared<router_t>(typename router_t::mint{}, loop,
         std::move(sock), std::move(local), recv_shot,
         std::forward<PluginArgs>(plugin_args)...);
     (void)router->start_reading();
