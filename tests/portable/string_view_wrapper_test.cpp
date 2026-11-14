@@ -15,9 +15,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <concepts>
 #include <format>
 #include <map>
+#include <optional>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "corvid/strings/cstring_view.h"
@@ -326,6 +329,22 @@ TEST_CASE("Null marker honors DYNAMIC width under the debug spec",
     const opt_wstring_view wnul{};
     CHECK(std::format(L"{:{}?}", wnul, 10) == L"(null)    ");
   }
+}
+
+TEST_CASE("Rvalue value and dereference return the child by value",
+    "[StringViewWrapperTest]") {
+  // The `&&` overloads hand back a child, not a reference into the temporary.
+  static_assert(std::same_as<decltype(std::declval<opt_string_view>().value()),
+      opt_string_view>);
+  static_assert(std::same_as<decltype(*std::declval<opt_string_view>()),
+      opt_string_view>);
+  static_assert(
+      std::same_as<decltype(std::declval<const opt_string_view&>().value()),
+          const opt_string_view&>);
+
+  CHECK(opt_string_view{"abc"}.value() == "abc");
+  CHECK(*opt_string_view{"abc"} == "abc");
+  CHECK_THROWS_AS(opt_string_view{}.value(), std::bad_optional_access);
 }
 
 #pragma endregion

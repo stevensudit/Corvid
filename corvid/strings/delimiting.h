@@ -57,22 +57,22 @@ struct basic_delim: public string_view_wrapper<basic_delim<CharT>, CharT> {
 #pragma endregion
 #pragma region Locating
 
-  [[nodiscard]] constexpr auto find_in(view_t whole) const {
+  [[nodiscard]] constexpr auto find_in(view_t whole) const noexcept {
     if (this->size() == 1) return whole.find(this->front());
     return whole.find_first_of(*this);
   }
 
-  [[nodiscard]] constexpr auto rfind_in(view_t whole) const {
+  [[nodiscard]] constexpr auto rfind_in(view_t whole) const noexcept {
     if (this->size() == 1) return whole.rfind(this->front());
     return whole.find_last_of(*this);
   }
 
-  [[nodiscard]] constexpr auto find_not_in(view_t whole) const {
+  [[nodiscard]] constexpr auto find_not_in(view_t whole) const noexcept {
     if (this->size() == 1) return whole.find_first_not_of(this->front());
     return whole.find_first_not_of(*this);
   }
 
-  [[nodiscard]] constexpr auto find_last_not_in(view_t whole) const {
+  [[nodiscard]] constexpr auto find_last_not_in(view_t whole) const noexcept {
     if (this->size() == 1) return whole.find_last_not_of(this->front());
     return whole.find_last_not_of(*this);
   }

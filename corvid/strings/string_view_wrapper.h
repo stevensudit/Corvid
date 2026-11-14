@@ -125,47 +125,56 @@ public:
     return sv_.copy(dest, count, pos);
   }
 
-  // Not `noexcept`: the position-taking overloads throw `std::out_of_range`.
+  // Each forwards to the `std::basic_string_view` overload its arguments
+  // select, and is `noexcept` exactly when that overload is.
   template<typename... Args>
-  [[nodiscard]] constexpr auto compare(Args&&... args) const {
+  [[nodiscard]] constexpr auto compare(Args&&... args) const
+      noexcept(noexcept(sv_.compare(std::forward<Args>(args)...))) {
     return sv_.compare(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto find(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find(Args&&... args) const
+      noexcept(noexcept(sv_.find(std::forward<Args>(args)...))) {
     return sv_.find(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto rfind(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto rfind(Args&&... args) const
+      noexcept(noexcept(sv_.rfind(std::forward<Args>(args)...))) {
     return sv_.rfind(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto find_first_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_first_of(Args&&... args) const
+      noexcept(noexcept(sv_.find_first_of(std::forward<Args>(args)...))) {
     return sv_.find_first_of(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto find_last_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_last_of(Args&&... args) const
+      noexcept(noexcept(sv_.find_last_of(std::forward<Args>(args)...))) {
     return sv_.find_last_of(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto
-  find_first_not_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_first_not_of(Args&&... args) const
+      noexcept(noexcept(sv_.find_first_not_of(std::forward<Args>(args)...))) {
     return sv_.find_first_not_of(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto
-  find_last_not_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_last_not_of(Args&&... args) const
+      noexcept(noexcept(sv_.find_last_not_of(std::forward<Args>(args)...))) {
     return sv_.find_last_not_of(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto starts_with(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto starts_with(Args&&... args) const
+      noexcept(noexcept(sv_.starts_with(std::forward<Args>(args)...))) {
     return sv_.starts_with(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto ends_with(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto ends_with(Args&&... args) const
+      noexcept(noexcept(sv_.ends_with(std::forward<Args>(args)...))) {
     return sv_.ends_with(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto contains(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto contains(Args&&... args) const
+      noexcept(noexcept(sv_.contains(std::forward<Args>(args)...))) {
     return sv_.contains(std::forward<Args>(args)...);
   }
 

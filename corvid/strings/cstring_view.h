@@ -16,6 +16,8 @@
 // limitations under the License.
 #pragma once
 #include <cstdlib>
+#include <iterator>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -226,19 +228,21 @@ namespace literals {
 #pragma region UDL
 
 // basic_cstring_view literals.
-consteval cstring_view operator""_csv(const char* ps, size_t n) {
+consteval cstring_view operator""_csv(const char* ps, size_t n) noexcept {
   return cstring_view{std::string_view{ps, n + 1}};
 }
-consteval wcstring_view operator""_csv(const wchar_t* ps, size_t n) {
+consteval wcstring_view operator""_csv(const wchar_t* ps, size_t n) noexcept {
   return wcstring_view{std::wstring_view{ps, n + 1}};
 }
-consteval u8cstring_view operator""_csv(const char8_t* ps, size_t n) {
+consteval u8cstring_view operator""_csv(const char8_t* ps, size_t n) noexcept {
   return u8cstring_view{std::u8string_view{ps, n + 1}};
 }
-consteval u16cstring_view operator""_csv(const char16_t* ps, size_t n) {
+consteval u16cstring_view
+operator""_csv(const char16_t* ps, size_t n) noexcept {
   return u16cstring_view{std::u16string_view{ps, n + 1}};
 }
-consteval u32cstring_view operator""_csv(const char32_t* ps, size_t n) {
+consteval u32cstring_view
+operator""_csv(const char32_t* ps, size_t n) noexcept {
   return u32cstring_view{std::u32string_view{ps, n + 1}};
 }
 

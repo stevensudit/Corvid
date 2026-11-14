@@ -17,6 +17,7 @@
 #pragma once
 #include <concepts>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -126,21 +127,6 @@ public:
   constexpr explicit(tagged)
       basic_opt_string_view(const std::optional<string_t<Alloc>>& os) noexcept
       : base{os ? view_t{*os} : view_t{}} {}
-
-  // View assignment exists only for the untagged form; a tagged view admits a
-  // raw view only through its explicit constructor.
-  constexpr basic_opt_string_view& operator=(view_t sv) noexcept
-  requires(!tagged)
-  {
-    base::sv_ = sv;
-    return *this;
-  }
-  constexpr basic_opt_string_view& operator=(const char_t* s) noexcept
-  requires(!tagged)
-  {
-    base::sv_ = base::from_ptr(s);
-    return *this;
-  }
 
 #pragma endregion
 #pragma region Reslicing

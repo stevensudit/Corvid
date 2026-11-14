@@ -15,9 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <concepts>
 #include <cstdint>
 #include <map>
 #include <memory_resource>
+#include <optional>
 #include <set>
 #include <span>
 #include <vector>
@@ -357,6 +359,32 @@ TEST_CASE("Optional", "[CStringViewTest]") {
   // rejected at the constraint, not inside the body.
   static_assert(!std::is_constructible_v<cstring_view,
       std::optional<std::vector<char>>>);
+}
+
+TEST_CASE("OptionalInterface", "[CStringViewTest]") {
+  // The inherited optional interface keeps the `cstring_view` type, so the
+  // termination invariant survives `value`, `value_or`, and `as_optional`.
+  const auto v = "abc"_csv;
+  const cstring_view n;
+  CHECK(v.has_value());
+  CHECK_FALSE(n.has_value());
+  CHECK(v.value() == "abc");
+  CHECK_THROWS_AS(n.value(), std::bad_optional_access);
+  static_assert(std::same_as<decltype(v.value_or(v)), cstring_view>);
+  static_assert(std::same_as<decltype(v.value_or("x")), std::string_view>);
+  CHECK(n.value_or(v) == "abc");
+  CHECK(n.value_or("x") == "x");
+  CHECK(v.as_optional().has_value());
+  CHECK_FALSE(n.as_optional().has_value());
+  CHECK(v.as_optional()->c_str()[3] == 0);
+
+  auto a = "left"_csv;
+  auto b = "right"_csv;
+  a.swap(b);
+  CHECK(a == "right");
+  CHECK(b == "left");
+  a.reset();
+  CHECK(a.null());
 }
 
 TEST_CASE("SearchPassthrough", "[CStringViewTest]") {
