@@ -44,6 +44,7 @@
 #include "../../filesys/os_event.h"
 #include "../net_socket.h"
 #include "../../meta/invoke/fixed_function.h"
+#include "../../meta/passkey.h"
 
 namespace corvid { inline namespace proto {
 
@@ -119,7 +120,7 @@ private:
 // owner may destroy it from any thread. Use `epoll_loop_runner` to satisfy
 // this automatically.
 class epoll_loop: public owner_thread_dispatcher<> {
-  enum class allow : bool { ctor };
+  using mint = passkey<epoll_loop>;
 
 #pragma region Types
 public:
@@ -135,7 +136,7 @@ public:
   // Throws `std::system_error` on failure. Use `make` instead of calling this
   // directly. Per the dispatcher contract, the constructing thread becomes the
   // loop thread.
-  explicit epoll_loop(allow) : epoll_{create_epollfd()} {
+  explicit epoll_loop(mint) : epoll_{create_epollfd()} {
     // The base's `os_event` is used by `post` and `stop` to interrupt a
     // sleeping `epoll_wait` from another thread.
     epoll_event ev{.events = EPOLLIN,
@@ -157,7 +158,7 @@ public:
   // Normally, you would want to use an `epoll_loop_runner` to create an
   // instance in a thread.
   [[nodiscard]] static std::shared_ptr<epoll_loop> make() {
-    return std::make_shared<epoll_loop>(allow::ctor);
+    return std::make_shared<epoll_loop>(mint{});
   }
 
   [[nodiscard]] std::shared_ptr<epoll_loop> self() {

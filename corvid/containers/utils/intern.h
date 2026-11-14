@@ -53,9 +53,12 @@ using namespace arena;
 
 #pragma region restrict ctor
 
-// Provide restricted access to `allow` to control construction.
-class restrict_intern_construction {
-  enum class allow : bool { ctor };
+// Key that only the intern types can mint, so their public constructors are
+// unusable from outside. Hand-written rather than a `passkey` because the
+// minters are class templates.
+class intern_mint {
+  // NOLINTNEXTLINE(modernize-use-equals-default)
+  constexpr intern_mint() {};
 
   template<typename T, SequentialEnum ID>
   friend class interned_value;
@@ -101,7 +104,7 @@ class intern_table;
 // principle be non-unique across tables.
 template<typename T, SequentialEnum ID>
 class interned_value {
-  using allow = restrict_intern_construction::allow;
+  using mint = intern_mint;
 
 public:
 #pragma region Types
@@ -113,9 +116,9 @@ public:
 #pragma region Construction
 
   // Effectively private constructors.
-  constexpr interned_value(allow, const value_t& value, id_t id)
+  constexpr interned_value(mint, const value_t& value, id_t id)
       : value_{&value}, id_{id} {}
-  constexpr interned_value(allow, const value_t* value, id_t id)
+  constexpr interned_value(mint, const value_t* value, id_t id)
       : value_{value}, id_{id} {}
 
   constexpr interned_value() noexcept = default;
@@ -302,7 +305,7 @@ struct intern_traits<std::string, ID> {
 template<typename T, SequentialEnum ID, typename TR = intern_traits<T, ID>>
 class intern_table
     : public std::enable_shared_from_this<intern_table<T, ID, TR>> {
-  using allow = restrict_intern_construction::allow;
+  using mint = intern_mint;
 
 public:
 #pragma region Types
@@ -326,7 +329,7 @@ public:
 #pragma region Construction
 
   // Effectively private constructor.
-  intern_table(allow, id_t min_id, id_t max_id, const_pointer next = {})
+  intern_table(mint, id_t min_id, id_t max_id, const_pointer next = {})
       : min_id_{min_id}, max_id_{max_id},
         lookup_by_id_{arena_construct<lookup_by_id_t>(arena_)},
         lookup_by_value_{arena_construct<lookup_by_value_t>(arena_)},
@@ -359,7 +362,7 @@ public:
       max_id = static_cast<id_t>(
           std::numeric_limits<as_underlying_t<id_t>>::max() - 1);
 
-    return std::make_shared<intern_table>(allow::ctor, min_id, max_id, next);
+    return std::make_shared<intern_table>(mint{}, min_id, max_id, next);
   }
 
   // Make next block of IDs, chaining to this table. The `min_id` is one past
@@ -397,7 +400,7 @@ public:
       found_value = find_by_id(id);
     else if (next_)
       return next_->get(id);
-    return {allow::ctor, found_value, id};
+    return {mint{}, found_value, id};
   }
 
   // Get interned value by (transparent) value. If not found, returns empty.
@@ -417,7 +420,7 @@ public:
     } else if (next_)
       return next_->get(value);
 
-    return {allow::ctor, found_value, id};
+    return {mint{}, found_value, id};
   }
 
   // Interns a value. If the value is already interned, returns the existing
@@ -442,7 +445,7 @@ public:
     // After the last entry, we don't need to sync anymore.
     if (id == max_id_) sync.disable();
 
-    return {allow::ctor, reinterpret_cast<const value_t*>(&found_value), id};
+    return {mint{}, reinterpret_cast<const value_t*>(&found_value), id};
   }
 
   // Get by ID. If not found, returns empty ID and value.

@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "../../infra/exception_firewalls.h"
+#include "../../meta/passkey.h"
 #include "iou_dgram_router.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
@@ -139,7 +140,7 @@ public:
 
 #pragma region Construction
 protected:
-  enum class allow : bool { ctor };
+  using mint = passkey<iou_dgram_session>;
 
 public:
   // Public for `make_shared`; use the `make` factory. The plugin is
@@ -148,7 +149,7 @@ public:
   // it must not call any member functions on the session, since the session's
   // construction is not yet complete.
   template<typename... PluginArgs>
-  explicit iou_dgram_session(allow, router_t& router,
+  explicit iou_dgram_session(mint, router_t& router,
       PluginArgs&&... plugin_args)
       : iou_dgram_session_base{router.loop(), router_t::buf_size},
         router_{router},
@@ -176,7 +177,7 @@ public:
   template<typename... PluginArgs>
   [[nodiscard]] static session_ptr
   make(router_t& router, const buffer& buf, PluginArgs&&... plugin_args) {
-    auto self = std::make_shared<iou_dgram_session>(allow::ctor, router,
+    auto self = std::make_shared<iou_dgram_session>(mint{}, router,
         std::forward<PluginArgs>(plugin_args)...);
     (void)self->plugin_.register_self(buf);
     return self;

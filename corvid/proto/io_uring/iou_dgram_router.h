@@ -199,7 +199,15 @@ public:
 
 #pragma region Construction
 protected:
-  enum class allow : bool { ctor };
+  // Key that only `iou_dgram_router_handle` can mint, so the public
+  // constructor is unusable from outside. Hand-written rather than a
+  // `passkey` because the minter is a class template.
+  class mint {
+    template<typename>
+    friend class iou_dgram_router_handle;
+    // NOLINTNEXTLINE(modernize-use-equals-default)
+    constexpr mint() {}
+  };
 
   template<typename>
   friend class iou_dgram_router_handle;
@@ -209,7 +217,7 @@ public:
   // ctor-body `static_assert` is the deferred concept check described on
   // `iou_dgram_router_plugin`.
   template<typename... PluginArgs>
-  explicit iou_dgram_router(allow, iou_loop& loop, net_socket sock,
+  explicit iou_dgram_router(mint, iou_loop& loop, net_socket sock,
       const net_endpoint& local, shot_type recv_shot,
       PluginArgs&&... plugin_args) noexcept
       : loop_{loop}, sock_{std::move(sock)}, local_{local},
@@ -547,7 +555,7 @@ public:
     if (!sock.is_open() || !sock.set_nonblocking() || !sock.bind(local))
       return {};
     if (!local.port()) local = net_endpoint::local_of(sock);
-    auto router = std::make_shared<router_t>(router_t::allow::ctor, loop,
+    auto router = std::make_shared<router_t>(router_t::mint{}, loop,
         std::move(sock), std::move(local), recv_shot,
         std::forward<PluginArgs>(plugin_args)...);
     (void)router->start_reading();

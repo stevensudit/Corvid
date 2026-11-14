@@ -163,9 +163,9 @@ template<typename STATE>
 class epoll_stream_conn_with_state;
 
 // `epoll_stream_conn` is designed to be subclassed only via
-// `epoll_stream_conn_with_state`. The `allow` token is private and only
-// `epoll_stream_conn_with_state` (and the existing infrastructure friends) can
-// access it, preventing unintended derivation.
+// `epoll_stream_conn_with_state`. Only `epoll_stream_conn_with_state` (and
+// the existing infrastructure friends) can mint the construction key,
+// preventing unintended derivation.
 class epoll_stream_conn: public epoll_io_conn {
 #pragma region Accessors
 public:
@@ -361,7 +361,19 @@ public:
 #pragma endregion
 #pragma region Friends
 private:
-  enum class allow : bool { ctor };
+  // Key that only this class, `epoll_stream_conn_ptr_with`, and
+  // `epoll_stream_conn_with_state` can mint, so the public constructors
+  // are unusable from outside. Hand-written rather than a `passkey` because
+  // the minters are class templates.
+  class mint {
+    friend epoll_stream_conn;
+    template<typename>
+    friend class epoll_stream_conn_ptr_with;
+    template<typename>
+    friend class epoll_stream_conn_with_state;
+    // NOLINTNEXTLINE(modernize-use-equals-default)
+    constexpr mint() {}
+  };
 
   template<typename>
   friend class epoll_stream_conn_ptr_with;
@@ -374,7 +386,7 @@ public:
   // `std::make_shared<epoll_stream_conn>` from `epoll_stream_conn_ptr_with`
   // factories and `handle_listen`, but gated behind a private type. Use
   // `epoll_stream_conn_ptr_with` to construct an instance.
-  explicit epoll_stream_conn(allow, std::weak_ptr<epoll_loop> loop,
+  explicit epoll_stream_conn(mint, std::weak_ptr<epoll_loop> loop,
       net_socket&& sock, const net_endpoint& remote,
       epoll_stream_conn_handlers&& h, size_t rbs,
       std::optional<connection_role> connection = {},
@@ -416,7 +428,7 @@ protected:
   [[nodiscard]] virtual std::shared_ptr<epoll_stream_conn>
   accept_clone(net_socket&& sock, const net_endpoint& remote,
       epoll_stream_conn_handlers handlers) const {
-    return std::make_shared<epoll_stream_conn>(allow::ctor, weak_loop_,
+    return std::make_shared<epoll_stream_conn>(mint{}, weak_loop_,
         std::move(sock), remote, std::move(handlers), recv_buf_size(),
         std::nullopt, shutdown_);
   }
@@ -1377,7 +1389,7 @@ private:
     assert(loop.get());
     if (recv_buf_size == 0)
       recv_buf_size = epoll_stream_conn::default_recv_buf_size;
-    conn_ = std::make_shared<conn_t>(epoll_stream_conn::allow::ctor, loop,
+    conn_ = std::make_shared<conn_t>(epoll_stream_conn::mint{}, loop,
         std::move(sock), remote, std::move(h), recv_buf_size, connection,
         shutdown);
     if (!loop->post([p = conn_] { return p->register_with_loop(); }))
@@ -1419,14 +1431,13 @@ public:
 #pragma region Construction
 
   // Construct via `epoll_stream_conn_ptr_with` factories only. Technically
-  // public because `make_shared` requires it, but gated by the private `allow`
-  // token.
-  explicit epoll_stream_conn_with_state(allow a,
-      std::weak_ptr<epoll_loop> loop, net_socket&& sock,
-      const net_endpoint& remote, epoll_stream_conn_handlers&& h, size_t rbs,
+  // public because `make_shared` requires it, but gated by the `mint` key.
+  explicit epoll_stream_conn_with_state(mint m, std::weak_ptr<epoll_loop> loop,
+      net_socket&& sock, const net_endpoint& remote,
+      epoll_stream_conn_handlers&& h, size_t rbs,
       std::optional<connection_role> connection = {},
       coordination_policy shutdown = coordination_policy::unilateral)
-      : epoll_stream_conn{a, std::move(loop), std::move(sock), remote,
+      : epoll_stream_conn{m, std::move(loop), std::move(sock), remote,
             std::move(h), rbs, connection, shutdown} {}
 #pragma endregion
 #pragma region Accessors
@@ -1453,7 +1464,7 @@ protected:
   [[nodiscard]] std::shared_ptr<epoll_stream_conn>
   accept_clone(net_socket&& sock, const net_endpoint& remote,
       epoll_stream_conn_handlers handlers) const override {
-    return std::make_shared<epoll_stream_conn_with_state<state_t>>(allow::ctor,
+    return std::make_shared<epoll_stream_conn_with_state<state_t>>(mint{},
         weak_loop_, std::move(sock), remote, std::move(handlers),
         recv_buf_size(), std::nullopt, shutdown_);
   }

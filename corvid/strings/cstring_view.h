@@ -109,7 +109,7 @@ inline namespace cstringview {
 //
 // P3655 brought the issue back to life, first as `zstring_view` and then
 // renamed to `cstring_view`.
-// https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p3655r2.html
+// https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2026/p3655r6.html
 template<typename T = std::string_view>
 class basic_cstring_view final
     : public string_view_wrapper<basic_cstring_view<T>,

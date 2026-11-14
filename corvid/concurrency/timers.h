@@ -24,6 +24,7 @@
 #include <queue>
 #include <string>
 
+#include "../meta/passkey.h"
 #include "sync_lock.h"
 #include "tombstone.h"
 
@@ -124,12 +125,12 @@ using clock_callback_t = std::function<time_point_t()>;
 class timer_event final {
 #pragma region Construction
 
-  enum class allow : bool { ctor };
+  using mint = passkey<timer_event>;
 
 public:
   // Effectively private: can only be constructed through `make` factory
   // method.
-  explicit timer_event(allow, time_point_t created_at, time_point_t start_at,
+  explicit timer_event(mint, time_point_t created_at, time_point_t start_at,
       duration_t repeat_in, time_point_t stop_at, timer_callback_t&& callback,
       bool canceled)
       : created_at{created_at}, start_at{start_at}, repeat_in{repeat_in},
@@ -151,7 +152,7 @@ public:
     if (stop_at < start_at) doa = true;
     if (repeat_in < duration_t{}) doa = true;
 
-    return std::make_shared<timer_event>(allow::ctor, created_at, start_at,
+    return std::make_shared<timer_event>(mint{}, created_at, start_at,
         repeat_in, stop_at, std::move(callback), doa);
   }
 
@@ -239,7 +240,8 @@ class timers final: public std::enable_shared_from_this<timers> {
     }
   };
   using scheduled_queue_t = std::priority_queue<scheduled_event>;
-  enum class allow : bool { ctor };
+
+  using mint = passkey<timers>;
 
 #pragma endregion
 #pragma region Construction
@@ -247,7 +249,7 @@ class timers final: public std::enable_shared_from_this<timers> {
 public:
   // Effectively private: can only be constructed through `make` factory
   // method.
-  explicit timers(allow, std::string name) : name{std::move(name)} {}
+  explicit timers(mint, std::string name) : name{std::move(name)} {}
 
   // No copy or move: only `std::shared_ptr`.
   timers(const timers&) = delete;
@@ -257,7 +259,7 @@ public:
 
   // Factory method to create a new `timers` object.
   [[nodiscard]] static timers_ptr make(std::string name) {
-    return std::make_shared<timers>(allow::ctor, std::move(name));
+    return std::make_shared<timers>(mint{}, std::move(name));
   }
 
 #pragma endregion

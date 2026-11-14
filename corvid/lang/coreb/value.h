@@ -39,6 +39,7 @@
 #include "../../containers/core/transparent.h"
 #include "../../enums/sequence_enum.h"
 #include "../../meta/concepts.h"
+#include "../../meta/passkey.h"
 #include "../../strings/cases.h"
 #include "../../strings/builder.h"
 #include "../../strings/conversion.h"
@@ -398,6 +399,9 @@ protected:
   gc_object() = default;
   ~gc_object() = default;
 
+  // Construction key for every heap object: only the runtime allocates.
+  using mint = passkey<runtime_core>;
+
 private:
   friend class runtime_core;
 
@@ -416,12 +420,8 @@ private:
 //
 // Constructed only by the runtime, which owns every cell.
 struct cell final: gc_object {
-private:
-  enum class allow : bool { ctor };
-  friend class runtime_core;
-
 public:
-  cell(allow, value head, value tail) noexcept : head{head}, tail{tail} {}
+  cell(mint, value head, value tail) noexcept : head{head}, tail{tail} {}
 
   // Append the printed list form to `out`: proper lists as "(a b c)",
   // improper tails dotted. Returns false if a subtree was truncated for
@@ -483,12 +483,8 @@ public:
 //
 // Constructed only by the runtime, which owns it.
 struct heap_string final: gc_object {
-private:
-  enum class allow : bool { ctor };
-  friend class runtime_core;
-
 public:
-  heap_string(allow, std::string str) noexcept : str{std::move(str)} {}
+  heap_string(mint, std::string str) noexcept : str{std::move(str)} {}
 
   // Append the quoted form to `out`, escaping exactly the set the reader
   // unescapes.
@@ -514,12 +510,8 @@ public:
 //
 // Constructed only by the runtime, which owns it.
 struct closure final: gc_object {
-private:
-  enum class allow : bool { ctor };
-  friend class runtime_core;
-
 public:
-  closure(allow, std::vector<symbol> params, std::vector<value> body,
+  closure(mint, std::vector<symbol> params, std::vector<value> body,
       environment& env) noexcept
       : params{std::move(params)}, body{std::move(body)}, env{&env} {}
 
@@ -542,15 +534,11 @@ public:
 //
 // Constructed only by the runtime, which owns it.
 struct primitive final: gc_object {
-private:
-  enum class allow : bool { ctor };
-  friend class runtime_core;
-
 public:
   using fn_t = value_or_error<value, std::string> (*)(runtime_core&,
       std::span<const value>);
 
-  primitive(allow, symbol name, fn_t fn) noexcept : name{name}, fn{fn} {}
+  primitive(mint, symbol name, fn_t fn) noexcept : name{name}, fn{fn} {}
 
   // Append the display form, "#<primitive name>". Primitives have no
   // readable form.
@@ -576,12 +564,11 @@ public:
 //
 // Constructed only by the runtime, which owns it.
 class environment final: public gc_object {
-private:
-  enum class allow : bool { ctor };
+  // The collector walks `parent_` directly.
   friend class runtime_core;
 
 public:
-  environment(allow, environment* parent) : parent_{parent} {}
+  environment(mint, environment* parent) : parent_{parent} {}
 
   // Look up `name`, searching enclosing scopes outward.
   [[nodiscard]] std::optional<value> lookup(symbol name) const noexcept {
@@ -671,7 +658,7 @@ public:
   // Construct a cell.
   [[nodiscard]] value cons(value head, value tail) {
     ++allocs_;
-    cells_.push_back(std::make_unique<cell>(cell::allow::ctor, head, tail));
+    cells_.push_back(std::make_unique<cell>(cell::mint{}, head, tail));
     return value{*cells_.back()};
   }
 
@@ -692,8 +679,8 @@ public:
   // Allocate a string.
   [[nodiscard]] heap_string& make_string(std::string str) {
     ++allocs_;
-    strings_.push_back(std::make_unique<heap_string>(heap_string::allow::ctor,
-        std::move(str)));
+    strings_.push_back(
+        std::make_unique<heap_string>(heap_string::mint{}, std::move(str)));
     return *strings_.back();
   }
 
@@ -701,7 +688,7 @@ public:
   [[nodiscard]] value make_closure(std::vector<symbol> params,
       std::vector<value> body, environment& env) {
     ++allocs_;
-    closures_.push_back(std::make_unique<closure>(closure::allow::ctor,
+    closures_.push_back(std::make_unique<closure>(closure::mint{},
         std::move(params), std::move(body), env));
     return value{*closures_.back()};
   }
@@ -710,7 +697,7 @@ public:
   [[nodiscard]] value make_primitive(symbol name, primitive::fn_t fn) {
     ++allocs_;
     primitives_.push_back(
-        std::make_unique<primitive>(primitive::allow::ctor, name, fn));
+        std::make_unique<primitive>(primitive::mint{}, name, fn));
     return value{*primitives_.back()};
   }
 
@@ -718,7 +705,7 @@ public:
   [[nodiscard]] environment& make_env(environment& parent) {
     ++allocs_;
     envs_.push_back(
-        std::make_unique<environment>(environment::allow::ctor, &parent));
+        std::make_unique<environment>(environment::mint{}, &parent));
     return *envs_.back();
   }
 
@@ -770,7 +757,7 @@ protected:
   // A fresh runtime owns one environment from the start: the empty root scope.
   runtime_core() {
     envs_.push_back(
-        std::make_unique<environment>(environment::allow::ctor, nullptr));
+        std::make_unique<environment>(environment::mint{}, nullptr));
   }
 
   // Non-polymorphic base: destruction runs through the derived type, and

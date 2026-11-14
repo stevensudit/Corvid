@@ -28,6 +28,7 @@
 #include "../../infra/exception_firewalls.h"
 #include "../../concurrency/idle_timeout.h"
 #include "../../meta/bool_enums.h"
+#include "../../meta/passkey.h"
 #include "../net_endpoint.h"
 #include "iou_buf_pool.h"
 #include "iou_loop.h"
@@ -292,7 +293,7 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 template<typename ConnPlugin>
 class iou_stream_conn
     : public std::enable_shared_from_this<iou_stream_conn<ConnPlugin>> {
-  enum class allow : bool { ctor };
+  using mint = passkey<iou_stream_conn>;
 
 public:
   using plugin_t = ConnPlugin;
@@ -551,7 +552,7 @@ public:
   // or `listen`. Plugin is constructed in-place with `(*this, plugin_args...)`
   // so it can capture the conn ref.
   template<typename... PluginArgs>
-  explicit iou_stream_conn(allow, iou_loop& loop, net_socket sock,
+  explicit iou_stream_conn(mint, iou_loop& loop, net_socket sock,
       const net_endpoint* remote, std::optional<connection_role> role,
       block_size recv_buf_size, block_size send_buf_size, shot_type recv_shot,
       idle_duration_t read_idle_timeout, idle_duration_t write_idle_timeout,
@@ -576,7 +577,7 @@ public:
   // `accept_from.make_child_plugin(*this)`. `send_zc_supported` is inherited
   // from the listener, so children of a transport known not to support ZC
   // (e.g., UDS) skip the per-conn discovery `EOPNOTSUPP`.
-  iou_stream_conn(allow, const plugin_t& accept_from, iou_loop& loop,
+  iou_stream_conn(mint, const plugin_t& accept_from, iou_loop& loop,
       net_socket sock, const net_endpoint* remote, block_size recv_buf_size,
       block_size send_buf_size, shot_type recv_shot, bool send_zc_supported,
       idle_duration_t read_idle_timeout, idle_duration_t write_idle_timeout)
@@ -729,7 +730,7 @@ private:
       block_size send_buf_size, shot_type recv_shot,
       idle_duration_t read_idle_timeout, idle_duration_t write_idle_timeout,
       PluginArgs&&... plugin_args) {
-    auto conn = std::make_shared<iou_stream_conn>(allow::ctor, loop,
+    auto conn = std::make_shared<iou_stream_conn>(mint{}, loop,
         std::move(sock), remote, role, recv_buf_size, send_buf_size, recv_shot,
         read_idle_timeout, write_idle_timeout,
         std::forward<PluginArgs>(plugin_args)...);
@@ -746,7 +747,7 @@ private:
   [[nodiscard]] std::shared_ptr<iou_stream_conn>
   do_accept_clone(net_socket&& sock, const net_endpoint* remote = nullptr) {
     assert(loop().is_loop_thread());
-    return std::make_shared<iou_stream_conn>(allow::ctor, plugin_, loop_,
+    return std::make_shared<iou_stream_conn>(mint{}, plugin_, loop_,
         std::move(sock), remote, block_size{recv_buf_size_},
         block_size{send_buf_size_}, recv_intended_shot_, send_zc_supported_,
         read_idle_.configured_timeout(), write_idle_.configured_timeout());

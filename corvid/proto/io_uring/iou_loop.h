@@ -35,6 +35,7 @@
 #include "../../meta/invoke/fixed_function.h"
 #include "../net_endpoint.h"
 #include "../../meta/concepts.h"
+#include "../../meta/passkey.h"
 #include "../../filesys/os_file.h"
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
@@ -282,7 +283,7 @@ public:
 #pragma endregion
 #pragma region Details
 private:
-  enum class allow : bool { ctor };
+  using mint = passkey<iou_basic_loop>;
   static_assert((RING_SIZE & (RING_SIZE - 1)) == 0,
       "RING_SIZE must be a power of two");
   static_assert(SLOT_COUNT <= RING_SIZE * 2,
@@ -329,7 +330,7 @@ public:
   //
   // Note: The flags for the ring require that all SQEs be issued from the same
   // thread, and optimizes completions for the single-issuer case.
-  explicit iou_basic_loop(allow,
+  explicit iou_basic_loop(mint,
       size_t max_pending_sqes = default_max_pending_sqes,
       size_t udp_provided_size = memory_map::default_hugepage_size,
       block_size udp_provided_buf_size = block_size::kb002,
@@ -386,7 +387,7 @@ public:
       block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = memory_map::default_hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004) {
-    return std::make_shared<iou_basic_loop>(allow::ctor, max_pending_sqes,
+    return std::make_shared<iou_basic_loop>(mint{}, max_pending_sqes,
         udp_provided_size, udp_provided_buf_size, tcp_provided_size,
         tcp_provided_buf_size);
   }

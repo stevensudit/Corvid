@@ -28,6 +28,7 @@
 #include "../../infra/relaxed_atomic.h"
 #include "../../containers/core/fixed_bitset.h"
 #include "../../enums.h"
+#include "../../meta/passkey.h"
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
 #include "iou_wrap.h"
@@ -221,14 +222,14 @@ private:
 #pragma endregion
 #pragma region Construction
 
-  enum class allow : bool { ctor };
+  using mint = passkey<iou_buf_pool_of>;
 
 public:
   // Public for `std::make_shared`; external callers must go through `create`.
   // Allocates and warms the backing store. Falls back to a plain
   // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
   // without huge pages configured). Throws `std::system_error` on failure.
-  explicit iou_buf_pool_of(allow) {
+  explicit iou_buf_pool_of(mint) {
     static_assert(slab_size % memory_map::default_hugepage_size == 0);
     slab_ = memory_map::create_huge(slab_size);
     if (!slab_) os_error::last().throw_if_error("mmap");
@@ -242,7 +243,7 @@ public:
 
   // Construct a heap-allocated pool owned by `std::shared_ptr`.
   [[nodiscard]] static std::shared_ptr<iou_buf_pool_of> create() {
-    return std::make_shared<iou_buf_pool_of>(allow::ctor);
+    return std::make_shared<iou_buf_pool_of>(mint{});
   }
 
   // Register the backing block as a single fixed buffer (index 0) with `ring`.

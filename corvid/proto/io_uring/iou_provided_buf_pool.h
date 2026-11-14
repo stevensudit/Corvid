@@ -24,6 +24,7 @@
 #include "../../concurrency/owner_thread_dispatcher.h"
 #include "../../infra/relaxed_atomic.h"
 #include "../../meta/invoke/fixed_function.h"
+#include "../../meta/passkey.h"
 
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
@@ -49,7 +50,7 @@ namespace corvid { inline namespace proto { namespace iouring {
 // `iou_provided_buf_pool` is non-copyable and non-movable. The pool must
 // outlive all `iou_buffer` objects it produces.
 class iou_provided_buf_pool: public buffer_pool_base {
-  enum class allow : bool { ctor };
+  using mint = passkey<iou_provided_buf_pool>;
 
 #pragma region Construction
 public:
@@ -63,7 +64,7 @@ public:
   // `buf_size` bytes each. `buf_count` is derived as `slab_size / buf_size`
   // and must be a power of two. Pass `slab_size = 0` for a no-op pool. Throws
   // `std::system_error` on allocation failure.
-  iou_provided_buf_pool(allow, dispatcher_t& dispatcher, size_t slab_size,
+  iou_provided_buf_pool(mint, dispatcher_t& dispatcher, size_t slab_size,
       block_size buf_size, uint16_t bgid = 0)
       : dispatcher_{&dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
@@ -97,7 +98,7 @@ public:
   [[nodiscard]] static std::shared_ptr<iou_provided_buf_pool>
   create(dispatcher_t& dispatcher, size_t slab_size, block_size buf_size,
       uint16_t bgid = 0) {
-    return std::make_shared<iou_provided_buf_pool>(allow::ctor, dispatcher,
+    return std::make_shared<iou_provided_buf_pool>(mint{}, dispatcher,
         slab_size, buf_size, bgid);
   }
 

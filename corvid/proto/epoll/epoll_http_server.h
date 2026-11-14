@@ -36,6 +36,7 @@
 #include "../../concurrency/timer_fuse.h"
 #include "../../containers/core/scoped_value.h"
 #include "../../containers/core/hash_combiner.h"
+#include "../../meta/passkey.h"
 #include "epoll_loop.h"
 #include "epoll_http_transaction.h"
 #include "epoll_stream_conn.h"
@@ -189,7 +190,7 @@ class epoll_http_server
   using conn_t = epoll_stream_conn_with_state<http_conn_state>;
   using conn_ptr_t = epoll_stream_conn_ptr_with<conn_t>;
   using timer_fuse_t = timer_fuse<epoll_stream_conn>;
-  enum class allow : bool { ctor };
+  using mint = passkey<epoll_http_server>;
 
 public:
   using duration_t = timing_wheel::duration_t;
@@ -218,7 +219,7 @@ public:
       const configure_fn& configure, epoll_loop_ptr loop = nullptr,
       timing_wheel_ptr wheel = nullptr, duration_t request_timeout = 30s,
       duration_t write_timeout = 5s) {
-    auto self = std::make_shared<epoll_http_server>(allow::ctor);
+    auto self = std::make_shared<epoll_http_server>(mint{});
 
     // Get an epoll loop.
     if (!loop) {
@@ -336,7 +337,7 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  epoll_http_server(allow) {}
+  epoll_http_server(mint) {}
 
   // Drop our listener and route handlers before the implicit member
   // destruction proceeds. Both capture `weak_ptr<epoll_http_server>`; if their

@@ -18,6 +18,7 @@
 #include <cassert>
 #include <concepts>
 #include <format>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -34,6 +35,11 @@
 namespace corvid { inline namespace stringviewwrapper {
 
 #pragma region string_view_wrapper
+
+// Whether `T` declares `compares_by_identity`, opting out of the content
+// comparison and hashing the wrapper family provides by default.
+template<typename T>
+concept IdentityCompared = requires { requires T::compares_by_identity; };
 
 // String view wrapper
 //
@@ -265,15 +271,18 @@ public:
 #pragma region Comparison
 
   // Content comparison against anything viewable as `std::string_view`. `null`
-  // and `empty` compare equal here; use `same` to tell them apart.
+  // and `empty` compare equal here; use `same` to tell them apart. A child
+  // that compares by identity opts out and supplies its own operators.
   template<typename T>
-  requires std::convertible_to<const T&, view_t>
+  requires std::convertible_to<const T&, view_t> &&
+           (!IdentityCompared<child_t>)
   [[nodiscard]] friend constexpr bool
   operator==(const child_t& l, const T& r) noexcept {
     return l.view() == view_t{r};
   }
   template<typename T>
-  requires std::convertible_to<const T&, view_t>
+  requires std::convertible_to<const T&, view_t> &&
+           (!IdentityCompared<child_t>)
   [[nodiscard]] friend constexpr auto
   operator<=>(const child_t& l, const T& r) noexcept {
     return l.view() <=> view_t{r};
@@ -384,8 +393,10 @@ struct std::formatter<W, CharT>
 
 // Hash as the underlying view, so a child works as an unordered key and hashes
 // the same as the `std::string_view` it compares equal to. `null` and `empty`
-// hash alike, matching their equality.
+// hash alike, matching their equality. A child that compares by identity
+// hashes by identity instead, elsewhere.
 template<corvid::StringViewWrapperChild W>
+requires(!corvid::IdentityCompared<W>)
 struct std::hash<W> {
   [[nodiscard]] size_t operator()(const W& w) const noexcept {
     return std::hash<typename W::view_t>{}(w.view());

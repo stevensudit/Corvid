@@ -23,6 +23,7 @@
 
 #include "../containers/core/transparent.h"
 #include "../enums.h"
+#include "../meta/passkey.h"
 #include "../strings.h"
 
 namespace corvid { inline namespace lang { namespace ast_pred {
@@ -121,10 +122,10 @@ concept node_ptr_type =
 // Construct using `make` factory function.
 struct node: public std::enable_shared_from_this<node> {
 protected:
-  enum class allow : bool { ctor };
+  using mint = passkey<node>;
 
 public:
-  explicit node(allow, operation op) : op{op} {}
+  explicit node(mint, operation op) : op{op} {}
   virtual ~node() = default;
 
   // Disallow copy/move.
@@ -213,8 +214,8 @@ public:
 // Junction for child nodes, which may be junctions or leaf nodes. Op is either
 // `and_junction`, `or_junction`, or `not_junction`.
 struct junction: public node {
-  explicit junction(allow, operation op, node_list&& nodes = {})
-      : node{allow::ctor, op}, nodes{std::move(nodes)} {}
+  explicit junction(mint m, operation op, node_list&& nodes = {})
+      : node{m, op}, nodes{std::move(nodes)} {}
 
   bool append(std::string& out) const override {
     node::append(out);
@@ -236,48 +237,48 @@ struct junction: public node {
 };
 
 struct and_node final: public junction {
-  explicit and_node(allow, node_list&& nodes = {})
-      : junction{allow::ctor, operation::and_junction, std::move(nodes)} {}
+  explicit and_node(mint m, node_list&& nodes = {})
+      : junction{m, operation::and_junction, std::move(nodes)} {}
 
   template<node_ptr_type... Args>
-  explicit and_node(allow, Args&&... args)
-      : and_node{allow::ctor, node_list{std::forward<Args>(args)...}} {}
+  explicit and_node(mint m, Args&&... args)
+      : and_node{m, node_list{std::forward<Args>(args)...}} {}
 };
 
 struct or_node final: public junction {
-  explicit or_node(allow, node_list&& nodes = {})
-      : junction{allow::ctor, operation::or_junction, std::move(nodes)} {}
+  explicit or_node(mint m, node_list&& nodes = {})
+      : junction{m, operation::or_junction, std::move(nodes)} {}
 
   template<node_ptr_type... Args>
-  explicit or_node(allow, Args&&... args)
-      : or_node{allow::ctor, node_list{std::forward<Args>(args)...}} {}
+  explicit or_node(mint m, Args&&... args)
+      : or_node{m, node_list{std::forward<Args>(args)...}} {}
 };
 
 struct not_node final: public junction {
-  explicit not_node(allow, node_list&& nodes)
-      : junction{allow::ctor, operation::not_junction, std::move(nodes)} {}
+  explicit not_node(mint m, node_list&& nodes)
+      : junction{m, operation::not_junction, std::move(nodes)} {}
 
   template<node_ptr_type... Args>
-  explicit not_node(allow, Args&&... args)
-      : not_node{allow::ctor, node_list{std::forward<Args>(args)...}} {}
+  explicit not_node(mint m, Args&&... args)
+      : not_node{m, node_list{std::forward<Args>(args)...}} {}
 };
 
 #pragma endregion
 #pragma region Leaf nodes
 
 struct true_node final: public node {
-  true_node(allow) : node{allow::ctor, operation::always_true} {}
+  true_node(mint m) : node{m, operation::always_true} {}
   bool eval(const lookup&) const override { return true; }
 };
 
 struct false_node final: public node {
-  false_node(allow) : node{allow::ctor, operation::always_false} {}
+  false_node(mint m) : node{m, operation::always_false} {}
   bool eval(const lookup&) const override { return false; }
 };
 
 struct unary_leaf: public node {
-  unary_leaf(allow, operation op, key_or_value&& value)
-      : node{allow::ctor, op}, value{std::move(value)} {}
+  unary_leaf(mint m, operation op, key_or_value&& value)
+      : node{m, op}, value{std::move(value)} {}
 
   bool append(std::string& out) const override {
     node::append(out);
@@ -291,8 +292,8 @@ struct unary_leaf: public node {
 };
 
 struct binary_leaf: public node {
-  binary_leaf(allow, operation op, key_or_value&& lhs, key_or_value&& rhs)
-      : node{allow::ctor, op}, lhs{std::move(lhs)}, rhs{std::move(rhs)} {}
+  binary_leaf(mint m, operation op, key_or_value&& lhs, key_or_value&& rhs)
+      : node{m, op}, lhs{std::move(lhs)}, rhs{std::move(rhs)} {}
 
   bool append(std::string& out) const override {
     node::append(out);
@@ -309,25 +310,23 @@ struct binary_leaf: public node {
 };
 
 struct eq_node final: public binary_leaf {
-  eq_node(allow, key_or_value&& lhs, key_or_value&& rhs)
-      : binary_leaf{allow::ctor, operation::eq, std::move(lhs),
-            std::move(rhs)} {}
+  eq_node(mint m, key_or_value&& lhs, key_or_value&& rhs)
+      : binary_leaf{m, operation::eq, std::move(lhs), std::move(rhs)} {}
 };
 
 struct ne_node final: public binary_leaf {
-  ne_node(allow, key_or_value&& lhs, key_or_value&& rhs)
-      : binary_leaf{allow::ctor, operation::ne, std::move(lhs),
-            std::move(rhs)} {}
+  ne_node(mint m, key_or_value&& lhs, key_or_value&& rhs)
+      : binary_leaf{m, operation::ne, std::move(lhs), std::move(rhs)} {}
 };
 
 struct exists_node final: public unary_leaf {
-  exists_node(allow, key_or_value&& value)
-      : unary_leaf{allow::ctor, operation::exists, std::move(value)} {}
+  exists_node(mint m, key_or_value&& value)
+      : unary_leaf{m, operation::exists, std::move(value)} {}
 };
 
 struct absent_node final: public unary_leaf {
-  absent_node(allow, key_or_value&& value)
-      : unary_leaf{allow::ctor, operation::absent, std::move(value)} {}
+  absent_node(mint m, key_or_value&& value)
+      : unary_leaf{m, operation::absent, std::move(value)} {}
 };
 
 #pragma endregion
@@ -336,27 +335,23 @@ struct absent_node final: public unary_leaf {
 template<operation op_v, typename... Args>
 std::shared_ptr<node> node::make(Args&&... args) {
   if constexpr (op_v == operation::and_junction)
-    return std::make_shared<and_node>(allow::ctor,
-        std::forward<Args>(args)...);
+    return std::make_shared<and_node>(mint{}, std::forward<Args>(args)...);
   else if constexpr (op_v == operation::or_junction)
-    return std::make_shared<or_node>(allow::ctor, std::forward<Args>(args)...);
+    return std::make_shared<or_node>(mint{}, std::forward<Args>(args)...);
   else if constexpr (op_v == operation::not_junction)
-    return std::make_shared<not_node>(allow::ctor,
-        std::forward<Args>(args)...);
+    return std::make_shared<not_node>(mint{}, std::forward<Args>(args)...);
   else if constexpr (op_v == operation::always_false)
-    return std::make_shared<false_node>(allow::ctor);
+    return std::make_shared<false_node>(mint{});
   else if constexpr (op_v == operation::always_true)
-    return std::make_shared<true_node>(allow::ctor);
+    return std::make_shared<true_node>(mint{});
   else if constexpr (op_v == operation::eq)
-    return std::make_shared<eq_node>(allow::ctor, std::forward<Args>(args)...);
+    return std::make_shared<eq_node>(mint{}, std::forward<Args>(args)...);
   else if constexpr (op_v == operation::ne)
-    return std::make_shared<ne_node>(allow::ctor, std::forward<Args>(args)...);
+    return std::make_shared<ne_node>(mint{}, std::forward<Args>(args)...);
   else if constexpr (op_v == operation::exists)
-    return std::make_shared<exists_node>(allow::ctor,
-        std::forward<Args>(args)...);
+    return std::make_shared<exists_node>(mint{}, std::forward<Args>(args)...);
   else if constexpr (op_v == operation::absent)
-    return std::make_shared<absent_node>(allow::ctor,
-        std::forward<Args>(args)...);
+    return std::make_shared<absent_node>(mint{}, std::forward<Args>(args)...);
 }
 
 // Non-member wrapper; still type-safe because it takes `operation`.
