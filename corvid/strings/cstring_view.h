@@ -101,7 +101,7 @@ inline namespace cstringview {
 // returns an empty, terminated string but `data` returns `nullptr`.
 //
 // This revanchist implementation is based closely on Andrew Tomazos' wrongly
-// rejected ANSI committee proposal.
+// rejected ISO WG21 committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
 //
@@ -132,6 +132,7 @@ public:
   //
   // Always works.
   constexpr basic_cstring_view() noexcept = default;
+  // Use `= nullptr`, not `= 0`, to avoid ambiguity.
   constexpr basic_cstring_view(std::nullptr_t) noexcept {}
   constexpr basic_cstring_view(std::nullopt_t) noexcept {}
 
@@ -244,7 +245,8 @@ consteval cstring_view operator""_csv(unsigned long long zero_only) {
   return cstring_view{};
 }
 
-// Environment.
+// Environment variable, viewed in place. A later `setenv` or `putenv`
+// invalidates it.
 inline cstring_view operator""_env(const char* ps, size_t) noexcept {
   PRAGMA_DIAG(push)
   PRAGMA_IGNORED("-Wdeprecated-declarations")

@@ -97,6 +97,7 @@ public:
 #pragma region Construction
 
   constexpr basic_opt_string_view() noexcept = default;
+  // Use `= nullptr`, not `= 0`, to avoid ambiguity.
   constexpr basic_opt_string_view(std::nullptr_t) noexcept {}
   constexpr basic_opt_string_view(std::nullopt_t) noexcept {}
 
