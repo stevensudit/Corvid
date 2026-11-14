@@ -285,6 +285,10 @@ TEST_CASE("Construction", "[CStringViewTest]") {
 }
 
 TEST_CASE("AllocatorAndTraits", "[CStringViewTest]") {
+  // A `basic_cstring_view` over a view with any other traits fails its
+  // static_assert ("cstring_view honors only the default char_traits").
+  // Verified by instantiating it on `std::basic_string_view<char,
+  // twin_traits>`. A fails-to-compile case cannot live in the suite.
   // Any allocator converts.
   std::pmr::string ps{"abc"};
   cstring_view v{ps};

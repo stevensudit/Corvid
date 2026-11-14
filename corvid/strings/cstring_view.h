@@ -114,6 +114,9 @@ class basic_cstring_view final
           typename T::value_type> {
   using base =
       string_view_wrapper<basic_cstring_view<T>, typename T::value_type>;
+  static_assert(std::same_as<typename T::traits_type,
+                    std::char_traits<typename T::value_type>>,
+      "cstring_view honors only the default char_traits");
 
 #pragma region Member types
 public:

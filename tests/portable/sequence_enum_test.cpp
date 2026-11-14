@@ -1109,6 +1109,11 @@ constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return s; }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
   using tiger_sv = enum_name<tiger_pick>;
+  // `reset` is ill-formed on an `enum_name`, which has no default
+  // constructor. Verified by instantiating `tiger_sv{"meany"}.reset()`, which
+  // clang rejects with "no matching constructor for initialization of
+  // 'child_t'" at the wrapper's `reset`. A fails-to-compile case cannot live
+  // in the suite.
 
   // Bare string literal, validated at compile time (array-ref ctor). Compares
   // equal to the matching view and converts to it implicitly.

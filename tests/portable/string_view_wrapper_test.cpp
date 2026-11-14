@@ -17,6 +17,7 @@
 
 #include <format>
 #include <map>
+#include <unordered_map>
 #include <vector>
 
 #include "corvid/strings/cstring_view.h"
@@ -31,6 +32,22 @@ using namespace std::string_view_literals;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region Basic formatting
+
+TEST_CASE("Wrapper hashes like its string view", "[StringViewWrapperTest]") {
+  const std::hash<std::string_view> hash_view;
+  CHECK(std::hash<cstring_view>{}("abc"_csv) == hash_view("abc"));
+  CHECK(std::hash<opt_string_view>{}("abc"_optsv) == hash_view("abc"));
+  CHECK(std::hash<cstring_view>{}(0_csv) == hash_view(""));
+
+  struct key_tag {};
+  using key = tagged_string_view<key_tag>;
+  std::unordered_map<key, int> counts;
+  ++counts[key{"a"}];
+  ++counts[key{"a"}];
+  ++counts[key{"b"}];
+  CHECK(counts.size() == 2U);
+  CHECK(counts.at(key{"a"}) == 2);
+}
 
 TEST_CASE("Wrapper formats like its string view", "[StringViewWrapperTest]") {
   if (true) {

@@ -233,7 +233,7 @@ public:
   [[nodiscard]] constexpr D value_or(const D& v) const noexcept {
     return has_value() ? as_child() : v;
   }
-  // Convert to `std::optional<child_t>`: empty when absent, else the child.
+  // Convert to `std::optional<child_t>`. Empty when absent, else the child.
   // This is a named method, not a conversion operator, because `std::optional`
   // would prefer its own constructor (wrapping the wrapper into a present
   // optional) over the operator, making the operator dead.
@@ -355,4 +355,14 @@ requires std::same_as<CharT, typename W::char_t>
 struct std::formatter<W, CharT>
     : corvid::nullable_formatter<std::basic_string_view<CharT>, CharT,
           corvid::null_formatting::empty> {};
+
+// Hash as the underlying view, so a child works as an unordered key and hashes
+// the same as the `std::string_view` it compares equal to. `null` and `empty`
+// hash alike, matching their equality.
+template<corvid::StringViewWrapperChild W>
+struct std::hash<W> {
+  [[nodiscard]] size_t operator()(const W& w) const noexcept {
+    return std::hash<typename W::view_t>{}(w.view());
+  }
+};
 // NOLINTEND(bugprone-std-namespace-modification)
