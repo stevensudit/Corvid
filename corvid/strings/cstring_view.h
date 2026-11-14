@@ -119,6 +119,8 @@ class basic_cstring_view final
 public:
   using view_t = base::view_t;
   using char_t = view_t::value_type;
+  template<typename Alloc>
+  using string_t = base::template string_t<Alloc>;
   using size_type = base::size_type;
   using const_pointer = base::const_pointer;
   using base::npos;
@@ -133,7 +135,8 @@ public:
   constexpr basic_cstring_view(std::nullptr_t) noexcept {}
   constexpr basic_cstring_view(std::nullopt_t) noexcept {}
 
-  constexpr basic_cstring_view(const std::basic_string<char_t>& s) noexcept
+  template<typename Alloc>
+  constexpr basic_cstring_view(const string_t<Alloc>& s) noexcept
       : base{view_t{s}} {}
 
   // Allows `nullptr`.

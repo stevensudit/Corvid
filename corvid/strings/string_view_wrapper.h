@@ -23,6 +23,7 @@
 #include <optional>
 #include <ostream>
 #include <ranges>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -72,6 +73,12 @@ public:
   using view_t = std::basic_string_view<char_t>;
 
   using traits_type = view_t::traits_type;
+
+  // A string over `char_t` with the view's traits and any allocator. Children
+  // accept every allocator this way, and no other traits.
+  template<typename Alloc = std::allocator<char_t>>
+  using string_t = std::basic_string<char_t, traits_type, Alloc>;
+
   using value_type = view_t::value_type;
   using pointer = view_t::pointer;
   using const_pointer = view_t::const_pointer;

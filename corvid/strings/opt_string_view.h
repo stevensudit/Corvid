@@ -90,7 +90,8 @@ public:
   using size_type = base::size_type;
   using base::npos;
 
-  using string_t = std::basic_string<CharT>;
+  template<typename Alloc>
+  using string_t = base::template string_t<Alloc>;
 
 #pragma endregion
 #pragma region Construction
@@ -101,7 +102,9 @@ public:
 
   constexpr explicit(tagged) basic_opt_string_view(view_t sv) noexcept
       : base{sv} {}
-  constexpr explicit(tagged) basic_opt_string_view(const string_t& s) noexcept
+  template<typename Alloc>
+  constexpr explicit(tagged)
+      basic_opt_string_view(const string_t<Alloc>& s) noexcept
       : base{view_t{s}} {}
   constexpr explicit(tagged)
       basic_opt_string_view(const char_t* ps, size_type l)
@@ -118,8 +121,9 @@ public:
   constexpr explicit(tagged)
       basic_opt_string_view(const std::optional<view_t>& osv) noexcept
       : base{osv ? view_t{*osv} : view_t{}} {}
+  template<typename Alloc>
   constexpr explicit(tagged)
-      basic_opt_string_view(const std::optional<string_t>& os) noexcept
+      basic_opt_string_view(const std::optional<string_t<Alloc>>& os) noexcept
       : base{os ? view_t{*os} : view_t{}} {}
 
   // View assignment exists only for the untagged form; a tagged view admits a

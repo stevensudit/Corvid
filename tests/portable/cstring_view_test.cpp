@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <map>
+#include <memory_resource>
 #include <set>
 #include <span>
 #include <vector>
@@ -281,6 +282,21 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     auto e = 0_csv;
     CHECK(e.null());
   }
+}
+
+TEST_CASE("AllocatorAndTraits", "[CStringViewTest]") {
+  // Any allocator converts.
+  std::pmr::string ps{"abc"};
+  cstring_view v{ps};
+  CHECK(v == "abc");
+  static_assert(std::is_convertible_v<std::pmr::string, cstring_view>);
+  static_assert(
+      std::is_convertible_v<std::optional<std::pmr::string>, cstring_view>);
+
+  // Non-default traits do not, even when they are the default's twin.
+  struct twin_traits: std::char_traits<char> {};
+  using twin_string = std::basic_string<char, twin_traits>;
+  static_assert(!std::is_constructible_v<cstring_view, twin_string>);
 }
 
 TEST_CASE("WideConstruction", "[CStringViewTest]") {

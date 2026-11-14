@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <map>
+#include <memory_resource>
 #include <set>
 #include <span>
 #include <type_traits>
@@ -302,6 +303,21 @@ TEST_CASE("Optional", "[OptStringViewTest]") {
 
 #pragma endregion
 #pragma region Workalike
+
+TEST_CASE("AllocatorAndTraits", "[OptStringViewTest]") {
+  // Any allocator converts, directly and through an optional.
+  std::pmr::string ps{"abc"};
+  opt_string_view v{ps};
+  CHECK(v == "abc");
+  static_assert(std::is_convertible_v<std::pmr::string, opt_string_view>);
+  static_assert(
+      std::is_convertible_v<std::optional<std::pmr::string>, opt_string_view>);
+
+  // Non-default traits do not, even when they are the default's twin.
+  struct twin_traits: std::char_traits<char> {};
+  using twin_string = std::basic_string<char, twin_traits>;
+  static_assert(!std::is_constructible_v<opt_string_view, twin_string>);
+}
 
 TEST_CASE("Workalike", "[OptStringViewTest]") {
   // Verify optional-like interface.
