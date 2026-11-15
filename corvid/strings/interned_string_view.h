@@ -117,12 +117,16 @@ public:
 #pragma endregion
 #pragma region Construction
 protected:
+  // NOLINTBEGIN(bugprone-crtp-constructor-accessibility)
+
   // The null instance, for a child that wants a default.
   constexpr explicit interned_string_view_wrapper(std::nullptr_t) noexcept {}
 
   // Any view, for a child's own interning or its own default.
   constexpr explicit interned_string_view_wrapper(view_t sv) noexcept
       : base{sv} {}
+
+  // NOLINTEND(bugprone-crtp-constructor-accessibility)
 
 #pragma endregion
 #pragma region Helpers
@@ -150,8 +154,8 @@ private:
 // No default instances. Ironically, this is the default default policy.
 struct no_default {};
 
-// Default instances are null, so all of them are identical: the degenerate
-// case of interning, where every default fails to point in the same way.
+// Default instances are null, so all of them are identical. All such defaults
+// share the lack of an address, even across linking boundaries.
 struct nullptr_default {};
 
 // Default instances point at one static copy of `S`.

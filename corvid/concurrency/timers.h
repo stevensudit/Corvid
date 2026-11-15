@@ -102,7 +102,7 @@ struct timer_invocation {
 //
 // The returned time must be in the future to keep the event alive. Returning
 // max cancels, as does any time at or after `stop_at`. Less obviously, a time
-// at or before the current time also cancels: this is what makes returning
+// at or before the current time also cancels. This is what makes returning
 // zero cancel a one-shot, and it means a past time is never deferred to the
 // next tick. To run again as soon as possible, return a small future
 // increment, such as `i.now + 1ms`. (You can also cancel by explicitly setting
@@ -156,7 +156,7 @@ public:
         repeat_in, stop_at, std::move(callback), doa);
   }
 
-  // No copy or move: only `std::shared_ptr`.
+  // No copy or move, only `std::shared_ptr`.
   timer_event(const timer_event&) = delete;
   timer_event(timer_event&&) = delete;
   timer_event& operator=(const timer_event&) = delete;
@@ -251,7 +251,7 @@ public:
   // method.
   explicit timers(mint, std::string name) : name{std::move(name)} {}
 
-  // No copy or move: only `std::shared_ptr`.
+  // No copy or move, only `std::shared_ptr`.
   timers(const timers&) = delete;
   timers(timers&&) = delete;
   timers& operator=(const timers&) = delete;

@@ -71,13 +71,13 @@ namespace corvid { inline namespace lang { namespace coreb {
 //   v.print();  // "(x 42)"
 
 // Declared up front: a friend declaration alone does not make the name
-// visible (MSVC injects it as an extension; conforming compilers do not).
+// visible. (MSVC injects it as an extension; conforming compilers do not.)
 class runtime_core;
 
 // Maximum nesting depth for every recursive pass over values: reading,
 // printing, Monty parsing and unparsing, and evaluation.
 //
-// Depth counts genuinely nested structure, not list length: every pass
+// Depth counts genuinely nested structure, not list length. Every pass
 // iterates chains through `tail` flat. The passes share the one budget, and
 // front ends stacked on each other (Monty statements over expressions over
 // Hall escapes) seed it forward rather than each starting fresh, so anything
@@ -151,11 +151,11 @@ consteval auto corvid_enum_spec(kind*) {
 // A `value` is small and cheap. Copying is always shallow and never touches
 // heap data. The owning runtime must outlive every `value` handed out from it.
 //
-// Nil doubles as the empty list, in the classic Lisp tradition: a proper list
+// Nil doubles as the empty list, in the classic Lisp tradition. A proper list
 // chains cons cells through `tail` and terminates at nil. The standalone
-// printed form is "nil"; the reader accepts both "nil" and "()".
+// printed form is "nil". The reader accepts both "nil" and "()".
 //
-// The `as_*` accessors have narrow contracts: the value must hold the
+// The `as_*` accessors have narrow contracts, so the value must hold the
 // requested alternative.
 class value final {
   using variant_t = enum_variant<kind, std::monostate, bool, int64_t, double,
@@ -306,16 +306,16 @@ public:
   //
   // The output is what the reader accepts: symbols bare, strings quoted and
   // escaped, proper lists as "(a b c)", improper ones dotted. Function values
-  // are the exception: they have no readable form and print as display forms,
+  // are the exception. They have no readable form and print as display forms,
   // "#<primitive name>" and "#<lambda (params) body...>", the latter showing
   // the closure's code but not its captured environment.
   //
-  // Nesting deeper than `max_depth` is the other exception: the subtree
+  // Nesting deeper than `max_depth` is the other exception. The subtree
   // renders as the display form "#<too deep>" instead of overflowing the C++
   // stack. Only nesting spends depth here: a cell's head, and each form of a
   // closure's body. Returns false if any subtree was truncated this way, true
   // otherwise. Printing cyclic data (possible only after mutation) is
-  // unsupported; a cycle through `tail` will not terminate.
+  // unsupported. A cycle through `tail` will not terminate.
   bool append(std::string& out, size_t depth = 0) const;
 
   // Return the printed s-expression form.
@@ -328,12 +328,12 @@ public:
   // Append the structural debug form to `out`.
   //
   // Where `append` abbreviates chains of cells into list notation, this shows
-  // the raw pair structure in fully dotted form: every cell prints as "(head .
+  // the raw pair structure in fully dotted form. Every cell prints as "(head .
   // tail)", so "(a b)" dumps as "(a . (b . nil))". Atoms print as in `append`,
   // and depth truncation works as in `append` too.
   //
   // Display forms and truncation aside, the output is valid reader syntax,
-  // but re-reading it is subject to `max_depth`: the dotted form
+  // but re-reading it is subject to `max_depth`. The dotted form
   // spends one nesting level per list element where the abbreviated form
   // spends none, so a long proper list dumps fine yet will not read back.
   bool append_dump(std::string& out, size_t depth = 0) const;
@@ -354,7 +354,7 @@ private:
   //
   // A rendering with no exponent or decimal point (`to_chars` prints 1.0 as
   // "1") gets ".0" appended. Infinities and NaN print as "inf"/"nan", which
-  // the reader does not accept as numbers; a round-trip for those is deferred
+  // the reader does not accept as numbers. A round-trip for those is deferred
   // until the language decides how to spell them.
   static void do_append_float(std::string& out, double d) {
     const auto start = out.size();
@@ -388,7 +388,7 @@ private:
 // Every heap object shares the same identity semantics: constructed in place
 // by the runtime, never copied, and freed only by collection or the
 // runtime's destruction. The base pins those down and carries the
-// collector's mark epoch. It is deliberately not polymorphic: tracing stays
+// collector's mark epoch. It is deliberately not polymorphic. Tracing stays
 // centralized in the runtime, so the base is data, not behavior.
 class gc_object {
 public:
@@ -399,7 +399,7 @@ protected:
   gc_object() = default;
   ~gc_object() = default;
 
-  // Construction key for every heap object: only the runtime allocates.
+  // Construction key for every heap object. Only the runtime allocates.
   using mint = passkey<runtime_core>;
 
 private:
@@ -505,7 +505,7 @@ public:
 // in order, the last in tail position), and the environment captured where
 // the `lambda` was evaluated.
 //
-// That captured environment is what makes it a closure: the body sees the
+// That captured environment is what makes it a closure. The body sees the
 // variables of its birthplace even when called from somewhere else entirely.
 //
 // Constructed only by the runtime, which owns it.
@@ -517,7 +517,7 @@ public:
 
   // Append the display form, "#<lambda (params) body...>".
   //
-  // Closures have no readable form: the parameters and body are shown, but the
+  // Closures have no readable form. The parameters and body are shown, but the
   // captured environment has no printed spelling. Returns false if a subtree
   // was truncated for depth (see `max_depth`).
   bool append(std::string& out, size_t depth = 0) const;
@@ -557,7 +557,7 @@ public:
 // Lexical environment: one scope's bindings from symbols to values, chained
 // to the enclosing scope.
 //
-// Lookup searches this scope first, then the chain outward; the global scope
+// Lookup searches this scope first, then the chain outward. The global scope
 // ends the chain with a null parent. Environments are runtime-owned heap
 // objects rather than stack frames because a closure captures its defining
 // environment, which must then outlive the call that created it.
@@ -608,7 +608,7 @@ class gc_pin;
 // environment, every live `gc_pin`, and, for the safe-point form
 // `maybe_collect`, whatever the evaluator hands in. A `value` held in C++
 // across a possible collection must be pinned, or it dangles. Interned
-// symbol spellings are not collected; they leak deliberately until gensym
+// symbol spellings are not collected. They leak deliberately until gensym
 // makes that worth solving.
 //
 // This is a base, not a whole runtime: "runtime.h" derives `runtime`, which
@@ -619,7 +619,7 @@ public:
   // Intern `name`, returning its unique symbol.
   //
   // Repeated calls with the same spelling return the same symbol. The
-  // spelling is not validated here: the front ends enforce the token
+  // spelling is not validated here. The front ends enforce the token
   // classes before interning, so only symbols they produce are guaranteed
   // to re-read from their printed form.
   [[nodiscard]] symbol intern(std::string_view name) {
@@ -711,7 +711,7 @@ public:
 
   // The root environment, the ancestor of every other scope.
   //
-  // This is the global scope: bindings made in it belong to the runtime and
+  // This is the global scope. Bindings made in it belong to the runtime and
   // outlive any one evaluator, which is what makes the runtime reusable
   // across evaluations.
   [[nodiscard]] environment& root_env() noexcept { return *envs_.front(); }
@@ -722,7 +722,7 @@ public:
   //
   // Crossing this makes the next `maybe_collect` collect. Collection cost is
   // proportional to live data, so the value only trades peak heap size
-  // against collection frequency; it is deliberately untuned.
+  // against collection frequency. It is deliberately untuned.
   static constexpr size_t gc_threshold = 10'000;
 
   // Free every heap object not reachable from a root: the root environment
@@ -760,8 +760,8 @@ protected:
         std::make_unique<environment>(environment::mint{}, nullptr));
   }
 
-  // Non-polymorphic base: destruction runs through the derived type, and
-  // there is nothing to delete a `runtime_core*` with.
+  // Non-polymorphic base. Destruction runs through the derived type, and there
+  // is nothing to delete a `runtime_core*` with.
   ~runtime_core() = default;
 
 private:
@@ -804,13 +804,13 @@ private:
 
 // Root registration for values held in C++ across a possible collection.
 //
-// A pin registers the caller's own storage, not a copy: the pinned variable
+// A pin registers the caller's own storage, not a copy. The pinned variable
 // or span is traced as a root on every collection while the pin lives, so
 // rebinding through the variable needs no re-pin. The storage must outlive
 // the pin, and the pin must not outlive the runtime.
 //
 // There is no race between allocating and pinning, because allocation never
-// collects: collection runs only inside `collect` and `maybe_collect`, and
+// collects. Collection runs only inside `collect` and `maybe_collect`, and
 // the evaluator calls the latter only at its safe point. A value is at risk
 // only when held across one of those, which is exactly when a pin is needed.
 //
@@ -902,7 +902,7 @@ inline bool value::append_dump(std::string& out, size_t depth) const {
 inline void runtime_core::do_collect(value live, environment* extra_env) {
   // Mark: trace outward from the roots with explicit worklists.
   //
-  // Recursion here would be fatal: structure nests arbitrarily deep, and the
+  // Recursion here would be fatal. Structure nests arbitrarily deep, and the
   // object graph is cyclic (a self-recursive definition's closure captures the
   // scope that binds it). The epoch check is also what breaks the cycles.
   ++gen_;

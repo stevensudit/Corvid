@@ -162,10 +162,10 @@ public:
 #pragma endregion
 #pragma region Comparison
 
-  // Equality is identity: within a chain, equal values are the same singleton,
+  // Equality is identity. Within a chain, equal values are the same singleton,
   // so comparing addresses suffices (and tolerates empty). Equal contents
   // interned in unrelated tables are distinct entities and compare unequal. We
-  // do not compare ID's because we can't be sure that they're from the same
+  // do not compare IDs because we can't be sure that they're from the same
   // table.
   constexpr bool operator==(const interned_value& other) const noexcept {
     return value_ == other.value_;
@@ -175,11 +175,11 @@ public:
   }
 
   // Ordering compares by value, with empty ordering below every non-empty
-  // value and equivalent to empty, the `std::optional` model, so the order is
-  // total. Equal values at distinct addresses, possible only across unrelated
-  // tables, break the tie by address so that ordering equivalence coincides
-  // with equality; the relative order of such duplicates is consistent within
-  // a run but otherwise arbitrary.
+  // value and equivalent to empty. This is the `std::optional` model, so the
+  // order is total. Equal values at distinct addresses, possible only across
+  // unrelated tables, break the tie by address so that ordering equivalence
+  // coincides with equality. The relative order of such duplicates is
+  // consistent within a run but otherwise arbitrary.
   constexpr std::compare_three_way_result_t<value_t> operator<=>(
       const interned_value& other) const {
     using ordering = std::compare_three_way_result_t<value_t>;
@@ -254,17 +254,18 @@ private:
 // `lookup_by_value_`, the key type has to work with the latter container but
 // can reference the value in the former.
 // - `lookup_by_id_t` is the container that stores the interned values, indexed
-// by ID. Elements must never be moved, since address is identity.
+// by `ID`. Elements must never be moved, since address is identity.
 // - `lookup_by_value_t` is the container that indexes the interned values. In
-// principle, the key could be a value_t, but we use a key_t to avoid
-// duplicating the value in the lookup_by_id_ container.
-// Experimental: this generic specialization works for the type system but
+// principle, the key could be a `value_t`, but we use a `key_t` to avoid
+// duplicating the value in the `lookup_by_id_` container.
+//
+// Experimental: This generic specialization works for the type system but
 // leaks under sanitizers when `value_t` uses `std::allocator`. `intern_table`
 // deliberately skips the destructors of its lookup containers (per the arena
 // "construct and leak" pattern in `arena_allocator.h`), which is sound only
 // when the containers' internal storage is itself arena-backed. The
 // `std::string` specialization below satisfies that via `arena_deque` /
-// `arena_map`; the `std::deque` / `std::unordered_map` defaults here do not,
+// `arena_map`. The `std::deque` / `std::unordered_map` defaults here do not,
 // so their bucket/node arrays from `std::allocator` are never freed. Use the
 // string specialization, or provide your own traits with arena-allocator
 // containers.
@@ -319,10 +320,11 @@ public:
   using key_t = TR::key_t;
   using lookup_by_id_t = TR::lookup_by_id_t;
   using lookup_by_value_t = TR::lookup_by_value_t;
-  // Safety: arena_value_t and value_t must be layout-compatible (same size and
-  // memory layout) for the reinterpret_cast in get/intern/find_by_id to be
-  // valid. For strings, arena_string is std::basic_string with a different
-  // allocator, which maintains ABI compatibility.
+  // Safety: `arena_value_t` and `value_t` must be layout-compatible (same size
+  // and memory layout) for the `reinterpret_cast` in
+  // `get`/`intern`/`find_by_id` to be valid. For strings, `arena_string` is
+  // `std::basic_string` with a different allocator, which maintains ABI
+  // compatibility.
   static_assert(sizeof(arena_value_t) == sizeof(value_t));
 
 #pragma endregion
@@ -343,7 +345,7 @@ public:
 
   // Make intern table for a range of IDs. If `next` is specified, the new
   // table will chain to that one and will default its `min_id` to 1 past that
-  // table's `max_id`; an explicit `min_id` may leave a gap above that table's
+  // table's `max_id`. An explicit `min_id` may leave a gap above that table's
   // range but must not overlap it. Otherwise, if unspecified, then it defaults
   // to 1. If `max_id` is unspecified, it defaults to the max of the underlying
   // type.
@@ -564,7 +566,7 @@ struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
   using id_print_t = decltype(+corvid::as_underlying_t<ID>{});
 
   // The `?` type repurposes debug mode for the pair, so it is terminal and
-  // takes no further spec; a plain spec is forwarded to the value's grammar.
+  // takes no further spec. A plain spec is forwarded to the value's grammar.
   constexpr auto parse(auto& ctx) {
     auto it = ctx.begin();
     if (it != ctx.end() && *it == CharT{'?'}) {

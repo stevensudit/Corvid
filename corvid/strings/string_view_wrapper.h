@@ -55,13 +55,12 @@ concept IdentityCompared = requires { requires T::compares_by_identity; };
 // `child_t` is the concrete class that inherits this base (the curiously
 // recurring parameter), and `char_t` selects the character type. Children
 // include `opt_string_view` (unconstrained) and `cstring_view` (guarantees
-// zero termination); `enum_name` is another example, outside of the `strings`
-// namespace.
+// zero termination).
 //
 // The split between base and child is deliberate:
 //
 // - Read and search operations take anything viewable as `std::string_view`
-//   and live here; so does `same`, which imposes this null-vs-empty regime
+//   and live here. So does `same`, which imposes this null-vs-empty regime
 //   on any view.
 // - Operations that hand back a value keep the `child_t` type rather than
 //   degrading to `std::string_view` (`value`, the child-returning `value_or`,
@@ -238,7 +237,7 @@ public:
     return &as_child();
   }
 
-  // Value if present, else `v`. Overloaded on the argument: a
+  // Value if present, else `v`. Overloaded on the argument. A
   // `std::string_view` fallback returns a `std::string_view`, while a
   // same-typed child fallback returns the child, so a fallback that meets the
   // child's invariants yields a result that does too.

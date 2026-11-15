@@ -291,6 +291,7 @@ TEST_CASE("AllocatorAndTraits", "[CStringViewTest]") {
   // static_assert ("cstring_view honors only the default char_traits").
   // Verified by instantiating it on `std::basic_string_view<char,
   // twin_traits>`. A fails-to-compile case cannot live in the suite.
+
   // Any allocator converts.
   std::pmr::string ps{"abc"};
   cstring_view v{ps};
@@ -396,8 +397,9 @@ TEST_CASE("SearchPassthrough", "[CStringViewTest]") {
   CHECK(v.contains("cde"));
   CHECK_FALSE(v.contains("xyz"));
 
-  // `compare` is not `noexcept`. The position-taking overloads throw a
-  // catchable `std::out_of_range` instead of terminating.
+  // `compare` is `noexcept` only where the underlying overload is. The
+  // position-taking overloads throw a catchable `std::out_of_range` instead of
+  // terminating.
   CHECK(v.compare("abcdef"sv) == 0);
   CHECK_THROWS_AS(v.compare(v.size() + 1, 1, "x"sv), std::out_of_range);
 }

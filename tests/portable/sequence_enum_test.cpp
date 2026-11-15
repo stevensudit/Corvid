@@ -1216,7 +1216,7 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
     static_assert(nv.as_enum() == tiger_pick::miny);
     CHECK(nv.as_enum() == tiger_pick::miny);
   }
-  // An `enum_named_value` is an `enum_name`: it passes where one is wanted,
+  // An `enum_named_value` is an `enum_name`. It passes where one is wanted,
   // and it formats and hashes as a wrapper child in its own right.
   if (true) {
     constexpr tiger_nv nv{"meany"};

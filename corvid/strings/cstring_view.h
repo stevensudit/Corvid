@@ -178,7 +178,7 @@ public:
   // Safe because trimming the front keeps the terminator at the end.
   constexpr void remove_prefix(size_type n) { this->sv_.remove_prefix(n); }
 
-  // `remove_suffix` and `substr` are omitted: they would break the termination
+  // `remove_suffix` and `substr` are omitted. They would break the termination
   // invariant unless the cut happened to land on the terminator.
 
 #pragma endregion
@@ -228,6 +228,10 @@ namespace literals {
 #pragma region UDL
 
 // basic_cstring_view literals.
+//
+// A literal carries its terminator at `ps[n]`, so the checked constructor
+// never throws here.
+// NOLINTBEGIN(bugprone-exception-escape)
 consteval cstring_view operator""_csv(const char* ps, size_t n) noexcept {
   return cstring_view{std::string_view{ps, n + 1}};
 }
@@ -245,6 +249,7 @@ consteval u32cstring_view
 operator""_csv(const char32_t* ps, size_t n) noexcept {
   return u32cstring_view{std::u32string_view{ps, n + 1}};
 }
+// NOLINTEND(bugprone-exception-escape)
 
 // Null literal; must pass 0.
 consteval cstring_view operator""_csv(unsigned long long zero_only) {

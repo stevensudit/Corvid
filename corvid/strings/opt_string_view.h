@@ -64,7 +64,7 @@ inline namespace optstringview {
 // want to check for an exact match that distinguishes between these two
 // states, use `same`.
 //
-// The optional `Tag` parameter turns this into a tagged view: a non-void `Tag`
+// The optional `Tag` parameter turns this into a tagged view. A non-void `Tag`
 // makes distinct tags distinct types that don't implicitly mix, and forces the
 // view-taking (and other string-like) constructors to be `explicit` so a raw
 // `std::string_view` can't silently become a tagged one.

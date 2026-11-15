@@ -117,8 +117,9 @@ private:
 
 TEST_CASE("InheritancePath", "[InternedStringViewTest]") {
   symbol_table table;
+  const std::string respelled{"alpha"};
   const auto alpha = table.intern("alpha");
-  const auto again = table.intern(std::string{"alpha"});
+  const auto again = table.intern(respelled);
   const auto beta = table.intern("beta");
   CHECK(table.size() == 2U);
 

@@ -68,7 +68,7 @@ RAGGED_BELOW = 65
 
 # Known-bad paragraphs, keyed by forward-slash path and first line number.
 SKIP = {
-    "corvid/lang/ast_pred.h:510",  # colon-less heading "Distribute OR over AND"
+    "corvid/lang/ast_pred.h:505",  # colon-less heading "Distribute OR over AND"
     "tests/linux/iou_loop_test.cpp:1408",  # next line documents the member
     "tests/portable/ecs_test.cpp:2371",  # colon-less heading line
     "tests/portable/ecs_test.cpp:6797",  # colon-less heading line
