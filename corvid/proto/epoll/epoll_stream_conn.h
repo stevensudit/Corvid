@@ -1208,7 +1208,7 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  // Default constructor -- creates an empty (invalid) handle. `operator bool`
+  // Default constructor: Creates an empty (invalid) handle. `operator bool`
   // returns false.
   epoll_stream_conn_ptr_with() noexcept = default;
 

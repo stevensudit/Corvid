@@ -251,7 +251,7 @@ operator""_csv(const char32_t* ps, size_t n) noexcept {
 }
 // NOLINTEND(bugprone-exception-escape)
 
-// Null literal; must pass 0.
+// Null literal for `cstring_view` only; must pass 0.
 consteval cstring_view operator""_csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range{"cstring_view not zero"};
   return cstring_view{};

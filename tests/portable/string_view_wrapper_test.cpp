@@ -348,5 +348,37 @@ TEST_CASE("Rvalue value and dereference return the child by value",
 }
 
 #pragma endregion
+#pragma region Identity
+
+TEST_CASE("Identical means the same address and length",
+    "[StringViewWrapperTest]") {
+  const std::string text{"abcdef"};
+  const std::string twin{"abcdef"};
+  const opt_string_view whole{text};
+
+  // The same storage is identical, whether asked of a wrapper or a raw view.
+  CHECK(whole.identical(text));
+  CHECK(whole.identical(opt_string_view{text}));
+
+  // Equal contents at another address are not.
+  CHECK(whole == twin);
+  CHECK_FALSE(whole.identical(twin));
+
+  // A prefix shares the address but not the length.
+  const auto prefix = std::string_view{text}.substr(0, 3);
+  CHECK(prefix.data() == whole.data());
+  CHECK_FALSE(whole.identical(prefix));
+
+  // Two nulls are identical. A null and an empty are not.
+  CHECK(opt_string_view{}.identical(std::string_view{}));
+  CHECK_FALSE(opt_string_view{}.identical(""sv));
+
+  // The static form asks the same of two raw views.
+  CHECK(opt_string_view::identical(text, text));
+  CHECK_FALSE(opt_string_view::identical(text, twin));
+  static_assert(opt_string_view::identical({}, {}));
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

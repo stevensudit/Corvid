@@ -15,11 +15,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <compare>
+#include <concepts>
 #include <cstdint>
 #include <format>
 #include <functional>
 #include <map>
 #include <set>
+#include <string>
+#include <string_view>
 
 #include "corvid/meta.h"
 #include "corvid/enums.h"
@@ -1275,6 +1279,80 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
   // underlying view (unregistered name, or enum value with no name):
   // * constexpr tiger_nv bad_name{"mooe"};
   // * constexpr tiger_nv bad_value{tiger_pick(7)};
+}
+
+TEST_CASE("NamedValueComparison", "[SequentialEnumTest]") {
+  using tiger_sv = enum_name<tiger_pick>;
+  using tiger_nv = enum_named_value<tiger_pick>;
+
+  static_assert(std::totally_ordered<tiger_nv>);
+  static_assert(std::three_way_comparable<tiger_nv, std::strong_ordering>);
+
+  // Two values are equal when both the enum and the name match. Interned
+  // values with the same enum share the registry's storage.
+  if (true) {
+    constexpr tiger_nv meany{"meany"};
+    static_assert(meany == tiger_nv{tiger_pick::meany});
+    static_assert(meany != tiger_nv{"moe"});
+    CHECK(meany == tiger_nv::intern("meany"));
+    CHECK(meany.data() == tiger_nv::intern("meany").data());
+  }
+  // A forced name at another address is equal when its characters match, and
+  // then it hashes the same.
+  if (true) {
+    const std::string name{"meany"}; // A runtime value.
+    const tiger_nv meany{"meany"};
+    const auto forced = tiger_nv::force(name, tiger_pick::meany);
+    CHECK(forced.data() != meany.data());
+    CHECK(forced == meany);
+    CHECK(std::hash<tiger_nv>{}(forced) == std::hash<tiger_nv>{}(meany));
+  }
+  // The same enum under a different name is a different value, and so is the
+  // same name under a different enum.
+  if (true) {
+    const tiger_nv meany{"meany"};
+    CHECK(tiger_nv::force("Meany", tiger_pick::meany) != meany);
+    CHECK(tiger_nv::force("meany", tiger_pick::moe) != meany);
+  }
+  // Order is by enum, then by name.
+  if (true) {
+    CHECK(tiger_nv{"eeny"} < tiger_nv{"moe"});
+    CHECK(tiger_nv::force("zzz", tiger_pick::eeny) <
+          tiger_nv::force("aaa", tiger_pick::moe));
+    CHECK(tiger_nv::force("aaa", tiger_pick::moe) <
+          tiger_nv::force("zzz", tiger_pick::moe));
+    CHECK((tiger_nv{"miny"} <=> tiger_nv{"miny"}) ==
+          std::strong_ordering::equal);
+  }
+  // Against text, only the name is compared, as for an `enum_name`.
+  if (true) {
+    constexpr tiger_nv meany{"meany"};
+    static_assert(meany == "meany");
+    static_assert("meany" == meany);
+    static_assert(meany != "moe");
+    static_assert(meany < "moe");
+    CHECK(meany == std::string_view{"meany"});
+    CHECK(meany == std::string{"meany"});
+    CHECK(meany == tiger_sv{"meany"});
+    CHECK(tiger_nv::force("meany", tiger_pick::moe) == "meany");
+  }
+  // Against an enum value, only the enum is compared. An unnamed value works,
+  // although it cannot convert to an `enum_named_value`.
+  if (true) {
+    constexpr tiger_nv meany{"meany"};
+    static_assert(meany == tiger_pick::meany);
+    static_assert(tiger_pick::meany == meany);
+    static_assert(meany != tiger_pick::moe);
+    static_assert(meany < tiger_pick::moe);
+    constexpr auto unnamed = tiger_pick(7);
+    CHECK(tiger_nv::force("anon", unnamed) == unnamed);
+    CHECK(
+        tiger_nv::force("anon", unnamed) != tiger_nv::force("nemo", unnamed));
+  }
+  // Two forced literals compare in a constant expression.
+  static_assert(
+      tiger_nv::force("meany", tiger_pick::meany) ==
+      tiger_nv::force("meany", tiger_pick::meany));
 }
 
 #pragma endregion

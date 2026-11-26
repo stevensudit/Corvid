@@ -168,8 +168,8 @@ private:
 //
 // This concept is NOT used as a template parameter constraint on
 // `iou_stream_conn`. Doing so would force eager checks at every reference
-// to `iou_stream_conn<P>` - including `make_child_plugin(iou_stream_conn<P>&)`
-// itself - which would cycle. Conformance is instead verified by a deferred
+// to `iou_stream_conn<P>` (including `make_child_plugin(iou_stream_conn<P>&)`
+// itself) which would cycle. Conformance is instead verified by a deferred
 // `static_assert` in the `iou_stream_conn` constructor body, which is
 // instantiated only when an instance is actually constructed.
 //
@@ -236,7 +236,7 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 //
 // Ownership: The conn is self-sustaining. Every in-flight `recv`, `send`,
 // `connect`, `accept`, or `close` callback captures a `shared_ptr<self>`, so
-// the conn cannot destruct as long as any I/O is pending - even with no
+// the conn cannot destruct as long as any I/O is pending, even with no
 // external `shared_ptr`.
 //
 // The factories return a `weak_ptr` rather than a `shared_ptr` precisely so
@@ -352,7 +352,7 @@ public:
   }
 
   // The `iou_loop` that drives this connection. Valid for the lifetime of
-  // the connection (which should end before the loop is destroyed - see
+  // the connection (which should end before the loop is destroyed; see
   // class-level comment).
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
 

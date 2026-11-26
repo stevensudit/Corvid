@@ -500,10 +500,10 @@ private:
   //
   // Extracts the `base_path` from `key.base_path` directly and performs a
   // prioritized lookup:
-  //   1. `{hostname, base_path}` -- exact host + folder
-  //   2. `{hostname, "/"}` -- host-specific catch-all
-  //   3. `{"", base_path}` -- any-host folder match
-  //   4. `{"", "/"}` -- any-host catch-all
+  //   1. `{hostname, base_path}`: Exact host + folder
+  //   2. `{hostname, "/"}`: Host-specific catch-all
+  //   3. `{"", base_path}`: Any-host folder match
+  //   4. `{"", "/"}`: Any-host catch-all
   // Returns a pointer to the factory, or nullptr.
   [[nodiscard]] const epoll_http_transaction_factory* find_route(
       const host_path& key) const {

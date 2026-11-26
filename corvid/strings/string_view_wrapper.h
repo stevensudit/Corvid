@@ -270,6 +270,15 @@ public:
 #pragma endregion
 #pragma region Comparison
 
+  // Whether two views have the same address and length, without checking
+  // content.
+  [[nodiscard]] static constexpr bool identical(view_t l, view_t r) noexcept {
+    return (l.data() == r.data()) && (l.size() == r.size());
+  }
+  [[nodiscard]] constexpr bool identical(view_t v) const noexcept {
+    return identical(view(), v);
+  }
+
   // Content comparison against anything viewable as `std::string_view`. `null`
   // and `empty` compare equal here; use `same` to tell them apart. A child
   // that compares by identity opts out and supplies its own operators.

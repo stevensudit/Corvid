@@ -98,7 +98,7 @@ public:
   [[nodiscard]] friend constexpr bool
   operator==(const child_t& l, const child_t& r) noexcept {
     assert(invariant_holds(l, r));
-    return identical(l, r);
+    return l.identical(r.view());
   }
 
   // Identity order: by address under the pointer total order, then by length,
@@ -131,18 +131,14 @@ protected:
 #pragma endregion
 #pragma region Helpers
 private:
-  [[nodiscard]] static constexpr bool
-  identical(const child_t& l, const child_t& r) noexcept {
-    return l.data() == r.data() && l.size() == r.size();
-  }
-
   // Whether this pair respects the caller's guarantee that two interned
   // strings at different addresses never share contents. Comparison asserts
   // it, which opportunistically catches a violation when it happens to be
   // compared.
   [[nodiscard]] static constexpr bool
   invariant_holds(const child_t& l, const child_t& r) noexcept {
-    return identical(l, r) || l.null() || r.null() || l.view() != r.view();
+    return l.identical(r.view()) || l.null() || r.null() ||
+           l.view() != r.view();
   }
 
 #pragma endregion

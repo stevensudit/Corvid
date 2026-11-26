@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <compare>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -553,6 +554,7 @@ class enum_named_value: public enum_name<E> {
 
 public:
   using base = enum_name<E>;
+  using view_t = base::view_t;
 
 #pragma region Construction
 
@@ -652,6 +654,51 @@ public:
   [[nodiscard]] constexpr E as_enum() const noexcept { return enum_; }
 
 #pragma endregion
+#pragma region Comparison
+
+  // Equal when both the enum and the name match.
+  //
+  // Interned names share storage, so the characters are compared only when
+  // the addresses differ.
+  [[nodiscard]] friend constexpr bool
+  operator==(const enum_named_value& l, const enum_named_value& r) noexcept {
+    return (l.enum_ == r.enum_) &&
+           (shares_storage(l, r) || (l.view() == r.view()));
+  }
+
+  // Order by enum, then by name.
+  [[nodiscard]] friend constexpr std::strong_ordering
+  operator<=>(const enum_named_value& l, const enum_named_value& r) noexcept {
+    if (const auto by_enum = l.enum_ <=> r.enum_; by_enum != 0) return by_enum;
+    if (shares_storage(l, r)) return std::strong_ordering::equal;
+    return l.view() <=> r.view();
+  }
+
+  // Against text, only the name is compared.
+  template<typename T>
+  requires std::convertible_to<const T&, view_t>
+  [[nodiscard]] friend constexpr bool
+  operator==(const enum_named_value& l, const T& r) noexcept {
+    return (l.view() == view_t{r});
+  }
+  template<typename T>
+  requires std::convertible_to<const T&, view_t>
+  [[nodiscard]] friend constexpr auto
+  operator<=>(const enum_named_value& l, const T& r) noexcept {
+    return l.view() <=> view_t{r};
+  }
+
+  // Against a bare enum value, only the enum is compared.
+  [[nodiscard]] friend constexpr bool
+  operator==(const enum_named_value& l, E r) noexcept {
+    return (l.enum_ == r);
+  }
+  [[nodiscard]] friend constexpr std::strong_ordering
+  operator<=>(const enum_named_value& l, E r) noexcept {
+    return l.enum_ <=> r;
+  }
+
+#pragma endregion
 protected:
 #pragma region Forced construction
 
@@ -660,6 +707,20 @@ protected:
 
 #pragma endregion
 private:
+#pragma region Helpers
+
+  // Whether both names are the same characters at the same address.
+  //
+  // Always false in a constant expression.
+  [[nodiscard]] static constexpr bool shares_storage(const enum_named_value& l,
+      const enum_named_value& r) noexcept {
+    // The addresses of two string literals are not permitted to be compared
+    // in a constant expression.
+    if consteval { return false; }
+    return l.identical(r.view());
+  }
+
+#pragma endregion
 #pragma region Data members
 
   E enum_{};
