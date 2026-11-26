@@ -183,7 +183,7 @@ inline constexpr fixed_string format_method_name = "__format";
 // A `noexcept` qualifier is likewise honored. Conformance then requires the
 // binding itself to be noexcept-invocable, and the erased call (`call` through
 // a handle) is itself `noexcept` whenever the argument conversions cannot
-// throw; the conversions belong to the caller, exactly as with the `api`
+// throw. The conversions belong to the caller, exactly as with the `api`
 // forwarders, so a throwing one propagates from either spelling.
 //
 // A method derives from its `method_key`, so a method tag is usable anywhere
@@ -273,12 +273,12 @@ constexpr inline bool is_member_binding_v<member<Key, Ptr>> = true;
 //
 // The pointers are template arguments because the bindings must be constants
 // (a hook's parameters are not), and they are spellable where member names
-// are not: a library cannot turn `"fire"` into `.fire`, but `&robber::shoot`
+// are not. A library cannot turn `"fire"` into `.fire`, but `&robber::shoot`
 // is a value. An overloaded member binds too, but the pointer must be cast to
 // the wanted signature to select the overload, as any member pointer must.
 //
 // A private member binds when the hook can name it, which a hook defined as a
-// hidden friend of the type can: access is checked where the pointer is
+// hidden friend of the type can. Access is checked where the pointer is
 // spelled, never where the library invokes it. What this cannot express stays
 // with a binding class: a binding that adapts arguments or results or calls
 // more than one member, or a private member of a type whose hook cannot be
@@ -332,7 +332,7 @@ struct members {};
 // The facade body is also the normal home of the boilerplate impl; see also
 // `proxy_impl`.
 //
-// A facade is an interface descriptor, never a value: declare a handle over
+// A facade is an interface descriptor, never a value. Declare a handle over
 // it (`proxy<F>`, `proxy_view<F>`, ...) rather than an instance of it. The
 // deleted default constructor propagates to derived facades, so a stray
 // `gunslinger g;` fails at the declaration instead of compiling into a
@@ -378,12 +378,12 @@ concept Facade = requires(const F& f) { implementation::probe(f); };
 // degenerate case, the identical entry listed twice, is rejected as a
 // duplicate entry.
 //
-// Unrelated sibling bases MAY collide on a method name: distinct signatures
+// Unrelated sibling bases MAY collide on a method name. Distinct signatures
 // form an overload set that unqualified calls resolve by argument, and a
 // same-signature collision is a lazy call-site error, reachable through the
 // facade-qualified key or an upcast handle.
 //
-// Diamond composition is supported: a shared ancestor reached through more
+// Diamond composition is supported. A shared ancestor reached through more
 // than one path flattens to a single set of slots (dedup by facade identity),
 // and since conformance is per facade there is only one binding to reach, no
 // matter the path.
@@ -411,7 +411,7 @@ struct extends {};
 //            method<"speak", void() const>> {};
 //
 // Every method then answers to its facade-qualified name ("animal::speak")
-// as well as its plain one: a `call` key containing "::" matches the
+// as well as its plain one. A `call` key containing "::" matches the
 // declaring facade's name plus the method name.
 //
 // The qualified spelling is what disambiguates sibling collisions, two
@@ -477,10 +477,10 @@ struct proxy_impl_base {
 // `proxy_impl` is the binding point between a facade and a concrete type
 // (Rust's `impl Trait for Type`).
 //
-// The primary template is a bare forward declaration: it never receives a
+// The primary template is a bare forward declaration. It never receives a
 // body, so instantiating it directly yields an incomplete type. Every usable
 // binding is a specialization, and the specializations are gated on
-// registration, the sole act of conformance: the library's partial
+// registration, the sole act of conformance. The library's partial
 // specializations install the facade's boilerplate or the pair's
 // registration-carried impl, and their constraints match registered pairs
 // only. For an unregistered pair, no specialization applies, and the
@@ -495,7 +495,7 @@ struct proxy_impl_base {
 // registered `T` whose member names line up.
 //
 // A type whose names do not line up carries its own impl in the registration
-// instead: `make_proxy_spec<F, T, Impl>()` names a binding class, which can
+// instead. `make_proxy_spec<F, T, Impl>()` names a binding class, which can
 // live anywhere a type can: local to the hook itself (a fully self-contained
 // registration, and the only self-contained option for a type you do not
 // own), nested in the type it serves (which additionally grants access to
@@ -507,11 +507,11 @@ struct proxy_impl_base {
 // declaration. The namespace-scope spelling of the boilerplate, a `proxy_impl`
 // partial specialization gated on `ProxyRegistered`, remains equivalent and
 // supported (to preserve carried-impl precedence, its gate should also
-// require `!SpecCarriesImpl<F, T>`); it is the one user-authored
+// require `!SpecCarriesImpl<F, T>`). It is the one user-authored
 // specialization of this template in the supported surface.
 //
 // Because the nested boilerplate is an ordinary inheritable class, it also
-// enables partial overrides: a type whose names line up except for one method
+// enables partial overrides. A type whose names line up except for one method
 // registers a carried impl that inherits `F::boilerplate<T>`, re-exposes its
 // `on` overloads with a using-declaration, and declares only the divergent
 // binding.
@@ -531,12 +531,12 @@ struct proxy_impl_base {
 //      };
 //    };
 //
-//    // Conforming `dog`, whose names line up: pure registration.
+//    // Conforming `dog`, whose names line up. Pure registration.
 //    consteval auto corvid_proxy_spec(animal*, dog*) {
 //      return make_proxy_spec<animal, dog>();
 //    }
 //
-//    // Conforming `cat`, whose names differ: the registration carries the
+//    // Conforming `cat`, whose names differ. The registration carries the
 //    // impl, here local to the hook itself.
 //    consteval auto corvid_proxy_spec(animal*, cat*) {
 //      struct as_animal : proxy_impl_base {
@@ -647,7 +647,7 @@ using carried_impl_t = carried_impl<F, T, Impl>::type;
 // Call this from a `corvid_proxy_spec` overload, just as
 // `make_sequence_enum_spec` is returned from `corvid_enum_spec`.
 //
-// The three-type overload carries an impl: `make_proxy_spec<F, T, Impl>()`
+// The three-type overload carries an impl. `make_proxy_spec<F, T, Impl>()`
 // names the binding class serving the pair, typically a local class in the
 // hook itself or a class nested in `T`; see `proxy_impl` and
 // `SpecCarriesImpl`. In place of a binding class, `Impl` may be a
@@ -692,14 +692,14 @@ using registered_spec_t = decltype(corvid_proxy_spec(static_cast<F*>(nullptr),
 //
 // To register a pair, declare a `corvid_proxy_spec(F*, T*)` overload returning
 // `make_proxy_spec<F, T>()`, in the namespace of either the facade or the
-// type; it is found here by ADL. One namespace or the other, never both:
-// duplicate hooks make the ADL call ambiguous, and the pair then reads as
+// type; it is found here by ADL. One namespace or the other, never both.
+// Duplicate hooks make the ADL call ambiguous, and the pair then reads as
 // unregistered here rather than as a diagnosed duplicate.
 //
 // To register a type for a composed facade and its whole chain, one
 // constrained template hook serves every level; see `InChainOf`.
 //
-// The library never defines this function: declaring an overload IS the act of
+// The library never defines this function. Declaring an overload IS the act of
 // registration. The single exception is the overload the library provides for
 // its own API-validation probe; see `validate_api`.
 //
@@ -861,7 +861,7 @@ struct method_traits<M, R(Args...)> {
   // normalization, and whether they are merely viable through the ordinary
   // conversions a call performs.
   //
-  // Exactness is the validation probe's strictness; viability is how
+  // Exactness is the validation probe's strictness. Viability is how
   // `resolve` tells an ambiguous call from an unmatched one when the ranking
   // probe rejects it.
   template<typename... CallArgs>
@@ -985,7 +985,7 @@ inline void empty_relocate(void*, void*) noexcept {}
 // the buffer at `to` (and the return is that same address); `heap_copy`
 // allocates the copy, ignoring `to`. Either can throw (the target's copy
 // constructor, or the allocation), so unlike the other housekeeping thunks
-// they are not `noexcept`; the caller publishes the result only on success.
+// they are not `noexcept`. The caller publishes the result only on success.
 template<typename T>
 void* inline_copy(const void* from, void* to) {
   return ::new (to) T(*static_cast<const T*>(from));
@@ -1003,10 +1003,11 @@ void* heap_copy(const void* from, void* /*to*/) {
 // operation on an erased target can verify the type at runtime through
 // any handle.
 //
-// Deliberately non-const: the address is the identity, and identical
+// Deliberately non-const. The address is the identity, and identical
 // read-only data is fair game for linker identical-COMDAT folding (MSVC
-// /OPT:ICF), which could merge the tags and with them the identities.
-// Writable data is never folded.
+// `/OPT:ICF`), which could merge the tags and with them the identities.
+// In contrast, writable data is never folded, even when it is never written
+// to.
 template<typename T>
 inline std::byte type_tag_v{};
 
@@ -1033,14 +1034,14 @@ using vtbuild_t = vtable_builder<decltype(probe(std::declval<const F&>()))>;
 
 // `vtable_for` is the per-(facade, type, born facade) dispatch table instance.
 //
-// The handle stores a pointer to this; the table pointer lives in the handle,
+// The handle stores a pointer to this. The table pointer lives in the handle,
 // not in the target (a fat handle, like Rust's `&dyn`). A composed facade's
 // table also embeds the address of each direct base's instance for the same
 // target type and birth, which is what makes upcasting a pointer read.
 //
-// `Born` plays the same role as on the owning tables: it defaults to the
+// `Born` plays the same role as on the owning tables. It defaults to the
 // facade itself, which is the birth of every directly built view, and stays
-// out of the table's type; a view lent from an owning handle points at the
+// out of the table's type. A view lent from an owning handle points at the
 // born family its owner's table embeds, so the owner's birth carries over
 // without the handle doing anything. The type is spelled explicitly for the
 // same reason as `owning_vtable_for`: the born family's tables and its
@@ -1065,7 +1066,7 @@ constexpr inline vtbuild_t<F>::vtable_t vtable_for =
 // table is where the memory belongs. The table TYPE is still per facade;
 // `Born` only selects which static object is pointed at.
 //
-// The type is spelled explicitly, not deduced: the two modes' tables
+// The type is spelled explicitly, not deduced. The two modes' tables
 // reference each other by address, which is fine for initialization but
 // would make `auto` deduction circular.
 template<Facade F, Facade Born, typename T, storage_mode StorageMode>
@@ -1106,7 +1107,7 @@ struct ancestor_entry {
 // born as plus every facade it transitively extends.
 //
 // Every table points at its born family's ancestry of its own kind: owning
-// tables at an owning ancestry, view tables at a view ancestry; the
+// tables at an owning ancestry, view tables at a view ancestry. The
 // underlying tables are the statics below.
 struct ancestry_t {
   const ancestor_entry* entries{};
@@ -1116,7 +1117,7 @@ struct ancestry_t {
 // Return the table of the ancestry member whose tag is `tag`, or null when the
 // facade is not in the ancestry.
 //
-// This is `try_downcast`'s runtime search; the tag match is what proves the
+// This is `try_downcast`'s runtime search. The tag match is what proves the
 // cast sound, so the caller can cast the table back to the matched facade's
 // type.
 [[nodiscard]] constexpr const void*
@@ -1129,7 +1130,7 @@ find_ancestor(const ancestry_t& ancestry, const void* tag) noexcept {
 // Return `D`'s view table from `vt`'s birth ancestry, or null when `vt` is an
 // empty table (which has no ancestry) or the born family does not include `D`.
 //
-// The shared lookup behind every view-table `try_downcast`; `F` is the
+// The shared lookup behind every view-table `try_downcast`. `F` is the
 // handle's own facade, spelling the source table type, so call sites pass
 // both facades explicitly.
 template<Facade D, Facade F>
@@ -1163,7 +1164,7 @@ constexpr inline auto ancestor_table_for =
 // every owning table of that born family points at.
 //
 // Each storage mode has its own ancestry, whose entries are that mode's
-// tables; a mode-changing adoption switches the proxy to the table's
+// tables. A mode-changing adoption switches the proxy to the table's
 // other-mode sibling, which carries the other mode's ancestry, so the tables
 // an ancestry hands out always match the target's current home.
 template<Facade Born, typename T, storage_mode StorageMode>
@@ -1174,9 +1175,9 @@ constexpr inline ancestry_t ancestry_for{
 // Build the view-table ancestor table for a target born as (Born, T),
 // mirroring `make_ancestor_table`.
 //
-// A parallel family over the view tables, rather than entries into the
-// owning tables: a view's downcast only ever needs dispatch, and routing it
-// through owning tables would drag their destroy, relocate, and copy thunks
+// These are a parallel family over the view tables, rather than entries into
+// the owning tables. A view's downcast only ever needs dispatch, and routing
+// it through owning tables would drag their destroy, relocate, and copy thunks
 // into code that never owns anything.
 template<Facade Born, typename T, Facade... As>
 consteval std::array<ancestor_entry, 1 + sizeof...(As)>
@@ -1193,7 +1194,7 @@ constexpr inline auto view_ancestor_table_for =
 // The birth ancestry for a view over a target born as (Born, T), the object
 // every view table of that born family points at.
 //
-// There is no storage-mode axis here; a view has no storage.
+// There is no storage-mode axis here because a view has no storage.
 template<Facade Born, typename T>
 constexpr inline ancestry_t view_ancestry_for{
     view_ancestor_table_for<Born, T>.data(),
@@ -1257,10 +1258,10 @@ consteval size_t first_index_of_type() noexcept {
 //
 // A slot type recurs when the same ancestor facade is reached through more
 // than one composition path, so this is what collapses a diamond to a single
-// set of slots (a literal duplicate entry would also collapse here, but
+// set of slots. (A literal duplicate entry would also collapse here, but
 // `is_entry_listed_once` rejects it instead). Per-facade conformance already
 // yields one `proxy_impl<Ancestor, T>` regardless of path (the effect of
-// Rust's coherence rule); dedup makes the flattened table agree.
+// Rust's coherence rule). Dedup makes the flattened table agree.
 template<typename Slots>
 struct dedup_slots;
 template<typename... Ss>
@@ -1317,7 +1318,7 @@ consteval bool have_same_chain_owners() noexcept {
 // argument lists, or the same arguments with different constness (the
 // const-pair idiom, a mutable accessor and a read-only query sharing a name).
 //
-// The C++ member rules apply: the result type and `noexcept` do not
+// The C++ member rules apply. The result type and `noexcept` do not
 // overload, so a pair distinguished by nothing else is a collision.
 template<typename S1, typename S2>
 consteval bool is_legal_overload_pair() noexcept {
@@ -1331,20 +1332,20 @@ consteval bool is_legal_overload_pair() noexcept {
 // Post-dedup, a repeated slot type is only ever the self-pairing, so same-type
 // pairs are skipped.
 //
-// Within one extends chain, a recurring method name is an overload set,
-// legal when every pair differs in arguments or constness (see
+// Within one extends chain, a recurring method name is an overload set.
+// It is legal when every pair differs in arguments or constness (see
 // `is_legal_overload_pair`), whether the declarations share a facade or span
-// levels: a base's `foo()` and a derived facade's `foo(int)` are different
+// levels. A base's `foo()` and a derived facade's `foo(int)` are different
 // functions that happen to share a spelling, exactly as within one facade.
-// A same-signature recurrence stays an error, since that is redeclaration (or
+// A same-signature recurrence stays an error. That is redeclaration (or
 // overriding), and facades carry no implementations, so there is nothing to
-// override. A literal duplicate entry never reaches this check: dedup
+// override. A literal duplicate entry never reaches this check because dedup
 // collapses it away, and `is_entry_listed_once` rejects it instead.
 //
 // Unrelated sibling facades may collide on a method name freely, including
 // on the full signature, since every facade is named and the qualified
 // spelling is always available as the route to a collided slot that the
-// arguments cannot single out; chain authors can see the base, so a chain's
+// arguments cannot single out. Chain authors can see the base, so a chain's
 // same-signature recurrence is rejected eagerly instead. Facade names must
 // be unique within the composition, or qualified keys could themselves
 // collide.
@@ -1426,7 +1427,7 @@ struct entry_name<name<Name>> {
 // Whether entry `E` appears exactly once in the facade's declaration list.
 //
 // A literal duplicate entry, the identical `method` or `extends` spelled
-// twice, is a copy-paste slip with no meaning: dedup would silently collapse
+// twice, is a copy-paste slip with no meaning. Dedup would silently collapse
 // the duplicate's slots, so the entry list is checked before flattening can
 // hide it. A diamond is different, two DISTINCT entries whose chains share an
 // ancestor, and stays legal.
@@ -1601,7 +1602,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // type.
   //
   // Dispatch always uses the flattened thunks, so an inherited call costs the
-  // same single indexed load as an own one; the base pointers exist for
+  // same single indexed load as an own one. The base pointers exist for
   // upcasting to follow (Rust's embedded supertrait vtables).
   //
   // `ancestry` names the born family's view ancestry (see
@@ -1650,7 +1651,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
 
   // Whether slot `S` answers to `Key`.
   //
-  // An unqualified key matches the method name alone; a qualified key
+  // An unqualified key matches the method name alone. A qualified key
   // ("facade::method") also requires the qualifying facade's name.
   template<typename S, fixed_string Key>
   // NOLINTNEXTLINE(bugprone-exception-escape): consteval, compile-time only
@@ -1719,7 +1720,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   //
   // This is C++ overload resolution's object-parameter preference, applied
   // as a tiebreak for `resolve_exact`, whose exact-match filter cannot see
-  // the object parameter: through a mutable call (`Access` is `as_mutable`), a
+  // the object parameter. Through a mutable call (`Access` is `as_mutable`), a
   // const pair resolves to its non-const member, as a call on a non-const
   // object would. `resolve` needs no such tiebreak, because the compiler
   // weighs the object parameter itself during ranking.
@@ -1738,7 +1739,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
 
   // Build the `rank_set` type for `Key`'s candidates.
   //
-  // The set spans the whole slot list positionally; a non-candidate slot
+  // The set spans the whole slot list positionally. A non-candidate slot
   // contributes a `rank_poison` overload no call can select, so the winning
   // index needs no translation.
   template<fixed_string Key, access_mode Access, size_t... Ndx>
@@ -1761,13 +1762,13 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   //
   // A key over an overload set (per-name overloads within a facade, or a
   // sibling collision) is ranked by the compiler rather than by a
-  // reimplementation of its rules: the candidates become a synthetic
+  // reimplementation of its rules. The candidates become a synthetic
   // overload set (`make_rank_set`) and a real call expression against
   // `CallArgs` picks the winner, whose result type carries the slot index.
   // Dispatch therefore agrees with the `api` forwarders everywhere,
   // promotions, conversion ranks, and the object-parameter weighing
   // included. An ill-formed ranking call is classified by per-slot
-  // viability: some viable candidate means the call is ambiguous, none
+  // viability. Multiple viable candidates means the call is ambiguous, none
   // means nothing matched.
   template<fixed_string Key, access_mode Access, typename... CallArgs>
   static consteval size_t resolve() noexcept {
@@ -1821,7 +1822,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   //
   // The conversion term keeps the two spellings in agreement. An `api`
   // forwarder converts its arguments in the caller, outside its own
-  // `noexcept`, so a throwing conversion propagates; the erased call
+  // `noexcept`, so a throwing conversion propagates. The erased call
   // converts at the thunk invocation, inside the dispatcher, so the
   // dispatcher may be `noexcept` only when those conversions cannot throw.
   //
@@ -1887,12 +1888,12 @@ struct vtable_builder<facade<Es...>>
   // `is_all_bound` is whether every method of the facade, inherited and own,
   // has a usable binding for `T`.
   //
-  // Own methods bind through `proxy_impl<F, T>`; inherited ones recurse into
+  // Own methods bind through `proxy_impl<F, T>`. Inherited ones recurse into
   // their declaring facade, so conforming to a composed facade requires
   // conforming to each of its bases.
   //
   // This is binding-existence only, vacuously true when the facade contributes
-  // no methods; the per-pair opt-in that keeps vacuity from conforming lives
+  // no methods. The per-pair opt-in that keeps vacuity from conforming lives
   // in `Proxiable`.
   template<typename F, typename T>
   static constexpr bool is_all_bound =
@@ -1976,7 +1977,7 @@ struct vtable_builder<facade<Es...>>
   // `make_ancestor_table`).
   //
   // Deliberately a member rather than an `entry_traits` hook, and with a
-  // spelled-out return type: an entry's helper is shared by every facade
+  // spelled-out return type. An entry's helper is shared by every facade
   // listing that entry, and in a diamond the ancestry's back-references reach
   // a sibling's table build while the shared helper is still
   // mid-instantiation, which a deduced return type cannot survive. A member is
@@ -1996,7 +1997,7 @@ struct vtable_builder<facade<Es...>>
   // the birth is decided there too, as the facade under construction.
   //
   // The embedded `vt` is a copy of the standalone view-table instance rather
-  // than a second `make_vtable` call: both spellings would share one function
+  // than a second `make_vtable` call. Both spellings would share one function
   // specialization, and the view ancestry's back-references re-enter it while
   // it is mid-instantiation from here, the same diamond hazard as
   // `make_owning_bases`. Reading the completed variable keeps `make_vtable`
@@ -2094,7 +2095,7 @@ using owning_table_t = vtbuild_t<F>::owning_vtable_t;
 //
 // The shared walk behind `upcast_vtable` and `upcast_owning_vtable`, which
 // differ only in the table family `TableFor` selects. The route is resolved
-// at compile time; the runtime cost is one dependent load per composition
+// at compile time. The runtime cost is one dependent load per composition
 // level crossed.
 template<template<Facade> class TableFor, Facade B, Facade D>
 [[nodiscard]] constexpr const TableFor<B>*
@@ -2177,7 +2178,7 @@ concept Extends =
 //
 // registers `dog` for `pet` and every facade it extends in one declaration,
 // the idiomatic spelling for conforming a type to a whole composition chain.
-// The bindings stay per facade either way; the chain hook only collapses the
+// The bindings stay per facade either way. The chain hook only collapses the
 // opt-in ceremony.
 template<typename B, typename D>
 concept InChainOf = Facade<B> && (std::same_as<B, D> || Extends<D, B>);
@@ -2302,7 +2303,7 @@ constexpr inline auto bound_pointer_v = member_for_t<Key, Ms...>::pointer_v;
 // the pair has one and it binds `Key` for these arguments.
 //
 // A function template with `F` and `T` as its own parameters, so that the
-// default impl is named only where the name is dependent: spelled directly
+// default impl is named only where the name is dependent. Spelled directly
 // inside `member_impl`, it would be looked up as soon as that class is
 // instantiated, and a pair without one would be an error rather than an
 // unbound key.
@@ -2333,7 +2334,7 @@ constexpr auto default_on(method_key<Key> key, Self& self,
 // as it would for a binding class with no `on` for it.
 //
 // The target parameter is deduced, so a const target reaches the member as
-// const and a mutable one as mutable; whether the member accepts that is
+// const and a mutable one as mutable. Whether the member accepts that is
 // part of what makes the key bound.
 //
 // Both overloads spell their return type from the declaration alone, so that
@@ -2379,7 +2380,7 @@ struct member_impl {
 
 // The `Key` qualified by facade `F`'s name.
 //
-// The library's self-conformance bindings forward through this spelling: `Key`
+// The library's self-conformance bindings forward through this spelling. `Key`
 // there is always one of `F`'s own method names, so the qualified key stays
 // unambiguous on a derived handle even when the derived facade's flattened
 // list collides on `Key`.
@@ -2430,13 +2431,13 @@ struct handle_impl {
 //
 // Satisfied when every method of `F` is bound for `T` (through `proxy_impl<F,
 // T>`, or for the reserved format method through the library's fallback to
-// `T`'s own `std::formatter`), and the pair itself has opted in: it is
+// `T`'s own `std::formatter`), and the pair itself has opted in. Either it is
 // registered, or `T` is a proxy handle of `F` or of a facade extending it (the
 // library's self-conformance bindings).
 //
 // The explicit opt-in term is what keeps a facade with no own methods, a
 // name-only marker or a pure aggregation level, from being backed by every
-// type in the program: binding-existence alone is vacuously true there.
+// type in the program. Binding-existence alone is vacuously true there.
 //
 // This is the gate on proxy construction and doubles as the trait bound for
 // static-dispatch templates.
@@ -2472,7 +2473,7 @@ struct strict_result {
 // passed through unchanged.
 //
 // A conversion operator cannot distinguish binding a reference from copying
-// out of one, so reference results cannot be exactness-checked; a forwarder
+// out of one, so reference results cannot be exactness-checked. A forwarder
 // that decays a declared reference result to a value goes undetected here.
 template<typename R>
 using strict_return_t = std::conditional_t<std::is_void_v<R>, void,
@@ -2508,12 +2509,12 @@ struct api_probe: api_base_t<F, api_probe<F>> {
 // Probe registration, covering every facade.
 //
 // This is the only overload of `corvid_proxy_spec` the library itself
-// provides; it is what admits the probe to a facade author's
+// provides. It is what admits the probe to a facade author's
 // registration-gated boilerplate impl.
 //
 // The probe of a facade also registers for every facade its facade extends,
 // because validating a composed facade drives each base's boilerplate at the
-// derived probe. It must opt out of validation: a validating registration
+// derived probe. It must opt out of validation. A validating registration
 // would recurse into itself through the boilerplate-visibility check, whose
 // `ProxyRegistered` probe deduces this hook's return type.
 template<Facade F, Facade G>
@@ -2542,20 +2543,21 @@ consteval auto corvid_proxy_spec(F*, api_probe<G>*) noexcept {
 // middle, in the `api` or in the boilerplate itself, fails to compile with the
 // error pointing at the drifting line.
 //
-// Caught: a missing or misspelled forwarder, wrong arity, wrong const flavor
+// Caught: A missing or misspelled forwarder, wrong arity, wrong const flavor
 // of `self`, a parameter or declared result type that is merely convertible to
 // the facade's (including the silently-truncating kind), and a forwarder body
-// dispatching a key with a different signature. Not caught: a missing
-// `noexcept` on a forwarder, by-value versus by-reference parameter spellings,
-// reference-to-value decay of a declared result, a body dispatching the
-// wrong key with an identical signature, and a missing overload forwarder
-// whose probe call a same-name sibling forwarder absorbs by conversion,
-// landing exactly on the sibling's slot.
+// dispatching a key with a different signature.
 //
-// Limitation: a composed facade whose flattened list collides on a
+// Not caught: A missing `noexcept` on a forwarder, by-value versus
+// by-reference parameter spellings, reference-to-value decay of a declared
+// result, a body dispatching the wrong key with an identical signature, and a
+// missing overload forwarder whose probe call a same-name sibling forwarder
+// absorbs by conversion, landing exactly on the sibling's slot.
+//
+// Limitation: A composed facade whose flattened list collides on a
 // same-signature method name cannot validate, because the boilerplates drive
 // the probe by natural name, which is exactly the spelling the collision
-// makes ambiguous. Such a facade registers with `api_check::off`; its base
+// makes ambiguous. Such a facade registers with `api_check::off`, but its base
 // levels still validate normally.
 //
 // Failures are hard compile errors rather than a `false` return, and the
@@ -2580,7 +2582,7 @@ namespace implementation {
 // to drive `F`'s api probe.
 //
 // This is the registration-time guard for the base half of the requirement
-// stated above: `validate_api` runs the probe through each base's
+// stated above. `validate_api` runs the probe through each base's
 // boilerplate, so a missing one must be caught before the table build turns
 // it into an incomplete-type hard error. The tuple pointer parameter carries
 // `vtbuild_t<F>::ancestors_t` in deducible position.

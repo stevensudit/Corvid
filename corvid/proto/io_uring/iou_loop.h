@@ -191,12 +191,12 @@ using expiration_fn = fixed_function<
 //
 // Details:
 //
-// `post` is the cross-thread entry point: any thread can push an arbitrary
+// `post` is the cross-thread entry point. Any thread can push an arbitrary
 // callback onto the queue, and the loop will execute it at the top of the next
 // `run_once`. The loop is woken by a multishot `IORING_OP_POLL_ADD` armed on
 // an internal `eventfd`, so the wakeup signal travels through the same CQE
 // path as every other completion. `post_and_wait` is a synchronous variant
-// that blocks the caller until the callback completes: it has only niche uses.
+// that blocks the caller until the callback completes. It has only niche uses.
 //
 // `execute_or_post` executes inline on the loop thread or posts otherwise. It
 // is used under the hood to make public operations thread-safe without
@@ -207,7 +207,7 @@ using expiration_fn = fixed_function<
 // (perhaps wrapping a more specific callback, such as `buf_completion_fn`) as
 // their completion callback.
 //
-// `iou_basic_loop` itself is non-copyable and non-movable: the rings contain
+// `iou_basic_loop` itself is non-copyable and non-movable. The rings contain
 // kernel-mapped memory with self-referential pointers, and these can only be
 // accessed safely from a single thread.
 //
@@ -321,11 +321,11 @@ public:
   // `buf_pool_t` registration fails.
   //
   // `udp_provided_size` controls the optional provided-buffer pool slab for
-  // UDP recvmsg. Pass 0 to disable it; the default is one hugepage (2 MB),
+  // UDP `recvmsg`. Pass 0 to disable it. The default is one hugepage (2 MB),
   // split into `udp_provided_buf_size` buffers (defaulting to 2k).
   //
   // `tcp_provided_size` controls the optional provided-buffer pool slab for
-  // multishot TCP reads. Pass 0 to disable it; the default is one hugepage (2
+  // multishot TCP reads. Pass 0 to disable it. The default is one hugepage (2
   // MB), split into `tcp_provided_buf_size` buffers (defaulting to 4k).
   //
   // Note: The flags for the ring require that all SQEs be issued from the same
@@ -365,10 +365,10 @@ public:
   // outlives `io_uring_queue_exit` (which `~iou_ring` calls to cancel
   // in-flight ops). But their embedded `iou_buf_ring`s would otherwise call
   // `io_uring_free_buf_ring` against a destroyed `ring_`. We disarm that here
-  // before any member starts destructing: `queue_exit` handles the
+  // before any member starts destructing because `queue_exit` handles the
   // kernel-side unregister anyway.
   ~iou_basic_loop() {
-    // Disarm the provided pools before any other teardown: if a buffer
+    // Disarm the provided pools before any other teardown. If a buffer
     // outlives this loop (held by a conn the user kept past
     // `~iou_basic_loop`), its destructor must not touch our `iou_ring` or our
     // dispatcher base, both of which are about to vanish.
@@ -529,7 +529,7 @@ public:
   // cancel all SQEs associated with that token, which is especially necessary
   // for multi-shot operations.
   //
-  // By design, tokens are not owning; their lifecycle is managed by the
+  // By design, tokens are not owning. Their lifecycle is managed by the
   // system. In the single-shot workflow, the token remains valid until the
   // CQE is processed, at which point the callback returns the default
   // `slot_retention::automatic`, which leads to it being released.
@@ -640,7 +640,7 @@ public:
       if (!af.when.ts.is_valid())
         return {tokenize(completion_fn{std::move(cb)}), nullptr};
     }
-    // Register with `af` before the move below; the handle tracks it into the
+    // Register with `af` before the move below. The handle tracks it into the
     // closure, ending up at its final home inside the tokenized
     // `completion_fn`. On scope exit it unregisters, so the moved-to object
     // never dangles on it.
@@ -790,7 +790,7 @@ public:
   //
   // Allows creating, removing, and updating stand-alone timeouts.
   //
-  // These are not linked to existing operations: that functionality is
+  // These are not linked to existing operations. That functionality is
   // provided through the `timeout` parameter on those methods.
   //
 
@@ -883,10 +883,11 @@ public:
   //
 
   // Submit a cancel-then-close as a hard-linked pair. The cancel SQE runs
-  // first; its CQE is swallowed regardless of outcome. The close SQE starts
-  // only after the cancel completes. whether it succeeds or fails. This
+  // first and its CQE is swallowed regardless of outcome. The close SQE starts
+  // only after the cancel completes, whether it succeeds or fails. This
   // sequencing prevents the possibility of the cancel being processed after
-  // the close, which would lead canceling on a reused FD. Invalidates `file`.
+  // the close, which would lead to canceling on a reused FD. Invalidates
+  // `file`.
   [[nodiscard]] completion_token
   submit_close(os_file&& file, CompletionInvocable auto&& cb) {
     if (!file) return {};
@@ -1632,11 +1633,11 @@ private:
   // Count `sqe_count` newly prepped SQEs and flush once the configured limit
   // accumulates.
   //
-  // Always returns true, as the caller's success value: by this point the
-  // prepped SQEs are committed. A failed flush is deliberately not reported:
-  // the prepped SQEs stay queued in the SQ ring regardless, and the next
-  // `submit_and_wait_timeout` either flushes them or surfaces the ring's real
-  // error by throwing.
+  // Always returns true as the caller's success value because, by this point,
+  // the prepped SQEs are committed. A failed flush is deliberately not
+  // reported since the prepped SQEs stay queued in the SQ ring regardless, and
+  // the next `submit_and_wait_timeout` either flushes them or surfaces the
+  // ring's real error by throwing.
   bool maybe_submit_pending(size_t sqe_count = 1UZ) {
     assert(is_loop_thread());
     pending_sqe_count_ += sqe_count;
@@ -1646,10 +1647,10 @@ private:
 
   // Dispatch a CQE to its registered callback. The callback returns a
   // `slot_retention` result:
-  //   - `automatic`: retain iff `IORING_CQE_F_MORE` is set (multishot
+  //   - `automatic`: Retain iff `IORING_CQE_F_MORE` is set (multishot
   //   default).
-  //   - `release`: always free the slot.
-  //   - `retain`: always keep the slot (e.g., callback resubmits a new SQE).
+  //   - `release`: Always free the slot.
+  //   - `retain`: Always keep the slot (e.g., callback resubmits a new SQE).
   bool do_dispatch(iou_cqe cqe) {
     completion_token token{cqe.get_data_int()};
     if (!token) return true;
@@ -1675,7 +1676,7 @@ private:
   // Each time `post` or `stop` writes to the `eventfd`, the poll fires as a
   // CQE and interrupts `io_uring_wait_cqe_timeout`. Because the operation is
   // multishot, the kernel keeps it alive as long as `IORING_CQE_F_MORE` is
-  // set; the callback drains the `eventfd` on each firing. If the kernel
+  // set and the callback drains the `eventfd` on each firing. If the kernel
   // ends the multishot (flag absent), the callback resubmits.
   bool arm_wake_poll_multishot() {
     if (wake_poll_token_) return true;
@@ -1726,10 +1727,10 @@ private:
   // Member declaration order is still chosen so reverse-order destruction
   // matches kernel/ring teardown:
   //
-  // 1. `completion_cb_pool_` destructs first (declared last) - drops all
+  // 1. `completion_cb_pool_` destructs first (declared last). Drops all
   //    callback captures, including `shared_ptr<iou_stream_conn>` refs and
   //    any captured buffers.
-  // 2. `ring_` destructs next - `io_uring_queue_exit` cancels every in-flight
+  // 2. `ring_` destructs next. `io_uring_queue_exit` cancels every in-flight
   //    op, so the kernel stops writing to any buffer memory.
   // 3. The provided buf pools' shared_ptrs drop. `~iou_basic_loop` already
   //    called `skip_unregister` (so the `iou_buf_ring` destructor will not
@@ -1737,8 +1738,8 @@ private:
   //    `return_buffer` call from a buffer outliving the loop is a no-op
   //    against the torn-down dispatcher). If no buffer still holds a ref,
   //    each pool destructs here and `munmap`s its slab.
-  // 4. `buf_pool_`'s shared_ptr drops last. Same deferred-destruction
-  //    semantics; `iou_buf_pool` needs no disarm because its `return_buffer`
+  // 4. `buf_pool_`'s `shared_ptr` drops last. Same deferred-destruction
+  //    semantics. `iou_buf_pool` needs no disarm because its `return_buffer`
   //    only touches internal state.
   std::shared_ptr<buf_pool_t> buf_pool_;
   std::shared_ptr<provided_buf_pool_t> udp_buf_pool_;
@@ -1770,7 +1771,7 @@ using iou_loop = iou_basic_loop<>;
 
 // Runs an `iou_basic_loop` in its own background thread.
 //
-// Shutdown ordering: call `stop` (or destroy the runner) before destroying
+// Shutdown ordering: Call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference.
 template<size_t RING_SIZE = 256UZ, size_t SLOT_COUNT = 512UZ,
     size_t BUF_POOL_SIZE = 2 * 1024UZ * 1024UZ,
@@ -1898,9 +1899,9 @@ private:
       //
       // Retirement waives the wrong-thread destruction guard, so `~loop_t` may
       // run on whichever thread releases the last `shared_ptr`. Normally that
-      // is this thread, via the resets below; a caller that copied
+      // is this thread, via the resets below. A caller that copied
       // `state->loop` merely defers destruction to its own release. (Unlike
-      // `epoll_loop`, no separate connection-shutdown step is needed:
+      // `epoll_loop`, no separate connection-shutdown step is needed because
       // `iou_stream_conn` holds a bare `iou_loop&` rather than a `shared_ptr`,
       // so there are no ownership cycles from connections to break.)
       (void)loop->retire();

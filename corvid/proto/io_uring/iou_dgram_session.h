@@ -36,7 +36,7 @@ namespace corvid { inline namespace proto { namespace iouring {
 // Lifted out so protocol-layer wrappers (e.g., `quic_session_io`) can hold a
 // reference to a non-templated session handle and drive I/O without taking
 // the templated session type as a parameter. `shared_from_this` lives here
-// (single inheritance below); the templated derived's typed `self` is a
+// (single inheritance below). The templated derived's typed `self` is a
 // `static_pointer_cast` of `shared_from_this` into its own type.
 //
 // The single virtual (`do_send`) bridges to the templated derived, which
@@ -69,7 +69,7 @@ public:
   }
 
   // Send a datagram. The buffer must already carry its `peer_addr`. Returns
-  // the `completion_token` for the in-flight send (invalid on failure); the
+  // the `completion_token` for the in-flight send (invalid on failure). The
   // buffer is returned to the plugin via `handle_sent` on completion. Safe
   // from any thread.
   [[nodiscard]] completion_token send(buffer&& buf) {
@@ -77,7 +77,7 @@ public:
     return do_send(std::move(buf));
   }
 
-  // Convenience: copy `data` into a JIT-borrowed write buffer with the given
+  // Convenience: Copy `data` into a JIT-borrowed write buffer with the given
   // `peer` address, then send. Safe from any thread.
   [[nodiscard]] completion_token
   send_to(const net_endpoint& peer, std::string_view data) {
@@ -94,7 +94,7 @@ protected:
   iou_dgram_session_base(iou_loop& loop, block_size buf_size) noexcept
       : loop_{loop}, buf_size_{buf_size} {}
 
-  // Templated derived implements: routes the buffer through the typed
+  // Templated derived implements: Routes the buffer through the typed
   // router's `submit_session_send` with a typed `shared_from_this`.
   virtual completion_token do_send(buffer&& buf) = 0;
 
@@ -113,10 +113,10 @@ protected:
 // A logical conversation, owned by an `iou_dgram_router` via `shared_ptr`. The
 // session holds a reference to its router.
 //
-// (The router is intended to outlive all of its sessions; `router.close`
+// (The router is intended to outlive all of its sessions since `router.close`
 // drains them first. It is possible for a zombie session, kept alive by an
 // outstanding `shared_ptr`, to linger after the router is gone, but it is in
-// the closed state and will never attempt to call through to the router).
+// the closed state and will never attempt to call through to the router.)
 //
 // All per-session state lives on the `SessionPlugin` instance, which the
 // session constructs in-place with `(router&, *this, user_args...)`.
@@ -125,10 +125,10 @@ protected:
 // the plugin's `handle_sent` with the `buffer`'s `result` reflecting the send
 // outcome. The `buffer` itself is available for resending, if needed.
 //
-// Recv path: the router calls `on_receive(buffer&&)`, which forwards into the
+// Recv path: The router calls `on_receive(buffer&&)`, which forwards into the
 // plugin's `handle_recv`.
 //
-// Construction: the router plugin uses the static `make` factory, which calls
+// Construction: The router plugin uses the static `make` factory, which calls
 // `make_shared`, then invokes `plugin.register_self(buf)` so the plugin can
 // register the session under one or more keys.
 template<typename SessionPlugin>
@@ -143,10 +143,10 @@ protected:
   using mint = passkey<iou_dgram_session>;
 
 public:
-  // Public for `make_shared`; use the `make` factory. The plugin is
+  // Public for `make_shared`. Use the `make` factory. The plugin is
   // constructed in-place with `(router, *this, plugin_args...)`. The plugin
-  // must only **store** the router and session references during its own ctor;
-  // it must not call any member functions on the session, since the session's
+  // must only store the router and session references during its own ctor. It
+  // must not call any member functions on the session, since the session's
   // construction is not yet complete.
   template<typename... PluginArgs>
   explicit iou_dgram_session(mint, router_t& router,
@@ -154,7 +154,7 @@ public:
       : iou_dgram_session_base{router.loop(), router_t::buf_size},
         router_{router},
         plugin_{router, *this, std::forward<PluginArgs>(plugin_args)...} {
-    // Deferred concept check: see the matching note in iou_dgram_router.h.
+    // Deferred concept check: See the matching note in "iou_dgram_router.h".
     static_assert(iou_dgram_session_plugin<SessionPlugin>,
         "SessionPlugin must satisfy the iou_dgram_session_plugin concept");
   }
@@ -190,7 +190,7 @@ public:
   [[nodiscard]] session_plugin_t& plugin() noexcept { return plugin_; }
 
   // Typed view of `shared_from_this`. The base's `enable_shared_from_this`
-  // yields `shared_ptr<iou_dgram_session_base>`; the cast is safe because the
+  // yields `shared_ptr<iou_dgram_session_base>`. The cast is safe because the
   // dynamic type of every `iou_dgram_session_base` instance constructed
   // through `make` is `iou_dgram_session<SessionPlugin>`.
   [[nodiscard]] session_ptr self() {
@@ -222,7 +222,7 @@ public:
 #pragma endregion
 #pragma region Close
 
-  // Close the session: post `unregister_self` to the loop thread. The plugin
+  // Close the session: Post `unregister_self` to the loop thread. The plugin
   // is responsible for calling `router.remove_session(key)` for each
   // registered key. Idempotent. Safe from any thread.
   [[nodiscard]] bool close() {
@@ -238,7 +238,7 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  // Bridges the base's `send` / `send_to` to the typed router; gated on
+  // Bridges the base's `send` / `send_to` to the typed router. Gated on
   // router open so a session outliving its router fails-closed.
   completion_token do_send(buffer&& buf) override {
     if (!router_.is_open()) return {};

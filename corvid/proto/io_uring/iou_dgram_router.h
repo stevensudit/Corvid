@@ -54,14 +54,14 @@ class iou_dgram_router;
 // Required methods (regular, non-static):
 //  `key_t extract(const buffer&)` - deterministic key extraction. May
 //      return an invalid key (i.e., one for which `!key` is true) to
-//      signal parse failure or rejection; the router then drops the
+//      signal parse failure or rejection. The router then drops the
 //      originating packet without consulting the session registry or
 //      invoking `create_session`.
 //  `bool create_session(const buffer&, iou_dgram_router&)` - invoked on
 //      key not found in the session registry. Constructs a session via
 //      `session_t::make` (whose factory calls the session plugin's
 //      `register_self`, which in turn calls `router.add_session(key, self)`
-//      one or more times). May choose not to register (rejection path); the
+//      one or more times). May choose not to register (rejection path). The
 //      router will then drop the originating packet. Return value is
 //      informational.
 //
@@ -113,12 +113,12 @@ concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf,
 //      this session.
 
 //  `bool handle_sent(buffer&&)` - the buffer comes back here when a send
-//      completes; check `buf.result()` for outcome, and potentially resend.
+//      completes. Check `buf.result()` for outcome, and potentially resend.
 //
 //  `bool unregister_self()` - called on session close. Plugin must call
 //      `router.remove_session(key)` once per registered key.
 //
-// Not used as a template parameter constraint; verified by a deferred
+// Not used as a template parameter constraint. Verified by a deferred
 // `static_assert` in the `iou_dgram_session` constructor body. See the note on
 // `iou_dgram_router_plugin` above for why.
 template<typename P>
@@ -138,48 +138,48 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 // `iou_dgram_session` instances via the `RouterPlugin`'s `extract` /
 // `create_session` methods.
 //
-// Recv path: defaults to multishot `recvmsg` using the loop's provided-buffer
+// Recv path: Defaults to multishot `recvmsg` using the loop's provided-buffer
 // pool. On `EC::nobufs`, downgrades to singleshot `recvmsg` into a borrowed
 // read buffer. On hard error, closes the router. The `recv` loop runs
 // uninterrupted for the router's lifetime and is not controlled by sessions.
 //
-// Send path: each session's `send(buffer&&)` flows through the router's
-// socket via `submit_sendmsg_buffer`. There is no internal queue; multiple
+// Send path: Each session's `send(buffer&&)` flows through the router's
+// socket via `submit_sendmsg_buffer`. There is no internal queue. Multiple
 // datagrams may be in flight concurrently. Each completion routes the
 // buffer back to the originating session's `on_sent`, allowing the result to
 // be checked and for the buffer to be potentially resent.
 //
-// Lifetime: the router is intended to outlive all of its sessions. `close`
+// Lifetime: The router is intended to outlive all of its sessions. `close`
 // drains the sessions map (calling each session's `close`, which fires the
 // plugin's `unregister_self`) before submitting the socket close. Sessions
 // hold a reference to the router.
 //
 // Ownership: `iou_dgram_router_handle` is the canonical RAII owner and is
-// what tests and most users hold. The router is also self-sustaining: as
+// what tests and most users hold. The router is also self-sustaining. As
 // long as a recv is in flight, the recv callback holds a captured
 // `shared_ptr<self>`, so the router cannot destruct even with no external
-// `shared_ptr`. This permits a fire-and-forget pattern - `bind`, `release`
-// the handle, hand the resulting `shared_ptr` to a session plugin (or
-// discard it entirely) - and let the router live on its own ref.
+// `shared_ptr`. This permits a fire-and-forget pattern, where we `bind`,
+// `release` the handle, hand the resulting `shared_ptr` to a session plugin
+// (or discard it entirely) and let the router live on its own ref.
 //
 // Termination then comes from one of:
-//   - any holder calling `close` (a session that captured `&router_` can
-//     do this from `unregister_self` or elsewhere);
-//   - a hard recv error driving `do_close` from inside the recv callback;
-//   - the `iou_loop` shutting down, which clears every slot and so releases
-//     every captured `shared_ptr`.
+//   - Any holder calling `close` (a session that captured `&router_` can
+//     do this from `unregister_self` or elsewhere)
+//   - A hard recv error driving `do_close` from inside the recv callback
+//   - The `iou_loop` shutting down, which clears every slot and so releases
+//     every captured `shared_ptr`
 //
 // In all three, `close` cancels the in-flight recv via `submit_close`
-// (`prep_cancel_fd`); the recv callback receives the canceled CQE, releases
+// (`prep_cancel_fd`). The recv callback receives the canceled CQE, releases
 // its slot, the last `self` ref drops, and the router destructs.
 //
 // Re-arming inside the recv callback goes through `start_reading` ->
 // `execute_or_post_with_retry`, which keeps retrying transient submission
 // failures (SQE pressure, buffer-pool starvation) until they clear. As long
-// as the loop itself is alive, the chain heals on its own; the only way
+// as the loop itself is alive, the chain heals on its own. The only way
 // the self-sustaining ref disappears is one of the termination paths above.
 //
-// Thread safety: the public API is safe to call from any thread. All state
+// Thread safety: The public API is safe to call from any thread. All state
 // mutation happens on the loop thread.
 template<typename RouterPlugin>
 class iou_dgram_router
@@ -213,7 +213,7 @@ protected:
   friend class iou_dgram_router_handle;
 
 public:
-  // Public for `make_shared`; use `iou_dgram_router_handle::bind`. The
+  // Public for `make_shared`. Use `iou_dgram_router_handle::bind`. The
   // ctor-body `static_assert` is the deferred concept check described on
   // `iou_dgram_router_plugin`.
   template<typename... PluginArgs>
@@ -278,7 +278,7 @@ public:
 #pragma endregion
 #pragma region Sessions
 
-  // Pre-register `ssn` under `key`. Posts to the loop thread; actual insert
+  // Pre-register `ssn` under `key`. Posts to the loop thread. Actual insert
   // is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool add_session(const key_t& key, const session_ptr& ssn) {
     if (!ssn || !key) return false;
@@ -290,7 +290,7 @@ public:
   }
 
   // Forcibly remove a session by key. Does NOT fire the session's plugin
-  // `unregister_self`; use the session's own `close` to notify. Actual
+  // `unregister_self`. Use the session's own `close` to notify. Actual
   // removal is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool remove_session(const key_t& key) {
     return loop_.execute_or_post([self = self(), key]() -> bool {
@@ -317,7 +317,7 @@ public:
 private:
   // Demux a successfully received datagram to a session.
   //
-  // `on_receive` is the session's noexcept firewall: a `false` return there
+  // `on_receive` is the session's `noexcept` firewall. A `false` return there
   // means the session is no longer viable (plugin saw a connection-fatal
   // status, or a thrown exception was caught and converted to `false`),
   // and we close that session here. The router and other sessions keep
@@ -333,7 +333,7 @@ private:
             return true;
           }
 
-          // Not found in registry: ask plugin to create the session. The
+          // Not found in registry: Ask plugin to create the session. The
           // session's `make` factory calls `register_self`, which calls
           // `add_session(key, ...)` one or more times.
           (void)plugin_.create_session(buf, *this);
@@ -364,9 +364,9 @@ private:
       return do_submit_multi_recv();
 
     auto buf = loop_.borrow_read_buffer(buf_size);
-    // Pool exhausted or read-throttled: retry from the back of the post
-    // queue. The guard ends the retries once a recv is armed some other way
-    // or the router closes.
+    // Pool exhausted or read-throttled: Retry from the back of the post queue.
+    // The guard ends the retries once a recv is armed some other way or the
+    // router closes.
     if (!buf) {
       (void)loop_.post([self = self()]() -> bool {
         if (!self->open_ || self->recv_token_) return true;
@@ -417,22 +417,22 @@ private:
           self->is_reading_ = false;
 
           // Cancelation comes from `do_close`, which has already cleared
-          // `open_`; the early check above handles that path.
+          // `open_`. The early check above handles that path.
           if (res.err() == EC::canceled) return slot_retention::release;
 
-          // Pool exhausted: downgrade to singleshot.
+          // Pool exhausted: Downgrade to singleshot.
           if (res.err() == EC::nobufs) {
             (void)self->do_submit_single_recv(false);
             return slot_retention::release;
           }
 
-          // Hard error: close.
+          // Hard error: Close.
           if (!res && !res.is_soft_error()) {
             (void)self->do_close();
             return slot_retention::release;
           }
 
-          // Soft error or kernel-side glitch: process this packet (if any),
+          // Soft error or kernel-side glitch: Process this packet (if any),
           // then arm a fresh multishot.
           if (res) (void)self->dispatch_packet(std::move(buf));
 
@@ -452,7 +452,7 @@ private:
   // Cleanly close the router. Walks the sessions map by snapshot so that
   // each session's `close` -> `unregister_self` -> `remove_session(key)`
   // can mutate `sessions_` normally without iterator invalidation. After
-  // every session has had its turn, the map should be empty; anything left
+  // every session has had its turn, the map should be empty. Anything left
   // is a misbehaving plugin that failed to unregister.
   //
   // Holding the snapshot of `shared_ptr<session>`s keeps each session alive
@@ -495,7 +495,7 @@ private:
 
   relaxed_atomic_bool open_{true}; // Cleared once close starts.
 
-  // Recv state. `intended` is the user's preference; `active` may be forced
+  // Recv state. `intended` is the user's preference. `active` may be forced
   // down to single by buffer pressure.
   shot_type recv_intended_shot_ = shot_type::single;
   shot_type recv_active_shot_ = shot_type::single;
@@ -544,7 +544,7 @@ public:
 #pragma region Factories
 
   // Bind a UDP socket and start receiving with the given plugin. Forwards
-  // any extra `plugin_args` into the plugin's constructor; an empty pack
+  // any extra `plugin_args` into the plugin's constructor. An empty pack
   // requests default construction. Returns an empty handle on failure.
   template<typename... PluginArgs>
   [[nodiscard]] static iou_dgram_router_handle

@@ -54,25 +54,25 @@ class epoll_stream_conn;
 
 #pragma region epoll_stream_conn_handlers
 // User-supplied persistent callbacks for an `epoll_stream_conn`. All fields
-// are optional; a null handler is silently skipped when its event fires.
+// are optional. A null handler is silently skipped when its event fires.
 //
-//  `on_data(conn, view)` -- fired when data arrives. `conn` is a reference to
-//                           the connection; the user may call `conn.send` or
+//  `on_data(conn, view)`    fired when data arrives. `conn` is a reference to
+//                           the connection. The user may call `conn.send` or
 //                           other methods on it. `view` is an
-//                           `epoll_recv_buffer_view`: call `active_view`
+//                           `epoll_recv_buffer_view`. Call `active_view`
 //                           (or implicit `std::string_view` conversion) to
 //                           read the data, and `consume(n)` or
 //                           `update_active_view(tail)` to advance the consume
 //                           pointer. `EPOLLIN` is re-enabled and any remaining
 //                           data is compacted when `view` destructs.
-//  `on_drain(conn)`      -- fired when writes become available: when a `send`
+//  `on_drain(conn)`         fired when writes become available: when a `send`
 //                           finishes with no outbound bytes left pending
 //                           (covering both immediate writes and buffered
 //                           `EPOLLOUT`-driven drains), or when an async
 //                           `connect` succeeds. Also fires once on the first
 //                           writable event after `register_with_loop` for
 //                           connections that have this handler installed.
-//  `on_close(conn)`      -- fired once when the connection closes: peer EOF,
+//  `on_close(conn)`         fired once when the connection closes: peer EOF,
 //                           an I/O error, or a failed async `connect`. If no
 //                           handler is installed, a graceful close is
 //                           initiated automatically after peer EOF so that
@@ -88,13 +88,13 @@ class epoll_stream_conn;
 // its teardown to the loop and `on_close` is delivered from the posted work.
 // A listener's handlers are also copied into every accepted connection, which
 // is self-owning. State a handler captures by reference must therefore
-// outlive the loop thread: declare it before the `epoll_loop_runner` (whose
+// outlive the loop thread. Declare it before the `epoll_loop_runner` (whose
 // destructor joins the thread), or wait on `finished_signal` before
 // destroying it.
 struct epoll_stream_conn_handlers {
   // The `= nullptr` initializers are not redundant: a designated initializer
   // may omit only fields that have a default member initializer (per
-  // -Wmissing-designated-field-initializers), and call sites do omit these.
+  // `-Wmissing-designated-field-initializers`), and call sites do omit these.
   std::function<bool(epoll_stream_conn&, epoll_recv_buffer_view)> on_data =
       nullptr;
   std::function<bool(epoll_stream_conn&)> on_drain = nullptr;
@@ -109,19 +109,19 @@ struct epoll_stream_conn_handlers {
 //
 // Supports three creation paths:
 //
-// 1. Already-connected socket (whether from `connect` or `accept`): use the
+// 1. Already-connected socket (whether from `connect` or `accept`): Use the
 //    `epoll_stream_conn_ptr_with` constructor directly. The socket must be
 //    non-blocking and connected.
 //
-// 2. Async connect: use the static `epoll_stream_conn_ptr_with::connect`
+// 2. Async connect: Use the static `epoll_stream_conn_ptr_with::connect`
 //    factory. It creates the socket, optionally binds the local end, calls
 //    `connect(2)`, and registers with the loop. When the kernel reports the
 //    outcome, `on_writable` or `on_error` transitions either to connected
 //    state (notifying any write waiter) or closes the connection.
 //
-// 3. Listening: use the static `epoll_stream_conn_ptr_with::listen` factory.
+// 3. Listening: Use the static `epoll_stream_conn_ptr_with::listen` factory.
 //    It creates the socket, sets `SO_REUSEADDR`, binds, and calls `listen(2)`.
-//    `EPOLLIN` events call `accept4` in a drain loop; each accepted connection
+//    `EPOLLIN` events call `accept4` in a drain loop. Each accepted connection
 //    is created as a self-owning `epoll_stream_conn` in the loop, with a copy
 //    of the listener's handlers. `send` and other data-path operations are
 //    disabled on a listening `epoll_stream_conn`.
@@ -231,9 +231,9 @@ public:
 
   // The `epoll_loop` that drives this connection.
   //
-  // The reference is valid only while the loop itself is alive; cross-thread
+  // The reference is valid only while the loop itself is alive. Cross-thread
   // code that can outlive the loop must go through `weak_loop` instead.
-  // Loop-thread-only for mutation operations; reads are safe from any
+  // Loop-thread-only for mutation operations. Reads are safe from any
   // thread, provided the connection is still alive.
   [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
 
@@ -463,7 +463,7 @@ private:
   relaxed_atomic_bool no_hangup_on_destruct_;
 
   // Per-direction state, assuming `open_` is true. `read_open_` is cleared by
-  // `do_shutdown_read`; `write_shut_` is set by `do_shutdown_write`.
+  // `do_shutdown_read`. `write_shut_` is set by `do_shutdown_write`.
   relaxed_atomic_bool read_open_{true};
   relaxed_atomic_bool write_shut_;
 
@@ -514,7 +514,7 @@ private:
   //
   // Arms `EPOLLOUT` for all data-path (non-listening) sockets and `EPOLLIN`
   // for non-connecting sockets with read interest. Suppresses `EPOLLIN` while
-  // connecting; `handle_connect` calls `refresh_read_interest` once
+  // connecting. `handle_connect` calls `refresh_read_interest` once
   // `SO_ERROR` confirms success.
   [[nodiscard]] bool register_with_loop() {
     if (!open_) return false;
@@ -523,7 +523,7 @@ private:
     // accepted sockets need it so `flush_send_queue` fires `notify_drained`
     // (and thus `on_drain`) once on the first writable event.
     const auto want_write = !listening_;
-    // Suppress reads while connecting: `handle_connect` calls
+    // Suppress reads while connecting. `handle_connect` calls
     // `refresh_read_interest` once `SO_ERROR` confirms success.
     const auto want_read = !connecting_ && wants_read_events();
     if (loop_.register_socket(shared_from_this(), want_read, want_write)) {
@@ -533,14 +533,14 @@ private:
     return do_close_now(close_mode::forceful) && false;
   }
 
-  // `epoll_io_conn` overrides: called on the loop thread by `dispatch_event`.
+  // `epoll_io_conn` overrides: Called on the loop thread by `dispatch_event`.
   [[nodiscard]] bool on_readable() override {
     assert(loop_.is_loop_thread());
     if (listening_) return handle_listen();
     if (connecting_) return handle_connect();
     // Once `close` is in progress, discard incoming data rather than
-    // dispatching it. For mutual close this is the read-drain loop; for
-    // non-mutual close it is belt-and-suspenders during the send queue flush.
+    // dispatching it. For mutual close, this is the read-drain loop. For
+    // non-mutual close, it is belt-and-suspenders during the send queue flush.
     if (close_requested_) return handle_drain_reads();
     return handle_readable();
   }
@@ -552,7 +552,7 @@ private:
     return flush_send_queue();
   }
 
-  // Called by `epoll_loop` for `EPOLLERR | EPOLLHUP`: always an unrecoverable
+  // Called by `epoll_loop` for `EPOLLERR | EPOLLHUP`: Always an unrecoverable
   // TCP-level event (hard socket error, RST, or full teardown).
   //
   // Note: `EPOLLRDHUP` (normal peer half-close) is always armed but is routed
@@ -564,7 +564,7 @@ private:
   // empty the kernel receive buffer, so `peek_eof` can still return `false`
   // (data available) when we arrive here. In that case the connection has
   // already hung up, the remaining data has no handler to receive it, and
-  // there is no path forward: so a forceful close is correct.
+  // there is no path forward, so a forceful close is correct.
   [[nodiscard]] bool on_error() override {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
@@ -589,7 +589,7 @@ private:
   // failed attempts at epoll mutations (e.g., `enable_writes`) on an
   // unregistered fd.
   //
-  // Locks `weak_loop_` for the duration of the call: the caller may be on an
+  // Locks `weak_loop_` for the duration of the call. The caller may be on an
   // arbitrary thread that kept the connection alive past the loop's
   // destruction, where even `loop_.is_loop_thread` would be a call through a
   // dangling reference. Returns false once the loop is gone.
@@ -607,12 +607,12 @@ private:
   // Otherwise, posts it to the queue, and either returns immediately
   // (`execution::nonblocking`) or waits for completion
   // (`execution::blocking`). The blocking `post_and_wait` is only used when
-  // off the loop thread AND already registered; calling it before registration
+  // off the loop thread AND already registered. Calling it before registration
   // would defeat the pre-registration guard, since `post_and_wait` executes
   // inline on the loop thread. If we run synchronously, the return value of
-  // the lambda is passed through; otherwise, it's always true.
+  // the lambda is passed through. Otherwise, it's always true.
   //
-  // Locks `weak_loop_` for the duration, as in `execute_or_post`; returns
+  // Locks `weak_loop_` for the duration, as in `execute_or_post`. Returns
   // false once the loop is gone.
   template<typename FN>
   [[nodiscard]] bool exec_lambda(execution exec, FN&& fn) {
@@ -666,7 +666,7 @@ private:
   }
 
   // Deliver newly read data to the active `on_data` handler. Sets
-  // `view_active` before dispatching; it is cleared by `resume_receive` once
+  // `view_active` before dispatching. It is cleared by `resume_receive` once
   // the view destructs.
   [[nodiscard]] bool notify_read_ready() {
     assert(loop_.is_loop_thread());
@@ -719,7 +719,7 @@ private:
     return true;
   }
 
-  // Dispatch the deferred EOF notifications: fire `on_close` at most once,
+  // Dispatch the deferred EOF notifications. Fire `on_close` at most once,
   // then finish any pending close.
   //
   // Called by `handle_read_eof` when no view is live, or by `resume_receive`
@@ -741,7 +741,7 @@ private:
 
   // Handle EOF by closing the read side and finishing any pending close.
   //
-  // Disarms both `EPOLLIN` and `EPOLLRDHUP` immediately: after EOF, the peer
+  // Disarms both `EPOLLIN` and `EPOLLRDHUP` immediately. After EOF, the peer
   // has done `SHUT_WR`, so `EPOLLRDHUP` would otherwise remain level-triggered
   // and repeatedly wake the loop while the write side is still open.
   //
@@ -767,7 +767,7 @@ private:
       if (!notify_read_ready()) return false;
       // An async parser may have kept the view alive past the return of
       // `on_data`. If so, defer EOF the same way as when EOF arrives while
-      // a view is already live: `resume_receive` will handle it once the
+      // a view is already live. `resume_receive` will handle it once the
       // view destructs.
       if (recv_buf_.view_active) {
         eof_pending_ = true;
@@ -811,12 +811,12 @@ private:
   // On failure, closes the connection (notifying any pending read waiter and
   // firing `on_close`).
   //
-  // On success, transitions to connected state: arms `EPOLLIN` if a read
+  // On success, transitions to connected state. Arms `EPOLLIN` if a read
   // waiter or `on_data` handler is active. If no sends are queued, disarms
-  // `EPOLLOUT` and fires `notify_drained` immediately. This is how the
-  // caller learns the connection is established. If sends were queued before
-  // the connect resolved, `EPOLLOUT` stays armed; `notify_drained` fires
-  // once the queue flushes.
+  // `EPOLLOUT` and fires `notify_drained` immediately. This is how the caller
+  // learns the connection is established. If sends were queued before the
+  // connect resolved, `EPOLLOUT` stays armed. `notify_drained` fires once the
+  // queue flushes.
   //
   // Called from `on_readable`, `on_writable`, and `on_error` while
   // `connecting_` is set.
@@ -832,12 +832,12 @@ private:
     (void)refresh_read_interest();
 
     if (send_queue_.empty()) {
-      // No pending sends: disarm `EPOLLOUT` and signal that writes are open.
+      // No pending sends: Disarm `EPOLLOUT` and signal that writes are open.
       if (!loop_.enable_writes(*this, false))
         return do_close_now(close_mode::forceful) && false;
       return notify_drained();
     }
-    // Otherwise `EPOLLOUT` is already armed; the next `on_writable` will
+    // Otherwise `EPOLLOUT` is already armed. The next `on_writable` will
     // call `flush_send_queue`, which fires `notify_drained` when done.
     return true;
   }
@@ -876,7 +876,7 @@ private:
 
   // Append incoming bytes to `recv_buf_` and dispatch to the active `on_data`
   // handler via an `epoll_recv_buffer_view`. If a view is already live
-  // (`view_active` is true), just extend `end` atomically; the in-flight
+  // (`view_active` is true), just extend `end` atomically. The in-flight
   // parser will observe the new bytes on its next `active_view` call. If the
   // buffer is full, disable reads until `resume_receive` compacts it.
   [[nodiscard]] bool handle_readable() {
@@ -910,7 +910,7 @@ private:
     no_zero{recv_buf_.buffer}.enlarge_to_cap();
 
     // If a view is already live, the in-flight parser will observe the new
-    // bytes on its next `active_view` call; skip dispatching a second
+    // bytes on its next `active_view` call and skip dispatching a second
     // `on_data`.
     if (recv_buf_.view_active) return true;
     if (!recv_buf_.active().empty()) return notify_read_ready();
@@ -929,7 +929,7 @@ private:
       if (!p->open_) return false;
       p->recv_buf_.view_active = false;
 
-      // Evaluate before compaction: compaction may reset `end` to
+      // Evaluate before compaction. Compaction may reset `end` to
       // `active_len`, making a post-compact comparison against `last_seen_end`
       // meaningless.
       const auto are_unseen_bytes =
@@ -940,9 +940,9 @@ private:
       if (p->eof_pending_) return p->handle_deferred_eof();
 
       if (p->recv_buf_.write_space() == 0) {
-        // Compact created no free space: the parser consumed nothing and the
+        // Compact created no free space. The parser consumed nothing and the
         // buffer is still full. Post `on_data` again so the parser gets
-        // another chance; it should call `expand_to` or start consuming.
+        // another chance. It should call `expand_to` or start consuming.
         return p->loop_.post([p]() -> bool {
           if (!p->open_) return false;
           return p->notify_read_ready();
@@ -951,7 +951,7 @@ private:
 
       // Bytes can arrive while a view is live (`handle_readable` extends `end`
       // but skips the `on_data` dispatch). Re-dispatch now if the parser has
-      // not yet seen all buffered bytes; otherwise just re-arm `EPOLLIN`.
+      // not yet seen all buffered bytes. Otherwise, just re-arm `EPOLLIN`.
       if (are_unseen_bytes && !p->recv_buf_.active().empty()) {
         return p->loop_.post([p]() -> bool {
           if (!p->open_) return false;
@@ -967,17 +967,16 @@ private:
 
   // Enqueue one or more buffers for sending by appending each to
   // `send_queue_` and `iov_sender_`, then flushing immediately. If the
-  // socket is still connecting, defers until `EPOLLOUT` fires; otherwise
-  // calls `flush_send_queue` directly. `EPOLLOUT` is armed when data
-  // remains after the flush; `flush_send_queue` disarms it once the queue
-  // empties.
+  // socket is still connecting, defers until `EPOLLOUT` fires. Otherwise,
+  // calls `flush_send_queue` directly. `EPOLLOUT` is armed when data remains
+  // after the flush. `flush_send_queue` disarms it once the queue empties.
   template<typename... Bufs>
   requires(std::same_as<Bufs, std::string> && ...)
   [[nodiscard]] bool enqueue_send(Bufs&&... bufs) {
     assert(loop_.is_loop_thread());
     if (!open_ || write_shut_) return false;
 
-    // Append each non-empty buffer to queue and sender; sender segments point
+    // Append each non-empty buffer to queue and sender. Sender segments point
     // into the stored strings.
     bool appended{};
     ((!bufs.empty() &&
@@ -1039,13 +1038,13 @@ private:
 
   // Drain `send_queue_` with a single scatter/gather `sendmsg`. Retires
   // fully consumed strings via `last_op().index`, then compacts `iov_sender_`.
-  // Arms `EPOLLOUT` and returns when data remains; disarms it and notifies
+  // Arms `EPOLLOUT` and returns when data remains. Disarms it and notifies
   // (or closes) when the queue empties. Guard against being called after
   // `do_close_now` (e.g., when both `EPOLLIN` and `EPOLLOUT` fire in the same
   // event and the readable handler closes the connection before we get here).
   [[nodiscard]] bool flush_send_queue() {
     // If an async connect is still in progress, sends would fail with
-    // `ENOTCONN`. `EPOLLOUT` is already armed; wait for connect resolution.
+    // `ENOTCONN`. `EPOLLOUT` is already armed so wait for connect resolution.
     if (connecting_) return true;
     if (!open_) return false;
 
@@ -1055,7 +1054,8 @@ private:
 
       const auto& op = iov_sender_.last_op();
 
-      // Soft failure (EAGAIN): nothing sent; arm `EPOLLOUT` and try later.
+      // Soft failure (`EAGAIN`): Nothing sent, so arm `EPOLLOUT` and try
+      // later.
       if (!op.transferred) return loop_.enable_writes(*this);
 
       // Retire all fully consumed strings. `op.index` is the count of
@@ -1067,16 +1067,16 @@ private:
       // here.
       (void)iov_sender_.compact();
 
-      // Partial send: the front string still has unsent data; the sender
+      // Partial send: The front string still has unsent data. The sender
       // will trim it internally on the next call. Arm `EPOLLOUT`.
       if (!send_queue_.empty()) return loop_.enable_writes(*this);
     }
 
-    // Queue fully flushed; disarm `EPOLLOUT`.
+    // Queue fully flushed. Disarm `EPOLLOUT`.
     if (!loop_.enable_writes(*this, false))
       return do_close_now(close_mode::forceful) && false;
 
-    // If we were waiting to close, do so now; the handlers receive only
+    // If we were waiting to close, do so now. The handlers receive only
     // `on_close`, not `on_drain`.
     if (close_requested_) return do_finish_close();
 
@@ -1110,8 +1110,8 @@ private:
     // already false, so `do_shutdown_write` calls `do_close_now` via
     // `maybe_finish_after_side_close`, setting `open_` to false.
     (void)do_shutdown_write();
-    // Guard: if `do_shutdown_write` triggered `do_close_now`, the socket is
-    // already unregistered; calling `enable_reads` on it would assert.
+    // Guard: If `do_shutdown_write` triggered `do_close_now`, the socket is
+    // already unregistered so calling `enable_reads` on it would assert.
     if (!open_) return false;
     // Arm EPOLLIN directly, bypassing `wants_read_events` (which would return
     // false without an `on_data` handler). `on_readable` routes to
@@ -1120,7 +1120,7 @@ private:
   }
 
   // Discard incoming data once `close` has been requested. For mutual close,
-  // called after `SHUT_WR` with `EPOLLIN` armed; closes gracefully on peer
+  // called after `SHUT_WR` with `EPOLLIN` armed. Closes gracefully on peer
   // EOF. For non-mutual close, should not actually be called.
   [[nodiscard]] bool handle_drain_reads() {
     assert(loop_.is_loop_thread());
@@ -1128,21 +1128,23 @@ private:
     // Read at offset 0, overwriting the buffer and discarding the result.
     if (!sock().recv_at(recv_buf_.buffer, 0)) {
       // `recv_at` returns false on both EOF and hard error.
-      // Hard error: buffer trimmed to 0 by `recv_at`. EOF: buffer left at
-      // full capacity (non-empty).
+      //
+      // Hard error: Buffer trimmed to 0 by `recv_at`.
+      //
+      // EOF: Buffer left at full capacity (non-empty).
       const auto is_hard_error = recv_buf_.buffer.empty();
       no_zero{recv_buf_.buffer}.enlarge_to_cap();
       if (is_hard_error) return do_close_now(close_mode::forceful) && false;
       // Peer sent FIN: complete the close.
       return do_close_now();
     }
-    // Data received (or `EAGAIN`): discard and wait for the next `EPOLLIN`.
+    // Data received (or `EAGAIN`): Discard and wait for the next `EPOLLIN`.
     recv_buf_.end.store(0, std::memory_order::relaxed);
     no_zero{recv_buf_.buffer}.enlarge_to_cap();
     return true;
   }
 
-  // Forceful close: discard pending sends and close immediately.
+  // Forceful close: Discard pending sends and close immediately.
   [[nodiscard]] bool do_hangup() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
@@ -1231,7 +1233,7 @@ public:
   // If you want to close cleanly, you must call `close` before the instance is
   // destructed.
   //
-  // A handle that outlives the loop degrades to a plain drop: the socket is
+  // A handle that outlives the loop degrades to a plain drop. The socket is
   // closed by RAII when the last connection reference is released.
   ~epoll_stream_conn_ptr_with() {
     try_or_terminate([&] {
@@ -1277,7 +1279,7 @@ public:
   // Creates a non-blocking socket matching `remote`'s address family,
   // optionally binds the local end to `local` (if non-empty), then calls
   // `connect(2)`. The socket is registered with `EPOLLOUT` if `connect(2)`
-  // yields `EINPROGRESS`; the first `on_writable`, `on_readable`, or
+  // yields `EINPROGRESS`. The first `on_writable`, `on_readable`, or
   // `on_error` then calls `handle_connect`, which either transitions to
   // connected state (notifying any pending write waiter) or closes the
   // connection (notifying any pending read waiter and firing `on_close`). If
@@ -1285,7 +1287,7 @@ public:
   // a posted task fires `notify_drained` directly after registration.
   //
   // Returns an invalid (empty) handle if the socket cannot be created, `local`
-  // cannot be bound, or `connect(2)` fails synchronously; `errno` is set by
+  // cannot be bound, or `connect(2)` fails synchronously. `errno` is set by
   // the failing syscall. Async failure (e.g., `ECONNREFUSED` delivered later)
   // goes through the normal close path.
   [[nodiscard]] static epoll_stream_conn_ptr_with
@@ -1311,8 +1313,8 @@ public:
         recv_buf_size, connection, shutdown};
 
     // When `connect(2)` succeeds immediately, `handle_connect` never fires
-    // via `EPOLLOUT`. Post a follow-up task to mirror its success path:
-    // `register_with_loop` already armed `EPOLLIN` correctly; all that
+    // via `EPOLLOUT`. Post a follow-up task to mirror its success path.
+    // `register_with_loop` already armed `EPOLLIN` correctly. All that
     // remains is to signal readiness via `notify_drained` if no sends are
     // pending (otherwise `flush_send_queue` will call it when the queue
     // flushes, as in the normal data path).
@@ -1329,9 +1331,9 @@ public:
 
   // Create a non-blocking listening socket bound to `local`, register it with
   // `loop`, and return a handle. `EPOLLIN` events drain all pending
-  // connections via `accept4`; each creates a self-owning connection (via
+  // connections via `accept4`. Each creates a self-owning connection (via
   // `accept_clone`) with a copy of `h`. Returns an invalid handle if socket
-  // creation, `SO_REUSEADDR`, `bind`, or `listen(2)` fails; `errno` is set by
+  // creation, `SO_REUSEADDR`, `bind`, or `listen(2)` fails. `errno` is set by
   // the failing syscall. `shutdown` sets the shutdown `coordination_policy` on
   // the listener and therefore every accepted connection. `reuse_port` enables
   // `SO_REUSEPORT` for multi-process load balancing.
@@ -1402,7 +1404,7 @@ private:
 #pragma endregion
 };
 
-// Untyped alias: the common case where no per-connection state is needed.
+// Untyped alias: The common case where no per-connection state is needed.
 // Use `epoll_stream_conn_ptr_with<MyConn>` for a typed handle to a derived
 // class.
 using epoll_stream_conn_ptr = epoll_stream_conn_ptr_with<>;
@@ -1410,8 +1412,8 @@ using epoll_stream_conn_ptr = epoll_stream_conn_ptr_with<>;
 
 #pragma region epoll_stream_conn_with_state
 // Extends `epoll_stream_conn` with a typed per-connection state value. `STATE`
-// must be default-constructible; it is value-initialized when the connection
-// is created.
+// must be default-constructible because it is value-initialized when the
+// connection is created.
 //
 // Use `epoll_stream_conn_ptr_with<epoll_stream_conn_with_state<STATE>>` to
 // hold an instance. In callbacks (which receive `epoll_stream_conn&`), recover
@@ -1448,7 +1450,7 @@ public:
 
   // Debug-safe downcast from `epoll_stream_conn&` to
   // `epoll_stream_conn_with_state&`. In debug builds, asserts that `c` is
-  // actually an `epoll_stream_conn_with_state<STATE>`; uses `static_cast` in
+  // actually an `epoll_stream_conn_with_state<STATE>`. Uses `static_cast` in
   // release builds.
   [[nodiscard]] static epoll_stream_conn_with_state& from(
       epoll_stream_conn& c) noexcept {

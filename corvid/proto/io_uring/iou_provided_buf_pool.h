@@ -36,15 +36,15 @@ namespace corvid { inline namespace proto { namespace iouring {
 // Pool of kernel-managed buffers for `io_uring` Provided Buffers (PBUF_RING).
 //
 // A hugepage-aligned slab of `slab_size` bytes is split into fixed-size
-// `buf_size` slots. The ring is registered via `register_with`; callers submit
+// `buf_size` slots. The ring is registered via `register_with`. Callers submit
 // SQEs with `IOSQE_BUFFER_SELECT` and `bgid`, then reconstruct an `iou_buffer`
 // from the resulting CQE.
 //
-// Unlike `iou_buf_pool`, there is no borrow/return API: the kernel selects and
+// Unlike `iou_buf_pool`, there is no borrow/return API. The kernel selects and
 // fills a slot, and the caller reconstructs an `iou_buffer` view over it.
 // Destroying or resetting the buffer replenishes the slot back into the ring.
 //
-// Passing `slab_size = 0` produces a no-op pool: no memory is allocated,
+// Passing `slab_size = 0` produces a no-op pool. No memory is allocated,
 // `operator bool` returns false, and all operations fail gently.
 //
 // `iou_provided_buf_pool` is non-copyable and non-movable. The pool must
@@ -57,7 +57,7 @@ public:
   using posted_fn = fixed_function<bool(), default_fixed_function::capacity>;
   using dispatcher_t = owner_thread_dispatcher<posted_fn>;
 
-  // Public for `std::make_shared`; external callers must go through `create`.
+  // Public for `std::make_shared`. External callers must go through `create`.
   //
   // Constructs a pool backed by a slab of `slab_size` bytes (must be a
   // multiple of `memory_map::default_hugepage_size`), split into slots of
@@ -169,7 +169,7 @@ public:
   // to be destroyed, so its destructor will skip the explicit unregister.
   void skip_unregister() noexcept { buf_ring_.skip_unregister(); }
 
-  // Begin pool shutdown: subsequent `return_buffer` calls become no-ops
+  // Begin pool shutdown: Subsequent `return_buffer` calls become no-ops
   // instead of trying to re-add the returned slot to the (now-disabled) ring.
   //
   // Called from `~iou_basic_loop`. The supported lifetime model is that the
@@ -180,7 +180,7 @@ public:
   // store-release here pairs with the load-acquire in `return_buffer` to
   // give that late call a clean `nullptr` to observe.
   //
-  // Not a guard against concurrent buffer use during teardown: returning
+  // Not a guard against concurrent buffer use during teardown. Returning
   // buffers from another thread while `~iou_basic_loop` is running is
   // outside the supported model.
   void disarm() noexcept {
@@ -189,9 +189,8 @@ public:
 
   // Borrow an `iou_buffer` from a multishot recv CQE.
   //
-  // For a TCP `recv` (without a `msghdr`), `payload_span` covers
-  // the entire written region; `result().bytes()` equals the written byte
-  // count.
+  // For a TCP `recv` (without a `msghdr`), `payload_span` covers the entire
+  // written region and `result().bytes()` equals the written byte count.
   //
   // For a UDP `recvmsg` (with a `msghdr`), the buffer is parsed out, with
   // `payload_span` covering the payload, and `result().bytes()` likewise
@@ -240,7 +239,7 @@ private:
 
   // Replenish the returned slot into the kernel ring. After `disarm` (called
   // from `~iou_basic_loop`), the pool is shutting down and the ring must not
-  // be touched; this becomes a no-op so a buffer outliving the loop can
+  // be touched. This becomes a no-op so a buffer outliving the loop can
   // destruct cleanly. See `disarm` for the lifetime model.
   [[nodiscard]] bool return_buffer(span_t s, block_type /*blockrw*/) override {
     if (!s.data()) return false;
