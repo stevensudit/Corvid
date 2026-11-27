@@ -1425,8 +1425,14 @@ TEST_CASE("CppRef", "[FixedFunction]") {
   // store a call to a member function
   fixed_function<int(const Foo&, int), 64> f_add_display{&Foo::add};
   const Foo foo{314159};
+  // gcc's -Warray-bounds misfires inside libstdc++ here. A call through a
+  // pointer to member function carries a virtual-dispatch branch that would
+  // read a vtable pointer out of the 4-byte `Foo`, which has no virtuals.
+  PRAGMA_GCC_DIAG(push)
+  PRAGMA_GCC_IGNORED("-Warray-bounds")
   CHECK(f_add_display(foo, 1) == 314160);
   CHECK(f_add_display(314159, 1) == 314160); // implicit Foo from int
+  PRAGMA_GCC_DIAG(pop)
 
   // store a call to a data member accessor
   fixed_function<int(const Foo&), 64> f_num{&Foo::num_};
