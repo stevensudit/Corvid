@@ -1470,8 +1470,7 @@ requires(sizeof...(Ps) == sizeof...(CallArgs))
 constexpr inline bool is_nothrow_args_v<std::tuple<Ps...>, CallArgs...> =
     (std::is_nothrow_constructible_v<Ps, CallArgs> && ...);
 
-// Parameter type nothing converts to, making a probe overload permanently
-// non-viable.
+// Parameter type of a poisoned probe, an overload no ranking call selects.
 //
 // It stands in for the slots outside a key's candidate set, so a `rank_set`
 // can span the whole slot list positionally.
@@ -1499,6 +1498,16 @@ struct rank_probe<Ndx, const_qual::none, std::tuple<Args...>> {
 template<size_t Ndx, typename... Args>
 struct rank_probe<Ndx, const_qual::present, std::tuple<Args...>> {
   std::integral_constant<size_t, Ndx> operator()(Args...) const;
+};
+
+// The poisoned probe, whose operator only an rvalue set could call.
+//
+// A set is only ever probed as an lvalue, so the overload is never viable,
+// whatever the arguments convert to. This is necessary to block a wildcard
+// parameter that's templated to convert to any type.
+template<size_t Ndx>
+struct rank_probe<Ndx, const_qual::none, std::tuple<rank_poison>> {
+  std::integral_constant<size_t, Ndx> operator()(rank_poison) &&;
 };
 
 // Synthetic overload set `resolve` hands to the compiler.
@@ -1762,13 +1771,13 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   //
   // A key over an overload set (per-name overloads within a facade, or a
   // sibling collision) is ranked by the compiler rather than by a
-  // reimplementation of its rules. The candidates become a synthetic
-  // overload set (`make_rank_set`) and a real call expression against
-  // `CallArgs` picks the winner, whose result type carries the slot index.
-  // Dispatch therefore agrees with the `api` forwarders everywhere,
-  // promotions, conversion ranks, and the object-parameter weighing
-  // included. An ill-formed ranking call is classified by per-slot
-  // viability. Multiple viable candidates means the call is ambiguous, none
+  // reimplementation of its rules. The candidates become a synthetic overload
+  // set (`make_rank_set`) and a real call expression against `CallArgs` picks
+  // the winner, whose result type carries the slot index. Dispatch therefore
+  // agrees with the `api` forwarders everywhere, promotions, conversion ranks,
+  // and the object-parameter weighing included. An ill-formed ranking call is
+  // classified by per-slot viability. Any viable candidate at this point means
+  // the call is ambiguous, since a lone one would have won the ranking. None
   // means nothing matched.
   template<fixed_string Key, access_mode Access, typename... CallArgs>
   static consteval size_t resolve() noexcept {

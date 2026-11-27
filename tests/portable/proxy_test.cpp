@@ -1639,6 +1639,21 @@ static_assert(CanAimSugar<proxy_view<arsenal>, double>);
 static_assert(CanAimSugar<proxy_view<arsenal>, short>);
 static_assert(!CanAimSugar<proxy_view<arsenal>, long>);
 
+// A `wildcard` converts to any type at all, and it still ranks like any
+// other argument. The one `issue` taking an argument resolves, and `aim`
+// stays ambiguous because both overloads take it. The slots that answer to
+// other names never compete, whatever the argument converts to.
+struct wildcard {
+  template<typename T>
+  operator T() const;
+};
+using arsenal_build = prox::implementation::vtbuild_t<arsenal>;
+static_assert(
+    arsenal_build::resolve<"issue", access_mode::as_mutable, wildcard>() == 0);
+static_assert(
+    arsenal_build::resolve<"aim", access_mode::as_mutable, wildcard>() ==
+    arsenal_build::ambiguous_v);
+
 // Cross-level overloads: `armory`'s two-argument `issue` joins the
 // inherited pair on derived handles, and an upcast handle sees only the
 // base's set. In the `api`, the derived forwarder hides the inherited ones

@@ -279,6 +279,35 @@ consteval auto corvid_proxy_spec(volley*, scattergun*) {
   return prox::make_proxy_spec<volley, scattergun>();
 }
 
+// A `wildcard` converts to any type at all, so it suits every parameter of
+// every overload it is offered to.
+struct wildcard {
+  template<typename T>
+  operator T() const {
+    return T{};
+  }
+};
+
+// `carronade` offers `fire` as a plain member beside two that are never
+// candidates: a C-variadic one, and one taking only an rvalue object. The
+// facade's `fire` takes a `wildcard`, which converts to whatever stands in
+// for those two, and the plain member still binds as if it stood alone.
+struct salvo_api {
+  int fire(wildcard shot);
+};
+
+struct salvo: prox::reflected_facade<salvo, salvo_api> {};
+
+struct carronade {
+  int fire(int shots) { return shots + 1; }
+  int fire(const char*, ...) { return -1; }
+  int fire(this carronade&&, double) { return -2; }
+};
+
+consteval auto corvid_proxy_spec(salvo*, carronade*) {
+  return prox::make_proxy_spec<salvo, carronade>();
+}
+
 // `mitrailleuse` overloads `fire`: a plain member takes `long`, a template
 // deduces the rest.
 //
@@ -995,6 +1024,7 @@ static_assert(prox::Proxiable<any_doubler, doubler>);
 static_assert(prox::Proxiable<smelter, refinery>);
 static_assert(prox::Proxiable<blunderbuss, volley>);
 static_assert(!prox::Proxiable<scattergun, volley>);
+static_assert(prox::Proxiable<carronade, salvo>);
 static_assert(prox::Proxiable<mitrailleuse, gatling>);
 static_assert(prox::Proxiable<assayer, assay>);
 static_assert(prox::Proxiable<mule_train, caravan>);
@@ -1367,6 +1397,14 @@ TEST_CASE("A C-variadic overload never binds", "[proxy_reflect]") {
   blunderbuss b;
   proxy_view<volley> pv{b};
   CHECK(pv.call<"fire">(3) == 6);
+}
+
+TEST_CASE("A promiscuous argument binds past the non-candidates",
+    "[proxy_reflect]") {
+  // The `wildcard` converts to `int` as zero, which `fire` then increments.
+  carronade c;
+  proxy_view<salvo> pv{c};
+  CHECK(pv.call<"fire">(wildcard{}) == 1);
 }
 
 #pragma endregion
