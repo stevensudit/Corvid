@@ -265,7 +265,10 @@ public:
 #pragma region Swap
 
   // Swap with another instance of the same concrete type.
-  constexpr void swap(child_t& other) noexcept { sv_.swap(other.sv_); }
+  template<std::same_as<child_t> D>
+  constexpr void swap(D& other) noexcept {
+    sv_.swap(other.sv_);
+  }
 
 #pragma endregion
 #pragma region Comparison

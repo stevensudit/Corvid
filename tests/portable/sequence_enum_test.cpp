@@ -24,6 +24,8 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 #include "corvid/meta.h"
 #include "corvid/enums.h"
@@ -1353,6 +1355,63 @@ TEST_CASE("NamedValueComparison", "[SequentialEnumTest]") {
   static_assert(
       tiger_nv::force("meany", tiger_pick::meany) ==
       tiger_nv::force("meany", tiger_pick::meany));
+}
+
+// Whether an `L` can call its member `swap` on an `R`.
+template<typename L, typename R>
+concept MemberSwappableWith = requires(L& l, R& r) { l.swap(r); };
+
+// Whether an unqualified `swap` of an `L` and an `R` resolves, with
+// `std::swap` in scope.
+namespace unqualified_swap {
+using std::swap;
+template<typename L, typename R>
+concept SwappableWith = requires(L& l, R& r) { swap(l, r); };
+} // namespace unqualified_swap
+
+TEST_CASE("NamedValueSwap", "[SequentialEnumTest]") {
+  using tiger_sv = enum_name<tiger_pick>;
+  using tiger_nv = enum_named_value<tiger_pick>;
+
+  // A swap exchanges the name and the enum together, through the member and
+  // through the std forms.
+  if (true) {
+    tiger_nv a{"eeny"};
+    tiger_nv b{"moe"};
+    a.swap(b);
+    CHECK(a == tiger_nv{"moe"});
+    CHECK(b == tiger_nv{"eeny"});
+    std::swap(a, b);
+    CHECK(a == tiger_nv{"eeny"});
+    CHECK(b == tiger_nv{"moe"});
+    std::ranges::swap(a, b);
+    CHECK(a == tiger_nv{"moe"});
+    CHECK(b == tiger_nv{"eeny"});
+  }
+  // Two plain names still swap.
+  if (true) {
+    tiger_sv a{"eeny"};
+    tiger_sv b{"moe"};
+    a.swap(b);
+    CHECK(a == "moe");
+    CHECK(b == "eeny");
+  }
+
+  // Each type swaps only with itself. A name does not swap with a raw view,
+  // which would force it silently. A named value does not swap with a bare
+  // name in either direction, which would leave its enum behind.
+  static_assert(MemberSwappableWith<tiger_sv, tiger_sv>);
+  static_assert(MemberSwappableWith<tiger_nv, tiger_nv>);
+  static_assert(!MemberSwappableWith<tiger_sv, std::string_view>);
+  static_assert(!MemberSwappableWith<tiger_nv, std::string_view>);
+  static_assert(!MemberSwappableWith<tiger_nv, tiger_sv>);
+  static_assert(!MemberSwappableWith<tiger_sv, tiger_nv>);
+  static_assert(unqualified_swap::SwappableWith<tiger_nv, tiger_nv>);
+  static_assert(!unqualified_swap::SwappableWith<tiger_nv, tiger_sv>);
+  static_assert(!unqualified_swap::SwappableWith<tiger_sv, tiger_nv>);
+
+  // A bare name does not assign to a named value.
+  static_assert(!std::is_assignable_v<tiger_nv&, tiger_sv>);
 }
 
 #pragma endregion

@@ -27,6 +27,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 #include "../meta/concepts.h"
 #include "../meta/enum_math.h"
@@ -545,9 +546,14 @@ protected:
 #pragma region with value
 
 // Extends `enum_name<E>` with the `E` value it names, both resolved at compile
-// time by the same constructors. Use it where a call site needs the validated
-// name and its enum together (e.g. to skip a runtime name->enum lookup),
-// without adding a field to the bare string view.
+// time by the same constructors.
+//
+// Use it where a call site needs the validated name and its enum together
+// (e.g. to skip a runtime name->enum lookup), without adding a field to the
+// bare string view.
+//
+// It must not be modified through an `enum_name<E>&`, because assignment or
+// `swap` there changes the name and leaves the enum behind.
 template<NamedSequentialEnum E>
 class enum_named_value: public enum_name<E> {
   using force_tag = enum_name<E>::force_tag;
@@ -652,6 +658,14 @@ public:
 #pragma region Accessors
 
   [[nodiscard]] constexpr E as_enum() const noexcept { return enum_; }
+
+#pragma endregion
+#pragma region Swap
+
+  // Swap the name and the enum together.
+  constexpr void swap(enum_named_value& other) noexcept {
+    std::swap(*this, other);
+  }
 
 #pragma endregion
 #pragma region Comparison
