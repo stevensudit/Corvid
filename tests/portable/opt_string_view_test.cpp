@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory_resource>
 #include <optional>
@@ -323,6 +324,19 @@ TEST_CASE("AllocatorAndTraits", "[OptStringViewTest]") {
   struct twin_traits: std::char_traits<char> {};
   using twin_string = std::basic_string<char, twin_traits>;
   static_assert(!std::is_constructible_v<opt_string_view, twin_string>);
+
+  // The source must be a string itself. Something that only converts to one
+  // does not qualify, which also keeps out a view over a temporary.
+  struct holds_string {
+    operator const std::string&() const;
+  };
+  struct makes_string {
+    operator std::string() const;
+  };
+  static_assert(!std::is_constructible_v<opt_string_view,
+      std::reference_wrapper<std::string>>);
+  static_assert(!std::is_constructible_v<opt_string_view, holds_string>);
+  static_assert(!std::is_constructible_v<opt_string_view, makes_string>);
 }
 
 TEST_CASE("Workalike", "[OptStringViewTest]") {

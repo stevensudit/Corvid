@@ -17,11 +17,13 @@
 
 #include <concepts>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory_resource>
 #include <optional>
 #include <set>
 #include <span>
+#include <string>
 #include <vector>
 
 #include "corvid/strings/cstring_view.h"
@@ -304,6 +306,19 @@ TEST_CASE("AllocatorAndTraits", "[CStringViewTest]") {
   struct twin_traits: std::char_traits<char> {};
   using twin_string = std::basic_string<char, twin_traits>;
   static_assert(!std::is_constructible_v<cstring_view, twin_string>);
+
+  // The source must be a string itself. Something that only converts to one
+  // does not qualify, which also keeps out a view over a temporary.
+  struct holds_string {
+    operator const std::string&() const;
+  };
+  struct makes_string {
+    operator std::string() const;
+  };
+  static_assert(!std::is_constructible_v<cstring_view,
+      std::reference_wrapper<std::string>>);
+  static_assert(!std::is_constructible_v<cstring_view, holds_string>);
+  static_assert(!std::is_constructible_v<cstring_view, makes_string>);
 }
 
 TEST_CASE("WideConstruction", "[CStringViewTest]") {
