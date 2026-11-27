@@ -1557,23 +1557,12 @@ static_assert(prox::validate_api<camera>());
 //
 // The unqualified core spelling is the same lazy error, via static_assert
 // rather than overload resolution, so it cannot be probed by a concept.
-// Diagnostic on record instead (clang 22). Omitting the `name` entry from a
-// facade detonates at first use of its machinery, as a single clean error with
-// the fold spelled out over the entries: "static assertion failed due to
-// requirement '0 + entry_name<method<...>, ...>::is_name == 1': every facade
-// must carry exactly one name entry". Composing two facades whose name<>
-// entries match (`copycat` claiming name<"gunslinger">) detonates even without
-// a method collision: "static assertion failed ...
-// 'owner_names_unique_against<...>()': facade names must be unique within a
-// composition", spelling the slot list, with declaring facades, in the
-// requirement, followed by the usual single "no type named 'vtable_t'" noise
-// error.
-// re-worded when per-name overloads made the qualify-the-key advice
-// insufficient on its own): `wc.call<"reload">()` fires "static assertion
-// failed due to requirement 'ndx != ...::ambiguous_v': ambiguous method call;
-// qualify the key with the facade name, or match one overload's arguments
-// exactly", followed by the accepted "tuple index out of bounds" noise,
-// matching the unknown-name case.
+// Diagnostic on record instead (clang 22, re-worded when per-name overloads
+// made the qualify-the-key advice insufficient on its own):
+// `wc.call<"reload">()` fires "static assertion failed due to requirement
+// 'ndx != ...::ambiguous_v': ambiguous method call; qualify the key with the
+// facade name, or match one overload's arguments exactly", followed by the
+// accepted "tuple index out of bounds" noise, matching the unknown-name case.
 template<typename P>
 concept CanReloadSugar = requires(P& p) { p.reload(); };
 static_assert(CanReloadSugar<proxy_view<gunslinger>>);
@@ -1638,6 +1627,21 @@ static_assert(CanAimSugar<proxy_view<arsenal>, int>);
 static_assert(CanAimSugar<proxy_view<arsenal>, double>);
 static_assert(CanAimSugar<proxy_view<arsenal>, short>);
 static_assert(!CanAimSugar<proxy_view<arsenal>, long>);
+
+// A `wildcard` converts to any type at all, and it still ranks like any
+// other argument. The one `issue` taking an argument resolves, and `aim`
+// stays ambiguous because both overloads take it. The slots that answer to
+// other names never compete, whatever the argument converts to.
+struct wildcard {
+  template<typename T>
+  operator T() const;
+};
+using arsenal_build = prox::implementation::vtbuild_t<arsenal>;
+static_assert(
+    arsenal_build::resolve<"issue", access_mode::as_mutable, wildcard>() == 0);
+static_assert(
+    arsenal_build::resolve<"aim", access_mode::as_mutable, wildcard>() ==
+    arsenal_build::ambiguous_v);
 
 // Cross-level overloads: `armory`'s two-argument `issue` joins the
 // inherited pair on derived handles, and an upcast handle sees only the

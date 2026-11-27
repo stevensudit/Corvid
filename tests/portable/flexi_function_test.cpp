@@ -802,7 +802,12 @@ TEST_CASE("Qualified signatures wrap and adopt like plain ones",
       std::is_constructible_v<rref, std::move_only_function<int() &&>&&>);
   static_assert(
       !std::is_constructible_v<rref, std::move_only_function<int() &>&&>);
+  // gcc's -Wuninitialized misfires inside libstdc++ here. A stateless lambda
+  // leaves the wrapper's inline buffer unwritten, and the move copies it.
+  PRAGMA_GCC_DIAG(push)
+  PRAGMA_GCC_IGNORED("-Wuninitialized")
   rref r{std::move_only_function<int() &&>{[] { return 5; }}};
+  PRAGMA_GCC_DIAG(pop)
   CHECK(std::move(r)() == 5);
 #endif
 

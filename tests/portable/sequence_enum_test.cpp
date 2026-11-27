@@ -15,9 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <compare>
+#include <concepts>
 #include <cstdint>
+#include <format>
+#include <functional>
 #include <map>
 #include <set>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 
 #include "corvid/meta.h"
 #include "corvid/enums.h"
@@ -1109,6 +1117,11 @@ constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return s; }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
   using tiger_sv = enum_name<tiger_pick>;
+  // `reset` is ill-formed on an `enum_name`, which has no default
+  // constructor. Verified by instantiating `tiger_sv{"meany"}.reset()`, which
+  // clang rejects with "no matching constructor for initialization of
+  // 'child_t'" at the wrapper's `reset`. A fails-to-compile case cannot live
+  // in the suite.
 
   // Bare string literal, validated at compile time (array-ref ctor). Compares
   // equal to the matching view and converts to it implicitly.
@@ -1209,6 +1222,15 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
     static_assert(nv.as_enum() == tiger_pick::miny);
     CHECK(nv.as_enum() == tiger_pick::miny);
   }
+  // An `enum_named_value` is an `enum_name`. It passes where one is wanted,
+  // and it formats and hashes as a wrapper child in its own right.
+  if (true) {
+    constexpr tiger_nv nv{"meany"};
+    static_assert(take_tiger(nv) == "meany");
+    static_assert(StringViewWrapperChild<tiger_nv>);
+    CHECK(std::format("{}", nv) == "meany");
+    CHECK(std::hash<tiger_nv>{}(nv) == std::hash<std::string_view>{}("meany"));
+  }
   // A bare literal and an enum value both convert implicitly at the parameter.
   if (true) {
     static_assert(take_pair("eeny") == tiger_pick::eeny);
@@ -1259,6 +1281,149 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
   // underlying view (unregistered name, or enum value with no name):
   // * constexpr tiger_nv bad_name{"mooe"};
   // * constexpr tiger_nv bad_value{tiger_pick(7)};
+}
+
+TEST_CASE("NamedValueComparison", "[SequentialEnumTest]") {
+  using tiger_sv = enum_name<tiger_pick>;
+  using tiger_nv = enum_named_value<tiger_pick>;
+
+  static_assert(std::totally_ordered<tiger_nv>);
+  static_assert(std::three_way_comparable<tiger_nv, std::strong_ordering>);
+
+  // Two values are equal when both the enum and the name match. Interned
+  // values with the same enum share the registry's storage.
+  if (true) {
+    constexpr tiger_nv meany{"meany"};
+    static_assert(meany == tiger_nv{tiger_pick::meany});
+    static_assert(meany != tiger_nv{"moe"});
+    CHECK(meany == tiger_nv::intern("meany"));
+    CHECK(meany.data() == tiger_nv::intern("meany").data());
+  }
+  // A forced name at another address is equal when its characters match, and
+  // then it hashes the same.
+  if (true) {
+    const std::string name{"meany"}; // A runtime value.
+    const tiger_nv meany{"meany"};
+    const auto forced = tiger_nv::force(name, tiger_pick::meany);
+    CHECK(forced.data() != meany.data());
+    CHECK(forced == meany);
+    CHECK(std::hash<tiger_nv>{}(forced) == std::hash<tiger_nv>{}(meany));
+  }
+  // The same enum under a different name is a different value, and so is the
+  // same name under a different enum.
+  if (true) {
+    const tiger_nv meany{"meany"};
+    CHECK(tiger_nv::force("Meany", tiger_pick::meany) != meany);
+    CHECK(tiger_nv::force("meany", tiger_pick::moe) != meany);
+  }
+  // Order is by enum, then by name.
+  if (true) {
+    CHECK(tiger_nv{"eeny"} < tiger_nv{"moe"});
+    CHECK(tiger_nv::force("zzz", tiger_pick::eeny) <
+          tiger_nv::force("aaa", tiger_pick::moe));
+    CHECK(tiger_nv::force("aaa", tiger_pick::moe) <
+          tiger_nv::force("zzz", tiger_pick::moe));
+    CHECK((tiger_nv{"miny"} <=> tiger_nv{"miny"}) ==
+          std::strong_ordering::equal);
+  }
+  // Against text, only the name is compared, as for an `enum_name`.
+  if (true) {
+    constexpr tiger_nv meany{"meany"};
+    static_assert(meany == "meany");
+    static_assert("meany" == meany);
+    static_assert(meany != "moe");
+    static_assert(meany < "moe");
+    CHECK(meany == std::string_view{"meany"});
+    CHECK(meany == std::string{"meany"});
+    CHECK(meany == tiger_sv{"meany"});
+    CHECK(tiger_nv::force("meany", tiger_pick::moe) == "meany");
+  }
+  // A text comparison is `noexcept` exactly when the conversion to a view is.
+  if (true) {
+    struct lazy_text {
+      operator std::string_view() const { return {}; }
+    };
+    constexpr tiger_nv meany{"meany"};
+    const lazy_text lazy;
+    static_assert(noexcept(meany == std::string_view{}));
+    static_assert(noexcept(meany <=> std::string_view{}));
+    static_assert(!noexcept(meany == lazy));
+    static_assert(!noexcept(meany <=> lazy));
+  }
+  // Against an enum value, only the enum is compared. An unnamed value works,
+  // although it cannot convert to an `enum_named_value`.
+  if (true) {
+    constexpr tiger_nv meany{"meany"};
+    static_assert(meany == tiger_pick::meany);
+    static_assert(tiger_pick::meany == meany);
+    static_assert(meany != tiger_pick::moe);
+    static_assert(meany < tiger_pick::moe);
+    constexpr auto unnamed = tiger_pick(7);
+    CHECK(tiger_nv::force("anon", unnamed) == unnamed);
+    CHECK(
+        tiger_nv::force("anon", unnamed) != tiger_nv::force("nemo", unnamed));
+  }
+  // Two forced literals compare in a constant expression.
+  static_assert(
+      tiger_nv::force("meany", tiger_pick::meany) ==
+      tiger_nv::force("meany", tiger_pick::meany));
+}
+
+// Whether an `L` can call its member `swap` on an `R`.
+template<typename L, typename R>
+concept MemberSwappableWith = requires(L& l, R& r) { l.swap(r); };
+
+// Whether an unqualified `swap` of an `L` and an `R` resolves, with
+// `std::swap` in scope.
+namespace unqualified_swap {
+using std::swap;
+template<typename L, typename R>
+concept SwappableWith = requires(L& l, R& r) { swap(l, r); };
+} // namespace unqualified_swap
+
+TEST_CASE("NamedValueSwap", "[SequentialEnumTest]") {
+  using tiger_sv = enum_name<tiger_pick>;
+  using tiger_nv = enum_named_value<tiger_pick>;
+
+  // A swap exchanges the name and the enum together, through the member and
+  // through the std forms.
+  if (true) {
+    tiger_nv a{"eeny"};
+    tiger_nv b{"moe"};
+    a.swap(b);
+    CHECK(a == tiger_nv{"moe"});
+    CHECK(b == tiger_nv{"eeny"});
+    std::swap(a, b);
+    CHECK(a == tiger_nv{"eeny"});
+    CHECK(b == tiger_nv{"moe"});
+    std::ranges::swap(a, b);
+    CHECK(a == tiger_nv{"moe"});
+    CHECK(b == tiger_nv{"eeny"});
+  }
+  // Two plain names still swap.
+  if (true) {
+    tiger_sv a{"eeny"};
+    tiger_sv b{"moe"};
+    a.swap(b);
+    CHECK(a == "moe");
+    CHECK(b == "eeny");
+  }
+
+  // Each type swaps only with itself. A name does not swap with a raw view,
+  // which would force it silently. A named value does not swap with a bare
+  // name in either direction, which would leave its enum behind.
+  static_assert(MemberSwappableWith<tiger_sv, tiger_sv>);
+  static_assert(MemberSwappableWith<tiger_nv, tiger_nv>);
+  static_assert(!MemberSwappableWith<tiger_sv, std::string_view>);
+  static_assert(!MemberSwappableWith<tiger_nv, std::string_view>);
+  static_assert(!MemberSwappableWith<tiger_nv, tiger_sv>);
+  static_assert(!MemberSwappableWith<tiger_sv, tiger_nv>);
+  static_assert(unqualified_swap::SwappableWith<tiger_nv, tiger_nv>);
+  static_assert(!unqualified_swap::SwappableWith<tiger_nv, tiger_sv>);
+  static_assert(!unqualified_swap::SwappableWith<tiger_sv, tiger_nv>);
+
+  // A bare name does not assign to a named value.
+  static_assert(!std::is_assignable_v<tiger_nv&, tiger_sv>);
 }
 
 #pragma endregion

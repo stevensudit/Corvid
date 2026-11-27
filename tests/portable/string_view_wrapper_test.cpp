@@ -15,8 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <concepts>
 #include <format>
 #include <map>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "corvid/strings/cstring_view.h"
@@ -32,9 +38,25 @@ using namespace std::string_view_literals;
 
 #pragma region Basic formatting
 
+TEST_CASE("Wrapper hashes like its string view", "[StringViewWrapperTest]") {
+  const std::hash<std::string_view> hash_view;
+  CHECK(std::hash<cstring_view>{}("abc"_csv) == hash_view("abc"));
+  CHECK(std::hash<opt_string_view>{}("abc"_optsv) == hash_view("abc"));
+  CHECK(std::hash<cstring_view>{}(0_csv) == hash_view(""));
+
+  struct key_tag {};
+  using key = tagged_string_view<key_tag>;
+  std::unordered_map<key, int> counts;
+  ++counts[key{"a"}];
+  ++counts[key{"a"}];
+  ++counts[key{"b"}];
+  CHECK(counts.size() == 2U);
+  CHECK(counts.at(key{"a"}) == 2);
+}
+
 TEST_CASE("Wrapper formats like its string view", "[StringViewWrapperTest]") {
   if (true) {
-    CHECK(std::format("{}", "hi"_czsv) == "hi");
+    CHECK(std::format("{}", "hi"_csv) == "hi");
     CHECK(std::format("{}", "hi"_optsv) == "hi");
     CHECK(std::format("{}", ""_optsv).empty());
   }
@@ -42,7 +64,7 @@ TEST_CASE("Wrapper formats like its string view", "[StringViewWrapperTest]") {
 
 TEST_CASE("Wrapper honors the debug spec", "[StringViewWrapperTest]") {
   if (true) {
-    CHECK(std::format("{:?}", "hi"_czsv) == R"("hi")");
+    CHECK(std::format("{:?}", "hi"_csv) == R"("hi")");
     CHECK(std::format("{:?}", "a\tb"_optsv) == R"("a\tb")");
     CHECK(std::format("{:?}", ""_optsv) == R"("")");
   }
@@ -50,10 +72,10 @@ TEST_CASE("Wrapper honors the debug spec", "[StringViewWrapperTest]") {
 
 TEST_CASE("Wrapper honors fill, align, and width", "[StringViewWrapperTest]") {
   if (true) {
-    CHECK(std::format("{:>5}", "hi"_czsv) == "   hi");
-    CHECK(std::format("{:*^6}", "hi"_czsv) == "**hi**");
+    CHECK(std::format("{:>5}", "hi"_csv) == "   hi");
+    CHECK(std::format("{:*^6}", "hi"_csv) == "**hi**");
     // Width composes with the debug spec for non-null content.
-    CHECK(std::format("{:<8?}", "hi"_czsv) == R"("hi"    )");
+    CHECK(std::format("{:<8?}", "hi"_csv) == R"("hi"    )");
   }
 }
 
@@ -107,7 +129,7 @@ TEST_CASE("Wrapper composes inside std range and map",
   if (true) {
     // format_kind is disabled for the children, so they format as strings
     // rather than lists of chars, and the range formatter quotes them.
-    std::vector<cstring_view> v{"a"_czsv, "b"_czsv};
+    std::vector<cstring_view> v{"a"_csv, "b"_csv};
     CHECK(std::format("{}", v) == R"(["a", "b"])");
 
     // A null element inside a range still shows the marker, driven by the
@@ -119,15 +141,15 @@ TEST_CASE("Wrapper composes inside std range and map",
     // quoted and a null element is transparent (empty) rather than the marker.
     CHECK(std::format("{::}", nv) == "[a, ]");
 
-    std::map<int, cstring_view> m{{1, "x"_czsv}};
+    std::map<int, cstring_view> m{{1, "x"_csv}};
     CHECK(std::format("{}", m) == R"({1: "x"})");
   }
 }
 
 TEST_CASE("Wide formatting widens the content", "[StringViewWrapperTest]") {
   if (true) {
-    CHECK(std::format(L"{}", L"hi"_wczsv) == L"hi");
-    CHECK(std::format(L"{:?}", L"hi"_wczsv) == LR"("hi")");
+    CHECK(std::format(L"{}", L"hi"_csv) == L"hi");
+    CHECK(std::format(L"{:?}", L"hi"_csv) == LR"("hi")");
     opt_wstring_view wnull{};
     CHECK(std::format(L"{:?}", wnull) == L"(null)");
     CHECK(std::format(L"{:>10?}", wnull) == L"    (null)");
@@ -309,6 +331,81 @@ TEST_CASE("Null marker honors DYNAMIC width under the debug spec",
     const opt_wstring_view wnul{};
     CHECK(std::format(L"{:{}?}", wnul, 10) == L"(null)    ");
   }
+}
+
+TEST_CASE("Rvalue value and dereference return the child by value",
+    "[StringViewWrapperTest]") {
+  // The `&&` overloads hand back a child, not a reference into the temporary.
+  static_assert(std::same_as<decltype(std::declval<opt_string_view>().value()),
+      opt_string_view>);
+  static_assert(std::same_as<decltype(*std::declval<opt_string_view>()),
+      opt_string_view>);
+  static_assert(
+      std::same_as<decltype(std::declval<const opt_string_view&>().value()),
+          const opt_string_view&>);
+
+  CHECK(opt_string_view{"abc"}.value() == "abc");
+  CHECK(*opt_string_view{"abc"} == "abc");
+  CHECK_THROWS_AS(opt_string_view{}.value(), std::bad_optional_access);
+}
+
+#pragma endregion
+#pragma region Identity
+
+TEST_CASE("Identical means the same address and length",
+    "[StringViewWrapperTest]") {
+  const std::string text{"abcdef"};
+  const std::string twin{"abcdef"};
+  const opt_string_view whole{text};
+
+  // The same storage is identical, whether asked of a wrapper or a raw view.
+  CHECK(whole.identical(text));
+  CHECK(whole.identical(opt_string_view{text}));
+
+  // Equal contents at another address are not.
+  CHECK(whole == twin);
+  CHECK_FALSE(whole.identical(twin));
+
+  // A prefix shares the address but not the length.
+  const auto prefix = std::string_view{text}.substr(0, 3);
+  CHECK(prefix.data() == whole.data());
+  CHECK_FALSE(whole.identical(prefix));
+
+  // Two nulls are identical. A null and an empty are not.
+  CHECK(opt_string_view{}.identical(std::string_view{}));
+  CHECK_FALSE(opt_string_view{}.identical(""sv));
+
+  // The static form asks the same of two raw views.
+  CHECK(opt_string_view::identical(text, text));
+  CHECK_FALSE(opt_string_view::identical(text, twin));
+  static_assert(opt_string_view::identical({}, {}));
+}
+
+#pragma endregion
+#pragma region Comparison
+
+TEST_CASE("Text comparison is noexcept exactly when the conversion is",
+    "[StringViewWrapperTest]") {
+  // A text source whose conversion to a view is not `noexcept`.
+  struct lazy_text {
+    operator std::string_view() const { return {}; }
+  };
+
+  const opt_string_view whole{"abc"};
+  const std::string text{"abc"};
+  const lazy_text lazy;
+  CHECK(whole == text);
+
+  static_assert(noexcept(whole == "abc"sv));
+  static_assert(noexcept(whole <=> "abc"sv));
+  static_assert(noexcept(whole == text));
+  static_assert(noexcept(whole <=> text));
+  static_assert(!noexcept(whole == lazy));
+  static_assert(!noexcept(whole <=> lazy));
+
+  // A literal is left unpinned. The pointer constructor of
+  // `std::basic_string_view` is `noexcept` in some standard libraries and not
+  // in others.
 }
 
 #pragma endregion

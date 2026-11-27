@@ -35,10 +35,10 @@ namespace corvid { inline namespace container { inline namespace intern {
 template<typename T, SequentialEnum ID>
 struct intern_test {
   using interned_value_t = interned_value<T, ID>;
-  using allow = restrict_intern_construction::allow;
+  using mint = intern_mint;
   template<typename U>
   static interned_value_t make(U&& u, ID id = {}) {
-    return interned_value_t{allow::ctor, std::forward<U>(u), id};
+    return interned_value_t{mint{}, std::forward<U>(u), id};
   }
 };
 }}} // namespace corvid::container::intern

@@ -15,6 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// gcc's -Wmaybe-uninitialized misfires on the copy constructor of
+// `key_or_value`.
+//
+// Every location in the report is inside libstdc++, so the suppression has to
+// precede the standard headers and cover the whole file.
+#include "corvid/meta/crossplatform.h"
+PRAGMA_GCC_IGNORED("-Wmaybe-uninitialized")
+
 #include <cstdint>
 #include <map>
 #include <set>

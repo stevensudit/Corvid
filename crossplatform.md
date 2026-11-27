@@ -484,6 +484,21 @@ with a minimal repro:
   consteval enum constructor; the workaround at the one affected site
   (containers_test.cpp, EnumVariant BadIndex) is to declare the destination
   `constexpr`.
+- MSVC 14.52 (cl 19.52) compiler bug, absent from 14.51: a member variable
+  template of a class template, initialized by a `requires` expression whose
+  parameter list declares the class's parameter pack and whose body expands it,
+  is evaluated correctly for its first specialization and is `false` for every
+  later one, with no diagnostic. Minimal repro: `template<typename... Args>
+  struct probe { template<typename T> static constexpr bool ok =
+  requires(Args... args) { f(args...); }; };` with `int f(int);`, where
+  `probe<int>::ok<int>` holds and `probe<int>::ok<long>` then does not. The
+  check is right with no parameter list (operands from `std::declval`), as a
+  member function template, with an empty pack, or when the pack belongs to the
+  variable template itself. This hits `method_traits::is_impl_bound`
+  (`corvid/meta/invoke/proxy_common.h`), which then reports every target type
+  after the first as unbound for a facade method with parameters, so
+  `Proxiable` fails. The workaround at that one site is the `std::declval`
+  form.
 
 clang-tidy findings differ by standard library too, so `./cleanbuild.ps1 tidy`
 (MSVC STL) surfaces two checks that the Linux libc++ run does not. Both are

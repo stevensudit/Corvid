@@ -17,6 +17,7 @@
 #pragma once
 #include <concepts>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -63,7 +64,7 @@ inline namespace optstringview {
 // want to check for an exact match that distinguishes between these two
 // states, use `same`.
 //
-// The optional `Tag` parameter turns this into a tagged view: a non-void `Tag`
+// The optional `Tag` parameter turns this into a tagged view. A non-void `Tag`
 // makes distinct tags distinct types that don't implicitly mix, and forces the
 // view-taking (and other string-like) constructors to be `explicit` so a raw
 // `std::string_view` can't silently become a tagged one.
@@ -90,18 +91,22 @@ public:
   using size_type = base::size_type;
   using base::npos;
 
-  using string_t = std::basic_string<CharT>;
+  template<typename Alloc>
+  using string_t = base::template string_t<Alloc>;
 
 #pragma endregion
 #pragma region Construction
 
   constexpr basic_opt_string_view() noexcept = default;
+  // Use `= nullptr`, not `= 0`, to avoid ambiguity.
   constexpr basic_opt_string_view(std::nullptr_t) noexcept {}
   constexpr basic_opt_string_view(std::nullopt_t) noexcept {}
 
   constexpr explicit(tagged) basic_opt_string_view(view_t sv) noexcept
       : base{sv} {}
-  constexpr explicit(tagged) basic_opt_string_view(const string_t& s) noexcept
+  template<typename Alloc>
+  constexpr explicit(tagged)
+      basic_opt_string_view(const string_t<Alloc>& s) noexcept
       : base{view_t{s}} {}
   constexpr explicit(tagged)
       basic_opt_string_view(const char_t* ps, size_type l)
@@ -118,22 +123,26 @@ public:
   constexpr explicit(tagged)
       basic_opt_string_view(const std::optional<view_t>& osv) noexcept
       : base{osv ? view_t{*osv} : view_t{}} {}
+  template<typename Alloc>
   constexpr explicit(tagged)
-      basic_opt_string_view(const std::optional<string_t>& os) noexcept
+      basic_opt_string_view(const std::optional<string_t<Alloc>>& os) noexcept
       : base{os ? view_t{*os} : view_t{}} {}
 
-  // View assignment exists only for the untagged form; a tagged view admits a
-  // raw view only through its explicit constructor.
-  constexpr basic_opt_string_view& operator=(view_t sv) noexcept
-  requires(!tagged)
-  {
-    base::sv_ = sv;
-    return *this;
-  }
-  constexpr basic_opt_string_view& operator=(const char_t* s) noexcept
-  requires(!tagged)
-  {
-    base::sv_ = base::from_ptr(s);
+#pragma endregion
+#pragma region Assignment
+
+  // Assign from anything viewable that the constructors do not accept, such
+  // as another wrapper.
+  //
+  // A source the constructors accept assigns through them instead, so the two
+  // routes never compete. This exists only for the untagged form. A tagged
+  // view admits a raw view only through its explicit constructor.
+  template<typename T>
+  requires(!tagged) && std::convertible_to<const T&, view_t> &&
+          (!std::convertible_to<const T&, basic_opt_string_view>)
+  constexpr basic_opt_string_view&
+  operator=(const T& r) noexcept(noexcept(view_t{r})) {
+    base::sv_ = view_t{r};
     return *this;
   }
 

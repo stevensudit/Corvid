@@ -28,6 +28,7 @@
 #include "../../infra/exception_firewalls.h"
 #include "../../concurrency/idle_timeout.h"
 #include "../../meta/bool_enums.h"
+#include "../../meta/passkey.h"
 #include "../net_endpoint.h"
 #include "iou_buf_pool.h"
 #include "iou_loop.h"
@@ -43,21 +44,21 @@ class iou_stream_conn;
 // Move-only recv view delivered to a plugin's `on_data`. Four consumption
 // paths:
 //
-//  Consume: call `active_view` + `consume`. When the buffer is not Provided by
+//  Consume: Call `active_view` + `consume`. When the buffer is not Provided by
 //    the kernel for a multishot, you can leave some of the payload unconsumed
 //    and it will be accumulated onto by subsequent `recv`s. However, if the
 //    buffer is full or was Provided, it is an error to leave unconsumed
 //    payload.
 //
-//  Take: call `take` to transfer buffer ownership for off-loop parsing.
+//  Take: Call `take` to transfer buffer ownership for off-loop parsing.
 //    Incoming data will land in another buffer.
 //
-//  Stop: extract the buffer first via `take`, then call `stop_receiving` to
+//  Stop: Extract the buffer first via `take`, then call `stop_receiving` to
 //    end the `recv` loop. Returns a `posted_fn` resume callback that keeps the
 //    conn alive while held and, when invoked, restarts the `recv` loop. Useful
 //    for backpressure.
 //
-//  Move: transfer ownership of the view itself by binding it into a callback
+//  Move: Transfer ownership of the view itself by binding it into a callback
 //    to be executed on another thread. This offers more flexibility.
 class iou_recv_view {
 #pragma region Construction
@@ -99,7 +100,7 @@ public:
   // Transfer buffer to caller for async parsing.
   [[nodiscard]] buffer take() noexcept { return std::move(buf_); }
 
-  // Apply backpressure: end the `recv` loop. The buffer must have been
+  // Apply backpressure: End the `recv` loop. The buffer must have been
   // previously extracted via `take` (or fully consumed).
   //
   // Returns a `posted_fn` resume callback:
@@ -123,7 +124,7 @@ public:
 private:
   template<typename ConnPlugin>
   friend class iou_stream_conn;
-  // `resume_fn`: invoked on each completed `recv`. Only when the `buffer` is
+  // `resume_fn` is invoked on each completed `recv`. Only when the `buffer` is
   // deactivated, signaling that receiving should stop, does the `posted_fn`
   // returned become non-empty.
   using resume_fn =
@@ -162,20 +163,20 @@ private:
 //       factory invoked on the listening conn's plugin when a new connection
 //       is `accept`ed. Constructs the new plugin for the `accept`ed child
 //       (typically by sharing the listener's stable state with the child).
-//       Only reached by listeners; client-only plugins may write a trivial
+//       Only reached by listeners. Client-only plugins may write a trivial
 //       implementation.
 //
 // This concept is NOT used as a template parameter constraint on
 // `iou_stream_conn`. Doing so would force eager checks at every reference
-// to `iou_stream_conn<P>` - including `make_child_plugin(iou_stream_conn<P>&)`
-// itself - which would cycle. Conformance is instead verified by a deferred
+// to `iou_stream_conn<P>` (including `make_child_plugin(iou_stream_conn<P>&)`
+// itself) which would cycle. Conformance is instead verified by a deferred
 // `static_assert` in the `iou_stream_conn` constructor body, which is
 // instantiated only when an instance is actually constructed.
 //
 // The primary-path ctor takes `iou_stream_conn<ConnPlugin>&` followed by a
 // pack of user-supplied args. Concepts can check construction from a fixed
 // arg list, but not "first parameter is X, rest is anything," so this
-// requirement is verified by the member-init in the primary ctor: a plugin
+// requirement is verified by the member-init in the primary ctor. A plugin
 // whose ctor does not accept `iou_stream_conn<ConnPlugin>&` as its first
 // parameter produces a compile error at that init.
 template<typename P>
@@ -201,11 +202,11 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 // expectation is "lock once if you need to drive it, then let the in-flight
 // callbacks carry it from there."
 //
-// Callers who need to hold the conn strongly can `lock` the weak_ptr to a
-// `std::shared_ptr`, or call `self` on the conn to get a fresh strong ref.
-// Callers who only want to observe later without keeping it alive can keep
-// the weak_ptr and `lock` before each use; an expired weak_ptr means the
-// conn has already torn down.
+// Callers who need to hold the conn strongly can `lock` the `weak_ptr` to a
+// `shared_ptr`, or call `self` on the conn to get a fresh strong ref. Callers
+// who only want to observe later without keeping it alive can keep the
+// `weak_ptr` and `lock` before each use. An expired `weak_ptr` means the conn
+// has already torn down.
 //
 // Supports three creation paths:
 //
@@ -220,67 +221,67 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 //
 // Send path: `send(buffer&&)` submits zero-copy directly. `send(string)`
 // copies to a JIT-borrowed `buffer` to pack consecutive string items.
-// One SQE in flight at a time for ordering; additional sends queue behind it.
-// Attempts to use `submit_send_buffer` (`IORING_OP_SEND_ZC`), which may
-// deliver two CQEs per `send`: one for the `send` completion and a
+// One SQE in flight at a time for ordering, with additional sends queued
+// behind it. Attempts to use `submit_send_buffer` (`IORING_OP_SEND_ZC`). This
+// may deliver two CQEs per `send`: one for the `send` completion, and a
 // notification CQE when the kernel releases the `buffer`. For sockets that do
 // not support ZC, such as UDS pairs, it will fall back to
 // `submit_write_buffer`, which generates a single CQE and is less optimized.
 //
-// Recv path: one SQE in flight at a time. The `iou_recv_view` delivered to
+// Recv path: One SQE in flight at a time. The `iou_recv_view` delivered to
 // the plugin's `on_data` controls re-submission via inline `consume` or
 // async `take`.
 //
 // Thread safety: All public methods are thread-safe unless otherwise labeled.
 //
-// Ownership: the conn is self-sustaining. Every in-flight `recv`, `send`,
+// Ownership: The conn is self-sustaining. Every in-flight `recv`, `send`,
 // `connect`, `accept`, or `close` callback captures a `shared_ptr<self>`, so
-// the conn cannot destruct as long as any I/O is pending - even with no
+// the conn cannot destruct as long as any I/O is pending, even with no
 // external `shared_ptr`.
 //
-// The factories return a `std::weak_ptr` rather than a `shared_ptr` precisely
-// so that callers do not implicitly extend the conn's lifetime; the factory's
-// own `shared_ptr` is moved into the initial `start_reading` post and then
+// The factories return a `weak_ptr` rather than a `shared_ptr` precisely so
+// that callers do not implicitly extend the conn's lifetime. The factory's own
+// `shared_ptr` is moved into the initial `start_reading` post and then
 // released, and the `recv` (or `accept`) callback's captured `self` carries
-// the conn from there. The weak_ptr form (instead of a raw pointer) closes
+// the conn from there. The `weak_ptr` form (instead of a raw pointer) closes
 // the window where async `start_reading` failure could leave a caller holding
-// a dangling pointer: a failed launch drops the captured `shared_ptr`, the
-// conn destructs, and the caller's weak_ptr observes the expiration on the
+// a dangling pointer. A failed launch drops the captured `shared_ptr`, the
+// conn destructs, and the caller's `weak_ptr` observes the expiration on the
 // next `lock`.
 //
 // Termination comes from one of:
-//   - any holder calling `close` or `hangup`;
-//   - a hard recv error or peer EOF driving `do_close_now` from inside the
-//     recv callback;
-//   - a failed `connect` driving `do_close_now` from the connect callback;
-//   - a conn having no in-flight I/O and no external `std::shared_ptr`
-//     holders, so the last `std::shared_ptr` ref drops.
-//   - the `iou_loop` shutting down, which clears every slot and so releases
-//     every captured `std::shared_ptr`.
+//   - Any holder calling `close` or `hangup`
+//   - A hard recv error or peer EOF driving `do_close_now` from inside the
+//     recv callback
+//   - A failed `connect` driving `do_close_now` from the connect callback
+//   - A conn having no in-flight I/O and no external `std::shared_ptr`
+//     holders, so the last `std::shared_ptr` ref drops
+//   - The `iou_loop` shutting down, which clears every slot and so releases
+//     every captured `std::shared_ptr`
 //
 // In all but the last two cases, `close`/`do_close_now` submits the
-// socket close; the in-flight recv (and any pending send) callback receives
+// socket close. The in-flight recv (and any pending send) callback receives
 // the resulting CQE, releases its slot, and the last `std::shared_ptr` ref
 // drops, after which the conn destructs.
 //
 // In the last two, no close was ever issued, so `~iou_stream_conn` finds
-// `sock_` still valid and forces RST on it - the peer learns that this was a
+// `sock_` still valid and forces RST on it. The peer learns that this was a
 // surprise teardown, not a graceful goodbye.
 //
-// Re-arming: for singleshot `recv`, each completed `recv` either resubmits
+// Re-arming: For singleshot `recv`, each completed `recv` either resubmits
 // from inside `on_recv_complete` or via the `iou_recv_view` destructor's
-// resume hook; for multishot `recv`, the kernel keeps delivering CQEs on the
+// resume hook. For multishot `recv`, the kernel keeps delivering CQEs on the
 // same slot until cancelation. Either way, as long as the loop itself is
-// alive, the `recv` chain heals on its own; the only way the self-sustaining
+// alive, the `recv` chain heals on its own. The only way the self-sustaining
 // ref disappears is one of the termination paths above.
 //
 // Thread safety: `send`, `close`, and `hangup` are safe from any thread.
 // All I/O and state mutation run on the loop thread.
 //
-// Loop lifetime: the conn stores a bare `iou_loop&`. The loop knows nothing
-// about the conns running on it - only the slot-captured `shared_ptr<self>`
+// Loop lifetime: The conn stores a bare `iou_loop&`. The loop knows nothing
+// about the conns running on it, only the slot-captured `shared_ptr<self>`
 // refs held inside completion callbacks. When the loop tears down, it drops
-// those callback-captured refs; any conn held by nothing else destructs
+// those callback-captured refs. Any conn held by nothing else destructs
 // inline during the loop's `completion_cb_pool_` teardown.
 //
 // A conn may briefly outlive its `iou_loop`. The pools the conn's buffers
@@ -292,7 +293,7 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 template<typename ConnPlugin>
 class iou_stream_conn
     : public std::enable_shared_from_this<iou_stream_conn<ConnPlugin>> {
-  enum class allow : bool { ctor };
+  using mint = passkey<iou_stream_conn>;
 
 public:
   using plugin_t = ConnPlugin;
@@ -326,7 +327,7 @@ public:
   // send data. Once `true`, stays `true`.
   [[nodiscard]] bool is_write_shut() const noexcept { return write_shut_; }
 
-  // True iff the conn will currently accept new `send` calls: it must be
+  // True iff the conn will currently accept new `send` calls. It must be
   // open, with neither `close` nor `shutdown_send` requested. Once `false`,
   // stays `false`.
   [[nodiscard]] bool writes_allowed() const noexcept {
@@ -351,7 +352,7 @@ public:
   }
 
   // The `iou_loop` that drives this connection. Valid for the lifetime of
-  // the connection (which should end before the loop is destroyed - see
+  // the connection (which should end before the loop is destroyed; see
   // class-level comment).
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
 
@@ -377,7 +378,7 @@ public:
   // zero means "no timeout". The two `idle_timeout` instances expose the
   // full API for each direction.
   //
-  // Peer EOF leaves the read-idle countdown running: a peer that shut its
+  // Peer EOF leaves the read-idle countdown running. A peer that shut its
   // outbound is still idle and earns the hangup. Only our own choice to stop
   // listening (`shutdown_recv`) silences it.
   //
@@ -395,10 +396,10 @@ public:
   // Queue a registered `buffer` for zero-copy sending.
   //
   // False means the payload was not accepted (writes disallowed, empty, or
-  // the conn closed); the caller may resend. True means accepted: delivery
+  // the conn closed). The caller may resend. True means accepted: delivery
   // rides on the connection, the same on and off the loop thread.
   [[nodiscard]] bool send(buffer&& buf) {
-    // `buf` is an rvalue ref; the actual move into the lambda capture below
+    // `buf` is an rvalue ref. The actual move into the lambda capture below
     // is the only consumption. Analyzer flags the precondition checks as
     // use-after-move because callers write `std::move(buf)`, but no move
     // has happened yet.
@@ -416,10 +417,10 @@ public:
   // Queue a string for sending. JIT-borrows a write `buffer` to pack
   // consecutive string items. Prefer the `buffer` overload for performance.
   //
-  // Strings larger than the current `send_buf_size` are rejected; the caller
+  // Strings larger than the current `send_buf_size` are rejected. The caller
   // is responsible for chunking large payloads or using the `buffer` overload
   // with a larger `buffer`. False means the payload was not accepted
-  // (rejected here or the conn closed); true means accepted, the same on and
+  // (rejected here or the conn closed). True means accepted, the same on and
   // off the loop thread, even when the send is waiting out a write-pool
   // shortage.
   [[nodiscard]] bool send(std::string&& data) {
@@ -449,7 +450,7 @@ public:
   }
 
   // Shut down the write side. Flushes pending `send`s, then submits `SHUT_WR`
-  // so the peer sees EOF on its read. The read side stays open; `on_data`
+  // so the peer sees EOF on its read. The read side stays open and `on_data`
   // continues to fire (including with an empty view on peer EOF). After
   // `shutdown_send` is called, further `send` calls are rejected. If reads
   // were already shut, just closes. Idempotent.
@@ -500,7 +501,7 @@ public:
     });
   }
 
-  // Forceful close: cancel pending I/O and close immediately with RST.
+  // Forceful close: Cancel pending I/O and close immediately with RST.
   [[nodiscard]] bool hangup() {
     if (closed_.exchange(true)) return false;
     return loop_.execute_or_post([this, _ = self()] {
@@ -547,11 +548,11 @@ public:
 
 #pragma region Construction
 public:
-  // Public only for `std::make_shared`; users go through `adopt`, `connect`,
+  // Public only for `std::make_shared`. Users go through `adopt`, `connect`,
   // or `listen`. Plugin is constructed in-place with `(*this, plugin_args...)`
   // so it can capture the conn ref.
   template<typename... PluginArgs>
-  explicit iou_stream_conn(allow, iou_loop& loop, net_socket sock,
+  explicit iou_stream_conn(mint, iou_loop& loop, net_socket sock,
       const net_endpoint* remote, std::optional<connection_role> role,
       block_size recv_buf_size, block_size send_buf_size, shot_type recv_shot,
       idle_duration_t read_idle_timeout, idle_duration_t write_idle_timeout,
@@ -576,7 +577,7 @@ public:
   // `accept_from.make_child_plugin(*this)`. `send_zc_supported` is inherited
   // from the listener, so children of a transport known not to support ZC
   // (e.g., UDS) skip the per-conn discovery `EOPNOTSUPP`.
-  iou_stream_conn(allow, const plugin_t& accept_from, iou_loop& loop,
+  iou_stream_conn(mint, const plugin_t& accept_from, iou_loop& loop,
       net_socket sock, const net_endpoint* remote, block_size recv_buf_size,
       block_size send_buf_size, shot_type recv_shot, bool send_zc_supported,
       idle_duration_t read_idle_timeout, idle_duration_t write_idle_timeout)
@@ -599,7 +600,7 @@ public:
   iou_stream_conn& operator=(const iou_stream_conn&) = delete;
   iou_stream_conn& operator=(iou_stream_conn&&) = delete;
 
-  // Surprise destruction: nobody called `close` or `hangup`, but the last
+  // Surprise destruction: Nobody called `close` or `hangup`, but the last
   // `shared_ptr` is going away (either because the conn has no I/O in flight,
   // or the `iou_loop` is tearing down and dropping its callback-captured
   // refs).
@@ -618,10 +619,10 @@ public:
 #pragma region Factories
 
   // Adopt an already-connected socket. `sock` must be non-blocking. Returns a
-  // `std::weak_ptr<iou_stream_conn>`; the conn is self-sustaining via its
-  // in-flight callbacks. `lock` for ad-hoc access. An empty/expired
-  // `std::weak_ptr` signals either a failure to launch or that the conn has
-  // already finished its life and torn down.
+  // `std::weak_ptr<iou_stream_conn>`. The conn is self-sustaining via its
+  // in-flight callbacks. The caller can `lock` for ad-hoc access. An
+  // empty/expired `std::weak_ptr` signals either a failure to launch or that
+  // the conn has already finished its life and torn down.
   template<typename... PluginArgs>
   [[nodiscard]] static std::weak_ptr<iou_stream_conn>
   adopt(iou_loop& loop, net_socket sock, net_endpoint remote,
@@ -691,12 +692,12 @@ private:
   relaxed_atomic<block_size> recv_buf_size_{block_size::kb004};
   relaxed_atomic<block_size> send_buf_size_{block_size::kb004};
 
-  // Idle timeouts. One per direction; configured at construction and
+  // Idle timeouts. One per direction, configured at construction and
   // driven via the `read_idle` / `write_idle` accessors.
   idle_timeout_t read_idle_;
   idle_timeout_t write_idle_;
 
-  // Recv state: whether it's paused, whether we're trying for single or
+  // Recv state: Whether it's paused, whether we're trying for single or
   // multishot, and whether the current shot is single or multi. The
   // distinction is needed because we can be forced by buffer pressure to
   // downgrade from multi to single.
@@ -707,7 +708,8 @@ private:
   // When receiving, token of callback. Can be used for cancelation.
   completion_token recv_token_;
 
-  // Send state: one SQE in flight at a time; queue holds strings and buffers.
+  // Send state: One SQE in flight at a time. The queue holds strings and
+  // buffers.
   // TODO: This should probably be a circular buffer. Perhaps keep the deque
   // around for overflow.
   std::deque<std::variant<std::string, buffer>> send_queue_;
@@ -729,7 +731,7 @@ private:
       block_size send_buf_size, shot_type recv_shot,
       idle_duration_t read_idle_timeout, idle_duration_t write_idle_timeout,
       PluginArgs&&... plugin_args) {
-    auto conn = std::make_shared<iou_stream_conn>(allow::ctor, loop,
+    auto conn = std::make_shared<iou_stream_conn>(mint{}, loop,
         std::move(sock), remote, role, recv_buf_size, send_buf_size, recv_shot,
         read_idle_timeout, write_idle_timeout,
         std::forward<PluginArgs>(plugin_args)...);
@@ -746,7 +748,7 @@ private:
   [[nodiscard]] std::shared_ptr<iou_stream_conn>
   do_accept_clone(net_socket&& sock, const net_endpoint* remote = nullptr) {
     assert(loop().is_loop_thread());
-    return std::make_shared<iou_stream_conn>(allow::ctor, plugin_, loop_,
+    return std::make_shared<iou_stream_conn>(mint{}, plugin_, loop_,
         std::move(sock), remote, block_size{recv_buf_size_},
         block_size{send_buf_size_}, recv_intended_shot_, send_zc_supported_,
         read_idle_.configured_timeout(), write_idle_.configured_timeout());
@@ -766,8 +768,8 @@ private:
   //
   // Returns false only when the actual submit fails. Declining because no
   // recv is wanted (closed, already armed, read shut, or paused) and posting
-  // a borrow-failure heal are both success: in every such case there is
-  // nothing further for the caller to drive, and in particular nothing to
+  // a borrow-failure heal are both success. In every such case, there is
+  // nothing further for the caller to drive. And in particular, nothing to
   // close.
   [[nodiscard]] bool
   do_submit_single_recv(buffer* bufptr = {}, bool allow_upgrade = true) {
@@ -787,10 +789,10 @@ private:
     else
       buf = loop_.borrow_read_buffer(recv_buf_size_);
 
-    // Pool exhausted or read-throttled: retry from the back of the post
+    // Pool exhausted or read-throttled: Retry from the back of the post
     // queue. The guard ends the retries once a recv is armed some other way
-    // or the read side stops. The posted heal is success, not failure: a
-    // recv will be armed, so reporting false would tell callers like
+    // or the read side stops. The posted heal is success, not failure. A recv
+    // will be armed, so reporting false would tell callers like
     // `on_connect_complete` to close a healthy conn (which would also
     // cancel this very heal).
     if (!buf) {
@@ -813,8 +815,8 @@ private:
   // Submit a multishot recv using the loop's TCP provided-buffer ring.
   // Automatically handles `has_more` failure.
   //
-  // Same return contract as `do_submit_single_recv`: declining to arm is
-  // success; false means the submit (or its singleshot fallback's submit)
+  // Same return contract as `do_submit_single_recv`. Declining to arm is
+  // success. False means the submit (or its singleshot fallback's submit)
   // failed.
   [[nodiscard]] bool do_submit_multi_recv() {
     assert(loop().is_loop_thread() && !recv_token_);
@@ -881,7 +883,7 @@ private:
   // from any thread.
   [[nodiscard]] iou_recv_view::resume_fn make_view_resume() {
     return [this, conn = self()](buffer&& buf) -> iou_loop::posted_fn {
-      // Read side is shut: the recv chain has already ended. Nothing to
+      // Read side is shut: The recv chain has already ended. Nothing to
       // resubmit, no stop callback to mint.
       if (read_shut_) return {};
 
@@ -904,7 +906,7 @@ private:
   // Send the next buffer in the send queue.
   //
   // Returns false only on a hard submit failure. An empty queue and a posted
-  // borrow-failure heal both report true: in each case the queue's contents
+  // borrow-failure heal both report true. In each case, the queue's contents
   // (if any) remain accepted and will transmit without further driving.
   [[nodiscard]] bool do_submit_send() {
     assert(loop().is_loop_thread() && !send_token_);
@@ -916,10 +918,10 @@ private:
       send_queue_.pop_front();
     } else {
       buf = loop_.borrow_write_buffer(send_buf_size_);
-      // Pool exhausted: the strings stay queued. Retry from the back of the
+      // Pool exhausted: The strings stay queued. Retry from the back of the
       // post queue, giving the work ahead of us a chance to return buffers.
       // The guard ends the retries once a send is driven some other way or
-      // the conn closes. A posted heal is success, not failure: the queued
+      // the conn closes. A posted heal is success, not failure. The queued
       // payload is accepted and will transmit, so reporting false here would
       // tell an inline `send` caller (and the completion chain) to treat a
       // healthy conn as failed.
@@ -1100,7 +1102,7 @@ private:
   // For partial sends and retriable errors, resubmit using the same callback
   // so the buffer stays in the closure. A new slot is only used when
   // advancing to the next buffer. `pending_releases_` (maintained by
-  // `iou_buffer::update`) tracks all outstanding ZC pins; we retain the
+  // `iou_buffer::update`) tracks all outstanding ZC pins. We retain the
   // callback slot until it reaches zero.
   [[nodiscard]] slot_retention
   on_send_complete(completion_id cbhandle, buffer& buf) {
@@ -1118,8 +1120,8 @@ private:
       return slot_retention::retain;
     }
 
-    // Send complete. Start the next send if queued; otherwise act on a
-    // pending close / shutdown_send; otherwise notify drain.
+    // Send complete: Start the next send if queued. Otherwise, act on a
+    // pending `close`/`shutdown_send`, or notify drain.
     if (!send_queue_.empty())
       (void)do_submit_send();
     else if (close_requested_)
@@ -1159,8 +1161,8 @@ private:
     assert(loop().is_loop_thread() && listening_);
     if (closed_) return true;
 
-    // Error. If it's an `ECANCELED`, then we're either shutting down or
-    // pausing: either way, there's nothing for us to do here.
+    // Error: If it's an `ECANCELED`, then we're either shutting down or
+    // pausing. Either way, there's nothing for us to do here.
     if (!res) {
       if (res.is_soft_error() || res.err() == EC::canceled) return true;
       return do_close_now();
@@ -1184,9 +1186,9 @@ private:
 
     const auto res = buf.result();
 
-    // EOF from peer. Deliver an empty view so the plugin learns the read side
-    // is shut. The read-idle countdown deliberately keeps running: peer EOF
-    // is still idleness.
+    // EOF from peer: Deliver an empty view so the plugin learns the read side
+    // is shut. The read-idle countdown deliberately keeps running since peer
+    // EOF is still idleness.
     if (res.value() == 0) {
       read_shut_ = true;
       if (write_shut_) return do_close_now();

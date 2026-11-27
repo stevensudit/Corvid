@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <compare>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +27,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 #include "../meta/concepts.h"
 #include "../meta/enum_math.h"
@@ -95,7 +97,7 @@ concept SequentialEnum = (registry::enum_spec_v<E>.seq_valid_v);
 //
 // Only the names form of `make_sequence_enum_spec` provides the name
 // machinery, so `enum_name`, `enum_named_value`, and the name lookup functions
-// require this; a value-form registration is sequential but nameless.
+// require this. A value-form registration is sequential but nameless.
 template<typename E>
 concept NamedSequentialEnum =
     SequentialEnum<E> && requires(std::string_view sv) {
@@ -155,7 +157,7 @@ constexpr bool seq_actually_wrap_v =
 
 // The nonnegative residue of `r` modulo the sequence size.
 //
-// A negative `r` is folded exactly: its magnitude is computed in unsigned
+// A negative `r` is folded exactly. Its magnitude is computed in unsigned
 // arithmetic (safe even for the type's minimum) and reflected around the size,
 // so the result is always in `[0, size)` and adding it is equivalent to adding
 // `r`.
@@ -212,7 +214,7 @@ template<SequentialEnum E>
 
 // Cast integer value from underlying type to sequence.
 //
-// Wrapping is governed by the registration: only an `E` registered with
+// Wrapping is governed by the registration. Only an `E` registered with
 // `wrapclip::limit` wraps. To wrap unconditionally, call `make_safely`.
 template<SequentialEnum E>
 [[nodiscard]] constexpr E make(std::underlying_type_t<E> u) noexcept {
@@ -371,7 +373,7 @@ template<std::integral T>
 // Length of range: the count of values in `[min, max]`, including any unnamed
 // gaps.
 //
-// Follows `seq_size_v`: exact for every range and signedness, except that a
+// Follows `seq_size_v`. Exact for every range and signedness, except that a
 // range spanning the full 64-bit underlying type returns 0 (matching the
 // bitmask `range_length` convention), because the true count does not fit.
 template<SequentialEnum E>
@@ -399,8 +401,8 @@ enum_intern_name(std::string_view sv) noexcept {
 }
 
 // Linear search of a sequence enum's names for an exact match, returning the
-// enum, or nullopt. Names only; never interprets numeric text. Requires `E` to
-// be registered with a name list.
+// enum, or `nullopt`. Names only; never interprets numeric text. Requires `E`
+// to be registered with a name list.
 template<NamedSequentialEnum E>
 [[nodiscard]] constexpr std::optional<E>
 enum_find_by_name(std::string_view sv) noexcept {
@@ -499,7 +501,7 @@ public:
   // Force runtime construction of non-interned name, which might not even be
   // registered for a value.
   //
-  // Keeps `sv` verbatim, without interning. Does not look it up; only
+  // Keeps `sv` verbatim, without interning. Does not look it up, only
   // validates that it's not empty.
   //
   // The caller vouches for the bytes and their lifetime, and the result of
@@ -544,15 +546,21 @@ protected:
 #pragma region with value
 
 // Extends `enum_name<E>` with the `E` value it names, both resolved at compile
-// time by the same constructors. Use it where a call site needs the validated
-// name and its enum together (e.g. to skip a runtime name->enum lookup),
-// without adding a field to the bare string view.
+// time by the same constructors.
+//
+// Use it where a call site needs the validated name and its enum together
+// (e.g. to skip a runtime name->enum lookup), without adding a field to the
+// bare string view.
+//
+// It must not be modified through an `enum_name<E>&`, because assignment or
+// `swap` there changes the name and leaves the enum behind.
 template<NamedSequentialEnum E>
-class enum_named_value: enum_name<E> {
+class enum_named_value: public enum_name<E> {
   using force_tag = enum_name<E>::force_tag;
 
 public:
   using base = enum_name<E>;
+  using view_t = base::view_t;
 
 #pragma region Construction
 
@@ -649,11 +657,60 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] constexpr operator std::string_view() const noexcept {
-    return base::as_view();
-  }
-  [[nodiscard]] constexpr base as_name() const noexcept { return *this; }
   [[nodiscard]] constexpr E as_enum() const noexcept { return enum_; }
+
+#pragma endregion
+#pragma region Swap
+
+  // Swap the name and the enum together.
+  constexpr void swap(enum_named_value& other) noexcept {
+    std::swap(*this, other);
+  }
+
+#pragma endregion
+#pragma region Comparison
+
+  // Equal when both the enum and the name match.
+  //
+  // Interned names share storage, so the characters are compared only when
+  // the addresses differ.
+  [[nodiscard]] friend constexpr bool
+  operator==(const enum_named_value& l, const enum_named_value& r) noexcept {
+    return (l.enum_ == r.enum_) &&
+           (shares_storage(l, r) || (l.view() == r.view()));
+  }
+
+  // Order by enum, then by name.
+  [[nodiscard]] friend constexpr std::strong_ordering
+  operator<=>(const enum_named_value& l, const enum_named_value& r) noexcept {
+    if (const auto by_enum = l.enum_ <=> r.enum_; by_enum != 0) return by_enum;
+    if (shares_storage(l, r)) return std::strong_ordering::equal;
+    return l.view() <=> r.view();
+  }
+
+  // Against text, only the name is compared.
+  template<typename T>
+  requires std::convertible_to<const T&, view_t>
+  [[nodiscard]] friend constexpr bool operator==(const enum_named_value& l,
+      const T& r) noexcept(noexcept(view_t{r})) {
+    return (l.view() == view_t{r});
+  }
+  template<typename T>
+  requires std::convertible_to<const T&, view_t>
+  [[nodiscard]] friend constexpr auto operator<=>(const enum_named_value& l,
+      const T& r) noexcept(noexcept(view_t{r})) {
+    return l.view() <=> view_t{r};
+  }
+
+  // Against a bare enum value, only the enum is compared.
+  [[nodiscard]] friend constexpr bool
+  operator==(const enum_named_value& l, E r) noexcept {
+    return (l.enum_ == r);
+  }
+  [[nodiscard]] friend constexpr std::strong_ordering
+  operator<=>(const enum_named_value& l, E r) noexcept {
+    return l.enum_ <=> r;
+  }
 
 #pragma endregion
 protected:
@@ -664,6 +721,20 @@ protected:
 
 #pragma endregion
 private:
+#pragma region Helpers
+
+  // Whether both names are the same characters at the same address.
+  //
+  // Always false in a constant expression.
+  [[nodiscard]] static constexpr bool shares_storage(const enum_named_value& l,
+      const enum_named_value& r) noexcept {
+    // The addresses of two string literals are not permitted to be compared
+    // in a constant expression.
+    if consteval { return false; }
+    return l.identical(r.view());
+  }
+
+#pragma endregion
 #pragma region Data members
 
   E enum_{};
@@ -681,7 +752,7 @@ namespace details {
 //
 // Segments are stored in ascending, non-overlapping order, so a slice's offset
 // is the running sum of the preceding segments' lengths. A dense registration
-// is a single segment; a sparse one breaks the runs apart at the gaps, sizing
+// is a single segment. A sparse one breaks the runs apart at the gaps, sizing
 // the packed array to the named count, not the value range.
 template<std::integral U>
 struct enum_segment {
@@ -712,17 +783,18 @@ template<meta::fixed_string names>
 }
 
 // Parse the segmented registration string into packed names plus a segment
-// table.
+// table. Each '|'-delimited segment is `start,name,name,...`.
 //
-// Each '|'-delimited segment is `start,name,name,...`: the first comma-field
-// is the absolute start value and the rest are names, taken verbatim. An empty
-// field is an empty name. Segments must ascend, and each segment's start must
-// exceed the previous segment's last value by at least four, leaving at least
-// three unnamed values between them; runs any closer are rejected and should
-// be merged into one segment, using empty names for the gap, since a one- or
-// two-value gap costs about as much as the empty names while a new segment
-// also pays for its start value and the '|'. `min` and `max` are derived from
-// them. The packed names are views into `Nulled`.
+// The first comma-field is the absolute start value and the rest are names,
+// taken verbatim. An empty field is an empty name. Segments must ascend, and
+// each segment's start must exceed the previous segment's last value by at
+// least four, leaving at least three unnamed values between them.
+//
+// Runs any closer are rejected and should be merged into one segment, using
+// empty names for the gap, since a one- or two-value gap costs about as much
+// as the empty names while a new segment also pays for its start value and the
+// '|'. `min` and `max` are derived from them. The packed names are views into
+// `Nulled`.
 template<meta::fixed_string names, std::integral U, size_t NameCount,
     size_t SegCount, meta::fixed_string Nulled = make_nulled<names>()>
 [[nodiscard]] consteval auto parse_segmented_names() {
@@ -848,7 +920,7 @@ struct sequence_enum_names_spec
 
   // Map a candidate name to the registry's own copy of it, or an empty view if
   // it is not a registered name. Canonicalizes (interns) so the result points
-  // into `names` rather than at the caller's buffer; emptiness doubles as the
+  // into `names` rather than at the caller's buffer. Emptiness doubles as the
   // "not a name" test. Names only; never interprets numeric text.
   [[nodiscard]] constexpr cstring_view intern_name(
       std::string_view sv) const noexcept {
@@ -882,7 +954,7 @@ struct sequence_enum_names_spec
 //
 // The list must be a string literal. Names are taken verbatim: no whitespace
 // is trimmed, and there are no special placeholder characters. An empty field
-// has no name, and so does any value outside the named range; in both cases
+// has no name, and so does any value outside the named range. In both cases
 // the numeric value is printed instead.
 //
 // In the dense form, the names are a single comma-delimited list indexed from
@@ -893,8 +965,8 @@ struct sequence_enum_names_spec
 // In the segmented form, a '|' separates two or more segments (with no leading
 // or trailing '|'), listed in ascending order, with each segment's start at
 // least four greater than the previous segment's last value (closer runs are a
-// compile-time error: merge them into one segment, using empty names for the
-// gap).
+// compile-time error, so merge them into one segment, using empty names for
+// the gap).
 //
 // Each segment's first comma-field is its absolute start value and the rest
 // are names. This compacts a sparse enum, because the gaps between segments

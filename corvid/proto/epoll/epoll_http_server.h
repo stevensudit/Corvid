@@ -36,6 +36,7 @@
 #include "../../concurrency/timer_fuse.h"
 #include "../../containers/core/scoped_value.h"
 #include "../../containers/core/hash_combiner.h"
+#include "../../meta/passkey.h"
 #include "epoll_loop.h"
 #include "epoll_http_transaction.h"
 #include "epoll_stream_conn.h"
@@ -47,21 +48,21 @@ using namespace std::chrono_literals;
 #pragma region http_phase
 // Connection lifecycle phase for an accepted HTTP connection.
 //
-// `request_line` -- seeking `"\r\n"` for the request line. Empty blocks
+// `request_line`    seeking `"\r\n"` for the request line. Empty blocks
 //                   (leading bare CRLFs) are silently skipped per RFC 9112
 //                   section 2.2. A non-empty block is passed to
 //                   `request_head::parse`; HTTP/0.9 dispatches
 //                   immediately, HTTP/1.x transitions to `header_lines`.
-// `header_lines` -- seeking `"\r\n\r\n"` for the entire header block. A
-//                   non-empty block is fed to `http_headers::add_lines`; if
+// `header_lines`    seeking `"\r\n\r\n"` for the entire header block. A
+//                   non-empty block is fed to `http_headers::add_lines`. If
 //                   the input starts with `"\r\n"` (blank line immediately
 //                   after the request line, no headers), the terminator is
 //                   consumed directly and the request is dispatched.
-// `body`         -- reading the request body; active read transaction is
+// `body`            reading the request body. Active read transaction is
 //                   called with each new `on_data` arrival via `handle_body`.
-// `response`     -- writing the response; active write transaction is called
+// `response`        writing the response. Active write transaction is called
 //                   with each `on_drain` via `handle_drain`.
-// `done`         -- terminal state; a response has been queued and the write
+// `done`            terminal state; a response has been queued and the write
 //                   side of the socket will be closed once it completes. In
 //                   the meantime, incoming bytes are silently ignored so the
 //                   send queue can drain without triggering a TCP RST.
@@ -82,7 +83,7 @@ struct host_path {
 };
 
 // Key for `epoll_http_server` route registration. `hostname` is matched
-// against the `Host` request header; an empty `hostname` matches any host.
+// against the `Host` request header, and an empty `hostname` matches any host.
 // `base_path` is the leading path component extracted from the request target
 // (e.g., `"/api"` from `"/api/v2"`) and must be at least `"/"`.
 struct host_path_key {
@@ -158,7 +159,7 @@ class epoll_http_server
 #pragma region Types
   // State associated with each accepted connection, stored in the
   // `epoll_stream_conn` via `epoll_stream_conn_with_state`. All fields are
-  // mutated on the epoll loop thread; no locking is needed.
+  // mutated on the epoll loop thread, so no locking is needed.
   struct http_conn_state {
     // Note: Ordering was chosen to improve packing, not based on logic.
 
@@ -180,7 +181,7 @@ class epoll_http_server
     uint8_t leading_crlf_count{}; // bare CRLFs skipped before request line
 
     // Reentrancy guard for `drain_transaction`. Set while a drain is in
-    // progress; a reentrant entry (triggered via `notify_drained` firing
+    // progress. A reentrant entry (triggered via `notify_drained` firing
     // from within `conn.send`) returns immediately so the outer call can
     // advance the queue pointer safely.
     bool draining_{};
@@ -189,7 +190,7 @@ class epoll_http_server
   using conn_t = epoll_stream_conn_with_state<http_conn_state>;
   using conn_ptr_t = epoll_stream_conn_ptr_with<conn_t>;
   using timer_fuse_t = timer_fuse<epoll_stream_conn>;
-  enum class allow : bool { ctor };
+  using mint = passkey<epoll_http_server>;
 
 public:
   using duration_t = timing_wheel::duration_t;
@@ -204,7 +205,7 @@ public:
   //
   // `configure` is called after the loop and wheel are ready but before the
   // server begins accepting connections. Route registration via `add_route`
-  // must occur inside this callback; calling `add_route` after `create`
+  // must occur inside this callback. Calling `add_route` after `create`
   // returns is not safe because the server is already live.
   //
   // If `loop` is non-null, the server shares it; otherwise it constructs
@@ -218,7 +219,7 @@ public:
       const configure_fn& configure, epoll_loop_ptr loop = nullptr,
       timing_wheel_ptr wheel = nullptr, duration_t request_timeout = 30s,
       duration_t write_timeout = 5s) {
-    auto self = std::make_shared<epoll_http_server>(allow::ctor);
+    auto self = std::make_shared<epoll_http_server>(mint{});
 
     // Get an epoll loop.
     if (!loop) {
@@ -257,12 +258,12 @@ public:
 
     self->configured_ = true;
 
-    // Start listening. Use `weak_ptr` to avoid a reference cycle:
+    // Start listening. Use `weak_ptr` to avoid a reference cycle.
     // `epoll_http_server` owns the loop, which owns the listener registration,
-    // which holds a copy of these handlers; and accepted connections get
-    // copies, too. A `shared_ptr` capture would prevent the
-    // `epoll_http_server` destructor from ever firing, so the background
-    // threads would never stop. Ask me how I know.
+    // which holds a copy of these handlers. Accepted connections get copies,
+    // too. A `shared_ptr` capture would prevent the `epoll_http_server`
+    // destructor from ever firing, so the background threads would never stop.
+    // Ask me how I know.
     std::weak_ptr<epoll_http_server> weak_self{self};
     self->listener_ = conn_ptr_t::listen(self->loop_, endpoint,
         {.on_data =
@@ -307,14 +308,14 @@ public:
   // Register `factory` for the route identified by `key`.
   //
   // The `hostname` field is matched against the `Host` request header's
-  // `uri-host`; any `:port` suffix in the header is ignored, and an empty
+  // `uri-host`. Any `:port` suffix in the header is ignored, and an empty
   // `hostname` matches any host. The `base_path` field is the leading path
   // component (e.g., `"/api"` from `"/api/v2"`); `"/"` acts as a host-scoped
   // catch-all for unmatched paths. Replaces any existing registration for the
   // same key.
   //
   // Must be called only from within the `configure` callback passed to
-  // `create`; returns `false` if the server has already started accepting
+  // `create`. Returns `false` if the server has already started accepting
   // connections.
   [[nodiscard]] bool
   add_route(host_path_key key, epoll_http_transaction_factory factory) {
@@ -336,19 +337,19 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  epoll_http_server(allow) {}
+  epoll_http_server(mint) {}
 
   // Drop our listener and route handlers before the implicit member
-  // destruction proceeds. Both capture `weak_ptr<epoll_http_server>`; if their
+  // destruction proceeds. Both capture `weak_ptr<epoll_http_server>`. If their
   // destruction is left to run asynchronously on the loop thread, the worker's
   // `~weak_ptr<epoll_http_server>` (which decs our control-block weak count)
   // races with our own `~enable_shared_from_this` doing the same at the end of
   // this destructor. Similarly, the timing wheel's buckets capture
-  // `weak_ptr<epoll_stream_conn>` callbacks; destroying the wheel while the
+  // `weak_ptr<epoll_stream_conn>` callbacks. Destroying the wheel while the
   // epoll worker is still dropping `shared_ptr<epoll_stream_conn>` refs in
   // `dispatch_event` would race on the connection's control block.
   //
-  // Owned-loop case (`runner_` non-empty): stop the worker via
+  // Owned-loop case (`runner_` non-empty): Stop the worker via
   // `runner_.reset`. The runner's worker performs a `use_count == 1` check on
   // `state->loop` during shutdown and `std::terminate`s if any external ref
   // remains, so we must drop `listener_`, `routes_`, and `loop_` first. The
@@ -356,12 +357,12 @@ public:
   // shutdown, so the destruction happens on the worker thread, joined by
   // `reset` before we proceed.
   //
-  // Shared-loop case (`runner_` empty): we can't stop the loop, the caller
-  // owns it. Drop `listener_` (which posts a hangup carrying its conn ref) and
-  // `routes_`, then `post_and_wait` a no-op to drain the queue. The post queue
-  // is FIFO, so the no-op runs after the hangup; the hangup itself destroys
-  // the conn in-lambda once `do_hangup` unregisters from the loop. By the time
-  // `post_and_wait` returns, the conn's handlers (and their
+  // Shared-loop case (`runner_` empty): We can't stop the loop because the
+  // caller owns it. Drop `listener_` (which posts a hangup carrying its conn
+  // ref) and `routes_`, then `post_and_wait` a no-op to drain the queue. The
+  // post queue is FIFO, so the no-op runs after the hangup. The hangup itself
+  // destroys the conn in-lambda once `do_hangup` unregisters from the loop. By
+  // the time `post_and_wait` returns, the conn's handlers (and their
   // `weak_ptr<epoll_http_server>` captures) have been destroyed on the worker
   // thread, sequenced before our own dec.
   ~epoll_http_server() {
@@ -426,8 +427,8 @@ private:
   }
 
   // Initialize the parser state and arm the initial read timeout for a
-  // freshly accepted connection. Safe to call multiple times; subsequent
-  // calls are no-ops.
+  // freshly accepted connection. Safe to call multiple times because
+  // subsequent calls are no-ops.
   //
   // Called from `handle_drain` (first writable event, before any data) and
   // from `handle_data` as a fallback, because `EPOLLIN` is dispatched before
@@ -499,10 +500,10 @@ private:
   //
   // Extracts the `base_path` from `key.base_path` directly and performs a
   // prioritized lookup:
-  //   1. `{hostname, base_path}` -- exact host + folder
-  //   2. `{hostname, "/"}` -- host-specific catch-all
-  //   3. `{"", base_path}` -- any-host folder match
-  //   4. `{"", "/"}` -- any-host catch-all
+  //   1. `{hostname, base_path}`: Exact host + folder
+  //   2. `{hostname, "/"}`: Host-specific catch-all
+  //   3. `{"", base_path}`: Any-host folder match
+  //   4. `{"", "/"}`: Any-host catch-all
   // Returns a pointer to the factory, or nullptr.
   [[nodiscard]] const epoll_http_transaction_factory* find_route(
       const host_path& key) const {
@@ -538,7 +539,7 @@ private:
           state.req.version);
 
     // CONNECT parses (authority-form) but tunneling is not implemented. The
-    // 501 forces close: a CONNECT client may pipeline tunnel bytes right
+    // 501 forces close. A CONNECT client may pipeline tunnel bytes right
     // behind the head, and those must not parse as requests on a kept-alive
     // connection.
     if (state.req.method == http_method::CONNECT)
@@ -546,15 +547,15 @@ private:
           state.req.version, http_status_code::NOT_IMPLEMENTED,
           "Not Implemented");
 
-    // A request bearing `Transfer-Encoding` cannot be processed: chunked
-    // decoding is not implemented, and when chunked is not the final coding
+    // A request bearing `Transfer-Encoding` cannot be processed. Chunked
+    // decoding is not implemented, and when chunked is not the final coding,
     // the body length cannot be determined at all.
     //
     // Chunked-final answers "501 Not Implemented" (RFC 9112 sec. 6.1: a
-    // transfer coding the server does not understand); anything else answers
+    // transfer coding the server does not understand). Anything else answers
     // "400 Bad Request" (sec. 6.3: chunked not final MUST get 400 and a closed
-    // connection). Both force close: the unread body bytes must not parse as
-    // requests on a kept-alive connection. This also disposes of the
+    // connection). Both force close because the unread body bytes must not
+    // parse as requests on a kept-alive connection. This also disposes of the
     // `Transfer-Encoding` + `Content-Length` smuggling combination (sec. 6.3),
     // since every `Transfer-Encoding` request is rejected.
     if (state.req.options.transfer_encoding) {
@@ -595,12 +596,12 @@ private:
       return send_error_response(conn, keep_alive, req_version,
           http_status_code::SERVICE_UNAVAILABLE, "Service Unavailable");
 
-    // Propagate the connection-close policy from the request headers; factory
+    // Propagate the connection-close policy from the request headers. Factory
     // code or the transaction itself may override `close_after` later.
     tx->close_after = keep_alive;
     state.pipeline.add_transaction(tx);
 
-    // First `handle_data` call: transaction sees headers via `req_` and
+    // First `handle_data` call: Transaction sees headers via `req_` and
     // whatever body bytes are already in the receive buffer. `view` is
     // passed by reference so the outer parsing loop in `handle_data` can
     // continue after this call (allowing pipelining).
@@ -625,7 +626,7 @@ private:
     if (state.pipeline.get_writer() == tx)
       if (!drain_transaction(conn)) return after_response::close;
 
-    // The transaction owns the close decision via `close_after`; always
+    // The transaction owns the close decision via `close_after`. Always
     // report keep-alive here so callers do not prematurely enter close phase.
     return after_response::keep_alive;
   }
@@ -746,7 +747,7 @@ private:
   // Send an error response and close the connection after a header-block
   // parse failure.
   //
-  // The default 400 covers malformed field lines; the header caps (block
+  // The default 400 covers malformed field lines. The header caps (block
   // bytes, field lines) pass "431 Request Header Fields Too Large" instead
   // (RFC 6585 sec. 5).
   [[nodiscard]] std::optional<bool>
@@ -790,7 +791,7 @@ private:
       if (!lines_ok) {
         // A status latched by the headers (the field-line cap's 431)
         // outranks the generic malformed 400. Each latched code is mapped to
-        // its phrase here; an unmapped one falls back to the 400 default.
+        // its phrase here. An unmapped one falls back to the 400 default.
         const auto latched = state.req.headers.reject_status();
         if (latched == http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE)
           return reject_header_block(conn, latched,
@@ -833,7 +834,7 @@ private:
     input = {};
     if (state.phase != http_phase::body) {
       // Transaction released the input immediately (no body or fully
-      // consumed); reset sentinel for the next request line.
+      // consumed). Reset sentinel for the next request line.
       state.parser_state =
           terminated_text_parser::state{"\r\n", max_request_line_bytes};
       state.phase = http_phase::request_line;
@@ -862,7 +863,7 @@ private:
     auto* reader = state.pipeline.get_reader().get();
     assert(reader);
 
-    // Deliver the full available buffer to the transaction; it controls
+    // Deliver the full available buffer to the transaction. It controls
     // how much it consumes via `epoll_recv_buffer_view`.
     const auto sc = reader->handle_data(view);
 
@@ -871,7 +872,7 @@ private:
     input = {};
     if (sc == stream_claim::claim) return true;
 
-    // The transaction released the input stream; transition back to
+    // The transaction released the input stream. Transition back to
     // `request_line` phase and re-sync `input` from the view so the outer
     // loop parses any remaining buffered bytes as the next request.
     state.pipeline.next_reader();
@@ -885,13 +886,13 @@ private:
   // Handle incoming data for an accepted connection.
   //
   // Implements an explicit state machine driven by `state.phase`. In the
-  // `request_line` phase the parser uses `"\r\n"` as its sentinel; empty
+  // `request_line` phase the parser uses `"\r\n"` as its sentinel. Empty
   // blocks (leading bare CRLFs) are skipped and a non-empty block is the
-  // request line. In the `header_lines` phase the parser uses `"\r\n\r\n"`
-  // as its sentinel so the entire header block is read at once; if the input
-  // starts with `"\r\n"` (no headers) the terminator is consumed directly.
+  // request line. In the `header_lines` phase, the parser uses `"\r\n\r\n"`
+  // as its sentinel so the entire header block is read at once. If the input
+  // starts with `"\r\n"` (no headers), the terminator is consumed directly.
   // The loop continues to process all complete blocks present in the receive
-  // buffer, providing pipelining: multiple queued requests are handled in a
+  // buffer, providing pipelining. Multiple queued requests are handled in a
   // single `on_data` call, and `epoll_stream_conn::send` FIFO ordering
   // guarantees response order.
   [[nodiscard]] bool
@@ -924,7 +925,7 @@ private:
       // which is independent of this read path. Nothing useful can be done
       // with incoming bytes, so we drop them and let the queue finish.
       case http_phase::done:
-        // Ignore trailing bytes; let the send queue drain cleanly.
+        // Ignore trailing bytes. Let the send queue drain cleanly.
         return true;
       }
     }
@@ -937,10 +938,10 @@ private:
 
   // Maximum bytes for a request line. All three request-line parser sites
   // (fresh connection plus the two pipelined next-request resets) must share
-  // this limit; overflow is a bare hangup.
+  // this limit. Overflow is a bare hangup.
   static constexpr auto max_request_line_bytes = 8192UZ;
 
-  // Maximum bytes for a full header block; overflow answers 431. Equal to
+  // Maximum bytes for a full header block. Overflow answers 431. Equal to
   // the request-line limit today, but semantically distinct.
   static constexpr auto max_header_block_bytes = 8192UZ;
 

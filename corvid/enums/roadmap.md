@@ -43,3 +43,13 @@ sequence registrations against nine bitmask files.
   attach multiple names to a slot, plus a standalone sorted `{name, value}`
   reverse array (which defeats the compact packed form). Deferred; today one
   name per value, chosen at registration.
+- Splitting `enum_named_value` from `enum_name`: deferred 2026-11-26 as out of
+  scope for the string-view review. Today the former derives publicly from the
+  latter, so the string-view wrapper's `child_t` is `enum_name`, and an
+  assignment or `swap` through an `enum_name&` changes the name apart from its
+  enum (the class comment states this as a precondition). The fix is a third
+  class holding the shared parts as a CRTP layer that both inherit, the shape
+  `interned_string_view_wrapper` already has. A named value would then need a
+  by-value conversion to pass where a name is wanted. The HTTP/3 code uses
+  both types and builds only on Linux, so the work belongs in the Linux
+  environment.

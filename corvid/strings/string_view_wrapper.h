@@ -18,11 +18,13 @@
 #include <cassert>
 #include <concepts>
 #include <format>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <optional>
 #include <ostream>
 #include <ranges>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -33,6 +35,12 @@
 namespace corvid { inline namespace stringviewwrapper {
 
 #pragma region string_view_wrapper
+
+// Whether `T` declares `compares_by_identity`, opting out of the content
+// comparison the wrapper family provides by default and selecting the identity
+// hash.
+template<typename T>
+concept IdentityCompared = requires { requires T::compares_by_identity; };
 
 // String view wrapper
 //
@@ -47,13 +55,12 @@ namespace corvid { inline namespace stringviewwrapper {
 // `child_t` is the concrete class that inherits this base (the curiously
 // recurring parameter), and `char_t` selects the character type. Children
 // include `opt_string_view` (unconstrained) and `cstring_view` (guarantees
-// zero termination); `enum_name` is another example, outside of the `strings`
-// namespace.
+// zero termination).
 //
 // The split between base and child is deliberate:
 //
 // - Read and search operations take anything viewable as `std::string_view`
-//   and live here; so does `same`, which imposes this null-vs-empty regime
+//   and live here. So does `same`, which imposes this null-vs-empty regime
 //   on any view.
 // - Operations that hand back a value keep the `child_t` type rather than
 //   degrading to `std::string_view` (`value`, the child-returning `value_or`,
@@ -72,6 +79,12 @@ public:
   using view_t = std::basic_string_view<char_t>;
 
   using traits_type = view_t::traits_type;
+
+  // A string over `char_t` with the view's traits and any allocator. Children
+  // accept every allocator this way, and no other traits.
+  template<typename Alloc = std::allocator<char_t>>
+  using string_t = std::basic_string<char_t, traits_type, Alloc>;
+
   using value_type = view_t::value_type;
   using pointer = view_t::pointer;
   using const_pointer = view_t::const_pointer;
@@ -118,47 +131,56 @@ public:
     return sv_.copy(dest, count, pos);
   }
 
-  // Not `noexcept`: the position-taking overloads throw `std::out_of_range`.
+  // Each forwards to the `std::basic_string_view` overload its arguments
+  // select, and is `noexcept` exactly when that overload is.
   template<typename... Args>
-  [[nodiscard]] constexpr auto compare(Args&&... args) const {
+  [[nodiscard]] constexpr auto compare(Args&&... args) const
+      noexcept(noexcept(sv_.compare(std::forward<Args>(args)...))) {
     return sv_.compare(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto find(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find(Args&&... args) const
+      noexcept(noexcept(sv_.find(std::forward<Args>(args)...))) {
     return sv_.find(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto rfind(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto rfind(Args&&... args) const
+      noexcept(noexcept(sv_.rfind(std::forward<Args>(args)...))) {
     return sv_.rfind(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto find_first_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_first_of(Args&&... args) const
+      noexcept(noexcept(sv_.find_first_of(std::forward<Args>(args)...))) {
     return sv_.find_first_of(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto find_last_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_last_of(Args&&... args) const
+      noexcept(noexcept(sv_.find_last_of(std::forward<Args>(args)...))) {
     return sv_.find_last_of(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto
-  find_first_not_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_first_not_of(Args&&... args) const
+      noexcept(noexcept(sv_.find_first_not_of(std::forward<Args>(args)...))) {
     return sv_.find_first_not_of(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto
-  find_last_not_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_last_not_of(Args&&... args) const
+      noexcept(noexcept(sv_.find_last_not_of(std::forward<Args>(args)...))) {
     return sv_.find_last_not_of(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto starts_with(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto starts_with(Args&&... args) const
+      noexcept(noexcept(sv_.starts_with(std::forward<Args>(args)...))) {
     return sv_.starts_with(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto ends_with(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto ends_with(Args&&... args) const
+      noexcept(noexcept(sv_.ends_with(std::forward<Args>(args)...))) {
     return sv_.ends_with(std::forward<Args>(args)...);
   }
   template<typename... Args>
-  [[nodiscard]] constexpr auto contains(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto contains(Args&&... args) const
+      noexcept(noexcept(sv_.contains(std::forward<Args>(args)...))) {
     return sv_.contains(std::forward<Args>(args)...);
   }
 
@@ -215,7 +237,7 @@ public:
     return &as_child();
   }
 
-  // Value if present, else `v`. Overloaded on the argument: a
+  // Value if present, else `v`. Overloaded on the argument. A
   // `std::string_view` fallback returns a `std::string_view`, while a
   // same-typed child fallback returns the child, so a fallback that meets the
   // child's invariants yields a result that does too.
@@ -226,7 +248,7 @@ public:
   [[nodiscard]] constexpr D value_or(const D& v) const noexcept {
     return has_value() ? as_child() : v;
   }
-  // Convert to `std::optional<child_t>`: empty when absent, else the child.
+  // Convert to `std::optional<child_t>`. Empty when absent, else the child.
   // This is a named method, not a conversion operator, because `std::optional`
   // would prefer its own constructor (wrapping the wrapper into a present
   // optional) over the operator, making the operator dead.
@@ -243,23 +265,38 @@ public:
 #pragma region Swap
 
   // Swap with another instance of the same concrete type.
-  constexpr void swap(child_t& other) noexcept { sv_.swap(other.sv_); }
+  template<std::same_as<child_t> D>
+  constexpr void swap(D& other) noexcept {
+    sv_.swap(other.sv_);
+  }
 
 #pragma endregion
 #pragma region Comparison
 
+  // Whether two views have the same address and length, without checking
+  // content.
+  [[nodiscard]] static constexpr bool identical(view_t l, view_t r) noexcept {
+    return (l.data() == r.data()) && (l.size() == r.size());
+  }
+  [[nodiscard]] constexpr bool identical(view_t v) const noexcept {
+    return identical(view(), v);
+  }
+
   // Content comparison against anything viewable as `std::string_view`. `null`
-  // and `empty` compare equal here; use `same` to tell them apart.
+  // and `empty` compare equal here; use `same` to tell them apart. A child
+  // that compares by identity opts out and supplies its own operators.
   template<typename T>
-  requires std::convertible_to<const T&, view_t>
+  requires std::convertible_to<const T&, view_t> &&
+           (!IdentityCompared<child_t>)
   [[nodiscard]] friend constexpr bool
-  operator==(const child_t& l, const T& r) noexcept {
+  operator==(const child_t& l, const T& r) noexcept(noexcept(view_t{r})) {
     return l.view() == view_t{r};
   }
   template<typename T>
-  requires std::convertible_to<const T&, view_t>
+  requires std::convertible_to<const T&, view_t> &&
+           (!IdentityCompared<child_t>)
   [[nodiscard]] friend constexpr auto
-  operator<=>(const child_t& l, const T& r) noexcept {
+  operator<=>(const child_t& l, const T& r) noexcept(noexcept(view_t{r})) {
     return l.view() <=> view_t{r};
   }
 
@@ -315,12 +352,18 @@ protected:
 #pragma endregion
 #pragma region Formatter support
 
-// Whether `T` is a concrete `string_view_wrapper` child, identified by
-// deriving from the CRTP base instantiated on itself. Gates the
-// `std::formatter` below.
+namespace details {
+// Never defined. Deduces the wrapper base of any public descendant.
+template<typename Child, CharType CharT>
+void string_view_wrapper_base(const string_view_wrapper<Child, CharT>&);
+} // namespace details
+
+// Whether `T` publicly derives from a `string_view_wrapper`, directly as a
+// child or through one. Gates the `std::formatter` and `std::hash` below.
 template<typename T>
-concept StringViewWrapperChild =
-    std::derived_from<T, string_view_wrapper<T, typename T::char_t>>;
+concept StringViewWrapperChild = requires(const T& t) {
+  details::string_view_wrapper_base(t);
+};
 
 #pragma endregion
 
@@ -347,5 +390,32 @@ template<corvid::StringViewWrapperChild W, corvid::CharType CharT>
 requires std::same_as<CharT, typename W::char_t>
 struct std::formatter<W, CharT>
     : corvid::nullable_formatter<std::basic_string_view<CharT>, CharT,
-          corvid::null_formatting::empty> {};
+          corvid::null_formatting::empty> {
+  using base = corvid::nullable_formatter<std::basic_string_view<CharT>, CharT,
+      corvid::null_formatting::empty>;
+
+  // Read through the view API, since a child may hide `operator*`.
+  template<typename FormatContext>
+  auto format(const W& w, FormatContext& ctx) const {
+    std::optional<typename W::view_t> value;
+    if (w.has_value()) value = w.view();
+    return base::format(value, ctx);
+  }
+};
+
+// Hash to match equality. A content-compared child hashes as the underlying
+// view, so it works as an unordered key and hashes the same as the
+// `std::string_view` it compares equal to, with `null` and `empty` alike. An
+// identity-compared child hashes the address alone, never the characters. Two
+// views over the same address with different lengths are unequal but may
+// share a hash.
+template<corvid::StringViewWrapperChild W>
+struct std::hash<W> {
+  [[nodiscard]] size_t operator()(const W& w) const noexcept {
+    if constexpr (corvid::IdentityCompared<W>)
+      return std::hash<const typename W::char_t*>{}(w.data());
+    else
+      return std::hash<typename W::view_t>{}(w.view());
+  }
+};
 // NOLINTEND(bugprone-std-namespace-modification)

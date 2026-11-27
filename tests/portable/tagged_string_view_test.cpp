@@ -69,8 +69,17 @@ TEST_CASE("TaggedTypeSafety", "[tagged_string_view]") {
   // It is not a `std::string_view`.
   static_assert(!std::is_same_v<alpha, std::string_view>);
 
-  // There is no view-taking assignment (would re-admit a raw view).
+  // There is no string-like assignment of any kind (each would re-admit a raw
+  // view through the implicit move assignment), while the untagged view takes
+  // them all through its implicit constructors.
   static_assert(!std::is_assignable_v<alpha&, std::string_view>);
+  static_assert(!std::is_assignable_v<alpha&, const char*>);
+  static_assert(!std::is_assignable_v<alpha&, decltype("x")>);
+  static_assert(!std::is_assignable_v<alpha&, std::string>);
+  static_assert(!std::is_assignable_v<alpha&, beta>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::string_view>);
+  static_assert(std::is_assignable_v<opt_string_view&, const char*>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::string>);
   // But same-tag copy assignment works.
   static_assert(std::is_copy_assignable_v<alpha>);
 

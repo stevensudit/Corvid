@@ -28,6 +28,7 @@
 #include "../../infra/relaxed_atomic.h"
 #include "../../containers/core/fixed_bitset.h"
 #include "../../enums.h"
+#include "../../meta/passkey.h"
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
 #include "iou_wrap.h"
@@ -48,15 +49,15 @@ namespace corvid { inline namespace proto { namespace iouring {
 // pinning overhead.
 //
 // Internally, the memory is managed as a binary buddy allocator with
-// `tier_count` tiers. Tier 0 holds blocks of `MIN_BLOCK` bytes; each higher
+// `tier_count` tiers. Tier 0 holds blocks of `MIN_BLOCK` bytes. Each higher
 // tier doubles the block size up to `SIZE` bytes at tier `tier_count - 1`. On
 // construction, the slab holds a single full-size block at the top tier.
-// Allocation splits blocks top-down on demand; freed buddies coalesce
+// Allocation splits blocks top-down on demand. Freed buddies coalesce
 // lazily (bottom-up) when a tier is exhausted.
 //
-// Zone heuristic: tiers below `tier_count / 2` keep their lowest-address
-// blocks near the head (ascending); tiers at or above keep their
-// highest-address blocks near the head (descending). Over time this clusters
+// Zone heuristic: Tiers below `tier_count / 2` keep their lowest-address
+// blocks near the head (ascending). Tiers at or above keep their
+// highest-address blocks near the head (descending). Over time, this clusters
 // small allocations at low addresses and reserves high addresses for large
 // allocations. Splits borrow from the tail of the source tier (cold end) and
 // push children in the direction appropriate to the destination tier. The goal
@@ -66,8 +67,8 @@ namespace corvid { inline namespace proto { namespace iouring {
 // Backpressure: `borrow_reader` enforces two limits:
 //   - a hard 1/4 block write reserve that read allocations cannot touch;
 //   - a 3/4 block in-flight cap on outstanding read bytes.
-// `borrow_writer` is unconstrained (it may use any available memory,
-// including the write reserve).
+// `borrow_writer` is unconstrained (it may use any available memory, including
+// the write reserve).
 //
 // `iou_buf_pool_of` is non-copyable and non-movable. The pool must outlive
 // all uses of the memory it manages, and the `buffer` objects it hands out.
@@ -85,8 +86,8 @@ class iou_buf_pool_of: public buffer_pool_base {
 
   static constexpr auto read_throttle_size = slab_size * 3 / 4;
   static constexpr auto write_reserve_size = slab_size / 4;
-  // Tier i: block size == `min_block_size << i` (tier 0 == min_block_size,
-  // tier_count-1 == slab_size).
+  // Tier i: Block size == `min_block_size << i` (tier 0 == `min_block_size`,
+  // `tier_count - 1` == `slab_size`).
   static constexpr size_t tier_count{
       std::countr_zero(slab_size / min_block_size) + 1};
 
@@ -141,9 +142,9 @@ class iou_buf_pool_of: public buffer_pool_base {
   };
 
 private:
-  // Doubly linked intrusive free-list. The head is the hot (LIFO) end:
+  // Doubly linked intrusive free-list. The head is the hot (LIFO) end, so
   // direct allocations pop from here and returned blocks push here. The tail
-  // is the deferred (cold) end: splits borrow from here, and coalesced or
+  // is the deferred (cold) end. Splits borrow from here, and coalesced or
   // freshly split blocks are pushed here so they accumulate for preferential
   // re-splitting rather than immediate reuse.
   struct free_list {
@@ -221,14 +222,14 @@ private:
 #pragma endregion
 #pragma region Construction
 
-  enum class allow : bool { ctor };
+  using mint = passkey<iou_buf_pool_of>;
 
 public:
-  // Public for `std::make_shared`; external callers must go through `create`.
+  // Public for `std::make_shared`. External callers must go through `create`.
   // Allocates and warms the backing store. Falls back to a plain
   // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
   // without huge pages configured). Throws `std::system_error` on failure.
-  explicit iou_buf_pool_of(allow) {
+  explicit iou_buf_pool_of(mint) {
     static_assert(slab_size % memory_map::default_hugepage_size == 0);
     slab_ = memory_map::create_huge(slab_size);
     if (!slab_) os_error::last().throw_if_error("mmap");
@@ -242,7 +243,7 @@ public:
 
   // Construct a heap-allocated pool owned by `std::shared_ptr`.
   [[nodiscard]] static std::shared_ptr<iou_buf_pool_of> create() {
-    return std::make_shared<iou_buf_pool_of>(allow::ctor);
+    return std::make_shared<iou_buf_pool_of>(mint{});
   }
 
   // Register the backing block as a single fixed buffer (index 0) with `ring`.
@@ -276,7 +277,7 @@ public:
 
   // Borrow a buffer for an outgoing write.
   //
-  // Not subject to read backpressure; may draw from the write reserve. Returns
+  // Not subject to read backpressure. May draw from the write reserve. Returns
   // an empty buffer if fully exhausted. Thread-safe.
   [[nodiscard]] buffer borrow_writer(block_size sz = block_size::kb004) {
     std::scoped_lock lock(mutex_);
@@ -362,9 +363,9 @@ private:
   }
 
   // Pop one block from `src` and push two half-size children to `dst`.
-  // Ascending: low-address child becomes head when `dst` is empty (for
+  // Ascending: Low-address child becomes head when `dst` is empty (for
   // small-tier allocations that cluster at low addresses).
-  // Descending (default): high-address child becomes head (for large-tier
+  // Descending (default): High-address child becomes head (for large-tier
   // allocations that cluster at high addresses).
   static void
   split_down(free_list& src, free_list& dst, bool ascending = false) noexcept {
@@ -404,13 +405,13 @@ private:
   }
 
   // Ensure `lists_[tier]` is non-empty. First attempts a top-down split from
-  // any higher tier that already has a block; falls back to a bottom-up
+  // any higher tier that already has a block. Falls back to a bottom-up
   // coalesce cascade when the pool is fragmented. Returns `false` if
   // impossible.
   [[nodiscard]] bool ensure_tier(size_t tier) noexcept {
     if (lists_[tier]) return true;
 
-    // Top-down: find the lowest non-empty higher tier and cascade splits down.
+    // Top-down: Find the lowest non-empty higher tier and cascade splits down.
     for (size_t h = tier + 1; h < tier_count; ++h) {
       if (!lists_[h]) continue;
       for (size_t t = h; t > tier; --t)
@@ -418,7 +419,7 @@ private:
       return true;
     }
 
-    // Bottom-up: cascade coalesce from tier 0 upward to fill the target.
+    // Bottom-up: Cascade coalesce from tier 0 upward to fill the target.
     for (auto t = 1UZ; t <= tier; ++t) {
       while (coalesce(lists_[t - 1], lists_[t]))
         if (lists_[tier]) return true;

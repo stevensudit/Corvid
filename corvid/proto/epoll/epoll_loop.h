@@ -44,6 +44,7 @@
 #include "../../filesys/os_event.h"
 #include "../net_socket.h"
 #include "../../meta/invoke/fixed_function.h"
+#include "../../meta/passkey.h"
 
 namespace corvid { inline namespace proto {
 
@@ -54,7 +55,7 @@ using namespace std::chrono_literals;
 // Abstract base for objects registered with `epoll_loop`. Higher-level types
 // (e.g., `epoll_stream_conn`) inherit from this and override the three event
 // methods. The default `on_error` falls through to `on_readable` so that
-// read-path code can observe EOF and errors naturally; override to change that
+// read-path code can observe EOF and errors naturally. Override to change that
 // behavior.
 //
 // The `epoll_loop` stores a `shared_ptr<epoll_io_conn>` per registration, so
@@ -95,16 +96,16 @@ private:
 // still observe closure and error transitions even when regular reads are
 // disarmed.
 //
-// Cross-thread dispatch is provided by `owner_thread_dispatcher`: `post`,
-// `execute_or_post`, `post_and_wait`, and `is_loop_thread` come from the base
-// class. The base owns the wakeup `os_event` (exposed as `wake_event`), which
-// `epoll_loop` registers with `epoll` so that posts interrupt a sleeping
-// `epoll_wait`. Posted callbacks run at the top of the next `run_once`. The
-// expected pattern is that I/O callbacks fire on the loop thread and handle
-// I/O immediately, but may hand off work to a thread pool, which uses `post`
-// to deliver results back.
+// Cross-thread dispatch is provided by `owner_thread_dispatcher` using `post`,
+// `execute_or_post`, `post_and_wait`, and `is_loop_thread`, which come from
+// the base class. The base owns the wakeup `os_event` (exposed as
+// `wake_event`), which `epoll_loop` registers with `epoll` so that posts
+// interrupt a sleeping `epoll_wait`. Posted callbacks run at the top of the
+// next `run_once`. The expected pattern is that I/O callbacks fire on the loop
+// thread and handle I/O immediately, but may hand off work to a thread pool,
+// which uses `post` to deliver results back.
 //
-// `stop` is also thread-safe: it sets `running_` (a
+// `stop` is also thread-safe. It sets `running_` (a
 // `notifiable<std::atomic_bool>`) and signals the wake `os_event` so the loop
 // exits promptly even if blocked in `epoll_wait`.
 //
@@ -119,7 +120,7 @@ private:
 // owner may destroy it from any thread. Use `epoll_loop_runner` to satisfy
 // this automatically.
 class epoll_loop: public owner_thread_dispatcher<> {
-  enum class allow : bool { ctor };
+  using mint = passkey<epoll_loop>;
 
 #pragma region Types
 public:
@@ -135,7 +136,7 @@ public:
   // Throws `std::system_error` on failure. Use `make` instead of calling this
   // directly. Per the dispatcher contract, the constructing thread becomes the
   // loop thread.
-  explicit epoll_loop(allow) : epoll_{create_epollfd()} {
+  explicit epoll_loop(mint) : epoll_{create_epollfd()} {
     // The base's `os_event` is used by `post` and `stop` to interrupt a
     // sleeping `epoll_wait` from another thread.
     epoll_event ev{.events = EPOLLIN,
@@ -149,7 +150,7 @@ public:
   epoll_loop(epoll_loop&&) = delete;
   epoll_loop& operator=(epoll_loop&&) = delete;
 
-  // Factory: create a heap-allocated `epoll_loop` managed by
+  // Factory: Create a heap-allocated `epoll_loop` managed by
   // `std::shared_ptr`. Throws `std::system_error` in the improbable event that
   // the underlying `epoll` or wake event cannot be created. Per the dispatcher
   // contract, must be called on the thread that will run the loop.
@@ -157,7 +158,7 @@ public:
   // Normally, you would want to use an `epoll_loop_runner` to create an
   // instance in a thread.
   [[nodiscard]] static std::shared_ptr<epoll_loop> make() {
-    return std::make_shared<epoll_loop>(allow::ctor);
+    return std::make_shared<epoll_loop>(mint{});
   }
 
   [[nodiscard]] std::shared_ptr<epoll_loop> self() {
@@ -213,7 +214,7 @@ public:
     for (auto ndx = 0; ndx < *available; ++ndx) {
       const auto fd = events[ndx].data.fd;
 
-      // Drain the internal wakeup handle and skip: it carries no user event.
+      // Drain the internal wakeup handle and skip. It carries no user event.
       if (fd == *wake_event()) {
         if (!wake_event().drain()) return -1;
         continue;
@@ -242,7 +243,7 @@ public:
   // then retires the dispatcher (see `owner_thread_dispatcher::retire`), so
   // the last owner may destroy the loop from any thread.
   //
-  // Terminal: call only after `run` has returned, never from a posted
+  // Terminal: Call only after `run` has returned, never from a posted
   // callback. Loop-thread-only; returns false from any other thread.
   [[nodiscard]] bool shutdown_epoll_loop() {
     if (!is_loop_thread()) return false;
@@ -257,7 +258,7 @@ public:
 public:
   // Register `conn`.
   //
-  // The initial event mask always includes `EPOLLERR | EPOLLHUP`; read and
+  // The initial event mask always includes `EPOLLERR | EPOLLHUP`. Read and
   // write readiness are controlled by `readable` and `writable`. Returns
   // false if `epoll_ctl` fails. If executed outside of loop thread, turns into
   // a `post` and returns true.
@@ -439,7 +440,7 @@ private:
     // `on_readable` calls `do_close_now` on EOF/error, and `on_error` is
     // idempotent via `open_.exchange(false)`, so calling it afterward is safe
     // even if the connection was already closed. `EPOLLRDHUP` indicates peer
-    // half-close; route it through the readable path so `handle_readable` can
+    // half-close. Route it through the readable path so `handle_readable` can
     // detect EOF via `::read` returning 0.
     if (ev & (EPOLLIN | EPOLLRDHUP)) (void)conn->on_readable();
     if (ev & (EPOLLERR | EPOLLHUP)) return conn->on_error() || true;
@@ -482,12 +483,12 @@ private:
 // The loop is constructed inside the worker thread (as required by
 // `owner_thread_dispatcher`). On the way out, the worker retires the loop
 // (via `shutdown_epoll_loop`) and drops its refs, so `~epoll_loop` normally
-// fires on the worker thread; a lingering external ref destroys the retired
+// fires on the worker thread. A lingering external ref destroys the retired
 // loop wherever it releases, which retirement makes safe.
 //
-// Shutdown ordering: call `stop` (or destroy the runner) before destroying
+// Shutdown ordering: Call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference. Pending
-// callbacks in the post queue are discarded when the thread exits; they do
+// callbacks in the post queue are discarded when the thread exits. They do
 // not fire after `stop` returns.
 class epoll_loop_runner {
 public:
@@ -597,22 +598,22 @@ private:
       // Shut down and drop the loop refs on this thread.
       //
       // Because `shutdown_epoll_loop` retires the loop, destruction is safe
-      // from any thread afterward: in the normal case `state->loop` is the
+      // from any thread afterward. In the normal case `state->loop` is the
       // last owner and `~epoll_loop` runs right here, while a lingering
       // external ref (a `weak_loop` lock in flight, or a user-held `self`
       // copy) destroys the retired loop wherever it releases.
       //
       // Order:
       //   1. Clear `raw_loop` so external lookups via the public
-      //      accessor see nullptr; in-flight callers that already
+      //      accessor see `nullptr`. In-flight callers that already
       //      loaded the pointer are responsible for not outliving the
       //      runner.
       //   2. Break ownership cycles by clearing the loop's registrations
       //      on this thread. A connection holds the loop only by reference
       //      plus a `weak_ptr`, but its handlers and state can capture
       //      `shared_ptr<epoll_loop>` copies (including promoted `weak_loop`
-      //      locks); destroying the connections here releases those refs.
-      //      This also retires the loop.
+      //      locks). Destroying the connections here releases those refs and
+      //      retires the loop.
       //   3. Drop the local `loop`, then `state->loop`.
       state->raw_loop = nullptr;
       (void)loop->shutdown_epoll_loop();

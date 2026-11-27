@@ -15,10 +15,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <concepts>
 #include <cstdint>
+#include <functional>
 #include <map>
+#include <memory_resource>
+#include <optional>
 #include <set>
 #include <span>
+#include <string>
+#include <vector>
 
 #include "corvid/strings/cstring_view.h"
 #include "corvid/meta.h"
@@ -267,19 +273,52 @@ TEST_CASE("Construction", "[CStringViewTest]") {
   }
   // Construct using UDL.
   if (true) {
-    auto a = ""_czsv;
+    auto a = ""_csv;
     CHECK(a.empty());
     CHECK_FALSE(a.null());
-    auto b = "abc"_czsv;
+    auto b = "abc"_csv;
     CHECK(b.size() == 3U);
     // Embedded zeros are permitted.
-    auto c = "abc\0def"_czsv;
+    auto c = "abc\0def"_csv;
     CHECK(c.size() == 7U);
     auto d = cstring_view(c.c_str());
     CHECK(d.size() == 3U);
-    auto e = 0_czsv;
+    auto e = 0_csv;
     CHECK(e.null());
   }
+}
+
+TEST_CASE("AllocatorAndTraits", "[CStringViewTest]") {
+  // A `basic_cstring_view` over a view with any other traits fails its
+  // static_assert ("cstring_view honors only the default char_traits").
+  // Verified by instantiating it on `std::basic_string_view<char,
+  // twin_traits>`. A fails-to-compile case cannot live in the suite.
+
+  // Any allocator converts.
+  std::pmr::string ps{"abc"};
+  cstring_view v{ps};
+  CHECK(v == "abc");
+  static_assert(std::is_convertible_v<std::pmr::string, cstring_view>);
+  static_assert(
+      std::is_convertible_v<std::optional<std::pmr::string>, cstring_view>);
+
+  // Non-default traits do not, even when they are the default's twin.
+  struct twin_traits: std::char_traits<char> {};
+  using twin_string = std::basic_string<char, twin_traits>;
+  static_assert(!std::is_constructible_v<cstring_view, twin_string>);
+
+  // The source must be a string itself. Something that only converts to one
+  // does not qualify, which also keeps out a view over a temporary.
+  struct holds_string {
+    operator const std::string&() const;
+  };
+  struct makes_string {
+    operator std::string() const;
+  };
+  static_assert(!std::is_constructible_v<cstring_view,
+      std::reference_wrapper<std::string>>);
+  static_assert(!std::is_constructible_v<cstring_view, holds_string>);
+  static_assert(!std::is_constructible_v<cstring_view, makes_string>);
 }
 
 TEST_CASE("WideConstruction", "[CStringViewTest]") {
@@ -332,10 +371,40 @@ TEST_CASE("Optional", "[CStringViewTest]") {
       std::is_constructible_v<cstring_view, std::optional<std::string_view>>);
   static_assert(
       !std::is_convertible_v<std::optional<std::string_view>, cstring_view>);
+  // A payload that `std::string_view` accepts but `cstring_view` does not is
+  // rejected at the constraint, not inside the body.
+  static_assert(!std::is_constructible_v<cstring_view,
+      std::optional<std::vector<char>>>);
+}
+
+TEST_CASE("OptionalInterface", "[CStringViewTest]") {
+  // The inherited optional interface keeps the `cstring_view` type, so the
+  // termination invariant survives `value`, `value_or`, and `as_optional`.
+  const auto v = "abc"_csv;
+  const cstring_view n;
+  CHECK(v.has_value());
+  CHECK_FALSE(n.has_value());
+  CHECK(v.value() == "abc");
+  CHECK_THROWS_AS(n.value(), std::bad_optional_access);
+  static_assert(std::same_as<decltype(v.value_or(v)), cstring_view>);
+  static_assert(std::same_as<decltype(v.value_or("x")), std::string_view>);
+  CHECK(n.value_or(v) == "abc");
+  CHECK(n.value_or("x") == "x");
+  CHECK(v.as_optional().has_value());
+  CHECK_FALSE(n.as_optional().has_value());
+  CHECK(v.as_optional()->c_str()[3] == 0);
+
+  auto a = "left"_csv;
+  auto b = "right"_csv;
+  a.swap(b);
+  CHECK(a == "right");
+  CHECK(b == "left");
+  a.reset();
+  CHECK(a.null());
 }
 
 TEST_CASE("SearchPassthrough", "[CStringViewTest]") {
-  const auto v = "abcdef"_czsv;
+  const auto v = "abcdef"_csv;
   CHECK(v.starts_with("abc"));
   CHECK_FALSE(v.starts_with("bcd"));
   CHECK(v.ends_with("def"));
@@ -343,8 +412,9 @@ TEST_CASE("SearchPassthrough", "[CStringViewTest]") {
   CHECK(v.contains("cde"));
   CHECK_FALSE(v.contains("xyz"));
 
-  // compare is not noexcept: the position-taking overloads throw a catchable
-  // std::out_of_range instead of terminating.
+  // `compare` is `noexcept` only where the underlying overload is. The
+  // position-taking overloads throw a catchable `std::out_of_range` instead of
+  // terminating.
   CHECK(v.compare("abcdef"sv) == 0);
   CHECK_THROWS_AS(v.compare(v.size() + 1, 1, "x"sv), std::out_of_range);
 }
@@ -364,13 +434,13 @@ std::string_view accept_overloaded(cstring_view) { return "csv"; }
 
 TEST_CASE("Cast", "[CStringViewTest]") {
   // Casts "up" implicitly.
-  CHECK("abc"_czsv == "abc"_czsv);
+  CHECK("abc"_csv == "abc"_csv);
   CHECK(accept_string_view("abc"sv) == "abc");
   auto abc_str = "abc"s;
   CHECK(accept_string_view(abc_str) == "abc");
-  CHECK(accept_string_view("abc"_czsv) == "abc");
+  CHECK(accept_string_view("abc"_csv) == "abc");
 
-  CHECK(accept_cstring_view("abc"_czsv) == "abc");
+  CHECK(accept_cstring_view("abc"_csv) == "abc");
   CHECK(accept_cstring_view(abc_str) == "abc");
 
   // But not down.
@@ -378,7 +448,7 @@ TEST_CASE("Cast", "[CStringViewTest]") {
 
   // Handles overloading just fine.
   CHECK(accept_overloaded("abc"sv) == "sv");
-  CHECK(accept_overloaded("abc"_czsv) == "csv");
+  CHECK(accept_overloaded("abc"_csv) == "csv");
 
   // But not this ambiguity. Need to either cast here or add a specific
   // overload.
@@ -388,7 +458,7 @@ TEST_CASE("Cast", "[CStringViewTest]") {
   CHECK_FALSE((std::is_same_v<cstring_view, std::string_view>));
   CHECK(StringViewConvertible<cstring_view>);
 
-  auto csv = "abc"_czsv;
+  auto csv = "abc"_csv;
   std::string_view sv = csv;
   accept_string_view_ref(sv);
   // But not this, so we can maintain our invariant.
@@ -422,27 +492,27 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   CHECK("abc"sv == "abc"s);
 
   // csv
-  CHECK("abc"_czsv == "abc");
-  CHECK("abc"_czsv == "abc"sv);
-  CHECK("abc"_czsv == "abc"s);
-  CHECK("abc"_czsv == "abc"_czsv);
+  CHECK("abc"_csv == "abc");
+  CHECK("abc"_csv == "abc"sv);
+  CHECK("abc"_csv == "abc"s);
+  CHECK("abc"_csv == "abc"_csv);
 
   // commutative
-  CHECK("abc" == "abc"_czsv);
-  CHECK("abc"_czsv == "abc");
+  CHECK("abc" == "abc"_csv);
+  CHECK("abc"_csv == "abc");
 
-  CHECK("abc"sv == "abc"_czsv);
-  CHECK("abc"_czsv == "abc"sv);
+  CHECK("abc"sv == "abc"_csv);
+  CHECK("abc"_csv == "abc"sv);
 
-  CHECK("abc"s == "abc"_czsv);
-  CHECK("abc"_czsv == "abc"s);
+  CHECK("abc"s == "abc"_csv);
+  CHECK("abc"_csv == "abc"s);
 
   // null and empty.
-  constexpr auto e = ""_czsv;
-  constexpr auto n = 0_czsv;
+  constexpr auto e = ""_csv;
+  constexpr auto n = 0_csv;
 
-  // `0_czsv` is consteval, so `n` is computed at compile time; a non-zero
-  // literal like `1_czsv` would not compile.
+  // `0_csv` is consteval, so `n` is computed at compile time. A non-zero
+  // literal like `1_csv` would not compile.
   if constexpr (n.empty()) { CHECK(true); }
 
   auto csv = cstring_view{"abc"};
@@ -488,13 +558,13 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   i = !n ? 24 : 42;
   CHECK(i == 24);
 
-  CHECK("abc"_czsv == "abc"_czsv);
-  CHECK(("abc"_czsv) < ("def"_czsv));
+  CHECK("abc"_csv == "abc"_csv);
+  CHECK(("abc"_csv) < ("def"_csv));
 
   // Hash test.
   std::set<cstring_view> ss;
-  ss.insert("abc"_czsv);
-  CHECK(ss.contains("abc"_czsv));
+  ss.insert("abc"_csv);
+  CHECK(ss.contains("abc"_csv));
 }
 
 #pragma endregion

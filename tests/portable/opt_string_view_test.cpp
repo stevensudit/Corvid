@@ -15,13 +15,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
+#include <memory_resource>
+#include <optional>
 #include <set>
 #include <span>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
+#include "corvid/strings/cstring_view.h"
+#include "corvid/strings/interned_string_view.h"
 #include "corvid/strings/opt_string_view.h"
 #include "corvid/meta.h"
 #include "catch2_main.h"
@@ -303,6 +311,34 @@ TEST_CASE("Optional", "[OptStringViewTest]") {
 #pragma endregion
 #pragma region Workalike
 
+TEST_CASE("AllocatorAndTraits", "[OptStringViewTest]") {
+  // Any allocator converts, directly and through an optional.
+  std::pmr::string ps{"abc"};
+  opt_string_view v{ps};
+  CHECK(v == "abc");
+  static_assert(std::is_convertible_v<std::pmr::string, opt_string_view>);
+  static_assert(
+      std::is_convertible_v<std::optional<std::pmr::string>, opt_string_view>);
+
+  // Non-default traits do not, even when they are the default's twin.
+  struct twin_traits: std::char_traits<char> {};
+  using twin_string = std::basic_string<char, twin_traits>;
+  static_assert(!std::is_constructible_v<opt_string_view, twin_string>);
+
+  // The source must be a string itself. Something that only converts to one
+  // does not qualify, which also keeps out a view over a temporary.
+  struct holds_string {
+    operator const std::string&() const;
+  };
+  struct makes_string {
+    operator std::string() const;
+  };
+  static_assert(!std::is_constructible_v<opt_string_view,
+      std::reference_wrapper<std::string>>);
+  static_assert(!std::is_constructible_v<opt_string_view, holds_string>);
+  static_assert(!std::is_constructible_v<opt_string_view, makes_string>);
+}
+
 TEST_CASE("Workalike", "[OptStringViewTest]") {
   // Verify optional-like interface.
   if (true) {
@@ -432,6 +468,68 @@ TEST_CASE("Sanity", "[OptStringViewTest]") {
   CHECK(osv == "world");
   osv = "bird"_optsv;
   CHECK(osv == "bird");
+}
+
+#pragma endregion
+#pragma region Assignment
+
+using user_view = tagged_string_view<struct user_tag>;
+using species_view = interned_string_view<struct species_tag>;
+
+TEST_CASE("Assignment", "[OptStringViewTest]") {
+  // What the constructors accept assigns through them, without ambiguity.
+  static_assert(std::is_assignable_v<opt_string_view&, std::string_view>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::string>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::pmr::string>);
+  static_assert(std::is_assignable_v<opt_string_view&, const char*>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::nullptr_t>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::nullopt_t>);
+  static_assert(
+      std::is_assignable_v<opt_string_view&, std::optional<std::string>>);
+
+  // Anything else that converts to a view assigns too.
+  static_assert(std::is_assignable_v<opt_string_view&, cstring_view>);
+  static_assert(std::is_assignable_v<opt_string_view&, user_view>);
+
+  // An interned view converts only explicitly, so it does not.
+  static_assert(!std::is_assignable_v<opt_string_view&, species_view>);
+
+  // A tagged view takes a raw view only through its explicit constructor.
+  static_assert(std::is_assignable_v<user_view&, user_view>);
+  static_assert(!std::is_assignable_v<user_view&, std::string_view>);
+  static_assert(!std::is_assignable_v<user_view&, cstring_view>);
+  static_assert(!std::is_assignable_v<user_view&, opt_string_view>);
+
+  // Wide views follow the same rules, null included.
+  static_assert(std::is_assignable_v<opt_wstring_view&, std::nullptr_t>);
+  static_assert(std::is_assignable_v<opt_wstring_view&, std::wstring>);
+  static_assert(std::is_assignable_v<opt_wstring_view&, wcstring_view>);
+  static_assert(!std::is_assignable_v<opt_wstring_view&, cstring_view>);
+
+  if (true) {
+    const std::string s{"abc"};
+    opt_string_view o;
+    o = s;
+    CHECK(o.identical(s));
+
+    const cstring_view c{"def"};
+    o = c;
+    CHECK(o.identical(c));
+
+    o = user_view{"ghi"};
+    CHECK(o == "ghi");
+
+    o = nullptr;
+    CHECK(o.null());
+  }
+  if (true) {
+    opt_wstring_view w{L"abc"};
+    w = wcstring_view{L"def"};
+    CHECK(w == L"def");
+
+    w = nullptr;
+    CHECK(w.null());
+  }
 }
 
 #pragma endregion

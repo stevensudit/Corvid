@@ -17,6 +17,7 @@
 #pragma once
 #include "strings/string_literals.h"
 #include "strings/cstring_view.h"
+#include "strings/interned_string_view.h"
 #include "strings/fixed_string_utils.h"
 #include "strings/cases.h"
 #include "strings/locating.h"

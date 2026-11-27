@@ -16,6 +16,8 @@
 // limitations under the License.
 #pragma once
 #include <cstdlib>
+#include <iterator>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -31,8 +33,8 @@ inline namespace cstringview {
 //
 // This header defines `basic_cstring_view`, a `std::string_view` that also
 // guarantees zero termination, along with its per-character-type aliases
-// (`cstring_view`, `wcstring_view`, and so on) and the `_czsv` family of UDLs
-// in the `literals` namespace. See the class comment below for the rationale
+// (`cstring_view`, `wcstring_view`, and so on) and the `_csv` UDL in the
+// `literals` namespace. See the class comment below for the rationale
 // and invariants.
 
 #pragma region basic_cstring_view
@@ -52,6 +54,12 @@ inline namespace cstringview {
 // Like a `std::string`, the terminator is not included in the `size` but is
 // guaranteed to be there after the last character returned from `c_str` (which
 // never returns `nullptr`).
+//
+// Also like a `std::string`, embedded zeros are permitted. The only guarantee
+// is that the character at `size` is a terminator, so a view holding an
+// embedded zero reads shorter through `c_str` than `size` reports, just like
+// a `std::string` value with embedded zeros cycled through `c_str` and back
+// loses length.
 //
 // Like a `std::string_view`, `data` sometimes returns `nullptr` when `size` is
 // 0. When it's not `nullptr`, then (as in `std::string`) the terminator is
@@ -80,7 +88,7 @@ inline namespace cstringview {
 // explicitly cast by calling `view`).
 //
 // The most convenient way to declare a `constexpr cstring_view` is with a
-// literal using the `_czsv` UDL.
+// literal using the `_csv` UDL.
 //
 // The `substr` and `remove_suffix` functions cannot be supported because they
 // would violate the termination invariant. The workaround is to copy to
@@ -95,20 +103,29 @@ inline namespace cstringview {
 // returns an empty, terminated string but `data` returns `nullptr`.
 //
 // This revanchist implementation is based closely on Andrew Tomazos' wrongly
-// rejected ANSI committee proposal.
+// rejected ISO WG21 committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
+//
+// P3655 brought the issue back to life, first as `zstring_view` and then
+// renamed to `cstring_view`.
+// https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2026/p3655r6.html
 template<typename T = std::string_view>
 class basic_cstring_view final
     : public string_view_wrapper<basic_cstring_view<T>,
           typename T::value_type> {
   using base =
       string_view_wrapper<basic_cstring_view<T>, typename T::value_type>;
+  static_assert(std::same_as<typename T::traits_type,
+                    std::char_traits<typename T::value_type>>,
+      "cstring_view honors only the default char_traits");
 
 #pragma region Member types
 public:
   using view_t = base::view_t;
   using char_t = view_t::value_type;
+  template<typename Alloc>
+  using string_t = base::template string_t<Alloc>;
   using size_type = base::size_type;
   using const_pointer = base::const_pointer;
   using base::npos;
@@ -120,10 +137,12 @@ public:
   //
   // Always works.
   constexpr basic_cstring_view() noexcept = default;
+  // Use `= nullptr`, not `= 0`, to avoid ambiguity.
   constexpr basic_cstring_view(std::nullptr_t) noexcept {}
   constexpr basic_cstring_view(std::nullopt_t) noexcept {}
 
-  constexpr basic_cstring_view(const std::basic_string<char_t>& s) noexcept
+  template<typename Alloc>
+  constexpr basic_cstring_view(const string_t<Alloc>& s) noexcept
       : base{view_t{s}} {}
 
   // Allows `nullptr`.
@@ -147,7 +166,7 @@ public:
   // Optional as null. Explicit exactly when construction from `U` itself
   // would be, since a risky payload stays risky inside an `optional`.
   template<typename U>
-  requires std::is_constructible_v<view_t, U>
+  requires std::is_constructible_v<basic_cstring_view, const U&>
   constexpr explicit(!std::is_convertible_v<const U&, basic_cstring_view>)
       basic_cstring_view(const std::optional<U>& opt)
       : basic_cstring_view{opt.has_value() ? basic_cstring_view{*opt}
@@ -159,7 +178,7 @@ public:
   // Safe because trimming the front keeps the terminator at the end.
   constexpr void remove_prefix(size_type n) { this->sv_.remove_prefix(n); }
 
-  // `remove_suffix` and `substr` are omitted: they would break the termination
+  // `remove_suffix` and `substr` are omitted. They would break the termination
   // invariant unless the cut happened to land on the terminator.
 
 #pragma endregion
@@ -209,45 +228,37 @@ namespace literals {
 #pragma region UDL
 
 // basic_cstring_view literals.
-consteval cstring_view operator""_czsv(const char* ps, size_t n) {
+//
+// A literal carries its terminator at `ps[n]`, so the checked constructor
+// never throws here.
+// NOLINTBEGIN(bugprone-exception-escape)
+consteval cstring_view operator""_csv(const char* ps, size_t n) noexcept {
   return cstring_view{std::string_view{ps, n + 1}};
 }
-consteval wcstring_view operator""_wczsv(const wchar_t* ps, size_t n) {
+consteval wcstring_view operator""_csv(const wchar_t* ps, size_t n) noexcept {
   return wcstring_view{std::wstring_view{ps, n + 1}};
 }
-consteval u8cstring_view operator""_u8csv(const char8_t* ps, size_t n) {
+consteval u8cstring_view operator""_csv(const char8_t* ps, size_t n) noexcept {
   return u8cstring_view{std::u8string_view{ps, n + 1}};
 }
-consteval u16cstring_view operator""_u16csv(const char16_t* ps, size_t n) {
+consteval u16cstring_view
+operator""_csv(const char16_t* ps, size_t n) noexcept {
   return u16cstring_view{std::u16string_view{ps, n + 1}};
 }
-consteval u32cstring_view operator""_u32csv(const char32_t* ps, size_t n) {
+consteval u32cstring_view
+operator""_csv(const char32_t* ps, size_t n) noexcept {
   return u32cstring_view{std::u32string_view{ps, n + 1}};
 }
+// NOLINTEND(bugprone-exception-escape)
 
-// Null literal; must pass 0.
-consteval cstring_view operator""_czsv(unsigned long long zero_only) {
+// Null literal for `cstring_view` only; must pass 0.
+consteval cstring_view operator""_csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range{"cstring_view not zero"};
   return cstring_view{};
 }
-consteval wcstring_view operator""_wczsv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range{"wcstring_view not zero"};
-  return wcstring_view{};
-}
-consteval u8cstring_view operator""_u8csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range{"u8cstring_view not zero"};
-  return u8cstring_view{};
-}
-consteval u16cstring_view operator""_u16csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range{"u16cstring_view not zero"};
-  return u16cstring_view{};
-}
-consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range{"u32cstring_view not zero"};
-  return u32cstring_view{};
-}
 
-// Environment.
+// Environment variable, viewed in place. A later `setenv` or `putenv`
+// invalidates it.
 inline cstring_view operator""_env(const char* ps, size_t) noexcept {
   PRAGMA_DIAG(push)
   PRAGMA_IGNORED("-Wdeprecated-declarations")
