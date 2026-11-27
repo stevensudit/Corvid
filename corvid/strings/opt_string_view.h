@@ -129,6 +129,24 @@ public:
       : base{os ? view_t{*os} : view_t{}} {}
 
 #pragma endregion
+#pragma region Assignment
+
+  // Assign from anything viewable that the constructors do not accept, such
+  // as another wrapper.
+  //
+  // A source the constructors accept assigns through them instead, so the two
+  // routes never compete. This exists only for the untagged form. A tagged
+  // view admits a raw view only through its explicit constructor.
+  template<typename T>
+  requires(!tagged) && std::convertible_to<const T&, view_t> &&
+          (!std::convertible_to<const T&, basic_opt_string_view>)
+  constexpr basic_opt_string_view&
+  operator=(const T& r) noexcept(noexcept(view_t{r})) {
+    base::sv_ = view_t{r};
+    return *this;
+  }
+
+#pragma endregion
 #pragma region Reslicing
 
   [[nodiscard]] constexpr basic_opt_string_view

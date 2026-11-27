@@ -15,14 +15,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory_resource>
+#include <optional>
 #include <set>
 #include <span>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
+#include "corvid/strings/cstring_view.h"
+#include "corvid/strings/interned_string_view.h"
 #include "corvid/strings/opt_string_view.h"
 #include "corvid/meta.h"
 #include "catch2_main.h"
@@ -448,6 +454,68 @@ TEST_CASE("Sanity", "[OptStringViewTest]") {
   CHECK(osv == "world");
   osv = "bird"_optsv;
   CHECK(osv == "bird");
+}
+
+#pragma endregion
+#pragma region Assignment
+
+using user_view = tagged_string_view<struct user_tag>;
+using species_view = interned_string_view<struct species_tag>;
+
+TEST_CASE("Assignment", "[OptStringViewTest]") {
+  // What the constructors accept assigns through them, without ambiguity.
+  static_assert(std::is_assignable_v<opt_string_view&, std::string_view>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::string>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::pmr::string>);
+  static_assert(std::is_assignable_v<opt_string_view&, const char*>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::nullptr_t>);
+  static_assert(std::is_assignable_v<opt_string_view&, std::nullopt_t>);
+  static_assert(
+      std::is_assignable_v<opt_string_view&, std::optional<std::string>>);
+
+  // Anything else that converts to a view assigns too.
+  static_assert(std::is_assignable_v<opt_string_view&, cstring_view>);
+  static_assert(std::is_assignable_v<opt_string_view&, user_view>);
+
+  // An interned view converts only explicitly, so it does not.
+  static_assert(!std::is_assignable_v<opt_string_view&, species_view>);
+
+  // A tagged view takes a raw view only through its explicit constructor.
+  static_assert(std::is_assignable_v<user_view&, user_view>);
+  static_assert(!std::is_assignable_v<user_view&, std::string_view>);
+  static_assert(!std::is_assignable_v<user_view&, cstring_view>);
+  static_assert(!std::is_assignable_v<user_view&, opt_string_view>);
+
+  // Wide views follow the same rules, null included.
+  static_assert(std::is_assignable_v<opt_wstring_view&, std::nullptr_t>);
+  static_assert(std::is_assignable_v<opt_wstring_view&, std::wstring>);
+  static_assert(std::is_assignable_v<opt_wstring_view&, wcstring_view>);
+  static_assert(!std::is_assignable_v<opt_wstring_view&, cstring_view>);
+
+  if (true) {
+    const std::string s{"abc"};
+    opt_string_view o;
+    o = s;
+    CHECK(o.identical(s));
+
+    const cstring_view c{"def"};
+    o = c;
+    CHECK(o.identical(c));
+
+    o = user_view{"ghi"};
+    CHECK(o == "ghi");
+
+    o = nullptr;
+    CHECK(o.null());
+  }
+  if (true) {
+    opt_wstring_view w{L"abc"};
+    w = wcstring_view{L"def"};
+    CHECK(w == L"def");
+
+    w = nullptr;
+    CHECK(w.null());
+  }
 }
 
 #pragma endregion
