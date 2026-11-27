@@ -1259,7 +1259,7 @@ consteval size_t first_index_of_type() noexcept {
 // A slot type recurs when the same ancestor facade is reached through more
 // than one composition path, so this is what collapses a diamond to a single
 // set of slots. (A literal duplicate entry would also collapse here, but
-// `is_entry_listed_once` rejects it instead). Per-facade conformance already
+// `is_entry_listed_once` rejects it instead.) Per-facade conformance already
 // yields one `proxy_impl<Ancestor, T>` regardless of path (the effect of
 // Rust's coherence rule). Dedup makes the flattened table agree.
 template<typename Slots>

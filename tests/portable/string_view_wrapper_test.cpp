@@ -19,6 +19,8 @@
 #include <format>
 #include <map>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -377,6 +379,33 @@ TEST_CASE("Identical means the same address and length",
   CHECK(opt_string_view::identical(text, text));
   CHECK_FALSE(opt_string_view::identical(text, twin));
   static_assert(opt_string_view::identical({}, {}));
+}
+
+#pragma endregion
+#pragma region Comparison
+
+TEST_CASE("Text comparison is noexcept exactly when the conversion is",
+    "[StringViewWrapperTest]") {
+  // A text source whose conversion to a view is not `noexcept`.
+  struct lazy_text {
+    operator std::string_view() const { return {}; }
+  };
+
+  const opt_string_view whole{"abc"};
+  const std::string text{"abc"};
+  const lazy_text lazy;
+  CHECK(whole == text);
+
+  static_assert(noexcept(whole == "abc"sv));
+  static_assert(noexcept(whole <=> "abc"sv));
+  static_assert(noexcept(whole == text));
+  static_assert(noexcept(whole <=> text));
+  static_assert(!noexcept(whole == lazy));
+  static_assert(!noexcept(whole <=> lazy));
+
+  // A literal is left unpinned. The pointer constructor of
+  // `std::basic_string_view` is `noexcept` in some standard libraries and not
+  // in others.
 }
 
 #pragma endregion

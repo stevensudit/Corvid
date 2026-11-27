@@ -289,14 +289,14 @@ public:
   requires std::convertible_to<const T&, view_t> &&
            (!IdentityCompared<child_t>)
   [[nodiscard]] friend constexpr bool
-  operator==(const child_t& l, const T& r) noexcept {
+  operator==(const child_t& l, const T& r) noexcept(noexcept(view_t{r})) {
     return l.view() == view_t{r};
   }
   template<typename T>
   requires std::convertible_to<const T&, view_t> &&
            (!IdentityCompared<child_t>)
   [[nodiscard]] friend constexpr auto
-  operator<=>(const child_t& l, const T& r) noexcept {
+  operator<=>(const child_t& l, const T& r) noexcept(noexcept(view_t{r})) {
     return l.view() <=> view_t{r};
   }
 

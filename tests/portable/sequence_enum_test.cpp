@@ -1338,6 +1338,18 @@ TEST_CASE("NamedValueComparison", "[SequentialEnumTest]") {
     CHECK(meany == tiger_sv{"meany"});
     CHECK(tiger_nv::force("meany", tiger_pick::moe) == "meany");
   }
+  // A text comparison is `noexcept` exactly when the conversion to a view is.
+  if (true) {
+    struct lazy_text {
+      operator std::string_view() const { return {}; }
+    };
+    constexpr tiger_nv meany{"meany"};
+    const lazy_text lazy;
+    static_assert(noexcept(meany == std::string_view{}));
+    static_assert(noexcept(meany <=> std::string_view{}));
+    static_assert(!noexcept(meany == lazy));
+    static_assert(!noexcept(meany <=> lazy));
+  }
   // Against an enum value, only the enum is compared. An unnamed value works,
   // although it cannot convert to an `enum_named_value`.
   if (true) {
