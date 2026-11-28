@@ -11,13 +11,15 @@ Status: design agreed, not yet implemented. This document is the brief for the i
 
 The motivating use case is a `std::map` keyed by `readonly_string` that is initialized at runtime, where keys that come from literals cost no buffer allocation (only the tree nodes), keys from other sources are owned copies, and no key can dangle by accident.
 
-More deeply, it is a motivated by a rejection of some highly limiting decisions by the committee, such as going with `resize_and_overwrite` instead of `resize_uninitalized`, failing to guarantee that address and capacity survives moving from a non-inline source string, and generally doing their level best to make strings nonviable for efficient general-purpose buffer use.
+More deeply, it is a motivated by a rejection of some highly limiting decisions by the committee, such as going with `resize_and_overwrite` instead of `resize_uninitalized`, failing to guarantee that address and capacity survives moving from a non-inline source string, and generally doing their level best to make strings nonviable for efficient use as general-purpose buffers.
 
-The `basic_flexi_string` classes go in the extreme opposite direction, providing stronger guarantees, fine-tuned controls, and even explicit buffer attachment and detachment. Aside from ownership. they offer two levels of borrowing, allowing the coder to decide which one to use. I would argue that it is more faithful to the C++ spirit of only paying for what you use and actually trusting the coder. Call me a revanchist, but it sometimes seems to me as thought the C++ committee is the greatest enemy of C++, far deadlier than Rust or Go or Charles Nelson Reilly.
+The `basic_flexi_string` classes go in the extreme opposite direction, providing stronger guarantees, fine-tuned controls, and even explicit buffer attachment and detachment. Aside from ownership. they offer two levels of borrowing, allowing the coder to decide which one to use.
+
+I would argue that this is more faithful to the C++ spirit of only paying for what you use and actually trusting the coder. Call me a revanchist, but it sometimes seems to me as though the C++ committee is the greatest enemy of C++, far deadlier than Rust or Go or Charles Nelson Reilly.
 
 Having said this, the class family has significant guardrails built in to make it safe to use this flexibility. This includes the automatic promotion of unchecked borrowing to ownership during copy, more restrictive construction and assignment for `readonly_string`, and a nuanced and sensible distinction between empty and null.
 
-Fundamentally, it is not a literal drop-in replacement for `std::string`. It is a distinct type, and there is no way to adopt a `std::string`'s buffer, so conversion in either direction copies. But, hey, if `std::string` knew how to play well with others, we probably wouldn't need this class in the first place. Section 10 describes the interop.
+Fundamentally, this is not a literal drop-in replacement for `std::string`. It is a distinct type, and there is no way to adopt a `std::string`'s buffer, so conversion in either direction copies. But, hey, if `std::string` knew how to play well with others, we probably wouldn't need this class in the first place. (Section 10 describes the interop.)
 
 ## 2. Goals and non-goals
 
@@ -55,7 +57,7 @@ using readonly_string = basic_flexi_string<const char>;
 
 - **One template, two families.** A const-qualified `CharT` selects the read-only family, in the way `std::span<const T>` relates to `std::span<T>`. The template detects the const and strips it for `value_type`, the traits type and the view type.
 - **Siblings, not parent and child.** `basic_flexi_string<char>` and `basic_flexi_string<const char>` are unrelated types. There is no inheritance and no reference conversion between them. Unlike `span`, converting FS to RS is not free; section 7 gives the costs.
-- **Mutators are constrained.** Every member that edits characters or changes size in place has `requires` restricting it to the non-const family. The read-only family keeps construction, assignment, `swap`, `reset`, buffer attach and detach, and all const members.
+- **Mutators are constrained.** Every member that edits characters or changes size in place has `requires` restricting it to the non-const family. So does `reserve`, because a `readonly_string` can never append to its buffer and has no use for spare capacity. The read-only family keeps construction, assignment, `swap`, `reset`, buffer attach and detach, and all const members.
 - **Traits** are `std::char_traits` of the unqualified character type. `string_view_wrapper` takes only `CharT`, and this design does the same.
 - **Policy** is a value-type template parameter in the style of `invocable_policy`, with its own struct (section 12).
 - **Allocation.** In v1 the string allocates with `new CharT[n]` and frees with `delete[]`. There is no allocator parameter. This is what makes buffer exchange exactly paired (section 11). Allocator support is deferred (section 15).
@@ -71,7 +73,7 @@ Every string is in exactly one of these states:
 | Category     | Meaning                                                                                                        | Buffer freed on destruction | `flexi_string` | `readonly_string` |
 | ------------ | -------------------------------------------------------------------------------------------------------------- | --------------------------- | -------------- | ----------------- |
 | Inline (SSO) | Characters live inside the object                                                                              | Nothing to free             | Yes            | Yes               |
-| Owned        | Heap buffer owned by this string                                                                               | Yes                         | Yes            | Yes               |
+| Owned        | Dynamic buffer owned by this string                                                                            | Yes                         | Yes            | Yes               |
 | Static       | Safely borrowed from a buffer that is promised to outlive every use and never change                           | No                          | No             | Yes               |
 | Unchecked    | Unsafely borrowed from a buffer owned by someone else, with no lifetime promise (just like `std::string_view`) | No                          | No             | Yes               |
 | Null         | No buffer at all; distinct from empty (section 9)                                                              | Nothing to free             | Yes            | Yes               |
@@ -80,7 +82,13 @@ Static and Unchecked have the same representation: a pointer to a terminated buf
 
 Invariant for `flexi_string`: **it is always Inline, Owned or Null.** It never borrows, which is what makes it impossible to write into static or foreign memory. (With `string_buffer`, there is a mechanism to allow taking full ownership of a buffer and therefore safely writing into it.)
 
-A `readonly_string` never writes to memory outside its own inline buffer, and it only writes to that inline buffer to copy a value into it, never to further edit it.
+A `readonly_string` writes characters only to store an entire new string value, and only into memory it knows to be writable, which is limited to its own inline buffer or a dynamic buffer it has just allocated. After this intialization, it does not modify that dynamic buffer again, nor does it modify the inline buffer except to initialize it with another assigned value.
+
+One reason for this discipline is that the dynamic buffer may have come from `attach`ing a `string_buffer<const char>`, which the `readonly_string` now owns, that never offered write access. As a result, a such a buffer must come with the string already terminated.
+
+When a `string_buffer<char>` is `attach`ed, the `readonly_string` does zero out the terminator, but afterward treats the dynamic buffer, which it now owns, as const.
+
+In contrast, a `flexi_string` is free to modify and reuse its dynamic buffers, as it only ever `attach`es `string_buffer<char>`.
 
 `capacity()` returns `size()` for Static and Unchecked, and 0 for Null.
 
@@ -93,11 +101,11 @@ CharT* ptr_;                    // points at the characters; nullptr when null
 size_t size_;
 union {
   size_t cap_;                  // valid only when ptr_ != buf_
-  CharT  buf_[inline_cap + 1];  // 16 bytes for char by default
+  CharT  buf_[inline_cap + 1];  // 16 bytes by default
 };
 ```
 
-- 32 bytes for `char` with a 15-character inline buffer.
+- 32 bytes with the default 16-byte inline buffer, which holds 15 characters of `char`, 7 of `char16_t` or 3 of `char32_t` (section 12).
 - **Inline is detected by `ptr_ == buf_`.** This test is relative to the object itself and is safe across module boundaries.
 - **`cap_` overlaps `buf_`.** Always test for inline mode before reading `cap_`.
 - **Non-local capacity sentinels:**
@@ -125,7 +133,7 @@ A null string is `ptr_ == nullptr`, size 0, capacity 0. It has no buffer and no 
 ### Known costs of this layout
 
 - **Not trivially relocatable.** The self-pointer means a move needs a branch and a fix-up.
-- **`constexpr` locals in inline mode do not compile.** A self-pointer into automatic storage is not a valid constant result. Two rules avoid this in practice: default construction yields null (no self-pointer), and a `readonly_string` built during constant evaluation points at the static data regardless of length.
+- **`constexpr` locals in inline mode do not compile.** A self-pointer into automatic storage is not a valid constant result. This means that a `constexpr` local can borrow a Static buffer or own a dynamic one, but not store anything inline, as least in the v1 layout.
 - **Only 15 of 32 bytes are usable for inline storage.** The v2 layout in section 15 addresses all three costs, trading them for others.
 
 ### Constant evaluation
@@ -151,7 +159,7 @@ Copies, moves and conversions between different specializations go through the s
 - **Move construction transfers the buffer.** For a non-inline source, the destination has the same `data()` and the same capacity. For an inline source, the characters are copied.
 - **A move always steals a dynamic buffer when there is one**, even if the contents would fit in the destination's inline buffer, and even when the destination is a different specialization with a larger inline buffer. The only exception is a destination that cannot hold a dynamic buffer.
 - **The moved-from string is in the default-constructed state** (null). This is a guarantee.
-- **Move assignment and `swap`** give the same guarantee. Move assignment releases the destination's old buffer rather than handing it to the source, so the source is null after assignment as well as after construction. Deallocation cannot throw, so this is `noexcept`.
+- **Move assignment and `swap`** give the same guarantee. A move assignment replaces the destination completely. The destination's old buffer is always released, never reused and never handed to the source, so the source is null after assignment, just like it is after construction. A source that is not in inline mode has its buffer stolen. A source in inline mode has no buffer to steal, so its characters are copied into the destination's inline buffer, which leaves the destination in inline mode even if it was in dynamic mode before. Deallocation cannot throw, and between strings of the same type, an inline value always fits the inline buffer, so this is `noexcept`. (Between specializations, the destination's inline buffer may be too small, and the move then allocates a dynamic buffer; see section 12.)
 - **The move constructor must be `noexcept` and must not allocate**, in every policy. Otherwise `std::vector` copies on reallocation, which defeats the address guarantee.
 - **A move preserves the category.** Static stays Static and Unchecked stays Unchecked. Moving is how a caller deliberately keeps an unchecked borrow.
 
@@ -180,9 +188,11 @@ Returning a local never copies: it is elided or implicitly moved, so an Unchecke
 ### Dynamic buffer mode
 
 - **Becoming null gives up the buffer, ending dynamic mode.** `reset`, being moved from, and assignment of a null value all leave the default state. A value assigned afterwards may land in the inline buffer.
-- **Other than by becoming null, a string in dynamic mode returns to inline mode only through `shrink_to_fit`.** In contrast, `clear`, `erase`, `resize` and copy assignment of a short non-null value all keep the buffer.
-- Expose `is_inline_buffer`, `inline_buffer_capacity`.
-- `reserve` is eager, as in `std::string`: after `reserve(n)`, pointers stay valid until the size exceeds the capacity. `reserve(0)` is a no-op and leaves a null string null. Any other reserve converts the null to an empty with at least the required capacity. Note that even something like `reserve(6)`, which does not switch from inline to dynamic mode, converts null to empty.
+- **Other than by becoming null or being moved onto, a string in dynamic mode returns to inline mode only through `shrink_to_fit`.** This rule of staying in dynamic mode applies to copies and for edits in place. A move replaces the destination completely (see Move above).
+- **A `flexi_string` in dynamic mode keeps its buffer.** `clear`, `erase`, `resize` and copy assignment of a non-null value that fits all reuse it, even when the value would also fit the inline buffer. A new dynamic buffer is automatically allocated only when the value does not fit the current one.
+- **A `readonly_string` in dynamic mode stays in dynamic mode, but never reuses its buffer**, because it cannot write to it (section 4). Copy assignment of a value that it must own (an Unchecked, Owned or Inline source in the copy table above) allocates a fresh dynamic buffer and frees the old one, even when the value would fit the inline buffer. A caller who wants inline mode back calls `reset` first. Copy assignment of a Static source shares the source's buffer, as the copy table says, and frees the old one.
+- The design exposes `is_inline_buffer`, `is_dynamic_buffer`, and the static constant `inline_buffer_capacity` (section 12).
+- `reserve` exists only on `flexi_string` (section 3). It is eager, as in `std::string`: after `reserve(n)`, pointers stay valid until the size exceeds the capacity. `reserve(0)` is a no-op and leaves a null string null. Any other reserve converts the null to an empty with at least the required capacity. Note that even something like `reserve(6)`, which does not switch from inline to dynamic mode, converts null to empty.
   (An alternative was considered but ultimately rejected. It would have involved lazy allocation when non-zero `reserve` was called on a null string, by reusing `cap_`. This was incompatible with the eagerness requirement, however.)
 
 ### The three promotion calls
@@ -196,8 +206,8 @@ Each call promises something about the string's **current value**. None of them 
 | `make_dynamic()`      | Both of the above, and the string owns its memory | Inline, Static and Unchecked all become Owned in a dynamic buffer |
 
 - The first two are independent axes: lifetime and address. Calling both, `promote_unchecked` first, gives a value that cannot dangle and keeps its address across moves without copying Static data. There is deliberately no third method for that combination, as the cost of calling one and the other in sequence is low.
-- **`stabilize_address` covers moves only.** Growing past capacity still reallocates. In other words, it guarantees that when this value is moved into something else, the address remains stable. It can't promise that the buffer won't be reallocated by something like `append` or that it won't be deleted when a new value is moved in. We do guarantee that a copy into a destination that is in dynamic mode will reuse that dynamic buffer if the source fits into it, even when the source is small enough for inline storage or is a Static borrow. A move from a source in inline mode will also reuse the dynamic buffer, but a a move from a Static borrow just shares the borrowing.
-- **`make_dynamic` is the maximal guarantee:** it also copies Static data, which is what code needs if it must survive the unloading of the module that held the literal, or if the Static data was actually backed by an intern table that will go away.
+- **`stabilize_address` covers moves only.** Growing past capacity still reallocates. Calling this method guarantees that when this value is moved into something else, the address remains stable. It can't promise that the buffer won't be reallocated by something like `append` or that it won't be deleted when a new value is moved in. We do guarantee that a copy into a `flexi_string` that is in dynamic mode will reuse that dynamic buffer if the source fits into it, even when the source is small enough for inline storage. A `readonly_string` destination gives no such guarantee, because it never reuses a buffer. A move gives none either: a move from a source in inline mode lands in the destination's inline buffer, and a move from anything else steals the buffer.
+- **`make_dynamic` offers the maximal guarantee:** it also copies Static data, which is what code needs if it must survive the unloading of the module that held the literal, or if the Static data was actually backed by an intern table that will go away.
 - **On a null string all three are no-ops.** A null string has no address to change and nothing to dangle.
 - **All three exist on both families**, as no-ops where they have nothing to do, so generic code compiles against either. On a `flexi_string`, `stabilize_address` and `make_dynamic` are identical and `promote_unchecked` does nothing.
 - They can throw only on allocation.
@@ -220,7 +230,7 @@ The rule for both families: **without a borrow wrapper, the string owns.** The e
 | `readonly_string ro{std::move(fs)}`                                                                         | Steals the buffer; `fs` is left null |
 | `readonly_string ro{other_ro}`                                                                              | Copy rules from section 6            |
 | `readonly_string ro{nullptr}` or default                                                                    | Null                                 |
-| Any constructor, during constant evaluation                                                                 | Static (see below)                   |
+| Any of the above, during constant evaluation                                                                | Same as at runtime (see below)       |
 
 The read-only family is deliberately stricter than `std::string`:
 
@@ -231,17 +241,18 @@ Notes:
 
 - **Construction from `std::string_view` must own.** A plain view has no terminator, and a `readonly_string` must provide `c_str()`, so there is nothing to borrow.
 - **Construction from `cstring_view` also owns.** It could be borrowed, but "no wrapper means own" still applies, so you have to use a borrow wrapper to avoid a deep copy.
-- **Constant evaluation.** Inside the ordinary `constexpr` constructors, `if consteval` selects Static. This is sound because any lifetime error during constant evaluation is a compile error, and it is necessary because a dynamic buffer cannot persist out of constant evaluation. It is what makes `constexpr readonly_string k{"abc"_csv};` work.
-- **Compile-time constants should be declared as `constexpr readonly_string`**, not `cstring_view`. Assigning such a constant at runtime shares its buffer.
+- **Constant evaluation.** Constructors behave at compile time exactly as they do at runtime: they own. A `constexpr` function that builds, copies and returns strings therefore gives the same result in both. Static borrowing is available at compile time, but only when it is spelled out, through `_rs` or `borrow_static`. A dynamic buffer cannot persist out of constant evaluation, so a `constexpr` variable built by an owning constructor must fit the inline buffer and must have static storage (section 5). For example, `constexpr readonly_string k{"abc"_csv};` owns an inline copy at namespace scope and does not compile as a non-static local, while `constexpr readonly_string k = "abc"_rs;` works anywhere and at any length.
+- **Compile-time constants should be declared as `constexpr readonly_string`**, not `cstring_view`, and initialized with `_rs` or `borrow_static` so that they are Static. Assigning such a constant at runtime shares its buffer.
 - **`fixed_string` needs no special support**, and `readonly_string` must not include its header. `fixed_string::c_view()` returns a `cstring_view`, and can use a borrow wrapper for Static borrowing.
 
 ### Borrow wrappers
 
-`borrow_static(x)` and `borrow_unchecked(x)` are function templates. Each deduces the character type and returns a small wrapper holding a `cstring_view` of its argument. `readonly_string` is implicitly constructible and assignable from the wrappers, so they work in assignment, as function arguments, and through forwarding: `m.emplace(borrow_static(k), v)` constructs the key in place.
+`borrow_static(x)` and `borrow_unchecked(x)` are function templates. Each deduces the character type and returns a small wrapper holding a `cstring_view` of its argument. `readonly_string` is implicitly constructible and assignable from the wrappers, so they work in assignment, as function arguments, and through forwarding: `m.emplace(borrow_static(k), v)` constructs the key in place. Both are `constexpr`, so `borrow_static` can initialize a `constexpr readonly_string`.
 
 - **Only terminated sources are accepted:** `cstring_view`, `std::string`, FS, RS, and character pointers. A `std::string_view` is rejected at compile time.
+- **A string that holds its value in its own buffer cannot be assigned a borrow of that buffer.** When a `readonly_string` is Inline or Owned, assigning it a Static or Unchecked borrow that overlaps its own buffer, as in `ro = borrow_unchecked(ro.c_str() + 2)`, is a precondition violation, checked with an `assert`. The assignment would free or overwrite the characters it borrows. When the string is already borrowing, the same assignment is harmless.
 - **Overloads for rvalue owning strings are deleted.** `borrow_unchecked(std::string{"x"})` would dangle at the end of the statement.
-- **`borrow_static` is a promise, not a proof.** It is correct only if the buffer is never modified and outlives every copy. Using it for strings held in an intern table is intended. Using it on a mutable FS is almost always wrong. If the caller says "trust me", the library does.
+- **`borrow_static` is a promise, not a proof.** It is correct only if the buffer is never modified and outlives every copy. Using it for strings held in an intern table is intended. Using it on a mutable FS is almost always wrong; this is where Unchecked borrowing makes more sense. But if the caller says "trust me", the library does, so it is important never to abuse this trust.
 - **`borrow_unchecked` is exactly as risky as a `std::string_view`**, with the difference that a copy (or `promote_unchecked` or `make_dynamic`) repairs it with a deep copy.
 
 ### Literal operators
@@ -266,12 +277,12 @@ Every constructor and assignment from a non-family type calls `is_null_string` o
 ### Guidance for parameters
 
 - Read-only parameters should generally be `std::string_view` or `cstring_view`.
-- A function that stores the string takes `readonly_string` by value and moves it, or takes `const readonly_string&` and copies it. Either way a literal arrives Static and costs nothing, and an unchecked borrow is promoted by the copy.
+- A function that stores the string takes `readonly_string` by value, lvalue reference, or rvalue reference, depending on your needs. If the parameter is copied at any point, that automatically performs the moral equivalent of `promote_unchecked`. If it's only ever moved, you will need to call this explicitly.
 
 ## 8. Comparison, hashing and views
 
 - **Searching and comparison delegate to `std::basic_string_view`.** Replicate the `std::string` overload set exactly, including the templated overloads for types convertible to `string_view` and their constraints, so overload resolution matches `std::string`.
-- **Comparison operators** are defined once against `basic_string_view`, using a `std::type_identity_t` parameter so mixed comparisons among FS, RS, `std::string`, views and literals resolve without ambiguity.
+- **Comparison operators** follow the `string_view_wrapper` pattern: `operator==` and `operator<=>` are hidden friend templates whose right-hand side is any type convertible to the view, and each compares the two views. Mixed comparisons among FS, RS, `std::string`, views and literals then resolve without ambiguity, and so do comparisons between two family types.
 - **`operator==` checks identity first.** If the pointers and sizes match, the strings are equal without comparing characters. Borrowed buffers make this relatively common for `readonly_string`.
 - **`view()`** returns `std::basic_string_view`. **`c_view()`** returns `cstring_view`. `fixed_string::cview()` is to be renamed `c_view()` to match, echoing `c_str()`.
 - The conversion to `std::basic_string_view` is implicit. The conversion to `cstring_view` is explicit.
@@ -288,6 +299,7 @@ These follow `string_view_wrapper` and `cstring_view`: null is a distinct state 
 - **Constructible from `nullptr` and from a null character pointer.** Both yield null, as in `opt_string_view`.
 - **Null arises only from** default construction, construction or assignment from a null source, being moved from, and `reset()`. Every other mutator leaves the string non-null. For example, `clear()` on a null string yields an empty, non-null string (which retains the dynamic buffer, if any, hence preserving capacity).
 - **Accessors on a null string:** `null()` is true, `empty()` is true, `size()` is 0.
+- **The optional-style interface of `string_view_wrapper` is provided**, on both families and under every policy, with null as the absent state: `has_value`, `explicit operator bool`, `value`, `value_or`, `operator*`, `operator->` and `as_optional`. We also allow explicit construction from `std::optional<std::string>`.
 - **`data()` returns `nullptr` exactly when `null()` is true**, in every policy. For an empty string it returns a pointer to the terminator.
 - **`c_str()` never returns `nullptr`.** For a null string it returns a pointer to a const static empty string, as `cstring_view::c_str` does. This keeps `printf("%s", s.c_str())` safe on a default-constructed string.
 - **A null string has no characters, not even a terminator.** `s[0]` on a null string is a precondition violation and will fault. `std::string` permits reading and writing `CharT()` at `s[s.size()]`; here that holds for every non-null string but not for null.
@@ -299,7 +311,7 @@ These follow `string_view_wrapper` and `cstring_view`: null is a distinct state 
 
 ### `is_null_string`
 
-A templated free function used to detect a null source. It returns true for:
+A templated free function that decides whether an object counts as a null string. It is general-purpose and lives outside the `flexi_string` header, in `string_view_wrapper.h`, which is its first customer. Its list is therefore potentially wider than the set of types the strings convert from, and the paths for the other types are simply never reached from here. It returns true for:
 
 - `nullptr`;
 - a null character pointer;
@@ -367,23 +379,26 @@ struct string_buffer {
 
 ## 12. Policy
 
-`basic_flexi_string` takes its own policy struct. It should reuse the `storage_policy` enum from `invocable_policy.h` (`inline_only`, `dynamic_only`, `inline_or_dynamic`), factoring that enum into a shared header. The other `invocable_policy` fields do not apply to strings. (Note the intentional renaming of "heap" to "dynamic".)
+`basic_flexi_string` takes its own policy struct. It reuses the `storage_policy` enum that `invocable_policy.h` defines today, which moves to a new shared header, `corvid/meta/storage_policy.h`. As part of the move, "heap" is renamed to "dynamic" across the board. The enumerators become `inline_only`, `dynamic_only` and `inline_or_dynamic`, and the rest of the invocable vocabulary follows: `invocable_policy::heap`, `admits_heap`, and the prose in the headers, docs and tests of `flexi_function` and `proxy`. The other `invocable_policy` fields do not apply to strings.
 
 Fields the string policy needs:
 
 - the storage mode;
-- the inline capacity, in characters;
+- the inline buffer size, in bytes, including the terminator (see below);
 - overflow behaviour: grow, throw `std::length_error`, or terminate. Inline-only cannot use "grow". Other uses of this field are deferred (section 15).
 
-The policy parameter is part of the type from v1. v1 implements the default policy and `static_assert`s on combinations it does not yet support. The order in which other policies are implemented is not fixed; dynamic-only is wanted.
+The inline buffer is sized in bytes, not characters, so that one default (16) serves every character type. The value is checked at compile time against the `CharT` it is used with. It must be a multiple of `sizeof(CharT)`, and it must be no smaller than the minimum buffer for that `CharT`, which is the `sizeof(size_t)` bytes the union occupies anyway, or two characters under inline-only. The class derives its capacity from the byte count and exposes it as the `static constexpr size_t inline_buffer_capacity`. That constant is a true capacity: a count of `CharT`, not bytes, which excludes the terminator.
 
-### Heap-only
+The policy parameter is part of the type from v1. v1 implements the default policy and `static_assert`s on combinations that it does not yet support or that contradict each other. The order in which other policies are implemented is not fixed; dynamic-only is wanted.
+
+### Dynamic-only
 
 - No inline buffer at all. Layout is pointer, size, capacity: 24 bytes.
 - Address stability on move is unconditional, for every value the string ever holds. That is the reason to choose this policy.
 - **Null has no buffer.** Default-constructed and moved-from strings are a null pointer.
 - **Every non-null `flexi_string` owns a dynamic buffer, including an empty one.** An empty string paying for an allocation is the accepted price. `clear()` keeps the buffer; `reset()` frees it.
 - The first mutation of a null string allocates a buffer of the normal minimum capacity (likely 15 characters).
+- **`clear()` on a null string allocates**, like any other first mutation, so `clear()` is not `noexcept` in this specialization. A further policy setting could avoid this by making `clear()` leave a null dynamic-only string null. It is noted here and not designed yet.
 - A dynamic-only `readonly_string` that is empty and non-null can be Static, pointing at a const empty string.
 - `stabilize_address` is a no-op.
 
@@ -422,18 +437,20 @@ Flexi-specific tests:
 - **Negative-compile tests:**
   - `readonly_string ro = "abc";`, `ro = sv;` and `ro = fs;` are rejected;
   - `borrow_unchecked` and `borrow_static` reject `std::string_view` and rvalue owning strings;
-  - character mutators do not exist on `readonly_string`;
+  - character mutators and `reserve` do not exist on `readonly_string`;
   - a `flexi_string` cannot attach a `string_buffer<const char>`;
-  - a `constexpr readonly_string` initialized from a local, non-static character array is rejected (the lifetime proof during constant evaluation; not yet verified on all compilers).
+  - a `constexpr readonly_string` that borrows a local, non-static character array through `borrow_static` is rejected (a pointer to automatic storage is not a constant; not yet verified on all compilers).
 - **Move guarantee:** `data()` and `capacity()` are unchanged across move construction, move assignment and `swap` for non-inline strings; a short dynamic-buffer string moved into another string does not land in the inline buffer; the moved-from string is null; a `std::vector` of non-inline strings keeps every `data()` pointer across reallocation.
-- **Heap mode:** `clear`, `erase`, `resize` and short copy assignment keep the buffer; `shrink_to_fit` can return to inline mode; assigning null or calling `reset` frees it.
+- **Dynamic buffer mode:** on a `flexi_string`, `clear`, `erase`, `resize` and short copy assignment keep the buffer; on a `readonly_string`, short copy assignment of an owned value allocates a fresh dynamic buffer of the exact size needed and does not land inline; `shrink_to_fit`, and being moved onto from an inline source, return to inline mode; assigning null or calling `reset` frees the buffer (and also re-enables to inline mode).
+- **Comparison:** `==` and `<=>` for every pairing of FS, RS, `std::string`, `std::string_view`, `cstring_view` and a literal, in both orders.
 - **Promotion calls:** each row of the table in section 6, including the no-ops on null and on `flexi_string`.
 - **Category matrix:** every row of the tables in sections 6 and 7, checking the resulting category and whether an allocation happened. In particular: copying an Unchecked string promotes it, moving it does not, copying a Static string shares, and an FS built from an RS always copies.
-- **Null conservation:** every source type in `is_null_string`; `same()` versus `==`; equal hashes for null and empty; `data()` is null exactly when `null()` is true; `c_str()` is never null.
+- **Null conservation:** `is_null_string` on every type in its list; construction and assignment from every null source the strings accept; `same()` versus `==`; equal hashes for null and empty; `data()` is null exactly when `null()` is true; `c_str()` is never null.
 - **Buffer exchange:** address preserved by `attach`; round trips; too-small buffers copied; exchange between specializations with different inline buffer sizes; each bad-buffer case throws and leaves the buffer with the caller; a const buffer without a terminator is rejected.
-- **Constant evaluation:** `constexpr` globals in the Static, Inline and Null states; `constexpr` locals in Static and Null.
+- **Constant evaluation:** `constexpr` globals in the Static, Inline and Null states; `constexpr` locals in Static and Null; a `constexpr` function that builds, copies and returns strings gives the same result at compile time and at runtime; an owning constructor never produces Static.
 - **Invariants:** an FS is never Static or Unchecked.
 - Run under AddressSanitizer and ThreadSanitizer.
+- Tests that depend on a policy v1 does not implement, such as exchange between specializations, arrive with that policy.
 
 ## 14. Documented deviations from `std::string`
 
@@ -444,12 +461,12 @@ Flexi-specific tests:
 - The conversion to `std::string_view` yields a view with a null `data()` for a null string.
 - Construction from `nullptr` or a null character pointer is allowed and yields null.
 - The moved-from state is specified (null), and non-inline moves are guaranteed to transfer the buffer.
-- A non-null dynamic-buffer string stays in dynamic mode until `shrink_to_fit`.
+- A non-null dynamic-buffer string stays in dynamic mode until `shrink_to_fit` or until it is moved onto.
 - A non-static `constexpr` local in inline mode does not compile.
 - Bytes after the terminator are unspecified and may hold stale characters.
 - `readonly_string` is stricter than `std::string` about implicit construction and assignment (section 7).
 - **Module lifetime.** A Static string points into the data of the module that created it. If that module is unloaded while the string survives, the pointer dangles. `make_dynamic` is the remedy.
-- We offer `resize_uninitialized` (proposed in P1072R0 but rejected) in addition to the offical `resize_for_overwrite`. And even the latter quietly drops the unenforceable requirement that all memory is initialized by the callback.
+- We offer `resize_uninitialized` (proposed in P1072R0 but rejected) in addition to the offical `resize_and_overwrite`. And even the latter quietly drops the unenforceable requirement that all memory is initialized by the callback.
 
 ## 15. Deferred: wanted, but not in v1
 
@@ -498,7 +515,7 @@ CharT tag;  // last element, outside the union, always readable
 
 ### Additional policies
 
-- Heap-only, inline-only and enlarged inline buffer as specified in section 12, plus conversion between specializations.
+- Dynamic-only, inline-only and enlarged inline buffer as specified in section 12, plus conversion between specializations.
 - **A key type that cannot dangle:** a policy option that forbids the Unchecked category, so the string is only ever Static, Owned, Inline or Null and converts unchecked sources on the way in.
 - An alias name for the inline-only string. `fixed_string` would match `fixed_function` but is taken by the existing template-parameter class, which also matches wider usage; it will not be renamed.
 
@@ -514,44 +531,47 @@ Whether `flexi_function` can be usable in constant evaluation. Uninitialized buf
 
 ## 16. Alternatives considered and rejected
 
-| Alternative                                                                                            | Why rejected                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mutable borrowed `flexi_string`                                                                        | Would allow writing to static memory; materializing on non-const access breaks `std::string`'s invalidation, `noexcept` and data-race rules                     |
-| `flexi_string` borrowing from `std::span<char>`                                                        | Needs a real capacity plus a not-owned flag; aliasing silently stops once the string outgrows the span                                                          |
-| Read-only type as base class of the mutable one                                                        | Assignment or swap through a base reference could plant a borrowed buffer in a mutable string                                                                   |
-| Borrowing by default, or whenever the source is a view                                                 | Silent dangling keys in the common "take a view, insert into a map" pattern; `explicit` does not help, because forwarding functions call explicit constructors  |
-| An rvalue source as the signal for a trusted borrow                                                    | Moves happen without intent (returns, vector growth, swaps); most rvalue views are function results, not casts; and it would grant the trusted level on a guess |
-| A `consteval` constructor from `cstring_view`                                                          | Cannot coexist with runtime construction from the same type, and rules out assignment and in-place construction; `_rs` and `if consteval` cover the need        |
-| Factory returning a `const` value                                                                      | Top-level const is dropped by `auto` and by guaranteed elision                                                                                                  |
-| Dropping the Static category and keeping only one kind of borrow                                       | Copies and `promote_unchecked` could no longer repair unsafe borrows without also copying every literal                                                         |
-| Copies of a borrowed string preserving the borrow                                                      | Lets a dangling borrow spread; promotion on copy confines it                                                                                                    |
-| A tag argument for borrowing instead of wrapper functions                                              | Workable, but more verbose, reads like an expensive explicit construction, and cannot be forwarded as a single argument                                         |
-| A third promotion method, or an enum switch on `promote_unchecked`                                     | The middle ground is `promote_unchecked` followed by `stabilize_address`; a combined call would fold two independent axes together                              |
-| A null state that remembers a pledge or a pending capacity                                             | No call can promise that a later assignment keeps the address, so the state promised more than it could deliver; the dynamic-only policy covers the real need   |
-| A lazy `reserve` on null                                                                               | Would report a capacity it does not have and break `std::string`'s pointer-validity guarantee after `reserve`                                                   |
-| An explicit conversion operator to `std::string`                                                       | Redundant: `std::string`'s own templates accept anything convertible to `std::string_view`                                                                      |
-| `readonly_string` detaching a mutable buffer, or being stolen into a `flexi_string`                    | Would let const memory become mutable, and would prevent `readonly_string` from accepting const buffers at all                                                  |
-| Custom character traits for interned equality                                                          | `Traits::compare` is used by every operation, and custom traits change the view type                                                                            |
-| A shared terminator as the object's stored pointer for null or empty                                   | If const, the terminator write that `std::string` permits faults. If writable, a stray write corrupts every empty string in the process                         |
-| `c_str()` on a null string pointing at the string's own size field                                     | Undefined for every character type but `char`, and impossible in constant evaluation; the shared const static only costs one static character                   |
-| Encoding null by the address of a static buffer                                                        | Each module has its own copy of the buffer, so the test fails across DLL or shared-object boundaries                                                            |
-| `data()` returning non-null for a null string                                                          | Needs a shared terminator or a self-pointer in the default state; `c_str()` covers the C-API case                                                               |
-| Requiring every dynamic-only string to own a buffer, including default-constructed and moved-from ones | The move constructor would have to allocate and could not be `noexcept`                                                                                         |
-| Storing a self-relative offset instead of a pointer                                                    | The offset to a dynamic buffer changes on every move, so the fix-up only shifts to the dynamic case                                                             |
-| Capacity stored in a header before the buffer                                                          | Borrowed buffers have no room for a header; adds an indirection to every append                                                                                 |
-| Zeroing the whole inline buffer at construction                                                        | Runtime cost grows with inline buffer size; `if consteval` satisfies constant evaluation for free                                                               |
-| `std::unique_ptr<std::array<char, N>>` as the buffer handle                                            | Capacity is a runtime value and `N` is not                                                                                                                      |
-| `attach` refusing buffers that would fit in the inline buffer                                          | Breaks exchange between specializations with different inline buffer sizes, and pushes the same fallback copy onto every caller                                 |
-| `const_flexi_string` or `immutable_string` as the name                                                 | The object is assignable, and a borrowed buffer can change underneath it                                                                                        |
-| libc++ or fbstring layouts in v1                                                                       | Stolen bits and endian-specific layouts; the tag layout in section 15 gets the benefits without them                                                            |
+| Alternative                                                                                            | Why rejected                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Mutable borrowed `flexi_string`                                                                        | Would allow writing to static memory; materializing on non-const access breaks `std::string`'s invalidation, `noexcept` and data-race rules                                                                                                            |
+| `flexi_string` borrowing from `std::span<char>`                                                        | Needs a real capacity plus a not-owned flag; aliasing silently stops once the string outgrows the span                                                                                                                                                 |
+| Read-only type as base class of the mutable one                                                        | Assignment or swap through a base reference could plant a borrowed buffer in a mutable string                                                                                                                                                          |
+| Borrowing by default, or whenever the source is a view                                                 | Silent dangling keys in the common "take a view, insert into a map" pattern; `explicit` does not help, because forwarding functions call explicit constructors                                                                                         |
+| An rvalue source as the signal for a trusted borrow                                                    | Moves happen without intent (returns, vector growth, swaps); most rvalue views are function results, not casts; and it would grant the trusted level on a guess                                                                                        |
+| A `consteval` constructor from `cstring_view`                                                          | Cannot coexist with runtime construction from the same type, and rules out assignment and in-place construction; `_rs` and `borrow_static` cover the need                                                                                              |
+| Constructors that borrow as Static during constant evaluation (`if consteval`)                         | A source edited later in the same evaluation is not a lifetime error, so one `constexpr` function could give different results at compile time and at runtime; and a function returning a string built from a local would compile only for runtime use |
+| Factory returning a `const` value                                                                      | Top-level const is dropped by `auto` and by guaranteed elision                                                                                                                                                                                         |
+| Dropping the Static category and keeping only one kind of borrow                                       | Copies and `promote_unchecked` could no longer repair unsafe borrows without also copying every literal                                                                                                                                                |
+| Copies of a borrowed string preserving the borrow                                                      | Lets a dangling borrow spread; promotion on copy confines it                                                                                                                                                                                           |
+| A tag argument for borrowing instead of wrapper functions                                              | Workable, but more verbose, reads like an expensive explicit construction, and cannot be forwarded as a single argument                                                                                                                                |
+| A third promotion method, or an enum switch on `promote_unchecked`                                     | The middle ground is `promote_unchecked` followed by `stabilize_address`; a combined call would fold two independent axes together                                                                                                                     |
+| A null state that remembers a pledge or a pending capacity                                             | No call can promise that a later assignment keeps the address, so the state promised more than it could deliver; the dynamic-only policy covers the real need                                                                                          |
+| A lazy `reserve` on null                                                                               | Would report a capacity it does not have and break `std::string`'s pointer-validity guarantee after `reserve`                                                                                                                                          |
+| An explicit conversion operator to `std::string`                                                       | Redundant: `std::string`'s own templates accept anything convertible to `std::string_view`                                                                                                                                                             |
+| One comparison operator per class against `basic_string_view`, with a `std::type_identity_t` parameter | Ambiguous whenever both operands are family types, the same type included: each operand's operator, reversed, matches as well as the other's                                                                                                           |
+| `readonly_string` detaching a mutable buffer, or being stolen into a `flexi_string`                    | Would let const memory become mutable, and would prevent `readonly_string` from accepting const buffers at all                                                                                                                                         |
+| Custom character traits for interned equality                                                          | `Traits::compare` is used by every operation, and custom traits change the view type                                                                                                                                                                   |
+| A shared terminator as the object's stored pointer for null or empty                                   | If const, the terminator write that `std::string` permits faults. If writable, a stray write corrupts every empty string in the process                                                                                                                |
+| `c_str()` on a null string pointing at the string's own size field                                     | Undefined for every character type but `char`, and impossible in constant evaluation; the shared const static only costs one static character                                                                                                          |
+| Encoding null by the address of a static buffer                                                        | Each module has its own copy of the buffer, so the test fails across DLL or shared-object boundaries                                                                                                                                                   |
+| `data()` returning non-null for a null string                                                          | Needs a shared terminator or a self-pointer in the default state; `c_str()` covers the C-API case                                                                                                                                                      |
+| Requiring every dynamic-only string to own a buffer, including default-constructed and moved-from ones | The move constructor would have to allocate and could not be `noexcept`                                                                                                                                                                                |
+| Storing a self-relative offset instead of a pointer                                                    | The offset to a dynamic buffer changes on every move, so the fix-up only shifts to the dynamic case                                                                                                                                                    |
+| Capacity stored in a header before the buffer                                                          | Borrowed buffers have no room for a header; adds an indirection to every append                                                                                                                                                                        |
+| Zeroing the whole inline buffer at construction                                                        | Runtime cost grows with inline buffer size; `if consteval` satisfies constant evaluation for free                                                                                                                                                      |
+| Inline capacity specified in characters                                                                | One default cannot serve every character type: 15 characters of `char32_t` is a 64-byte buffer                                                                                                                                                         |
+| `std::unique_ptr<std::array<char, N>>` as the buffer handle                                            | Capacity is a runtime value and `N` is not                                                                                                                                                                                                             |
+| `attach` refusing buffers that would fit in the inline buffer                                          | Breaks exchange between specializations with different inline buffer sizes, and pushes the same fallback copy onto every caller                                                                                                                        |
+| `const_flexi_string` or `immutable_string` as the name                                                 | The object is assignable, and a borrowed buffer can change underneath it                                                                                                                                                                               |
+| libc++ or fbstring layouts in v1                                                                       | Stolen bits and endian-specific layouts; the tag layout in section 15 gets the benefits without them                                                                                                                                                   |
 
 ## 17. Existing Corvid code this builds on
 
-| File                                    | Relevance                                                                                                                            |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `corvid/strings/string_view_wrapper.h`  | Null and empty semantics, `null()`, `same()`, comparison pattern; to be updated to detect `null()` on sources and to offer `subview` |
-| `corvid/strings/opt_string_view.h`      | Nullable view; conversion target; model for null formatting                                                                          |
-| `corvid/strings/cstring_view.h`         | Terminated view with the `_csv` literal; the payload of the borrow wrappers; its `c_str()` is the model for null handling            |
-| `corvid/meta/fixed_string.h`            | `cview()` to be renamed `c_view()`; no dependency in the other direction                                                             |
-| `corvid/meta/invoke/flexi_function.h`   | Model for the policy parameter, policy-dependent storage and conversion between specializations                                      |
-| `corvid/meta/invoke/invocable_policy.h` | Source of the `storage_policy` enum                                                                                                  |
+| File                                    | Relevance                                                                                                                                                                                                   |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `corvid/strings/string_view_wrapper.h`  | Null and empty semantics, `null()`, `same()`, the optional-style interface and the comparison pattern; future home of `is_null_string`, which it will use to detect `null()` on sources; to offer `subview` |
+| `corvid/strings/opt_string_view.h`      | Nullable view; conversion target; model for null formatting                                                                                                                                                 |
+| `corvid/strings/cstring_view.h`         | Terminated view with the `_csv` literal; the payload of the borrow wrappers; its `c_str()` is the model for null handling                                                                                   |
+| `corvid/meta/fixed_string.h`            | `cview()` to be renamed `c_view()`; no dependency in the other direction                                                                                                                                    |
+| `corvid/meta/invoke/flexi_function.h`   | Model for the policy parameter, policy-dependent storage and conversion between specializations                                                                                                             |
+| `corvid/meta/invoke/invocable_policy.h` | Current home of the `storage_policy` enum, which moves to `corvid/meta/storage_policy.h` with "heap" renamed to "dynamic"                                                                                   |
